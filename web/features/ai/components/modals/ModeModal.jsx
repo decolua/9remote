@@ -35,18 +35,15 @@ export const ModeModal = memo(function ModeModal({
       maxWidth="max-w-md"
       onClose={onClose}
     >
-      <div className="p-3 flex-1 overflow-y-auto space-y-1.5 custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto flex flex-col gap-0.5 custom-scrollbar">
         {modes.map((m) => {
           const isSelected = currentMode === m.id;
           return (
             <div
               key={m.id}
               onClick={() => handlePick(m.id)}
-              className={`p-3 rounded-brand border flex items-center justify-between cursor-pointer transition-colors ${
-                isSelected
-                  ? "border-brand-500 bg-brand-500/10 text-text"
-                  : "border-border-subtle bg-surface-2/30 hover:bg-surface-2 text-text-muted hover:text-text"
-              }`}
+              data-selected={isSelected}
+              className="modal-row"
             >
               <div className="min-w-0 flex-1 flex items-center gap-2">
                 <Icon
@@ -56,11 +53,11 @@ export const ModeModal = memo(function ModeModal({
                 />
                 <div className="min-w-0">
                   <div className="text-xs font-semibold text-text">{m.label}</div>
-                  <div className="text-[11px] text-text-muted">{m.desc}</div>
+                  <div className="text-[11px] text-text-subtle">{m.desc}</div>
                 </div>
               </div>
 
-              {isSelected && <Check size={14} className="text-brand-500 shrink-0 ml-2" />}
+              {isSelected && <Check size={14} className="text-brand-500 shrink-0" />}
             </div>
           );
         })}

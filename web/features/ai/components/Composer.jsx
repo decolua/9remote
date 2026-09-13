@@ -705,21 +705,23 @@ export const Composer = memo(function Composer({
                   type="button"
                   onClick={() => {
                     vibrate();
+                    // The head is already next, so "send" there means now: stop the turn
+                    // and hand it over. Deeper items just move up.
+                    if (idx === 0) { handleStopClick(); return; }
                     setQueue((q) => [item, ...q.filter((x) => x.id !== item.id)]);
                   }}
-                  disabled={idx === 0}
-                  className="text-text-muted hover:text-brand-400 disabled:opacity-30 disabled:hover:text-text-muted p-0.5 rounded hover:bg-surface-2 transition-colors cursor-pointer disabled:cursor-default"
-                  title={idx === 0 ? "Runs next" : "Send this one next"}
+                  className="text-text-muted hover:text-brand-400 p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer"
+                  title={idx === 0 ? "Send now (stops the current turn)" : "Send this one next"}
                 >
-                  <Send size={11} />
+                  <Send size={13} />
                 </button>
                 <button
                   type="button"
                   onClick={() => { vibrate(); setQueue((q) => q.filter((x) => x.id !== item.id)); }}
-                  className="text-text-muted hover:text-text p-0.5 rounded hover:bg-surface-2 transition-colors cursor-pointer"
+                  className="text-text-muted hover:text-text p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer"
                   title="Remove from queue"
                 >
-                  <X size={12} />
+                  <X size={14} />
                 </button>
               </div>
             </div>
@@ -822,19 +824,19 @@ export const Composer = memo(function Composer({
             <button
               type="button"
               onClick={clearText}
-              className="shrink-0 mt-0.5 p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
+              className="shrink-0 mt-0.5 p-1.5 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
               title="Clear input"
             >
-              <X size={13} />
+              <X size={16} />
             </button>
           ) : (
             <button
               type="button"
               onClick={() => { vibrate(); setHistoryOpen(true); }}
-              className="shrink-0 mt-0.5 p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
+              className="shrink-0 mt-0.5 p-1.5 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
               title={t("history.title")}
             >
-              <History size={13} />
+              <History size={16} />
             </button>
           )}
         </div>
@@ -896,10 +898,10 @@ export const Composer = memo(function Composer({
           <div className="flex items-center gap-1.5">
             {/* Attach a file or image — the host stages it where the CLI can read it */}
             <label
-              className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer flex items-center justify-center"
+              className="p-1.5 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer flex items-center justify-center"
               title="Attach file or image"
             >
-              <Paperclip size={12} />
+              <Paperclip size={15} />
               <input type="file" multiple onChange={handleFileUpload} className="hidden" accept="*/*" />
             </label>
 
@@ -911,11 +913,11 @@ export const Composer = memo(function Composer({
                 onClick={toggleVoice}
                 title={voice.error === "not-allowed" || voice.error === "service-not-allowed" ? t("voice.denied") : t("voice.dictate")}
                 aria-label={t("voice.dictate")}
-                className={`p-1 rounded flex items-center justify-center transition-colors ${
+                className={`p-1.5 rounded flex items-center justify-center transition-colors ${
                   voice.listening ? "bg-red-500/90 text-white animate-pulse" : voice.error ? "text-red-400" : "text-text-muted hover:text-text hover:bg-surface-2"
                 }`}
               >
-                {voice.listening ? <MicOff size={12} /> : <Mic size={12} />}
+                {voice.listening ? <MicOff size={15} /> : <Mic size={15} />}
               </button>
             )}
 
@@ -928,7 +930,7 @@ export const Composer = memo(function Composer({
                     className="px-2 py-0.5 rounded bg-brand-500 hover:bg-brand-600 text-white flex items-center gap-1 text-[11px] font-medium transition-colors shadow-sm cursor-pointer"
                     title={hasKeyboard ? "Queue message (Enter)" : "Queue message"}
                   >
-                    <Send size={11} />
+                    <Send size={13} />
                     <span>Queue</span>
                   </button>
                 )}
@@ -938,7 +940,7 @@ export const Composer = memo(function Composer({
                   className="px-2 py-0.5 rounded bg-danger/20 hover:bg-danger/30 text-danger flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer"
                   title={queue.length ? "Stop & run the next queued message (Esc)" : "Stop generation (Esc)"}
                 >
-                  <Square size={11} className="fill-current" />
+                  <Square size={13} className="fill-current" />
                 </button>
               </>
             ) : (

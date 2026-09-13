@@ -89,39 +89,39 @@ export const SessionsModal = memo(function SessionsModal({
         </div>
       </div>
 
-      <div className="p-3 flex-1 overflow-y-auto space-y-2 custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto flex flex-col gap-0.5 custom-scrollbar">
         {loading ? (
-          <div className="flex items-center justify-center gap-2 py-8 text-xs text-text-muted">
+          <div className="flex items-center justify-center gap-2 py-12 text-xs text-text-muted">
             <Loader2 size={14} className="animate-spin" />
             <span>Scanning conversations...</span>
           </div>
         ) : filtered.length === 0 ? (
-          <div className="text-center py-8 text-xs text-text-muted">
-            {sessions.length === 0 ? "No past conversations found for this project." : `No sessions matching "${query}".`}
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
+            <History size={32} className="opacity-50" />
+            <span className="text-sm">
+              {sessions.length === 0 ? "No past conversations found for this project." : `No sessions matching "${query}".`}
+            </span>
           </div>
         ) : (
           filtered.map((row) => (
             <div
               key={`${row.agent}:${row.sessionId}`}
               onClick={() => handlePick(row)}
-              className="p-3 rounded-brand border border-border-subtle bg-surface-2/40 hover:bg-surface-2 hover:border-brand-500/40 transition-colors cursor-pointer flex items-center justify-between gap-3 group"
+              className="modal-row"
             >
               <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-text truncate group-hover:text-brand-500 transition-colors">
+                <div className="text-xs font-semibold text-text truncate">
                   {row.title || "Untitled conversation"}
                 </div>
-                <div className="flex items-center gap-2 mt-1 text-[10px] font-mono text-text-muted">
+                <div className="flex items-center gap-2 mt-1 text-[10px] font-mono text-text-subtle">
                   <span className="truncate max-w-[160px]">{row.sessionId}</span>
                   {row.updatedAt ? <><span>·</span><span>{relativeAge(row.updatedAt)}</span></> : null}
                 </div>
               </div>
-              <button
-                type="button"
-                className="opacity-0 group-hover:opacity-100 text-[11px] text-brand-500 flex items-center gap-1 transition-opacity shrink-0"
-              >
+              <span className="modal-row-acts text-[11px] text-brand-500 items-center gap-1">
                 <span>Resume</span>
                 <CornerDownLeft size={11} />
-              </button>
+              </span>
             </div>
           ))
         )}

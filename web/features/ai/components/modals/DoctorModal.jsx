@@ -36,7 +36,7 @@ export const DoctorModal = memo(function DoctorModal({ engine = "claude", worksp
       subtitle={`Health check for the ${engine} CLI`}
       onClose={onClose}
     >
-      <div className="p-4 flex-1 overflow-y-auto custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto custom-scrollbar">
         {loading ? (
           <div className="flex items-center justify-center gap-2 py-8 text-xs text-text-muted">
             <Loader2 size={14} className="animate-spin" />

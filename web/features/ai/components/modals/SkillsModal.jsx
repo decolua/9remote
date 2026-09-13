@@ -47,38 +47,38 @@ export const SkillsModal = memo(function SkillsModal({
       </div>
 
       {/* List */}
-      <div className="p-3 flex-1 overflow-y-auto space-y-2 custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto flex flex-col gap-0.5 custom-scrollbar">
         {filtered.length === 0 ? (
-          <div className="text-center py-8 text-xs text-text-muted">
-            {skills.length === 0 ? "No skills discovered on host agent." : `No skills matching "${query}".`}
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
+            <Zap size={32} className="opacity-50" />
+            <span className="text-sm">
+              {skills.length === 0 ? "No skills discovered on host agent." : `No skills matching "${query}".`}
+            </span>
           </div>
         ) : (
           filtered.map((s) => (
             <div
               key={s.id || s.name}
               onClick={() => handlePick(s)}
-              className="p-2.5 rounded-brand border border-border-subtle bg-surface-2/40 hover:bg-surface-2 hover:border-brand-500/40 transition-colors cursor-pointer flex flex-col gap-1 group"
+              className="modal-row items-start"
             >
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-text group-hover:text-brand-500 transition-colors">
+              <div className="min-w-0 flex-1 flex flex-col gap-1">
+                <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-text">
                   <span>/{s.name || s.id}</span>
                   <span className="text-[10px] px-1.5 py-0.5 rounded bg-surface-3 text-text-muted font-normal">
                     skill
                   </span>
                 </div>
-                <button
-                  type="button"
-                  className="opacity-0 group-hover:opacity-100 text-[11px] text-brand-500 flex items-center gap-1 transition-opacity"
-                >
-                  <span>Use</span>
-                  <CornerDownLeft size={11} />
-                </button>
+                {s.description && (
+                  <p className="text-[11px] text-text-muted leading-relaxed line-clamp-2">
+                    {s.description}
+                  </p>
+                )}
               </div>
-              {s.description && (
-                <p className="text-[11px] text-text-muted leading-relaxed line-clamp-2">
-                  {s.description}
-                </p>
-              )}
+              <span className="modal-row-acts text-[11px] text-brand-500 items-center gap-1">
+                <span>Use</span>
+                <CornerDownLeft size={11} />
+              </span>
             </div>
           ))
         )}

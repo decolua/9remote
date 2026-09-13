@@ -40,10 +40,11 @@ export const TasksModal = memo(function TasksModal({ tasks = [], onClose }) {
         ))}
       </div>
 
-      <div className="p-4 flex-1 overflow-y-auto space-y-2 custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto flex flex-col gap-0.5 custom-scrollbar">
         {total === 0 ? (
-          <div className="text-center py-8 text-xs text-text-muted">
-            No tasks in this session yet.
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
+            <ListChecks size={32} className="opacity-50" />
+            <span className="text-sm">No tasks in this session yet.</span>
           </div>
         ) : (
           tasks.map((task, idx) => {
@@ -52,7 +53,7 @@ export const TasksModal = memo(function TasksModal({ tasks = [], onClose }) {
             return (
               <div
                 key={task.id || idx}
-                className="p-3 rounded-brand border border-border-subtle bg-surface-2/40 flex items-start gap-2.5"
+                className="modal-row items-start"
               >
                 <Icon size={14} className={`${meta.cls} shrink-0 mt-0.5`} />
                 <div className="min-w-0 flex-1">

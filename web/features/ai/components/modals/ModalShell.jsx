@@ -39,15 +39,19 @@ export const ModalShell = memo(function ModalShell({
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [onClose]);
 
+  // Height tracks --app-height (the visual viewport) rather than the layout viewport:
+  // with the soft keyboard up, 100vh still measures the full screen, so the panel hangs
+  // past the visible area with its bottom rows unreachable. The panel takes a percentage
+  // of that measured height for the same reason.
   return (
     <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none"
+      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4 select-none"
       onClick={(e) => { if (e.target === e.currentTarget) onClose?.(); }}
     >
       <div
         ref={panelRef}
         tabIndex={-1}
-        className={`bg-surface border border-border-subtle rounded-brand-lg w-full ${maxWidth} shadow-2xl overflow-hidden flex flex-col max-h-[80vh] animate-in fade-in zoom-in-95 duration-150 outline-none`}
+        className={`card-elev w-full ${maxWidth} overflow-hidden flex flex-col max-h-[80%] animate-in fade-in zoom-in-95 duration-150 outline-none`}
         role="dialog"
         aria-modal="true"
       >

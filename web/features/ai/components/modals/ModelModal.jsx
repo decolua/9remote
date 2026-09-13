@@ -85,30 +85,27 @@ export const ModelModal = memo(function ModelModal({
       )}
 
       {/* List */}
-      <div className="p-3 flex-1 overflow-y-auto space-y-1.5 custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto flex flex-col gap-0.5 custom-scrollbar">
         {modelList.map((m) => {
           const isSelected = pendingModel === m.id;
           return (
             <div
               key={m.id}
               onClick={() => handlePick(m.id)}
-              className={`p-3 rounded-brand border flex items-center justify-between cursor-pointer transition-colors ${
-                isSelected
-                  ? "border-brand-500 bg-brand-500/10 text-text"
-                  : "border-border-subtle bg-surface-2/30 hover:bg-surface-2 text-text-muted hover:text-text"
-              }`}
+              data-selected={isSelected}
+              className="modal-row"
             >
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-text flex items-center gap-1.5">
                   <span className="truncate">{m.label}</span>
                 </div>
-                <div className="text-[10px] font-mono text-text-muted truncate mt-0.5">
+                <div className="text-[10px] font-mono text-text-subtle truncate mt-0.5">
                   {m.desc || m.id}
                 </div>
               </div>
 
               {isSelected && (
-                <Check size={14} className="text-brand-500 shrink-0 ml-2" />
+                <Check size={14} className="text-brand-500 shrink-0" />
               )}
             </div>
           );

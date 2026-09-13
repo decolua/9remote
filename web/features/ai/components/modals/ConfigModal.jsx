@@ -117,16 +117,17 @@ export const ConfigModal = memo(function ConfigModal({ engine = "claude", option
         </div>
       ) : null}
     >
-      <div className="p-4 flex-1 overflow-y-auto space-y-2.5 custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto flex flex-col gap-2 custom-scrollbar">
         {items.length === 0 ? (
-          <div className="text-center py-8 text-xs text-text-muted">
-            No runtime flags are configurable for {engine}.
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
+            <Settings size={32} className="opacity-50" />
+            <span className="text-sm">No runtime flags are configurable for {engine}.</span>
           </div>
         ) : (
           items.map((opt) => (
             <div
               key={opt.key}
-              className="p-3 rounded-brand bg-surface-2/40 border border-border-subtle"
+              className="p-3 rounded-brand bg-surface-2/50"
             >
               <div className="flex items-center justify-between gap-3">
                 <div className="min-w-0">

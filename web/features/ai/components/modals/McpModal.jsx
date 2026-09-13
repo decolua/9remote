@@ -17,24 +17,24 @@ export const McpModal = memo(function McpModal({
       onClose={onClose}
     >
       {/* List */}
-      <div className="p-4 flex-1 overflow-y-auto space-y-2.5 custom-scrollbar">
+      <div className="p-3 flex-1 overflow-y-auto flex flex-col gap-0.5 custom-scrollbar">
         {mcpServers.length === 0 ? (
-          <div className="text-center py-8 text-xs text-text-muted">
-            No MCP servers configured yet in settings.json or config.toml.
+          <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
+            <Package size={32} className="opacity-50" />
+            <span className="text-sm">No MCP servers configured yet.</span>
           </div>
         ) : (
           mcpServers.map((srv, idx) => (
-            <div
-              key={srv.id || idx}
-              className="p-3 rounded-brand border border-border-subtle bg-surface-2/40 flex items-center justify-between"
-            >
+            <div key={srv.id || idx} className="modal-row">
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-text flex items-center gap-2">
                   <CheckCircle2 size={13} className="text-emerald-400 shrink-0" />
                   <span className="font-mono">{srv.name || srv.id}</span>
                 </div>
                 {srv.command && (
-                  <div className="text-[11px] text-text-muted font-mono truncate mt-1" title={srv.command}>
+                  // break-all, not truncate: an MCP command is a long unbreakable word
+                  // (npx -y mcp-remote https://…) with no space to wrap on.
+                  <div className="text-[11px] text-text-muted font-mono break-all mt-1">
                     {srv.command}
                   </div>
                 )}
