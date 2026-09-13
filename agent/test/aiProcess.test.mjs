@@ -2,8 +2,46 @@
 // Run: node agent/test/aiProcess.test.mjs
 import assert from "node:assert/strict";
 import { AiManager } from "../features/ai/aiManager.js";
+import { AgentProc } from "../features/ai/proc/agentProc.js";
+import { DaemonProc } from "../features/ai/proc/daemonProc.js";
 import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS } from "../features/ai/constants.js";
 import { touchOutput, forgetSession } from "../features/terminal/statusManager.js";
+
+// A stand-in daemon for the proc tests: the client is injected, so no daemon and no
+// CLI are spawned. Lines are numbered and buffered the way the real one does, so a
+// fetch can carry what a live event already delivered.
+function makeProcClient(procId = "p-live", epoch = 1) {
+  const handlers = new Map();
+  const state = { epoch, count: 0, lines: [] };
+  const emit = (event, payload) => {
+    for (const h of handlers.get(event) || []) h(payload);
+  };
+  return {
+    state,
+    on: (event, h) => { if (!handlers.has(event)) handlers.set(event, []); handlers.get(event).push(h); },
+    off: (event, h) => {
+      const list = handlers.get(event) || [];
+      const i = list.indexOf(h);
+      if (i !== -1) list.splice(i, 1);
+    },
+    emitLine: (text) => {
+      state.count++;
+      state.lines.push({ n: state.count, enc: "b64", data: Buffer.from(text).toString("base64") });
+      emit("procLine", { procId, epoch: state.epoch, n: state.count, data: text });
+    },
+    procStart: async () => ({ success: true, epoch: state.epoch, pid: 1 }),
+    procLines: async (id, from) => ({
+      success: true, epoch: state.epoch,
+      lines: state.lines.filter((l) => l.n > from), total: state.count, oldest: state.lines[0]?.n ?? 1
+    }),
+    procAttach: async (id, from) => ({
+      success: true, alive: true, epoch: state.epoch,
+      lines: state.lines.filter((l) => l.n > from), total: state.count, oldest: state.lines[0]?.n ?? 1
+    }),
+    procEndInput: async () => ({ success: true }),
+    procStop: async () => ({ success: true }),
+  };
+}
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -150,6 +188,41 @@ await test("a terminal that streamed and then stopped still lets the turn time o
       });
     });
   } finally { session.destroy(); forgetSession("s-watchdog-gap"); }
+});
+
+await test("a started turn's lines are delivered live, not held for a replay nobody asked for", async () => {
+  // Turn-per-CLI engines (codex, opencode, agy) start a process per turn and parse the
+  // result themselves — there is no fetch to replay. A release() the adapter never
+  // calls would hold every line of the turn, which is a chat that streams nothing.
+  const proc = new AgentProc({ procId: "p-live", client: makeProcClient() });
+  const seen = [];
+  proc.onLine = (line) => seen.push(line);
+
+  await proc.start({ bin: "codex", cwd: "/tmp" });
+  proc.client.emitLine("turn output");
+
+  assert.deepEqual(seen, ["turn output"]);
+});
+
+await test("adopting a different process drops a watermark taken from the old one", async () => {
+  // Claude keeps one proc id across turns, so a watermark outlives the process it was
+  // measured against. Applied to a new process — which numbers from 1 again — it would
+  // skip the head of the resumed conversation.
+  const proc = new DaemonProc({ procId: "p-epoch", client: makeProcClient("p-epoch") });
+  proc.onLine = () => {};
+  await proc.start({ bin: "claude", cwd: "/tmp" });
+  proc._lastLine = 7;
+  proc._epoch = 1;
+
+  // A new process under the same proc id: its numbers start at 1, so the stored
+  // watermark must not survive into it.
+  const other = makeProcClient("p-epoch", 2);
+  other.emitLine("resumed head");
+  proc.client = other;
+  const fetch = await proc.attach(7, 1);
+  fetch.release();
+
+  assert.equal(proc.lineNo > 0, true, "the new process's lines must not be skipped");
 });
 
 if (fail > 0) {
