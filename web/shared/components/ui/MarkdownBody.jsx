@@ -41,7 +41,9 @@ export const MARKDOWN_COMPONENTS = {
   ),
   a: ({ children, className, node: _node, ...props }) => (
     <a
-      className={`text-brand-500 hover:underline break-words${className ? ` ${className}` : ""}`}
+      // wrap-anywhere, not break-words: only `anywhere` shrinks min-content, so a long
+      // URL no longer widens the whole column (break-word still lets it overflow).
+      className={`text-brand-500 hover:underline wrap-anywhere${className ? ` ${className}` : ""}`}
       target="_blank"
       rel="noopener noreferrer"
       {...props}
@@ -70,7 +72,7 @@ export const MARKDOWN_COMPONENTS = {
     const isBlock = /language-/.test(className || "");
     const cls = isBlock
       ? "font-mono text-[12px] text-text"
-      : "font-mono text-[0.9em] text-accent";
+      : "font-mono text-[0.9em] text-accent wrap-anywhere";
     return (
       <code className={`${cls}${className ? ` ${className}` : ""}`} {...props}>
         {children}

@@ -598,13 +598,21 @@ html.terminal-page body {
 }
 
 /* Tool output, thinking and detail rows sit a step below chat text — keep that
-   ratio, but follow the setting instead of a fixed px. */
-.ai-pane .ai-conversation .text-\[11px\] { font-size: calc(var(--ai-fs, 12px) - 2px); }
+   ratio, but follow the setting instead of a fixed px. `pre` is here because a Bash
+   card's output is a <pre>, and without it the block ran at chat size while every row
+   around it was already a step down. */
+.ai-pane .ai-conversation .text-\[11px\],
+.ai-pane .ai-conversation .text-\[11px\] pre,
+.ai-pane .ai-conversation .text-\[11px\] code { font-size: calc(var(--ai-fs, 12px) - 2px); }
 .ai-pane .ai-conversation .text-\[10px\] { font-size: calc(var(--ai-fs, 12px) - 3px); }
 
-.ai-pane .ai-conversation .ai-composer-input {
-  font-size: var(--ai-fs, 12px);
-  line-height: 1.45;
+/* The composer reads a step above chat text — it is the thing being typed, and the
+   only body-sized text on a phone that is not scrollable. Scoped to .ai-pane, not
+   .ai-conversation: the composer is a SIBLING of the message list, not a descendant,
+   so the nested selector never matched and it fell back to its own text-xs. */
+.ai-pane .ai-composer-input {
+  font-size: calc(var(--ai-fs, 12px) + 2px);
+  line-height: 1.4;
 }
 
 /* Terminal wrapper — default clip; .is-scrollable unlocks pan when soft-KB shrinks viewport */

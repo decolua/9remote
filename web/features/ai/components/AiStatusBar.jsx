@@ -20,6 +20,7 @@ export const AiStatusBar = memo(function AiStatusBar({
   sessionName = "",
   engine = "claude",
   isTurnRunning: propTurnRunning = false,
+  isDesktop = true,
   onModeChange,
   onOpenSkills,
   onOpenMcp,
@@ -52,7 +53,9 @@ export const AiStatusBar = memo(function AiStatusBar({
   const activeMode = modes.find((m) => m.id === permissionMode) || modes[0];
 
   return (
-    <div className="relative h-6 px-3 bg-surface/50 border-t border-border-subtle/50 flex items-center text-[11px] font-mono text-text-muted select-none flex-shrink-0 z-20 gap-3">
+    // Bottom-most row of an AI pane, so it owns the safe-area inset on mobile —
+    // the shared MobileKeyboard (which normally carries it) is skipped for AI UIs.
+    <div className={`relative min-h-6 px-3 bg-surface/50 border-t border-border-subtle/50 flex items-center text-[11px] font-mono text-text-muted select-none flex-shrink-0 z-20 gap-3${isDesktop ? "" : " safe-area-bottom"}`}>
       {/* Same sweep the terminal pane runs, on the Skills/MCP row */}
       {isTurnRunning && <TerminalBeam className="hidden sm:block" />}
 

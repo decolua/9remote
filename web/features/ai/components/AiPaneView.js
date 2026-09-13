@@ -5,6 +5,8 @@ import { useAiSession } from "../hooks/useAiSession";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { useI18n } from "@/shared/i18n";
+import { RefreshCw, Folder, ListChecks, Sparkles } from "@/shared/components/ui/Icon";
 import { AiMessagesList } from "./AiMessagesList";
 import { Composer } from "./Composer";
 import { AiStatusBar } from "./AiStatusBar";
@@ -21,14 +23,23 @@ import { AiBlockedCard } from "./cards/AiBlockedCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiTaskCard } from "./cards/AiTaskCard";
 import { getEngineConfig } from "../registry";
-import { AI_FONT_SIZE_BOOST, AI_DOT_GRID } from "../constants";
+import { AI_FONT_SIZE_BOOST, AI_DOT_GRID, ENGINE_INFO } from "../constants";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
+import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
+import PaneStripButtons from "@/features/terminal/components/PaneStripButtons";
+import NotePanel from "@/features/terminal/components/NotePanel";
+import { OVERLAY_BTN_CLS, OVERLAY_ICON_SM } from "@/features/terminal/components/TerminalPane";
+import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 import { vibrate } from "@/shared/utils/vibration";
 import {
   backgroundSrc,
   paneBackgroundKey,
   resolvableBackgroundKeys,
   effectiveFontSize,
+  MAX_CHANGED_BADGE,
+  DESKTOP_BREAKPOINT,
   TERMINAL_BG_ALPHA,
   TERMINAL_BG_VEIL_RGB,
   TERMINAL_BG_LIFT_RGB,
@@ -47,17 +58,35 @@ export const AiPaneView = memo(function AiPaneView({
   bus = null,
   fileBus = null,
   isFocused = false,
+  isDesktop = true,
   bgIndex = 0,
-  onActivate = null
+  onActivate = null,
+  onOpenRemote = null,
+  onOpenMobile = null,
+  onOpenArtifact = null
 }) {
   const [activeModal, setActiveModal] = useState(null); // 'skills' | 'mcp' | 'model'
+  const [refreshing, setRefreshing] = useState(false);
+  const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const { t } = useI18n();
 
-  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, escalateMode, dismissBlocked, hasOlder, loadOlder } = useAiSession({
+  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating } = useAiSession({
     sessionId,
     engine,
     workspacePath,
     bus
   });
+
+  // Manual re-pull of the host log. The turn ends up wherever the host says it is,
+  // which is the point: a client that missed events shows the truth again.
+  const handleRefresh = useCallback(() => {
+    vibrate();
+    setRefreshing(true);
+    reload();
+    // The round-trip has no ack to the caller, so the spinner is a fixed beat —
+    // same as the terminal pane's own refresh button.
+    setTimeout(() => setRefreshing(false), 700);
+  }, [reload]);
 
   const activePermission = useAiStore((s) => s.bySession[sessionId]?.activePermission);
   const activeBlocked = useAiStore((s) => s.bySession[sessionId]?.activeBlocked);
@@ -66,11 +95,22 @@ export const AiPaneView = memo(function AiPaneView({
   const clearMessages = useAiStore((s) => s.clearMessages);
   const setPermissionMode = useAiStore((s) => s.setPermissionMode);
 
+  const sessionState = useNotificationStore((s) => (sessionId ? s.sessionStatus[sessionId]?.state : null)) || "idle";
+
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const fontSize = useTerminalStore((s) => s.fontSize);
+  const showFolderButton = useTerminalStore((s) => s.showFolderButton);
+  const showNoteButton = useTerminalStore((s) => s.showNoteButton);
+  const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
+  const setRightPanelTab = useTerminalStore((s) => s.setRightPanelTab);
+  const openRightPanel = useTerminalStore((s) => s.openRightPanel);
+  // What the AI showed from this chat, newest first — same stack the terminal pane reads.
+  const artifacts = useTerminalStore((s) => s.artifactsBySession[sessionId]);
+  // One poll per workspace path, shared with any terminal standing in the same one.
+  const changedCount = useGitChangedCount(workspacePath, fileBus, { enabled: isFocused && showFolderButton });
   const { theme } = useTheme();
 
   // Chat text is plain prose, not terminal output — take only fg/bg from the
@@ -133,6 +173,13 @@ export const AiPaneView = memo(function AiPaneView({
     emitOptions({ resume: row.sessionId });
   }, [emitOptions]);
 
+  // The empty state's history rows resume in place; its "all conversations" link
+  // (no row) opens the full picker instead.
+  const handleOpenResume = useCallback((row) => {
+    if (row) return handleResumeSession(row);
+    setActiveModal("sessions");
+  }, [handleResumeSession]);
+
   // Apply a submenu value (effort, variant, sandbox) to the running session.
   const handleOptionChange = useCallback((key, value) => {
     if (!key) return;
@@ -176,6 +223,84 @@ export const AiPaneView = memo(function AiPaneView({
         "--ai-fs": `${fontPx}px`
       }}
     >
+      {/* Title bar — the pane names itself and carries the buttons the header keeps
+          desktop-only (Remote/Mobile/Sites), so a phone has a way in. */}
+      <div
+        style={{ height: STATUS_BAR_HEIGHT }}
+        className="flex items-center gap-2 px-2 border-b border-border-subtle bg-surface text-[11px] select-none shrink-0 relative z-10"
+      >
+        <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
+        <span className="flex-1 min-w-0 truncate text-text">{sessionName || ENGINE_INFO[engine]?.label || engine}</span>
+        <PaneStripButtons onOpenRemote={onOpenRemote} onOpenMobile={onOpenMobile} />
+      </div>
+
+      {/* Same floating cluster, same order, as a terminal pane's — a chat is the other
+          way to sit in a workspace, so the two panes must not drift apart. */}
+      {isFocused && (
+        <div className="absolute right-2 top-8 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none">
+          <div className="flex flex-row gap-2">
+            {showNoteButton && (
+              <button
+                onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                onClick={(e) => { e.stopPropagation(); vibrate(); setNoteModalOpen(true); }}
+                className={OVERLAY_BTN_CLS}
+                title={t("terminalPane.note")}
+              >
+                <ListChecks size={16} className={OVERLAY_ICON_SM} />
+              </button>
+            )}
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); handleRefresh(); }}
+              className={OVERLAY_BTN_CLS}
+              title={t("terminalPane.refresh")}
+            >
+              <RefreshCw size={16} className={`${OVERLAY_ICON_SM} ${refreshing ? "animate-spin" : ""}`} />
+            </button>
+          </div>
+          {showFolderButton && workspacePath && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => {
+                e.stopPropagation(); vibrate();
+                setRightPanelRoot(workspacePath, workspacePath);
+                // Desktop jumps to files; mobile keeps the workspace's saved tab
+                if (window.innerWidth >= DESKTOP_BREAKPOINT) setRightPanelTab("files", workspacePath);
+                else openRightPanel();
+              }}
+              className={`relative ${OVERLAY_BTN_CLS}`}
+              title={t("terminalPane.openFolderHere")}
+            >
+              <Folder size={16} className={OVERLAY_ICON_SM} />
+              {changedCount > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
+                  {changedCount > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changedCount}
+                </span>
+              )}
+            </button>
+          )}
+          {/* Reopen what this chat showed. Hiding the app closes the panel but not the
+              stack, so this is the way back to it. */}
+          {onOpenArtifact && artifacts?.length > 0 && (
+            <button
+              onMouseDown={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onTouchStart={(e) => { e.preventDefault(); e.stopPropagation(); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); onOpenArtifact(sessionId, artifacts[0]); }}
+              className={`relative ${OVERLAY_BTN_CLS}`}
+              title={t("terminalPane.artifacts")}
+            >
+              <Sparkles size={16} className={OVERLAY_ICON_SM} />
+              <span className="absolute -top-1 -right-1 min-w-[16px] h-4 px-1 flex items-center justify-center text-[10px] font-semibold text-white bg-brand-500 rounded-full">
+                {artifacts.length}
+              </span>
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Pinned Task Checklist Strip at the Top */}
       <AiTaskCard sessionId={sessionId} />
 
@@ -184,11 +309,16 @@ export const AiPaneView = memo(function AiPaneView({
         sessionId={sessionId}
         engine={engine}
         workspacePath={workspacePath}
+        fileBus={fileBus}
         onSendPrompt={sendPrompt}
         onResolvePermission={resolvePermission}
         onRewind={rewindToMessage}
+        onPreviewRewind={previewRewind}
+        onListRewindPoints={listRewindPoints}
         hasOlder={hasOlder}
         onLoadOlder={loadOlder}
+        onOpenResume={handleOpenResume}
+        hydrating={hydrating}
       />
 
       {/* Pinned blocked-action card: codex/opencode cannot prompt, so this offers a mode escalation */}
@@ -247,6 +377,7 @@ export const AiPaneView = memo(function AiPaneView({
         sessionId={sessionId}
         sessionName={sessionName}
         engine={engine}
+        isDesktop={isDesktop}
         onModeChange={handleModeChange}
         onOpenSkills={() => setActiveModal("skills")}
         onOpenMcp={() => setActiveModal("mcp")}
@@ -319,6 +450,15 @@ export const AiPaneView = memo(function AiPaneView({
         <TasksModal
           tasks={tasks}
           onClose={() => setActiveModal(null)}
+        />
+      )}
+
+      {/* The same checklist a terminal keeps, keyed to this chat's session. */}
+      {noteModalOpen && showNoteButton && (
+        <NotePanel
+          bus={bus}
+          sessionId={sessionId}
+          onClose={() => setNoteModalOpen(false)}
         />
       )}
     </div>

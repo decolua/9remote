@@ -346,8 +346,12 @@ function TerminalWorkspace({
             bus={activeBus}
             fileBus={activeFileBus}
             isFocused={isFocused}
+            isDesktop={isDesktop}
             bgIndex={bgIndex}
             onActivate={() => nav.handleSelectSession(sessionId)}
+            onOpenRemote={onOpenRemote}
+            onOpenMobile={onOpenMobile}
+            onOpenArtifact={onOpenArtifact}
           />
         </ErrorBoundary>
       );

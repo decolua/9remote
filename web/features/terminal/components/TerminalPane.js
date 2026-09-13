@@ -21,9 +21,10 @@ import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_V
 
 // Floating quick-action circles at the pane's top-right: thumb-sized on touch,
 // slimmer on desktop where the hover bg need not carry the whole tap target.
-const OVERLAY_BTN_CLS =
+// Exported so the AI pane's own cluster is the same cluster, not a lookalike.
+export const OVERLAY_BTN_CLS =
   "p-2 sm:p-1.5 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md sm:shadow-sm transition-all duration-150 ease-out active:scale-[0.94]";
-const OVERLAY_ICON_SM = "sm:w-3.5 sm:h-3.5";
+export const OVERLAY_ICON_SM = "sm:w-3.5 sm:h-3.5";
 
 // Single terminal pane - XTerm instance only, no header
 // isVisible: pane is shown (layout-level)
