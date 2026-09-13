@@ -18,6 +18,7 @@ import { ConfigModal } from "./modals/ConfigModal";
 import { ModeModal } from "./modals/ModeModal";
 import { DoctorModal } from "./modals/DoctorModal";
 import { TasksModal } from "./modals/TasksModal";
+import { RewindModal } from "./modals/RewindModal";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
 import { AiBlockedCard } from "./cards/AiBlockedCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
@@ -449,6 +450,16 @@ export const AiPaneView = memo(function AiPaneView({
       {activeModal === "tasks" && (
         <TasksModal
           tasks={tasks}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+
+      {activeModal === "rewind" && (
+        <RewindModal
+          sessionId={sessionId}
+          onListPoints={listRewindPoints}
+          onPreview={previewRewind}
+          onApply={(messageId) => rewindToMessage(messageId)}
           onClose={() => setActiveModal(null)}
         />
       )}

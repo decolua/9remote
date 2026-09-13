@@ -5,18 +5,22 @@
 // evidence. The short version:
 //
 //   opencode  undo a prompt and restore the files it touched, over HTTP
-//   claude    /rewind exists, but only the interactive TUI drives it
+//   claude    --rewind-files + --resume-session-at, once SDK checkpointing is enabled
 //   codex     forks a conversation; it cannot rewind one, and never restores files
 //   antigravity  /rewind rolls the conversation back, files are undocumented
 //
-// So the capability table below is deliberately small. An engine missing from it gets
-// no rewind control in the UI at all — better a button that is not there than one that
-// silently rewinds nothing.
+// Claude's `files: true` is conditional in a way the table cannot express: the CLI only
+// checkpoints a session that was SPAWNED with CLAUDE_FILE_CHECKPOINTING_ENV (see
+// adapters/env.js). A session opened before that env was set has no backup to restore
+// and its rewind reports the failure rather than silently doing nothing.
+//
+// An engine missing from this table gets no rewind control in the UI at all — better a
+// button that is not there than one that silently rewinds nothing.
 
 /** Per-engine rewind support. `files` means the engine can restore what the agent wrote. */
 export const REWIND_SUPPORT = Object.freeze({
   opencode: { conversation: true, files: true, how: "opencode server: stage, then commit" },
-  claude: { conversation: false, files: false, how: "only the interactive TUI drives /rewind" },
+  claude: { conversation: true, files: true, how: "claude --rewind-files / --resume-session-at" },
   codex: { conversation: false, files: false, how: "codex forks; it has no rewind" },
   antigravity: { conversation: false, files: false, how: "no app-server API for /rewind" }
 });

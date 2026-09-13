@@ -13,9 +13,10 @@ import { getConversation, getSessionAgent, setConversationId } from "../terminal
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
 import { aiTailStart } from "./aiEventSlice.js";
-import { AI_REPLAY_BYTES } from "./constants.js";
+import { AI_REPLAY_BYTES, AI_ENGINES } from "./constants.js";
 import { rewindSupport, unsupportedReason } from "./rewind.js";
 import { listRewindPoints, rewindable, previewRewind, applyRewind } from "./opencodeRewind.js";
+import * as claudeRewind from "./claudeRewind.js";
 
 const logger = createLogger("ai");
 let broadcastAttached = false;
@@ -316,16 +317,24 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       if (!support.conversation) {
         return cb?.({ ok: false, error: unsupportedReason(engine), support });
       }
-      const convId = rewindable(engine, session?.cliSessionId);
+      // Claude reads its own transcript off disk; opencode goes through its server.
+      const isClaude = engine === AI_ENGINES.CLAUDE;
+      // opencode's `rewindable` proves the id exists in its DB; Claude's proof is the
+      // transcript file, which also carries the uuids the rewind flags take.
+      const convId = isClaude
+        ? (claudeRewind.findTranscript(session?.cliSessionId) ? session.cliSessionId : null)
+        : rewindable(engine, session?.cliSessionId);
       if (!convId) {
-        return cb?.({ ok: false, error: "This conversation is not one opencode can rewind.", support });
+        return cb?.({ ok: false, error: `This conversation is not one ${engine} can rewind.`, support });
       }
+      const list = isClaude ? claudeRewind.listRewindPoints : listRewindPoints;
+      const preview = isClaude ? claudeRewind.previewRewind : previewRewind;
       if (action === "list") {
-        return cb?.({ ok: true, support, points: listRewindPoints(convId) });
+        return cb?.({ ok: true, support, points: list(convId) });
       }
       if (!messageId) return cb?.({ ok: false, error: "Missing messageId", support });
       if (action === "preview") {
-        return cb?.({ ok: true, support, ...(await previewRewind(convId, messageId, { files })) });
+        return cb?.({ ok: true, support, ...(await preview(convId, messageId, { files })) });
       }
       if (action === "apply") {
         // A rewind rewrites the conversation the CLI is holding. The running turn is
@@ -333,7 +342,14 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         if (session.isTurnRunning) {
           return cb?.({ ok: false, error: "Stop the running turn before rewinding.", support });
         }
-        const result = await applyRewind(convId, messageId, { files });
+        // Claude's file half is a one-shot CLI run that needs the session's cwd.
+        const result = isClaude
+          ? await claudeRewind.applyRewind(convId, messageId, { files, cwd: session.cwd })
+          : await applyRewind(convId, messageId, { files });
+        if (!result.ok) return cb?.({ ok: false, error: result.error, support });
+        // Claude cut the thread into a NEW session id. Rebind to it, or the pane would
+        // show the rewound conversation while the CLI keeps appending to the old one.
+        if (result.newSessionId) session.setOptions({ resume: result.newSessionId });
         // The CLI's own store is now the shortened conversation. Rebuild the host's log
         // from it and broadcast a reset, or every client keeps rendering the turns the
         // rewind just discarded.

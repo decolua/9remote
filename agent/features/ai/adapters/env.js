@@ -10,6 +10,12 @@ import path from "node:path";
 // report and the chat stays invisible to status, naming and push.
 export const SESSION_ID_ENV = "NINE_REMOTE_SESSION_ID";
 
+// Claude Code only checkpoints files in the interactive TUI; under the SDK entrypoint
+// (which is how we drive it) the feature is off unless this is set. Without it no
+// `file-history-snapshot` is written and `--rewind-files` has nothing to restore.
+// Read by the claude CLI alone — other engines ignore it.
+export const CLAUDE_FILE_CHECKPOINTING_ENV = "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING";
+
 export function getExtendedEnv({ hostSessionId } = {}) {
   const home = os.homedir();
   const extraPaths = process.platform === "win32" ? [
@@ -37,6 +43,7 @@ export function getExtendedEnv({ hostSessionId } = {}) {
     // Always set, never inherited: an agent started from one of our own terminals has
     // that terminal's id in its own env, and a chat spawning from here would report its
     // hooks under a session it is not. Empty is the "no session" every hook reads.
-    [SESSION_ID_ENV]: hostSessionId || ""
+    [SESSION_ID_ENV]: hostSessionId || "",
+    [CLAUDE_FILE_CHECKPOINTING_ENV]: "true"
   };
 }

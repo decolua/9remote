@@ -121,6 +121,7 @@ const DEFAULT_SLASH_COMMANDS = Object.freeze([
   { name: "/skills", description: "List available agent skills", action: "modal:skills" },
   { name: "/tasks", description: "View background tasks and checklist", action: "modal:tasks" },
   { name: "/resume", description: "Resume a previous conversation in this project", action: "modal:sessions" },
+  { name: "/rewind", description: "Go back to an earlier prompt in this conversation", action: "modal:rewind" },
   { name: "/config", description: "Adjust CLI runtime flags", action: "modal:config" },
   { name: "/doctor", description: "Check the CLI installation and environment", action: "modal:doctor" },
   { name: "/compact", description: "Compact the conversation context", action: "send" },
@@ -411,6 +412,7 @@ export class OpenCodeEngine extends AiEngine {
           { name: "/variant", description: "Model variant / reasoning effort", action: "submenu", optionKey: "variant", subOptions: VARIANT_OPTIONS },
           { name: "/mcp", description: "View and manage OpenCode MCP servers", action: "modal:mcp" },
           { name: "/resume", description: "Resume a previous OpenCode session", action: "modal:sessions" },
+          { name: "/rewind", description: "Go back to an earlier prompt in this conversation", action: "modal:rewind" },
           { name: "/clear", description: "Start a fresh OpenCode session", action: "clear" },
           // Verified: `opencode run "/help"` answers with its own help text.
           { name: "/help", description: "Show OpenCode help and usage", action: "send" },

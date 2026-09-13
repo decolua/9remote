@@ -44,19 +44,24 @@ console.log("Running opencode rewind tests...");
 await test("an engine that cannot rewind says so, and is not offered a control", async () => {
   assert.equal(rewindSupport("codex").conversation, false);
   assert.equal(rewindSupport("antigravity").files, false);
-  assert.equal(rewindSupport("claude").conversation, false);
   assert.equal(rewindSupport("opencode").conversation, true);
   assert.equal(rewindSupport("opencode").files, true);
+  // Claude rewinds through its own CLI flags, not this path — see claudeRewind.test.mjs.
+  assert.equal(rewindSupport("claude").conversation, true);
+  assert.equal(rewindSupport("claude").files, true);
 });
 
-await test("ai:rewind on a non-rewindable engine is refused with a reason", async () => {
+await test("ai:rewind on an unknown conversation is refused, and still reports support", async () => {
   const socket = new MockSocket();
   const manager = new AiManager();
   setupAiHandlers(socket, null, manager);
   const res = await socket.call(AI_SOCKET_EVENTS.REWIND, { sessionId, action: "list" });
   assert.equal(res.ok, false);
-  assert.match(res.error, /cannot rewind/i);
-  assert.equal(res.support.conversation, false);
+  // No session exists for this id, so the refusal names the engine rather than the
+  // capability. Support still comes back, which is what the client gates its control on
+  // — the "list" call doubles as the capability probe.
+  assert.match(res.error, /not one \w+ can rewind/i);
+  assert.equal(typeof res.support.conversation, "boolean");
 });
 
 await test("list returns opencode's own message ids, not ids we minted", async () => {
