@@ -4,7 +4,7 @@ import { memo, useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, Loader2, CheckCircle2, AlertCircle, ExternalLink } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
-import { splitPath } from "../../lib/shortenPath";
+import { shortenPath } from "../../lib/shortenPath";
 
 export const AiToolCard = memo(function AiToolCard({
   id = "",
@@ -40,8 +40,9 @@ export const AiToolCard = memo(function AiToolCard({
   const rawCmd = command || pathArg || (typeof input === "string"
     ? input
     : input?.command || input?.pattern || input?.query || "");
-  const pathParts = !isCommand && pathArg && rawCmd === pathArg ? splitPath(rawCmd, workspacePath) : null;
-  const displayCmd = pathParts ? (pathParts.dir ? `${pathParts.dir}/${pathParts.name}` : pathParts.name) : rawCmd;
+  // Workspace-relative, deep segments dropped from the head — the row has one line for
+  // this text, so the shorter form is what keeps a real file name visible in it.
+  const displayCmd = !isCommand && pathArg && rawCmd === pathArg ? shortenPath(rawCmd, workspacePath) : rawCmd;
   const filePath = input?.file_path || input?.path || input?.file || "";
 
   const handleCopy = (e) => {
@@ -80,41 +81,28 @@ export const AiToolCard = memo(function AiToolCard({
             )}
           </span>
 
-          <div className="flex flex-col min-w-0 flex-1">
-            <div className="flex items-center gap-2 min-w-0">
-              {/* MCP tools are named mcp__<server>__<tool> — one unbreakable word. Never shrunk or
-                  clipped: the name is the point of the row, so it keeps its full width and the
-                  trailing command/path clips instead; only a name wider than the row wraps. */}
-              <span className="font-mono text-[10px] font-semibold text-text uppercase tracking-wider shrink-0 max-w-full break-all px-1 py-0.5 rounded bg-surface-2/80" title={name}>
-                {name}
-              </span>
+          {/* Name and text share one line and wrap as a unit: the text takes whatever room
+              the name leaves, and drops to the next line only when it runs out of it.
+              `w-0 grow` is what lets it wrap there rather than force the row wider —
+              without a zero basis the span keeps its max-content width and the row scrolls
+              sideways instead. break-all because a command or an MCP name has no space to
+              break on. */}
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
+            {/* MCP tools are named mcp__<server>__<tool> — one unbreakable word. Never shrunk
+                or clipped: the name is the point of the row. */}
+            <span className="font-mono text-[10px] font-semibold text-text uppercase tracking-wider shrink-0 max-w-full break-all px-1 py-0.5 rounded bg-surface-2/80" title={name}>
+              {name}
+            </span>
 
-              {/* The directory may clip; the file name never does. The split happens here so
-                  the name is its own element, and `.path-head` puts the ellipsis at the head
-                  of the directory rather than at the join, which would read as a cut middle. */}
-              {isCommand ? (
-                <span className="font-mono text-[11px] text-text-muted truncate min-w-0" title={displayCmd}>
-                  {displayCmd}
-                </span>
-              ) : pathParts ? (
-                <span className="flex items-baseline min-w-0 font-mono text-[11px] text-text-muted" title={displayCmd}>
-                  {pathParts.dir && <span className="path-head min-w-0">{pathParts.dir}/</span>}
-                  <span className="shrink-0">{pathParts.name}</span>
-                </span>
-              ) : null}
-
-              <span className="text-text-muted/50 shrink-0 ml-auto">
-                {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-              </span>
-            </div>
-
-            {/* Free prose (a pattern, an MCP query) gets its own line under the name, so the
-                name never shares a row with text that would squeeze it. */}
-            {!isCommand && !pathParts && displayCmd && (
-              <span className="font-mono text-[11px] text-text-muted break-all" title={displayCmd}>
+            {displayCmd && (
+              <span className="font-mono text-[11px] text-text-muted break-all w-0 grow min-w-0" title={displayCmd}>
                 {displayCmd}
               </span>
             )}
+
+            <span className="text-text-muted/50 shrink-0 ml-auto">
+              {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+            </span>
           </div>
         </div>
 

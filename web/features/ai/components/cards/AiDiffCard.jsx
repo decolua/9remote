@@ -48,10 +48,10 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
       >
         <div className="flex items-center gap-2 min-w-0">
           <FileCode size={13} className="text-brand-500 shrink-0" />
-          {/* Directory clips at its head, file name never does — see AiToolCard */}
-          <span className="flex items-baseline min-w-0 font-mono font-medium text-text text-[11px]" title={file}>
-            {pathParts.dir && <span className="path-head min-w-0">{pathParts.dir}/</span>}
-            <span className="shrink-0">{pathParts.name || "diff"}</span>
+          {/* Wraps rather than clipping: a path has no space to break on, so break-all
+              keeps every segment readable instead of cutting the file name off. */}
+          <span className="min-w-0 font-mono font-medium text-text text-[11px] break-all" title={file}>
+            {pathParts.dir ? `${pathParts.dir}/${pathParts.name}` : (pathParts.name || "diff")}
           </span>
           {(additions > 0 || deletions > 0) && (
             <span className="flex items-center gap-1 font-mono text-[10px] shrink-0 text-text-muted">
