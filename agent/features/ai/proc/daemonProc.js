@@ -152,12 +152,25 @@ export class DaemonProc {
     this.dead = !res.alive;
     // A dead process has no exit event left to send, so there is nothing to wait for.
     if (this.dead) this._unsubscribe();
+    // Line numbers belong to a process, so a stored watermark only means something
+    // against the one it was taken from. Claude keeps one process for a whole
+    // conversation and holds its watermark across turns, so on a different process the
+    // watermark has to go — otherwise the resumed conversation's head is skipped as
+    // "already consumed". Turn-per-CLI engines hand `from = 0` and never notice.
+    if (epoch != null && res.epoch !== epoch) this._lastLine = 0;
     return { alive: res.alive, ...this._result(res.total, res.lines || [], res.oldest) };
   }
 
-  /** Highest line number this reader has consumed, for a restart to resume from. */
-  get lastLine() {
+  /** Highest line number this reader has consumed, for a restart to resume from.
+   *  Named like AgentProc's, so a session reads its watermark the same way whichever
+   *  carrier an engine got. */
+  get lineNo() {
     return this._lastLine;
+  }
+
+  /** The process these line numbers belong to, for the same reason. */
+  get epoch() {
+    return this._epoch;
   }
 
   /** Everything after the line the caller last consumed. */

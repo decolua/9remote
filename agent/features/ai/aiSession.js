@@ -341,7 +341,10 @@ export class AiSession {
     fetch.release();
     // The daemon's own line number is the watermark a restart resumes from, and it is
     // only honest once release() has fed through the lines that arrived mid-replay.
-    this.consumedLines = this.proc?.lastLine || 0;
+    // The epoch rides with it: line numbers belong to a process, and a later turn is a
+    // different one numbering from 1 again.
+    this.consumedLines = this.proc?.lineNo || 0;
+    this.consumedEpoch = this.proc?.epoch ?? null;
   }
 
   /**

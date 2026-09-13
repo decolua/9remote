@@ -69,8 +69,11 @@ test("the agent asks for the lines it has not consumed, and only those", () => {
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
   const PROC = fs.readFileSync(path.join(root, "agent/features/ai/proc/daemonProc.js"), "utf8");
   assert.match(SESSION, /consumedLines: this\.consumedLines,/);
-  assert.match(SESSION, /adapter\.adopt\(this\.consumedLines\)/);
-  assert.match(SESSION, /this\.consumedLines = this\.proc\?\.lastLine \|\| 0;/);
+  // The epoch rides with the watermark: line numbers belong to a process, and a chat
+  // that outlived several turns would otherwise skip the head of the newest one.
+  assert.match(SESSION, /adapter\.adopt\(this\.consumedLines, this\.consumedEpoch\)/);
+  assert.match(SESSION, /consumedEpoch: this\.consumedEpoch,/);
+  assert.match(SESSION, /this\.consumedLines = this\.proc\?\.lineNo \|\| 0;/);
   // Fetched lines are base64 (the daemon counts bytes); live ones are already text.
   assert.match(PROC, /export function decodeLine\(line\)/);
   assert.match(PROC, /Buffer\.from\(line\.data, "base64"\)\.toString\("utf8"\)/);
@@ -129,11 +132,11 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   assert.match(SESSION, /const from = aiTailStart\(log, AI_REPLAY_BYTES\)/);
   assert.match(SESSION, /hasMore: from > 0,\s*fromSeq: log\[from\]\?\.seq \?\? 0/);
   assert.match(SESSION, /for \(const ev of log\.slice\(from\)\) this\.onEvent\?\.\(this\.id, ev\.event, ev\.data, ev\.seq\)/);
-  // Every path that replaces the log with real content goes through it: /resume and
-  // the gap rebuild. /clear is the third reset but ships an empty window directly —
-  // there is nothing to page.
+  // Every path that replaces the log with real content goes through it: /resume, the
+  // gap rebuild, and a rewind that finds the CLI's store shorter than this log.
+  // /clear is the fourth reset but ships an empty window directly — nothing to page.
   const callers = (SESSION.match(/this\._adoptLog\(/g) || []).length;
-  assert.equal(callers, 2, `resume and gap must share the one delivery, saw ${callers}`);
+  assert.equal(callers, 3, `resume, gap and rewind must share the one delivery, saw ${callers}`);
   // ...and /clear still states the empty window rather than sending no payload at all.
   assert.match(SESSION, /conversation_reset", \{ hasMore: false, fromSeq: 0 \}/);
 });
