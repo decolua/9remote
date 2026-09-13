@@ -517,7 +517,10 @@ export class AiSession {
       // Otherwise the clock runs from that last output: wait out whichever is longer.
       if (quietFor < AI_TURN_IDLE_TIMEOUT_MS) return this.armIdleWatchdog(AI_TURN_IDLE_TIMEOUT_MS - quietFor);
       try { this.adapter?.stop(); } catch {}
-      this.emitNormalized("error", {
+      // Its own event, not `error`: this is the watchdog guessing at a stall, and a
+      // false positive must not paint an error bubble over a turn that is merely slow.
+      // `error` stays reserved for failures the CLI actually reported.
+      this.emitNormalized("stall", {
         message: `No response from the ${this.engine} CLI for ${Math.round(AI_TURN_IDLE_TIMEOUT_MS / 1000)}s — the turn was stopped. This usually means the CLI stalled on startup; try again.`
       });
     }, ms);
