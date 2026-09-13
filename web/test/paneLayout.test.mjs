@@ -5,7 +5,8 @@
 // Run: node --import ./test/loader-alias.mjs test/paneLayout.test.mjs
 import assert from "node:assert/strict";
 import {
-  derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, STAGGER_MS, UNGROUPED_KEY
+  derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, centeredPaneScroll,
+  STAGGER_MS, UNGROUPED_KEY
 } from "../features/terminal/lib/paneLayout.js";
 
 // Defaults matching terminalConfig: PANE_WIDTH.min 400, PANE_GAP_PX 2, no row padding.
@@ -204,6 +205,70 @@ test("a row clamped at the floor stays clamped when the panel closes", () => {
 
 test("panes at min hold the floor, the row scrolls instead", () => {
   assert.equal(fit({ rowWidth: 800, paneCount: 3 }), 400);
+});
+
+// --- centeredPaneScroll: the focused pane is centered, never past what the row can scroll ---
+
+// Faithful-enough DOM: everything is measured in one viewport, and a pane's on-screen
+// left is its place in the row's content shifted by how far the row is already scrolled.
+// Modelling offsetLeft instead of rects is what let an offsetParent bug through once —
+// the row is not positioned, so offsetLeft would have carried the sidebar's width.
+const row = ({ left = 0, clientWidth, scrollWidth, scrollLeft = 0 }) => ({
+  clientWidth, scrollWidth, scrollLeft,
+  getBoundingClientRect: () => ({ left })
+});
+const paneAt = (contentLeft, offsetWidth, { rowLeft = 0, rowScrollLeft = 0 } = {}) => ({
+  offsetWidth,
+  getBoundingClientRect: () => ({ left: rowLeft - rowScrollLeft + contentLeft })
+});
+
+test("a pane in the middle centers on its own midpoint", () => {
+  // row 1000 wide at x=0, pane 400 wide starting 800 into the content → 0 + 800 - 300
+  const r = row({ clientWidth: 1000, scrollWidth: 3000 });
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(800, 400) }), 500);
+});
+
+test("the row's own origin is subtracted, not carried into the target", () => {
+  // Same geometry, but the row sits 190px in (a sidebar to its left). The target must not
+  // grow by 190 — that is the whole reason this measures rects instead of offsetLeft.
+  const r = row({ left: 190, clientWidth: 1000, scrollWidth: 3000 });
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(800, 400, { rowLeft: 190 }) }), 500);
+});
+
+test("an already-scrolled row accounts for where it currently is", () => {
+  // Scrolled 400 in: the pane's on-screen left is 800 - 400 = 400, so centering it means
+  // scrolling to 400 + 400 - 300 = 500 — i.e. it stays put.
+  const r = row({ clientWidth: 1000, scrollWidth: 3000, scrollLeft: 400 });
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(800, 400, { rowScrollLeft: 400 }) }), 500);
+});
+
+test("the first pane clamps to 0 instead of scrolling negative", () => {
+  const r = row({ clientWidth: 1000, scrollWidth: 3000 });
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(0, 400) }), 0);
+});
+
+test("the last pane clamps to the row's max scroll", () => {
+  // Would want 2600 - 300 = 2300, but the row can only scroll 2000.
+  const r = row({ clientWidth: 1000, scrollWidth: 3000 });
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(2600, 400) }), 2000);
+});
+
+test("a row that fits entirely has nowhere to scroll, so it stays put", () => {
+  // scrollWidth === clientWidth → max scroll 0, whatever the pane's position.
+  const r = row({ clientWidth: 1600, scrollWidth: 1600 });
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(500, 400) }), 0);
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(0, 400) }), 0);
+});
+
+test("an unlaid-out pane measures as no answer, not as center-me-at-zero", () => {
+  const r = row({ clientWidth: 1000, scrollWidth: 3000 });
+  assert.equal(centeredPaneScroll({ container: r, pane: paneAt(0, 0) }), null);
+});
+
+test("a missing container or pane measures as no answer", () => {
+  assert.equal(centeredPaneScroll({ container: null, pane: paneAt(0, 400) }), null);
+  assert.equal(centeredPaneScroll({ container: row({ clientWidth: 1000, scrollWidth: 3000 }), pane: null }), null);
+  assert.equal(centeredPaneScroll({ container: row({ clientWidth: 1000, scrollWidth: 3000 }), pane: undefined }), null);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

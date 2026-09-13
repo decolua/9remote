@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useCallback, useEffect, useMemo } from "react";
+import { centeredPaneScroll } from "@/features/terminal/lib/paneLayout";
 
 // Registries of per-pane APIs and DOM elements, plus the focus/scroll side effects that
 // depend on them (scroll the focused pane into view, preserve input focus across switches).
@@ -73,11 +74,28 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
     }
   }, []);
 
-  // Smooth-scroll a pane to the center of the panes row (desktop split-view only)
+  // Smooth-scroll a pane to the center of the panes row (desktop split-view only).
+  // Self-clamped scrollTo, not scrollIntoView — see centeredPaneScroll for why.
+  const pendingScrollRafRef = useRef(0);
   const scrollPaneIntoView = useCallback((sessionId) => {
     if (!isDesktop) return;
-    const el = paneElementsRef.current[sessionId];
-    if (el) el.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" });
+    // A re-measure left over from the previous switch would scroll to the pane we just
+    // left, so only the newest request is allowed to land.
+    cancelAnimationFrame(pendingScrollRafRef.current);
+    pendingScrollRafRef.current = 0;
+    const container = panesContainerRef.current;
+    const left = centeredPaneScroll({ container, pane: paneElementsRef.current[sessionId] });
+    // A chat pane's slot may still be laying out, and a null measurement there would drop
+    // the scroll entirely — so re-measure on the next frame rather than give up.
+    if (left == null) {
+      pendingScrollRafRef.current = requestAnimationFrame(() => {
+        pendingScrollRafRef.current = 0;
+        const settled = centeredPaneScroll({ container, pane: paneElementsRef.current[sessionId] });
+        if (settled != null) container.scrollTo({ left: settled, behavior: "smooth" });
+      });
+      return;
+    }
+    container.scrollTo({ left, behavior: "smooth" });
   }, [isDesktop]);
 
   // Scroll the focused pane ONLY when the active session actually changes
