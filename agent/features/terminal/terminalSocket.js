@@ -22,7 +22,7 @@ import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConv
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
-import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES, SESSION_NAME_MAX } from "./constants.js";
+import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES } from "./constants.js";
 import { createLogger } from "../../lib/logger.js";
 
 const termLogger = createLogger("terminal");
@@ -395,27 +395,19 @@ export function broadcastServerInfo() {
   setupTerminalSocket._emitServerInfo?.();
 }
 
-// Auto-name session and broadcast rename across clients (powers AI UI chat naming)
-export function renameSessionTitle(sessionId, title) {
-  const session = sessions.get(sessionId);
-  if (!session || !autoNameIo) return false;
-  if (session.autoNamed === false) return false;
-  const raw = String(title || "").trim();
-  if (!raw) return false;
-  const name = raw.length > SESSION_NAME_MAX ? `${raw.slice(0, SESSION_NAME_MAX - 1)}…` : raw;
-  if (name === session.name) return false;
-  session.name = name;
-  session.autoNamed = true;
-  broadcast(autoNameIo, "session-renamed", { sessionId, name });
-  saveSessionMetadata(sessions);
-  return true;
-}
-
-// Broadcast agent working/blocked/done state transitions for AI UI sessions
-export function broadcastAiStatus(sessionId, state, tool) {
+// Broadcast agent working/blocked/done state transitions for AI UI sessions.
+// `data` is the AI event that caused it: an `init` carries the conversation id a chat
+// session never gets from a PTY hook, and the tab menu and bell read it to label the row.
+export function broadcastAiStatus(sessionId, state, tool, data = null) {
   if (!autoNameIo) return null;
+  const conversationId = data?.sessionId || data?.threadId || getConversation(sessionId)?.id || null;
+  const before = getStatus(sessionId);
   const entry = applyEvent({ type: state, sessionId, tool });
-  broadcast(autoNameIo, "statusChange", { sessionId, state, tool });
+  // One user action reaches here twice (the prompt handler and the session's own event
+  // both say "working"), and a stray `done` on an idle session is refused by applyEvent.
+  // Broadcast the map, not the request: a no-op is not a change worth re-rendering for.
+  if (!entry || entry === before) return entry;
+  broadcast(autoNameIo, "statusChange", { sessionId, state, tool, conversationId });
   broadcast(autoNameIo, "statusState", getStatuses());
   return entry;
 }

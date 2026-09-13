@@ -24,7 +24,6 @@ import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL } from "@/shared/constants/github";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
-import { useAiStore } from "@/shared/stores/aiStore";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 
 function TerminalHeader({
@@ -73,7 +72,6 @@ function TerminalHeader({
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
-  const aiSessions = useAiStore((s) => s.bySession);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -302,8 +300,7 @@ function TerminalHeader({
             const isActiveTab = session.id === activeSessionId;
             const st = sessionStatus[session.id]?.state || "idle";
             const v = statusVisual(st);
-            const aiPrompt = aiSessions?.[session.id]?.messages?.find((m) => m.role === "user")?.content;
-            const tabName = (agentBySession[session.id]?.endsWith("-ui") && aiPrompt ? aiPrompt.slice(0, 22) : null) || session.name || t("terminal.defaultName");
+            const tabName = session.name || t("terminal.defaultName");
             // The agent's own icon, or — for a chat UI, whose id carries a "-ui" suffix no
             // icon file has — the engine's CLI icon.
             const tabIcon = agentIconUrl(agentBySession[session.id]) || agentIconUrl(agentBySession[session.id]?.replace(/-ui$/, ""));

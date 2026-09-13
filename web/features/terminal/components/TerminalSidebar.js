@@ -26,7 +26,6 @@ import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
-import { useAiStore } from "@/shared/stores/aiStore";
 
 // Inside the Tauri shell or on loopback agent, the sidebar's brand row
 // becomes a back-to-dashboard button instead (standalone web keeps the brand).
@@ -152,7 +151,6 @@ function TerminalSidebar({
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
-  const aiSessions = useAiStore((s) => s.bySession);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -409,8 +407,7 @@ function TerminalSidebar({
                             <Terminal size={12} className="flex-shrink-0" />
                           )}
                           {(() => {
-                            const aiPrompt = aiSessions?.[s.id]?.messages?.find((m) => m.role === "user")?.content;
-                            const title = (agentBySession[s.id]?.endsWith("-ui") && aiPrompt ? aiPrompt.slice(0, 28) : null) || s.name || t("terminal.defaultName");
+                            const title = s.name || t("terminal.defaultName");
                             return <span className="text-[11px] truncate" data-tip={title}>{title}</span>;
                           })()}
                         </span>

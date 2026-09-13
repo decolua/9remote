@@ -21,7 +21,6 @@ import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
-import { useAiStore } from "@/shared/stores/aiStore";
 
 const PLATFORM_LABEL = { darwin: "mac", win32: "win", linux: "linux" };
 
@@ -183,8 +182,7 @@ function TerminalStatusBar({
   const quota = useQuota(busRef);
 
   const agentId = useTerminalStore((s) => (s.agentBySession || {})[sessionId]) || "";
-  const aiFirstMsg = useAiStore((s) => s.bySession[sessionId]?.messages?.find((m) => m.role === "user")?.content);
-  const displayTitle = (aiFirstMsg ? aiFirstMsg.slice(0, 28) : null) || sessionName || "—";
+  const displayTitle = sessionName || "—";
   const agentIcon = agentId ? agentIconUrl(agentId) : null;
 
   // Branch + changed come from the shared ref-counted poll — one round-trip per unique

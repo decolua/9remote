@@ -9,6 +9,7 @@ import { detectAgentClis } from "../agentCatalog.js";
 import { listAgentSessions, matchLiveSessions, conversationTitle, deleteAgentSession } from "../agentHistory.js";
 import { getLiveConversations, forgetSession, claimResumedConversation, getConversation, getSessionAgent, setSessionAgent } from "../statusManager.js";
 import { setSessionMode } from "../sessionMode.js";
+import { engineFromAgent } from "../conversationModes.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
@@ -65,10 +66,13 @@ async function nameOneSession(io, sessions, sessionId) {
   // one whose transcript was written after the last scan — the usual case right
   // after a turn ends — so that miss, and only that miss, pays for a rescan.
   await listAgentSessions({ cwd });
-  let title = conversationTitle(conv.agent, conv.id, cwd);
+  // The engine, not the surface: a chat UI session records "claude-ui", which is no
+  // store's id — the transcript source is keyed by engine.
+  const engine = engineFromAgent(conv.agent) || conv.agent;
+  let title = conversationTitle(engine, conv.id, cwd);
   if (!title) {
     await listAgentSessions({ cwd, fresh: true });
-    title = conversationTitle(conv.agent, conv.id, cwd);
+    title = conversationTitle(engine, conv.id, cwd);
   }
   const name = fitName(title);
   if (!name || name === session.name) return false;
