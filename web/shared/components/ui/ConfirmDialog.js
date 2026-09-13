@@ -82,7 +82,9 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
         
         {/* Body */}
         <div className="px-6 pb-4">
-          <p className="text-text">{message}</p>
+          {/* pre-line: some callers pass a list (a rewind names the files it will
+              overwrite). A one-line message renders exactly as before. */}
+          <p className="text-text whitespace-pre-line">{message}</p>
         </div>
         
         {/* Footer */}

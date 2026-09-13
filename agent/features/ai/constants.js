@@ -24,6 +24,7 @@ export const AI_SOCKET_EVENTS = {
   OPTIONS: "ai:options",
   DESTROY: "ai:destroy",
   LIST: "ai:list",
+  REWIND: "ai:rewind",
   EVENT: "ai:event"
 };
 

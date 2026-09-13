@@ -1,67 +1,25 @@
 "use client";
 
-import { memo, useState, useRef } from "react";
-import MarkdownBody from "@/shared/components/ui/MarkdownBody";
-import { Copy, Check, ExternalLink, Pencil, Paperclip, Image as ImageIcon } from "@/shared/components/ui/Icon";
-import { AiDiffCard } from "./cards/AiDiffCard";
-import { AiToolCard } from "./cards/AiToolCard";
-import { AiBashCard } from "./cards/AiBashCard";
-import { AiPermissionCard } from "./cards/AiPermissionCard";
-import { AiQuestionCard } from "./cards/AiQuestionCard";
-import { AiPlanModeCard } from "./cards/AiPlanModeCard";
-import { AiAgentCard } from "./cards/AiAgentCard";
-import { AiThinkingBlock } from "./cards/AiThinkingBlock";
-import { getToolCategory } from "../registry";
-import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { memo, useState } from "react";
+import { Pencil, Paperclip, Image as ImageIcon, Copy, Check, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-
-// Tools whose whole effect is the pinned checklist strip (AiTaskCard) — inline they
-// would only repeat it. The rest of the "task" category is a plain row (see below).
-const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todowrite"]);
-
-function CodePre({ children, node: _node, ...props }) {
-  const [copied, setCopied] = useState(false);
-  const ref = useRef(null);
-
-  const handleCopy = () => {
-    vibrate();
-    const text = ref.current?.textContent || "";
-    navigator.clipboard.writeText(text);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="relative group/code my-2.5">
-      <pre
-        ref={ref}
-        className="bg-surface-2/50 border border-border-subtle/70 rounded-brand p-3 overflow-x-auto max-w-full font-mono text-[12px] leading-relaxed text-text select-text [&_code]:bg-transparent [&_code]:p-0 [&_code]:border-0"
-        {...props}
-      >
-        {children}
-      </pre>
-      <button
-        type="button"
-        onClick={handleCopy}
-        className="absolute top-2 right-2 p-1 rounded bg-surface-3/80 hover:bg-surface-3 text-text-muted hover:text-text opacity-0 group-hover/code:opacity-100 transition-opacity backdrop-blur-sm"
-        title="Copy code"
-      >
-        {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-      </button>
-    </div>
-  );
-}
+import { useTerminalStore } from "@/shared/stores/terminalStore";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
 export const MessageBubble = memo(function MessageBubble({
   message,
   engine = "claude",
   workspacePath = "",
   onResolvePermission,
-  onRewind
+  onRewind,
+  onPreviewRewind,
+  canRewind = false
 }) {
   const [copiedMsg, setCopiedMsg] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editValue, setEditValue] = useState("");
+  const [confirm, setConfirm] = useState(null); // { files, error } from the host preview
+  const [busy, setBusy] = useState(false);
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
   const { id, role, content, thinking, diffs = [], tools = [], permission = null, isLive = false, attachments = [] } = message;
   const handleCopyAll = () => {
@@ -84,10 +42,7 @@ export const MessageBubble = memo(function MessageBubble({
                 if (e.key === "Enter" && !e.shiftKey) {
                   if (e.nativeEvent.isComposing || e.keyCode === 229) return;
                   e.preventDefault();
-                  if (editValue.trim()) {
-                    onRewind?.(message.id, editValue.trim());
-                    setEditing(false);
-                  }
+                  if (editValue.trim()) beginRewind(editValue.trim());
                 }
                 if (e.key === "Escape") setEditing(false);
               }}
@@ -96,195 +51,120 @@ export const MessageBubble = memo(function MessageBubble({
               autoFocus
             />
             <div className="flex justify-end gap-2 mt-1.5 text-[11px] text-text-muted">
-              <span>Enter to save & rewind, Esc to cancel</span>
+              <span>Enter to rewind, Esc to cancel</span>
             </div>
           </div>
         </div>
       );
     }
+
+    // A rewind discards every turn after this one and, where the engine can, puts the
+    // files back. Both are destructive and neither is obvious, so the host is asked
+    // first what would actually change and that list is what the user confirms.
+    const beginRewind = async (text) => {
+      setBusy(true);
+      const preview = await onPreviewRewind?.(message.id);
+      setBusy(false);
+      if (!preview?.ok) {
+        setConfirm({ error: preview?.error || "The host could not preview this rewind.", text });
+        return;
+      }
+      setConfirm({ files: preview.files || [], text });
+    };
+
+    const applyRewind = async () => {
+      const text = confirm?.text;
+      setConfirm(null);
+      setEditing(false);
+      setBusy(true);
+      await onRewind?.(message.id, text);
+      setBusy(false);
+    };
+
     return (
-      <div className="group/msg flex justify-end my-3">
-        <div className="max-w-[85%] sm:max-w-[75%] flex flex-col items-end gap-1.5">
-          {/* Files the prompt carried — names only: the bytes stay on the host. The
-              icon is what says an image was sent, since there is no thumbnail. */}
-          {attachments.length > 0 && (
-            <div className="flex flex-wrap justify-end gap-1.5">
-              {attachments.map((att, i) => (
-                <span
-                  key={`${att.filename}-${i}`}
-                  className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
-                    att.isImage
-                      ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
-                      : "border-border-subtle bg-surface-2 text-text-muted"
-                  }`}
-                >
-                  {att.isImage ? <ImageIcon size={10} /> : <Paperclip size={10} />}
-                  <span className="max-w-[160px] truncate">{att.filename}</span>
-                </span>
-              ))}
-            </div>
-          )}
-          {content && (
-            <div className="px-4 py-2.5 rounded-brand-lg bg-surface-2/70 text-text text-sm whitespace-pre-wrap break-words">
-              {content}
-            </div>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={() => { vibrate(); setEditValue(content || ""); setEditing(true); }}
-          className="opacity-0 group-hover/msg:opacity-100 p-1.5 text-text-muted hover:text-text rounded transition-all self-start mt-1"
-          title="Edit & rewind"
-        >
-          <Pencil size={12} />
-        </button>
-      </div>
-    );
-  }
-
-  // Assistant message — route tools through registry
-  const visibleTools = (tools || []).filter((t) => {
-    if (!t || !t.name) return false;
-    const path = t.input?.file_path || t.input?.path || "";
-    if ((t.name === "Edit" || t.name === "Write") && path && diffs.some((d) => d.file === path)) {
-      return false;
-    }
-    // Task checklist renders in the pinned strip, not inline — except TaskList/TaskGet,
-    // which the strip has no equivalent of (they read the list rather than change it).
-    if (getToolCategory(engine, t.name) === "task" && TASK_STRIP_TOOLS.has(t.name)) return false;
-    return true;
-  });
-
-  const renderTool = (t, idx) => {
-    const cat = getToolCategory(engine, t.name);
-    switch (cat) {
-      case "plan":
-        return <AiPlanModeCard key={t.id || idx} toolName={t.name} input={t.input} />;
-      case "bash":
-        return <AiBashCard key={t.id || idx} {...t} />;
-      // A sub-agent owns the tool calls it made — they render nested inside it.
-      case "agent":
-        return <AiAgentCard key={t.id || idx} {...t} engine={engine} workspacePath={workspacePath} />;
-      // Answered question — the host's tool output is the only record of the choice.
-      // While still running the pinned card above the composer owns the interaction.
-      case "question":
-        return t.status === "running" ? null : (
-          <AiQuestionCard
-            key={t.id || idx}
-            questions={t.input?.questions || []}
-            answers={t.output || t.error || ""}
-          />
-        );
-      // diff/file/search/agent/task/generic → all use compact AiToolCard
-      default:
-        return <AiToolCard key={t.id || idx} {...t} workspacePath={workspacePath} />;
-    }
-  };
-
-  return (
-    <div className="relative flex justify-start my-3">
-      <div className="w-full text-text text-sm leading-relaxed min-w-0">
-        {/* Thinking stream block */}
-        {thinking && <AiThinkingBlock text={thinking} isLive={isLive && !content} />}
-
-        {/* Tools executions & Plan Mode cards */}
-        {visibleTools.length > 0 && (
-          <div className="my-1.5 space-y-1.5">
-            {visibleTools.map((t, idx) => renderTool(t, idx))}
-          </div>
-        )}
-
-        {/* Diffs */}
-        {diffs && diffs.length > 0 && (
-          <div className="my-1.5 space-y-1.5">
-            {diffs.map((d, idx) => (
-              <AiDiffCard key={d.file || idx} {...d} workspacePath={workspacePath} />
-            ))}
-          </div>
-        )}
-
-        {/* Text Content */}
-        {content ? (
-          // Own group: hovering the prose reveals the copy bar, and nothing else
-          <div className="group/msg relative">
-            <div className="max-w-none min-w-0 text-sm break-words leading-relaxed">
-              <MarkdownBody
-                content={content}
-                components={{
-                  pre: CodePre,
-                  // Relative links open in the editor; `node` must not reach the DOM
-                  a({ href, children, className, node: _node, ...props }) {
-                    const isRelativeFile = href && !href.startsWith("http://") && !href.startsWith("https://");
-                    if (isRelativeFile) {
-                      return (
-                        <a
-                          href={href}
-                          onClick={(e) => {
-                            e.preventDefault();
-                            openEditorFile(href);
-                          }}
-                          className="text-brand-500 hover:underline inline-flex items-center gap-0.5 cursor-pointer font-medium"
-                          {...props}
-                        >
-                          {children}
-                          <ExternalLink size={11} className="inline ml-0.5" />
-                        </a>
-                      );
-                    }
-                    return (
-                      <a
-                        href={href}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className={`text-brand-500 hover:underline${className ? ` ${className}` : ""}`}
-                        {...props}
-                      >
-                        {children}
-                      </a>
-                    );
-                  }
-                }}
-              />
-              {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
-            </div>
-
-            {/* Quick action bar on message hover */}
-            {!isLive && (
-              <div className="flex items-center gap-1 mt-1 opacity-0 group-hover/msg:opacity-100 transition-opacity">
-                <button
-                  type="button"
-                  onClick={handleCopyAll}
-                  className="px-2 py-0.5 rounded text-[11px] text-text-muted hover:text-text hover:bg-surface-2 flex items-center gap-1 transition-colors"
-                  title="Copy full message"
-                >
-                  {copiedMsg ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
-                  <span>{copiedMsg ? "Copied" : "Copy text"}</span>
-                </button>
+      <>
+        <div className="group/msg flex flex-col items-end my-3">
+          <div className="max-w-[85%] sm:max-w-[75%] flex flex-col items-end gap-1.5">
+            {/* Files the prompt carried — names only: the bytes stay on the host. The
+                icon is what says an image was sent, since there is no thumbnail. */}
+            {attachments.length > 0 && (
+              <div className="flex flex-wrap justify-end gap-1.5">
+                {attachments.map((att, i) => (
+                  <span
+                    key={`${att.filename}-${i}`}
+                    className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] ${
+                      att.isImage
+                        ? "border-brand-500/40 bg-brand-500/10 text-brand-500"
+                        : "border-border-subtle bg-surface-2 text-text-muted"
+                    }`}
+                  >
+                    {att.isImage ? <ImageIcon size={10} /> : <Paperclip size={10} />}
+                    <span className="max-w-[160px] truncate">{att.filename}</span>
+                  </span>
+                ))}
+              </div>
+            )}
+            {content && (
+              <div className="px-4 py-2.5 rounded-brand-lg bg-brand-500/15 border border-brand-500/25 text-text text-sm whitespace-pre-wrap wrap-anywhere">
+                {content}
               </div>
             )}
           </div>
-        ) : null}
 
-        {/* Inline Permission or AskUserQuestion Card */}
-        {permission && (
-          permission.tool === "AskUserQuestion" ? (
-            <AiQuestionCard
-              requestId={permission.requestId}
-              questions={permission.input?.questions || []}
-              onResolve={(reqId, answers) => onResolvePermission?.(reqId, "allow", "", answers)}
-            />
-          ) : (
-            <AiPermissionCard
-              requestId={permission.requestId}
-              tool={permission.tool}
-              input={permission.input}
-              onResolve={onResolvePermission}
-            />
-          )
-        )}
-      </div>
-    </div>
-  );
+          {/* Actions below the bubble, always visible — a phone has no hover, so the
+              old hover-only controls were unreachable there. */}
+          <div className="flex items-center gap-1 mt-1">
+            <button
+              type="button"
+              onClick={handleCopyAll}
+              className="px-1.5 py-0.5 rounded text-[11px] text-text-muted hover:text-text hover:bg-surface-2 flex items-center gap-1 transition-colors"
+              title="Copy this prompt"
+            >
+              {copiedMsg ? <Check size={11} className="text-success" /> : <Copy size={11} />}
+            </button>
+            {/* Only where a rewind would actually do something. Everywhere else the
+                button is absent rather than present-and-lying. */}
+            {canRewind && onRewind && (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => { vibrate(); setEditValue(content || ""); setEditing(true); }}
+                className="px-1.5 py-0.5 rounded text-[11px] text-text-muted hover:text-text hover:bg-surface-2 flex items-center gap-1 transition-colors disabled:opacity-40"
+                title="Edit & rewind to here"
+              >
+                <Pencil size={11} />
+              </button>
+            )}
+          </div>
+        </div>
+
+        <ConfirmDialog
+          isOpen={Boolean(confirm)}
+          onClose={() => setConfirm(null)}
+          onConfirm={confirm?.error ? () => setConfirm(null) : applyRewind}
+          title={confirm?.error ? "Cannot rewind" : "Rewind to this prompt?"}
+          message={
+            confirm?.error
+              ? confirm.error
+              : [
+                  "This discards every turn after this prompt and re-sends your edited text.",
+                  confirm?.files?.length
+                    ? `These ${confirm.files.length} file${confirm.files.length === 1 ? "" : "s"} go back to how they were:`
+                    : "No file changes to restore — this rewinds the conversation only.",
+                  ...(confirm?.files?.slice(0, 8).map((f) => `· ${f.file}${f.status ? ` (${f.status})` : ""}`) || []),
+                  confirm?.files?.length > 8 ? `… and ${confirm.files.length - 8} more` : "",
+                  "Edits made by hand, or by shell commands, are NOT restored."
+                ].filter(Boolean).join("\n")
+          }
+          confirmText={confirm?.error ? "OK" : "Rewind"}
+        />
+      </>
+    );
+  }
+
+  // Only user prompts reach here. Everything the agent did in response is a turn of
+  // ordered steps, rendered by AiTurn — see lib/turnRows.js for why that moved out.
+  return null;
 }, (prev, next) => {
   if (prev.message === next.message && prev.onResolvePermission === next.onResolvePermission) return true;
   // Freezed comparison for completed messages
@@ -298,6 +178,7 @@ export const MessageBubble = memo(function MessageBubble({
       // rows in place, and a length-only check left those updates unrendered.
       prev.message.tools === next.message.tools &&
       prev.message.diffs === next.message.diffs &&
+      prev.canRewind === next.canRewind &&
       prev.onResolvePermission === next.onResolvePermission
     );
   }

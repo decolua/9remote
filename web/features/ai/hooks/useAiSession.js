@@ -6,6 +6,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
+import { RECOVER_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
 
 const DEFAULT_STATS = { inputTokens: 0, outputTokens: 0, totalTurns: 0 };
 const DEFAULT_METADATA = { model: "" };
@@ -311,6 +312,9 @@ export function useAiSession({
   // Host events older than the replayed tail, still unfetched. The pane pages the
   // in-RAM window first; only when it runs out does a scroll-up hit the host.
   const [hasOlder, setHasOlder] = useState(false);
+  // Mirrors hydratingRef as state so the pane can say "Syncing" — a ref alone would
+  // never repaint the status line.
+  const [hydrating, setHydrating] = useState(false);
   const olderSeqRef = useRef(0);
   const loadingOlderRef = useRef(false);
 
@@ -431,6 +435,11 @@ export function useAiSession({
   const applyEventRef = useRef(applyEvent);
   useEffect(() => { applyEventRef.current = applyEvent; });
 
+  // Store action held by ref for the same reason as applyEvent: the hydrate effect
+  // must key on session identity, not on an action identity that changes per render.
+  const initSessionRef = useRef(initSession);
+  useEffect(() => { initSessionRef.current = initSession; });
+
   // Highest host seq this client has applied. Events at or below it are already
   // folded in (replayed or live) and must not be applied twice.
   const appliedSeqRef = useRef(0);
@@ -445,16 +454,16 @@ export function useAiSession({
   // down instead of clearing state a newer cycle owns.
   const hydrateSeqRef = useRef(0);
 
-  // 1. Initialize session in store and on host agent. The ack carries the host's
-  // full event log — the host is authoritative, so a client rebuilds its view
-  // from it (truncate then replay) rather than trusting its own localStorage.
-  // That is what makes web 3000 / agent UI / mobile show one identical history.
-  useEffect(() => {
-    if (!sessionId) return;
-    initSession(sessionId);
-    if (!bus) return;
+  // 1. Pull the host's event log for this session. The host is authoritative, so a
+  // client rebuilds its view from it (truncate then replay) rather than trusting its
+  // own localStorage — that is what makes web 3000 / agent UI / mobile show one
+  // identical history. It is also the reconnect path: a carrier that dropped while
+  // the phone slept took its events with it, and this is the only way back.
+  const hydrate = useCallback(() => {
+    if (!sessionId || !bus) return;
     const gen = ++hydrateSeqRef.current;
     hydratingRef.current = true;
+    setHydrating(true);
     pendingLiveRef.current = [];
     olderSeqRef.current = 0;
     // Drains the held events in arrival order, skipping any the snapshot covers.
@@ -462,6 +471,7 @@ export function useAiSession({
       const queued = pendingLiveRef.current;
       pendingLiveRef.current = [];
       hydratingRef.current = false;
+      setHydrating(false);
       for (const p of queued) {
         // A reset restarts the host's log at seq 1 — the snapshot's watermark no
         // longer applies to what follows it.
@@ -547,7 +557,43 @@ export function useAiSession({
       }
     });
     return () => clearTimeout(releaseTimer);
-  }, [sessionId, engine, workspacePath, bus, initSession, setTurnRunning]);
+  }, [sessionId, engine, workspacePath, bus, setTurnRunning]);
+
+  // Initial mount, and every remount that changes the session's identity.
+  useEffect(() => {
+    if (!sessionId) return;
+    // Held in a ref: re-running this effect on a store-action identity change would
+    // re-emit ai:create over a session that is mid-stream.
+    initSessionRef.current(sessionId);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate sets the syncing flag; a mount that is not syncing has nothing to show
+    return hydrate();
+  }, [sessionId, hydrate]);
+
+  // Backgrounded-then-resumed, and carrier rejoin (the same triggers the terminal
+  // recovers on). A live app that never remounts has no other path: the store is not
+  // persisted, so events lost while the carrier was down stay lost until the pane is
+  // remounted. A resume fires both triggers within ms — debounce into one round-trip.
+  useEffect(() => {
+    if (!bus || !sessionId) return;
+    let timer = null;
+    // Offline, the send would sit in PM's buffer and be answered by a host that has
+    // since moved on — the `connect` below fires when there is someone to ask.
+    const requestHydrate = () => {
+      if (!useConnectionStore.getState().connected) return;
+      if (timer) clearTimeout(timer);
+      timer = setTimeout(() => { timer = null; hydrate(); }, RECOVER_DEBOUNCE_MS);
+    };
+    const onVisible = () => {
+      if (!document.hidden) requestHydrate();
+    };
+    bus.on("connect", requestHydrate);
+    document.addEventListener("visibilitychange", onVisible);
+    return () => {
+      if (timer) clearTimeout(timer);
+      bus.off("connect", requestHydrate);
+      document.removeEventListener("visibilitychange", onVisible);
+    };
+  }, [bus, sessionId, hydrate]);
 
   // 2. Subscribe to AI bus events
   useEffect(() => {
@@ -650,17 +696,53 @@ export function useAiSession({
     [sendPrompt]
   );
 
+  // Ask the host what this conversation can rewind to. Returns null when the engine
+  // cannot — the caller hides the control rather than offering a button that no-ops.
+  const listRewindPoints = useCallback(async () => {
+    const b = busRef.current || useConnectionStore.getState().bus;
+    if (!b) return null;
+    const res = await new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
+      const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
+      b.emit("ai:rewind", { sessionId, action: "list" }, done);
+    });
+    if (!res?.ok) return null;
+    return { points: res.points || [], support: res.support };
+  }, [sessionId]);
+
+  /**
+   * Rewind the conversation (and, when the engine can, the files) to a user turn.
+   *
+   * The host does the work and broadcasts a conversation_reset, so this returns once
+   * the host has acted — the store is rebuilt from that broadcast, not from here. A
+   * local truncate would be a lie the next hydrate would undo.
+   */
   const rewindToMessage = useCallback(
-    (messageId, newText) => {
-      // Truncate to message; optionally re-submit the edited text as a new prompt.
-      // The host echoes "user_message" back, so no local optimistic add here.
-      useAiStore.getState().rewindToMessage(sessionId, messageId, newText);
-      if (newText) {
-        const b = busRef.current || useConnectionStore.getState().bus;
-        b?.emit("ai:prompt", { sessionId, message: newText, cwd: workspacePath });
+    async (messageId, newText, { files = true, preview = false } = {}) => {
+      const b = busRef.current || useConnectionStore.getState().bus;
+      if (!b) return { ok: false, error: "Not connected to the host." };
+      const res = await new Promise((resolve) => {
+        let settled = false;
+        const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
+        const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
+        b.emit("ai:rewind", { sessionId, action: preview ? "preview" : "apply", messageId, files }, done);
+      });
+      if (!res) return { ok: false, error: "The host did not answer in time." };
+      if (!res.ok) return res;
+      // Re-submit the edited text as the first prompt of the rewound conversation.
+      if (!preview && newText) {
+        b.emit("ai:prompt", { sessionId, message: newText, cwd: workspacePath });
       }
+      return res;
     },
     [sessionId, workspacePath]
+  );
+
+  /** What a rewind to this message would change, without changing anything. */
+  const previewRewind = useCallback(
+    (messageId, { files = true } = {}) => rewindToMessage(messageId, null, { files, preview: true }),
+    [rewindToMessage]
   );
 
   // Escalate out of a blocked action: switch to the mode the card proposed and
@@ -724,13 +806,20 @@ export function useAiSession({
     stats,
     metadata,
     activeBlocked,
+    hydrating,
     hasOlder,
     loadOlder,
+    // Re-pull the host's log for this session. Mount, resume and reconnect call it
+    // on their own; the pane's refresh button is the manual one for when a run of
+    // events was lost while the carrier was up.
+    reload: hydrate,
     sendPrompt,
     resolvePermission,
     stop,
     runShell,
     rewindToMessage,
+    previewRewind,
+    listRewindPoints,
     escalateMode,
     dismissBlocked
   };
