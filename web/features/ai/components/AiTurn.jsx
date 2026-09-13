@@ -98,4 +98,18 @@ export const AiTurn = memo(function AiTurn({
       })}
     </div>
   );
+}, (prev, next) => {
+  // `messages` is a freshly sliced array on every store update, so identity alone would
+  // fail here and re-render every turn in the log once per streamed token. What matters
+  // is whether the message objects themselves moved — a new delta replaces exactly one.
+  if (prev.messages.length !== next.messages.length) return false;
+  for (let i = 0; i < prev.messages.length; i++) {
+    if (prev.messages[i] !== next.messages[i]) return false;
+  }
+  return (
+    prev.engine === next.engine &&
+    prev.workspacePath === next.workspacePath &&
+    prev.isLive === next.isLive &&
+    prev.onResolvePermission === next.onResolvePermission
+  );
 });

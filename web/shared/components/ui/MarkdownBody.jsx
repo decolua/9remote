@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -95,7 +96,11 @@ export const MARKDOWN_COMPONENTS = {
   }
 };
 
-export default function MarkdownBody({ content, components }) {
+// Memoized on the text: parsing is O(content), and a streaming reply re-renders its
+// parent per token — without this the whole message is re-parsed every token, which is
+// O(content²) over one answer. `components` still arrives as a fresh object each render,
+// so it is deliberately not compared.
+const MarkdownBody = memo(function MarkdownBody({ content, components }) {
   return (
     <Markdown
       remarkPlugins={[remarkGfm]}
@@ -104,4 +109,6 @@ export default function MarkdownBody({ content, components }) {
       {content}
     </Markdown>
   );
-}
+}, (prev, next) => prev.content === next.content);
+
+export default MarkdownBody;

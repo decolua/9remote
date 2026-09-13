@@ -1,8 +1,26 @@
 "use client";
 
 import { create } from "zustand";
-import { persist } from "zustand/middleware";
+import { createJSONStorage, persist } from "zustand/middleware";
 import { updateToolTree, settleRunningTools } from "@/features/ai/lib/toolTree";
+
+// Zustand's persist writes on EVERY set, and a streamed answer sets the store once per
+// frame — so a turn spends thousands of synchronous JSON.stringify + localStorage
+// round-trips re-storing two fields (model, permissionMode) that did not change. Compare
+// the serialized payload first: what this store persists only moves when the user picks
+// a model or a mode.
+const jsonStorage = createJSONStorage(() => window.localStorage);
+let lastWritten = null;
+// Undefined without a DOM (a server render) — persist then skips writing, as it would
+// have by default.
+const aiStorage = jsonStorage && {
+  ...jsonStorage,
+  setItem: (name, raw) => {
+    if (raw === lastWritten) return;
+    lastWritten = raw;
+    jsonStorage.setItem(name, raw);
+  }
+};
 
 const INITIAL_SESSION_STATE = {
   messages: [],
@@ -529,6 +547,7 @@ export const useAiStore = create(
     }),
     {
       name: "9remote-ai-store",
+      storage: aiStorage,
       // Only persist user preferences per session. Messages and tasks are authoritative
       // on the host daemon and re-hydrated on connect — persisting thousands of messages
       // to synchronous localStorage triggers severe main-thread freezing and V8 OOM crashes.

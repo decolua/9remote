@@ -9,14 +9,25 @@ import { getToolCategory } from "../registry";
 // Longest detail worth showing before it pushes the token readout off the row.
 const MAX_DETAIL = 60;
 
+// How far back to look for the last line. A status detail is clipped to MAX_DETAIL, so
+// the tail that won is a few hundred chars at most — scanning the whole streamed block
+// on every token made this O(content) per token, O(content²) per answer.
+const TAIL_SCAN = 512;
+
 // Basename only: a detail line is a glance, and the full path is already in the card.
 const baseName = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "" : "");
 
 // Last non-empty line of a streamed block — the freshest thing written, and short.
+// Only the tail is scanned: blank lines at the end are skipped by walking back rather
+// than by filtering the whole block, which is what made this O(content) per token.
 const lastLine = (text) => {
   if (typeof text !== "string") return "";
-  const lines = text.split("\n").filter((l) => l.trim());
-  return (lines[lines.length - 1] || "").trim();
+  const lines = text.slice(-TAIL_SCAN).split("\n");
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i].trim();
+    if (line) return line;
+  }
+  return "";
 };
 
 const clip = (s, max) => (s.length > max ? `${s.slice(0, max - 1)}…` : s);
