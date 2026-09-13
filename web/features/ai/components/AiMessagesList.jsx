@@ -7,7 +7,7 @@ import { MessageBubble } from "./MessageBubble";
 import { AiTurn } from "./AiTurn";
 import { ENGINE_INFO, STARTER_PROMPTS } from "../constants";
 import { ArrowDown, Check, Loader2, Pencil, History } from "@/shared/components/ui/Icon";
-import { describeLive, estimateTurnTokens } from "../lib/liveStatus";
+import { describeLive, estimateTurnTokens, countTurnChanges } from "../lib/liveStatus";
 import { vibrate } from "@/shared/utils/vibration";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
@@ -81,6 +81,20 @@ function tokenReadout(outputTokens) {
   );
 }
 
+// Lines the run changed, the way the CLIs report it at the end. Hidden when the turn
+// touched no file — "+0 −0" would be noise on every question-answering turn.
+function changeReadout({ added, removed }) {
+  if (!added && !removed) return null;
+  return (
+    <>
+      <span className="text-text-muted/60"> · </span>
+      {added > 0 && <span className="text-success">+{added}</span>}
+      {added > 0 && removed > 0 && " "}
+      {removed > 0 && <span className="text-danger">−{removed}</span>}
+    </>
+  );
+}
+
 // The turn's own line, at the tail of the history like the user's message: the running
 // spinner and the finished summary are states of one row, so nothing jumps when it ends.
 const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrating = false }) {
@@ -121,12 +135,15 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
       setFinished({
         ms: end - turnStartedAt,
         doneAt: new Date(end),
-        outputTokens: turnOutput
+        outputTokens: turnOutput,
+        changes: countTurnChanges(turnMessages)
       });
     }
     if (isTurnRunning) setFinished(null);
     prevRunningRef.current = isTurnRunning;
-  }, [isTurnRunning, turnStartedAt, turnOutput]);
+    // turnMessages is read only on the falling edge; the guard above keeps the stream's
+    // own re-renders from re-freezing the summary.
+  }, [isTurnRunning, turnStartedAt, turnOutput, turnMessages]);
 
   if (!isTurnRunning && !finished) return null;
 
@@ -138,6 +155,7 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
           Worked for <span className="text-text">{formatDuration(finished.ms)}</span>
           <span className="text-text-muted/60"> · </span>
           done {pad2(finished.doneAt.getHours())}:{pad2(finished.doneAt.getMinutes())}
+          {changeReadout(finished.changes)}
           {tokenReadout(finished.outputTokens)}
         </span>
       </div>

@@ -4,7 +4,7 @@
 //
 // Run: node --import ./test/loader-alias.mjs web/test/liveStatus.test.mjs
 import assert from "node:assert/strict";
-import { describeLive, estimateTurnTokens } from "../features/ai/lib/liveStatus.js";
+import { describeLive, estimateTurnTokens, countTurnChanges } from "../features/ai/lib/liveStatus.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -159,6 +159,82 @@ test("earlier turns are not counted", () => {
 test("an empty turn estimates zero", () => {
   assert.equal(estimateTurnTokens([]), 0);
   assert.equal(estimateTurnTokens([msg("user")]), 0);
+});
+
+// --- lines changed ----------------------------------------------------------
+
+test("a diff patch is counted, ignoring the +++/--- headers", () => {
+  const messages = [msg("user"), msg("assistant", {
+    diffs: [{ file: "/a/b.js", patch: "--- a/b.js\n+++ b/b.js\n@@ -1,2 +1,3 @@\n-old\n+new\n+extra\n context" }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 2, removed: 1 });
+});
+
+test("an Edit tool is counted from its input when no diff arrives", () => {
+  const messages = [msg("user"), msg("assistant", {
+    tools: [{ name: "Edit", input: { file_path: "/a/b.js", old_string: "one\ntwo", new_string: "one\ntwo\nthree" } }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 3, removed: 2 });
+});
+
+test("a Write tool counts its whole content as additions", () => {
+  const messages = [msg("user"), msg("assistant", {
+    tools: [{ name: "Write", input: { file_path: "/a/new.js", content: "a\nb\nc" } }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 3, removed: 0 });
+});
+
+test("a MultiEdit counts every pair in its edits list", () => {
+  const messages = [msg("user"), msg("assistant", {
+    tools: [{ name: "MultiEdit", input: { file_path: "/a/b.js", edits: [
+      { old_string: "a", new_string: "a\nb" },
+      { old_string: "c\nd", new_string: "c" }
+    ] } }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 3, removed: 3 });
+});
+
+test("an engine's own edit dialect is recognised", () => {
+  const messages = [msg("user"), msg("assistant", {
+    tools: [{ name: "replace_file_content", input: { path: "/a/b.py", target_content: "x", replacement_content: "x\ny" } }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 2, removed: 1 });
+});
+
+test("a tool is not counted twice when its diff card already reported it", () => {
+  const messages = [msg("user"), msg("assistant", {
+    diffs: [{ file: "/a/b.js", patch: "+new\n-old" }],
+    tools: [{ name: "Edit", input: { file_path: "/a/b.js", old_string: "old", new_string: "new" } }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 1, removed: 1 });
+});
+
+test("a diff for another file does not suppress the tool that has none", () => {
+  const messages = [msg("user"), msg("assistant", {
+    diffs: [{ file: "/a/other.js", patch: "+x" }],
+    tools: [{ name: "Edit", input: { file_path: "/a/b.js", old_string: "old", new_string: "new\nmore" } }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 3, removed: 1 });
+});
+
+test("read-only tools contribute nothing", () => {
+  const messages = [msg("user"), msg("assistant", {
+    tools: [{ name: "Read", input: { file_path: "/a/b.js", offset: 5 } }, { name: "Grep", input: { pattern: "x" } }]
+  })];
+  assert.deepEqual(countTurnChanges(messages), { added: 0, removed: 0 });
+});
+
+test("an earlier turn's edits are not counted", () => {
+  const messages = [
+    msg("assistant", { tools: [{ name: "Write", input: { file_path: "/a/old.js", content: "a\nb\nc" } }] }),
+    msg("user"),
+    msg("assistant", { tools: [{ name: "Edit", input: { file_path: "/a/new.js", old_string: "a", new_string: "b" } }] })
+  ];
+  assert.deepEqual(countTurnChanges(messages), { added: 1, removed: 1 });
+});
+
+test("an empty turn changes nothing", () => {
+  assert.deepEqual(countTurnChanges([]), { added: 0, removed: 0 });
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

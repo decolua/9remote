@@ -129,3 +129,77 @@ export function estimateTurnTokens(messages = []) {
   }
   return Math.round(chars / ESTIMATED_CHARS_PER_TOKEN);
 }
+
+// Tools that write a file. `visibleTools` hides these once a diff card exists for the
+// same path, so counting both would double every edit — see countTurnChanges.
+const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "edit", "write", "patch", "apply",
+  "write_to_file", "replace_file_content", "multi_replace_file_content", "sed_file", "file_change"]);
+
+const lineCount = (text) => (typeof text === "string" && text ? text.split("\n").length : 0);
+
+/** Additions/deletions a single tool call would produce, from its input alone. */
+function countToolEdit(tool) {
+  const input = tool.input;
+  if (!input || typeof input === "string") return null;
+  const path = input.file_path || input.path || input.file || "";
+  // MultiEdit (and Antigravity's multi_replace) carry a list of old/new pairs.
+  const edits = Array.isArray(input.edits) ? input.edits
+    : Array.isArray(input.replacement_chunks) ? input.replacement_chunks
+      : Array.isArray(input.replacements) ? input.replacements : null;
+  if (edits) {
+    let added = 0, removed = 0;
+    for (const e of edits) {
+      removed += lineCount(e.old_string ?? e.oldString ?? e.old ?? e.target_content);
+      added += lineCount(e.new_string ?? e.newString ?? e.new ?? e.replacement_content);
+    }
+    return { file: path, added, removed };
+  }
+  // Write/new file: the whole content is new.
+  if (typeof input.content === "string" && input.content) return { file: path, added: lineCount(input.content), removed: 0 };
+  const oldText = input.old_string ?? input.oldString ?? input.old_str
+    ?? input.target_content ?? input.TargetContent;
+  const newText = input.new_string ?? input.newString ?? input.new_str
+    ?? input.replacement_content ?? input.ReplacementContent;
+  if (oldText === undefined && newText === undefined) return null;
+  return { file: path, added: lineCount(newText), removed: lineCount(oldText) };
+}
+
+/**
+ * Lines added and removed across the turn the user is watching, the way the CLIs report
+ * it at the end of a run.
+ *
+ * A diff card wins over the tool that produced it: `visibleTools` already hides that
+ * tool, and counting both would report every edit twice. Engines that only send tool
+ * inputs (Claude, OpenCode, Antigravity — only Codex emits `diff`) are covered by the
+ * input fallback instead, which is why both sources are needed.
+ *
+ * @param {Array} messages The session's message list, oldest first.
+ * @returns {{added: number, removed: number}}
+ */
+export function countTurnChanges(messages = []) {
+  let added = 0, removed = 0;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.role === "user") break;
+
+    const diffs = m.diffs || [];
+    for (const d of diffs) {
+      const raw = d.patch || d.diff || "";
+      for (const line of raw.split("\n")) {
+        if (line.startsWith("+") && !line.startsWith("+++")) added++;
+        else if (line.startsWith("-") && !line.startsWith("---")) removed++;
+      }
+    }
+
+    const diffFiles = new Set(diffs.map((d) => d.file).filter(Boolean));
+    for (const t of m.tools || []) {
+      if (!WRITE_TOOLS.has(t?.name)) continue;
+      // Already reported by a diff card for this file — the tool is hidden from the turn.
+      const p = t.input?.file_path || t.input?.path || t.input?.file || "";
+      if (p && diffFiles.has(p)) continue;
+      const c = countToolEdit(t);
+      if (c) { added += c.added; removed += c.removed; }
+    }
+  }
+  return { added, removed };
+}
