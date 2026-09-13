@@ -78,9 +78,14 @@ export class DaemonProc {
   // Hands the fetched lines over and lets the held ones through after them, in line
   // order, skipping whatever the fetch already carried.
   _result(total, lines, oldest) {
-    // Lines the ring had already dropped before this reader asked. Reported, never
-    // silently swallowed: a hole in a conversation is worse than a restart.
-    const missed = oldest != null ? Math.max(0, oldest - (this._lastLine + 1)) : 0;
+    // What is missing is measured from the FIRST line the daemon actually hands back:
+    // anything between the reader's watermark and that line is gone for good. `oldest`
+    // is only the fallback for an empty answer (a ring that dropped everything the
+    // reader asked for). Measuring from the ring's floor instead would cry wolf on a
+    // restart — the floor sits far below a returning reader's own watermark, and those
+    // lines are already in the snapshot.
+    const first = lines[0]?.n ?? oldest ?? null;
+    const missed = first == null ? 0 : Math.max(0, first - (this._lastLine + 1));
     this._lastLine = Math.max(this._lastLine, total ?? 0);
     const after = this._openHold();
     let released = false;
@@ -133,6 +138,9 @@ export class DaemonProc {
    * `alive: false` means the turn ended while no agent was watching.
    */
   async attach(from = 0) {
+    // The reader's watermark is the baseline the gap is measured against, so it has to
+    // be set before the answer is interpreted — the same rule `start` follows.
+    this._lastLine = from;
     this._subscribe();
     this._openHold();
     const res = await this.client.procAttach(this.procId, from);
