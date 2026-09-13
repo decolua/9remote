@@ -117,9 +117,33 @@ export function describeLive({ connected = true, hydrating = false, retryStatus 
   return { verb: "Working", detail: "", tone: "wait" };
 }
 
+// Token counts follow the CLI's shorthand: 1234 → 1.2k, 100000 → 100k, 1000000 → 1M
+export function formatTokens(n) {
+  const v = Number(n) || 0;
+  const unit = v >= 1e6 ? [1e6, "M"] : v >= 1e3 ? [1e3, "k"] : null;
+  if (!unit) return String(v);
+  const scaled = v / unit[0];
+  return `${scaled >= 100 ? Math.round(scaled) : scaled.toFixed(1).replace(/\.0$/, "")}${unit[1]}`;
+}
+
 // Roughly 4 characters per token, the same trick the CLIs use so the counter ticks
 // while the host has not reported usage yet.
 const ESTIMATED_CHARS_PER_TOKEN = 4;
+
+/**
+ * Tokens sitting in the session's context window.
+ *
+ * Cached reads count: the CLI's `inputTokens` is only the uncached part, so a resumed
+ * conversation reports a few thousand there while the window really holds tens of
+ * thousands. Engines that report no cache fields (codex, opencode) already fold
+ * everything into `inputTokens`.
+ *
+ * @param {object} [stats] The host's latest reported usage.
+ * @returns {number}
+ */
+export function contextUsedTokens(stats = {}) {
+  return (stats.inputTokens || 0) + (stats.cacheReadInputTokens || 0) + (stats.cacheCreationInputTokens || 0);
+}
 
 /**
  * Tokens streamed so far in the turn the user is watching.

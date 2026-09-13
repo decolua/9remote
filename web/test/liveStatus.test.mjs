@@ -4,7 +4,7 @@
 //
 // Run: node --import ./test/loader-alias.mjs web/test/liveStatus.test.mjs
 import assert from "node:assert/strict";
-import { describeLive, estimateTurnTokens, countTurnChanges } from "../features/ai/lib/liveStatus.js";
+import { describeLive, estimateTurnTokens, countTurnChanges, contextUsedTokens, formatTokens } from "../features/ai/lib/liveStatus.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -235,6 +235,25 @@ test("an earlier turn's edits are not counted", () => {
 
 test("an empty turn changes nothing", () => {
   assert.deepEqual(countTurnChanges([]), { added: 0, removed: 0 });
+});
+
+test("context usage counts what the cache holds, not just the fresh input", () => {
+  assert.equal(contextUsedTokens({ inputTokens: 300, cacheReadInputTokens: 44000, cacheCreationInputTokens: 900 }), 45200);
+});
+
+test("engines that report no cache fields are read as-is", () => {
+  assert.equal(contextUsedTokens({ inputTokens: 45200 }), 45200);
+  assert.equal(contextUsedTokens(), 0);
+});
+
+test("token counts use the CLI's shorthand", () => {
+  assert.equal(formatTokens(1234), "1.2k");
+  assert.equal(formatTokens(45200), "45.2k");
+  assert.equal(formatTokens(100000), "100k");
+  assert.equal(formatTokens(1000000), "1M");
+  assert.equal(formatTokens(1234567), "1.2M");
+  assert.equal(formatTokens(999), "999");
+  assert.equal(formatTokens(0), "0");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

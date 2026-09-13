@@ -1,10 +1,11 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import Icon, { Zap, Package, Target, Trash2, ChevronUp, Check } from "@/shared/components/ui/Icon";
+import Icon, { Target, Trash2, ChevronUp, Check, LayoutDashboard } from "@/shared/components/ui/Icon";
 import { getEngineConfig } from "../registry";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { vibrate } from "@/shared/utils/vibration";
+import { contextUsedTokens, formatTokens } from "../lib/liveStatus";
 import TerminalBeam from "@/shared/components/ui/TerminalBeam";
 
 // Colour by the shared mode icon, so a mode reads the same on every engine.
@@ -22,8 +23,6 @@ export const AiStatusBar = memo(function AiStatusBar({
   isTurnRunning: propTurnRunning = false,
   isDesktop = true,
   onModeChange,
-  onOpenSkills,
-  onOpenMcp,
   onClear
 }) {
   const storeTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
@@ -36,8 +35,10 @@ export const AiStatusBar = memo(function AiStatusBar({
   const permissionMode = storedMode || getEngineConfig(engine).defaultMode;
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
-  const skillsCount = metadata?.skills?.length || 0;
-  const mcpCount = metadata?.mcpServers?.length || 0;
+  const stats = useAiStore((s) => s.bySession[sessionId]?.stats);
+  // How full the context window is: everything the CLI would have to resend. Read from
+  // the host's per-turn totals, so mid-turn it still shows the previous turn's reading.
+  const contextUsed = contextUsedTokens(stats);
 
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef(null);
@@ -56,7 +57,7 @@ export const AiStatusBar = memo(function AiStatusBar({
     // Bottom-most row of an AI pane, so it owns the safe-area inset on mobile —
     // the shared MobileKeyboard (which normally carries it) is skipped for AI UIs.
     <div className={`relative min-h-6 px-3 bg-surface/50 border-t border-border-subtle/50 flex items-center text-[11px] font-mono text-text-muted select-none flex-shrink-0 z-20 gap-3${isDesktop ? "" : " safe-area-bottom"}`}>
-      {/* Same sweep the terminal pane runs, on the Skills/MCP row */}
+      {/* Same sweep the terminal pane runs, on the context row */}
       {isTurnRunning && <TerminalBeam className="hidden sm:block" />}
 
       {/* Left: permission mode leads the row */}
@@ -126,27 +127,15 @@ export const AiStatusBar = memo(function AiStatusBar({
         )}
       </div>
 
-      {/* Right: Skills, MCP, Clear */}
+      {/* Right: context window, Clear */}
       <div className="flex items-center gap-2.5 shrink-0">
-        <button
-          type="button"
-          onClick={() => { vibrate(); onOpenSkills?.(); }}
-          className="hover:text-text flex items-center gap-1 transition-colors"
-          title="Browse agent skills"
+        <span
+          className="flex items-center gap-1"
+          title={`Context: ${contextUsed.toLocaleString()} tokens`}
         >
-          <Zap size={11} className="text-accent shrink-0" />
-          <span>Skills ({skillsCount})</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={() => { vibrate(); onOpenMcp?.(); }}
-          className="hover:text-text flex items-center gap-1 transition-colors"
-          title="Browse MCP servers"
-        >
-          <Package size={11} className="text-accent shrink-0" />
-          <span>MCP ({mcpCount})</span>
-        </button>
+          <LayoutDashboard size={11} className="text-accent shrink-0" />
+          <span>{formatTokens(contextUsed)}</span>
+        </span>
 
         <button
           type="button"

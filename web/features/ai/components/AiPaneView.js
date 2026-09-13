@@ -374,19 +374,18 @@ export const AiPaneView = memo(function AiPaneView({
         modalOpen={activeModal !== null}
       />
 
-      {/* Status Bar with Session Name, Skills, MCP & Actions */}
+      {/* Status Bar with Session Name, Context window & Actions */}
       <AiStatusBar
         sessionId={sessionId}
         sessionName={sessionName}
         engine={engine}
         isDesktop={isDesktop}
         onModeChange={handleModeChange}
-        onOpenSkills={() => setActiveModal("skills")}
-        onOpenMcp={() => setActiveModal("mcp")}
         onClear={handleClear}
       />
 
-      {/* Modals */}
+      {/* Modals. Skills/MCP lost their status-bar buttons but keep the slash entries
+          (/skills, /mcp), so the panes stay mounted. */}
       {activeModal === "skills" && (
         <SkillsModal
           skills={skills}
