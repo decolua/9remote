@@ -224,11 +224,11 @@ export const AiPaneView = memo(function AiPaneView({
         "--ai-fs": `${fontPx}px`
       }}
     >
-      {/* Title bar — the pane names itself and carries the buttons the header keeps
-          desktop-only (Remote/Mobile/Sites), so a phone has a way in. */}
+      {/* Title bar — mobile only, same as a terminal pane's: desktop already has the tab
+          strip naming the session and carrying Remote/Mobile/Sites, and a phone does not. */}
       <div
         style={{ height: STATUS_BAR_HEIGHT }}
-        className="flex items-center gap-2 px-2 border-b border-border-subtle bg-surface text-[11px] select-none shrink-0 relative z-10"
+        className="sm:hidden flex items-center gap-2 px-2 border-b border-border-subtle bg-surface text-[11px] select-none shrink-0 relative z-10"
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
         <span className="flex-1 min-w-0 truncate text-text">{sessionName || ENGINE_INFO[engine]?.label || engine}</span>
@@ -238,7 +238,7 @@ export const AiPaneView = memo(function AiPaneView({
       {/* Same floating cluster, same order, as a terminal pane's — a chat is the other
           way to sit in a workspace, so the two panes must not drift apart. */}
       {isFocused && (
-        <div className="absolute right-2 top-8 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none">
+        <div className="absolute right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none top-9 sm:top-2">
           <div className="flex flex-row gap-2">
             {showNoteButton && (
               <button
@@ -342,7 +342,8 @@ export const AiPaneView = memo(function AiPaneView({
             <AiQuestionCard
               requestId={activePermission.requestId}
               questions={activePermission.input?.questions || []}
-              onResolve={(reqId, answers) => resolvePermission(reqId, "allow", "", answers)}
+              // behavior is the card's to choose: an answer is "allow", Skip is "deny"
+              onResolve={resolvePermission}
             />
           ) : (
             <AiPermissionCard

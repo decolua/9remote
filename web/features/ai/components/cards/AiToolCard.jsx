@@ -81,29 +81,28 @@ export const AiToolCard = memo(function AiToolCard({
             )}
           </span>
 
-          {/* Name and text share one line and wrap as a unit: the text takes whatever room
-              the name leaves, and drops to the next line only when it runs out of it.
-              `w-0 grow` is what lets it wrap there rather than force the row wider —
-              without a zero basis the span keeps its max-content width and the row scrolls
-              sideways instead. break-all because a command or an MCP name has no space to
-              break on. */}
-          <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 min-w-0 flex-1">
+          {/* Name and text are one inline run, not two flex items: the text picks up right
+              after the name and wraps mid-line like a sentence, instead of dropping to the
+              next line as a whole block and leaving the first one half empty. Only the name
+              is chipped; break-all because a command or an MCP name has no space to break
+              on. The chevron sits outside so it never lands inside the chip's background. */}
+          <div className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed">
             {/* MCP tools are named mcp__<server>__<tool> — one unbreakable word. Never shrunk
                 or clipped: the name is the point of the row. */}
-            <span className="font-mono text-[10px] font-semibold text-text uppercase tracking-wider shrink-0 max-w-full break-all px-1 py-0.5 rounded bg-surface-2/80" title={name}>
+            <span className="text-[10px] font-semibold text-text uppercase tracking-wider break-all px-1 py-0.5 rounded bg-surface-2/80 [box-decoration-break:clone]" title={name}>
               {name}
             </span>
-
             {displayCmd && (
-              <span className="font-mono text-[11px] text-text-muted break-all w-0 grow min-w-0" title={displayCmd}>
-                {displayCmd}
-              </span>
+              <>
+                {" "}
+                <span className="text-text-muted break-all" title={displayCmd}>{displayCmd}</span>
+              </>
             )}
-
-            <span className="text-text-muted/50 shrink-0 ml-auto">
-              {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
-            </span>
           </div>
+
+          <span className="text-text-muted/50 shrink-0 self-center">
+            {expanded ? <ChevronDown size={11} /> : <ChevronRight size={11} />}
+          </span>
         </div>
 
         <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover/tool:opacity-100 transition-opacity">

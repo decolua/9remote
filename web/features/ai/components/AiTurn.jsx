@@ -75,7 +75,7 @@ export const AiTurn = memo(function AiTurn({
                 key={b.key}
                 requestId={p.requestId}
                 questions={p.input?.questions || []}
-                onResolve={(reqId, answers) => onResolvePermission?.(reqId, "allow", "", answers)}
+                onResolve={onResolvePermission}
               />
             );
           }

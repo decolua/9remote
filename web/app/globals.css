@@ -660,8 +660,14 @@ html.terminal-page body {
    .ai-conversation: the composer is a SIBLING of the message list, not a descendant,
    so the nested selector never matched and it fell back to its own text-xs. */
 .ai-pane .ai-composer-input {
-  font-size: calc(var(--ai-fs, 12px) + 2px);
+  font-size: calc(var(--ai-fs, 12px) + 1px);
   line-height: 1.4;
+}
+
+/* Only the prompt, not what is typed: the placeholder is a hint, so it sits a step
+   below the composer's own size rather than matching it. */
+.ai-pane .ai-composer-input::placeholder {
+  font-size: var(--ai-fs, 12px);
 }
 
 /* Terminal wrapper — default clip; .is-scrollable unlocks pan when soft-KB shrinks viewport */
