@@ -1,7 +1,8 @@
 "use client";
 
-import { memo, useMemo, useState } from "react";
+import { memo, useMemo } from "react";
 import { AiToolCard } from "./cards/AiToolCard";
+import { StepWindow, WINDOW_STEPS } from "./StepWindow";
 import { AiBashCard } from "./cards/AiBashCard";
 import { AiAgentCard } from "./cards/AiAgentCard";
 import { AiDiffCard } from "./cards/AiDiffCard";
@@ -45,10 +46,6 @@ function ProseRow({ content, isLive }) {
   );
 }
 
-// How many steps of a run stay visible before the rest go behind "N more".
-const WINDOW_STEPS = 4;
-const CHUNK = 12;
-
 export const AiTurn = memo(function AiTurn({
   messages = [],
   engine = "claude",
@@ -61,7 +58,6 @@ export const AiTurn = memo(function AiTurn({
     () => splitTurnBlocks(rows, WINDOW_STEPS, { deferred: !isLive }),
     [rows, isLive]
   );
-  const [revealed, setRevealed] = useState({});
 
   return (
     <div className="my-1">
@@ -88,23 +84,15 @@ export const AiTurn = memo(function AiTurn({
 
         // The rail marks a run of steps as one piece of work, so a long turn still
         // reads as a unit without boxing every card.
-        const hidden = Math.max(0, b.hidden - (revealed[b.key] || 0));
-        const shown = hidden > 0 ? b.rows.slice(hidden) : b.rows;
-
         return (
           <div key={b.key} className="relative pl-2.5 border-l-2 border-border-subtle/50 my-1">
-            {hidden > 0 && (
-              <button
-                type="button"
-                onClick={() => setRevealed((r) => ({ ...r, [b.key]: (r[b.key] || 0) + Math.min(CHUNK, hidden) }))}
-                className="w-full py-0.5 text-left font-mono text-[10.5px] text-text-subtle hover:text-text"
-              >
-                ▲ {hidden} more {hidden === 1 ? "step" : "steps"}
-              </button>
-            )}
-            {shown.map((row) => (
-              <StepCard key={row.id} row={row} engine={engine} workspacePath={workspacePath} deferred={!isLive} />
-            ))}
+            <StepWindow total={b.rows.length}>
+              {(hidden) =>
+                (hidden > 0 ? b.rows.slice(hidden) : b.rows).map((row) => (
+                  <StepCard key={row.id} row={row} engine={engine} workspacePath={workspacePath} deferred={!isLive} />
+                ))
+              }
+            </StepWindow>
           </div>
         );
       })}

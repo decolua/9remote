@@ -7,7 +7,7 @@
 //
 // Run: node --import ./test/loader-alias.mjs web/test/turnRows.test.mjs
 import assert from "node:assert/strict";
-import { buildTurnRows, visibleTools, splitTurnBlocks } from "../features/ai/lib/turnRows.js";
+import { buildTurnRows, visibleTools, splitTurnBlocks, hiddenCount, revealStep, collapseStep } from "../features/ai/lib/turnRows.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -117,6 +117,46 @@ test("deferred reaches both block kinds", () => {
   const [steps, prose] = splitTurnBlocks(rows, 6, { deferred: true });
   assert.equal(steps.deferred, true);
   assert.equal(prose.deferred, true);
+});
+
+// The window bar pages older steps in and must take them back out again: a long run of
+// steps shows its tail, and "show less" is the only way back to the short view.
+test("a short run hides nothing", () => {
+  assert.equal(hiddenCount(3, 3), 0);
+});
+
+// One more than the window is still shown whole — a bar costs more than it saves.
+test("hiddenCount keeps the window plus one", () => {
+  assert.equal(hiddenCount(4, 3), 0);
+  assert.equal(hiddenCount(5, 3), 2);
+});
+
+test("revealing pages in a chunk, never past what is hidden", () => {
+  assert.equal(revealStep(20, 12), 12);
+  assert.equal(revealStep(5, 12), 5);
+});
+
+test("revealed steps come off the hidden count", () => {
+  assert.equal(hiddenCount(20, 3, 12), 5);
+  assert.equal(hiddenCount(20, 3, 17), 0);
+});
+
+// "show less" is a decrement of `revealed`, so it gives back at most what was paged in.
+test("collapsing gives back a chunk, never past zero", () => {
+  assert.equal(collapseStep(15, 12), 12);
+  assert.equal(collapseStep(5, 12), 5);
+  assert.equal(collapseStep(0, 12), 0);
+});
+
+// The full round trip: reveal everything, then collapse back to the window.
+test("reveal then collapse returns to the window", () => {
+  let revealed = 0;
+  for (let i = 0; i < 10; i++) revealed += revealStep(hiddenCount(20, 3, revealed), 12);
+  assert.equal(hiddenCount(20, 3, revealed), 0);
+
+  while (revealed > 0) revealed -= collapseStep(revealed, 12);
+  assert.equal(revealed, 0);
+  assert.equal(hiddenCount(20, 3, revealed), 17);
 });
 
 console.log(`\n${fail === 0 ? "✅ all passed" : "❌ FAILED"}, ${pass} passed, ${fail} failed`);

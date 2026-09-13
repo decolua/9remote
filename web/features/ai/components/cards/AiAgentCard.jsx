@@ -4,6 +4,7 @@ import { memo, useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Loader2 } from "@/shared/components/ui/Icon";
 import { AiToolCard } from "./AiToolCard";
 import { AiBashCard } from "./AiBashCard";
+import { StepWindow } from "../StepWindow";
 import { getToolCategory } from "../../registry";
 
 // Tools whose `prompt`/`description` field is the brief worth showing on the row.
@@ -106,18 +107,23 @@ export const AiAgentCard = memo(function AiAgentCard({
       {expanded && (
         <div className="mt-1 ml-3.5 pl-3 border-l-2 border-border-subtle/80 py-1 space-y-0.5">
           {children.length > 0 ? (
-            // A sub-agent can itself spawn one — that grandchild gets this same card,
-            // or its own tool calls would have nowhere to render.
-            children.map((c) => {
-              switch (getToolCategory(engine, c.name)) {
-                case "agent":
-                  return <AiAgentCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />;
-                case "bash":
-                  return <AiBashCard key={c.id} {...c} />;
-                default:
-                  return <AiToolCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />;
+            // Same window as the main timeline: a sub-agent that ran forty tools should
+            // not dump forty cards into the turn. A sub-agent can itself spawn one, and
+            // that grandchild gets this same card, or its calls would have nowhere to go.
+            <StepWindow total={children.length}>
+              {(hidden) =>
+                (hidden > 0 ? children.slice(hidden) : children).map((c) => {
+                  switch (getToolCategory(engine, c.name)) {
+                    case "agent":
+                      return <AiAgentCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />;
+                    case "bash":
+                      return <AiBashCard key={c.id} {...c} />;
+                    default:
+                      return <AiToolCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />;
+                  }
+                })
               }
-            })
+            </StepWindow>
           ) : (
             <div className="text-text-muted italic py-0.5">
               {isRunning ? "Sub-agent started…" : "No tool calls reported."}

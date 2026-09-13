@@ -80,6 +80,24 @@ const isStep = (r) => r.kind === "thought" || r.kind === "tool";
  * Its cards open collapsed even when they carry an error, so paging in old turns does
  * not mount every failed command's output at once.
  */
+// A run one step longer than the window still shows whole — a bar costs more to open
+// than it saves, so it takes windowSize + 1 steps before anything goes behind it.
+/** Steps of a run that stay off-screen, given how many the reader has paged in. */
+export function hiddenCount(total, windowSize, revealed = 0) {
+  const rest = total - Math.max(0, revealed);
+  return rest > windowSize + 1 ? rest - windowSize : 0;
+}
+
+/** How many steps one press of "more" adds — never past what is still hidden. */
+export function revealStep(hidden, chunk) {
+  return Math.min(chunk, Math.max(0, hidden));
+}
+
+/** How many steps one press of "less" takes back — never past what was paged in. */
+export function collapseStep(revealed, chunk) {
+  return Math.min(chunk, Math.max(0, revealed));
+}
+
 export function splitTurnBlocks(rows = [], windowSize = 6, { deferred = false } = {}) {
   const blocks = [];
   for (const row of rows) {
