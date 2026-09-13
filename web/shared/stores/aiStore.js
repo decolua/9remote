@@ -44,6 +44,10 @@ const INITIAL_SESSION_STATE = {
   tasks: [], // TaskCreate/TaskUpdate checklist
 };
 
+// Persisted slices keep prefs only, so a session restored from localStorage can be
+// missing every other field. Actions always read through the defaults.
+const sessionOf = (state, sessionId) => ({ ...INITIAL_SESSION_STATE, ...state.bySession[sessionId] });
+
 export const useAiStore = create(
   persist(
     (set, get) => ({
@@ -61,7 +65,7 @@ export const useAiStore = create(
 
       setPermissionMode: (sessionId, mode) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -73,7 +77,7 @@ export const useAiStore = create(
 
       setTurnRunning: (sessionId, isTurnRunning) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -85,7 +89,7 @@ export const useAiStore = create(
 
       setMetadata: (sessionId, metadata) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -97,7 +101,7 @@ export const useAiStore = create(
 
       setStats: (sessionId, stats) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -109,7 +113,7 @@ export const useAiStore = create(
 
       addUserMessage: (sessionId, text, attachments = null) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const userMsg = { id: `u-${Date.now()}`, role: "user", content: text, attachments: attachments || [] };
           const assistantPlaceholder = {
             id: `a-${Date.now()}`,
@@ -143,7 +147,7 @@ export const useAiStore = create(
 
       appendDelta: (sessionId, text) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           const last = list[list.length - 1];
           if (!last || last.role !== "assistant" || !last.isLive) {
@@ -163,7 +167,7 @@ export const useAiStore = create(
 
       appendThinking: (sessionId, text) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           const last = list[list.length - 1];
           if (!last || last.role !== "assistant" || !last.isLive) {
@@ -182,7 +186,7 @@ export const useAiStore = create(
 
       appendDiff: (sessionId, diffData) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           let last = list[list.length - 1];
           if (!last || last.role !== "assistant") {
@@ -211,7 +215,7 @@ export const useAiStore = create(
 
       appendTool: (sessionId, toolData) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           const last = list[list.length - 1];
           // Text/thinking already streamed in this segment → close it and open a new
@@ -256,7 +260,7 @@ export const useAiStore = create(
 
       updateToolResult: (sessionId, resultData) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           // The tool may live in an EARLIER segment — scan from the end
           for (let i = list.length - 1; i >= 0; i--) {
@@ -286,7 +290,7 @@ export const useAiStore = create(
       // them nested. Dropped when the parent is unknown (a reload that lost it).
       nestTool: (sessionId, toolData) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           for (let i = list.length - 1; i >= 0; i--) {
             const msg = list[i];
@@ -307,7 +311,7 @@ export const useAiStore = create(
 
       nestToolResult: (sessionId, resultData) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           for (let i = list.length - 1; i >= 0; i--) {
             const msg = list[i];
@@ -331,7 +335,7 @@ export const useAiStore = create(
 
       setPermission: (sessionId, permission) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -343,7 +347,7 @@ export const useAiStore = create(
 
       clearPermission: (sessionId) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -356,7 +360,7 @@ export const useAiStore = create(
       // A blocked action: show a card until the turn ends or the user escalates.
       setBlocked: (sessionId, blocked) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -368,7 +372,7 @@ export const useAiStore = create(
 
       clearBlocked: (sessionId) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -380,7 +384,7 @@ export const useAiStore = create(
 
       finishTurn: (sessionId, stats) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           // Nothing is still running once the turn is over, whatever the log says —
           // a tool whose result never arrived would otherwise spin on forever. Every
           // message is swept, not just the last: a tool row stays in the segment it was
@@ -412,7 +416,7 @@ export const useAiStore = create(
       // TaskUpdate events, so keeping the old list would double every entry.
       clearMessages: (sessionId) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -434,7 +438,7 @@ export const useAiStore = create(
 
       rewindToMessage: (sessionId, messageId, newText) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           const idx = curr.messages.findIndex((m) => m.id === messageId);
           if (idx === -1) return state;
           // Truncate only: the host echoes the resubmitted text back as `user_message`,
@@ -458,7 +462,7 @@ export const useAiStore = create(
       // TaskCreate/TaskUpdate → upsert into session tasks list
       upsertTask: (sessionId, taskData) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           // TodoWrite carries the whole list — it replaces, never appends
           if (taskData.replaceAll) {
             return {
@@ -494,7 +498,7 @@ export const useAiStore = create(
       // state update instead of dispatching 5000+ individual actions on join/reconnect.
       hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null }) => {
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
@@ -528,7 +532,7 @@ export const useAiStore = create(
       prependMessages: (sessionId, older) => {
         if (!older?.length) return;
         set((state) => {
-          const curr = state.bySession[sessionId] || INITIAL_SESSION_STATE;
+          const curr = sessionOf(state, sessionId);
           return {
             bySession: {
               ...state.bySession,
