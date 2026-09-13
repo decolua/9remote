@@ -8,7 +8,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { relativeTo, basename, dirname } from "@/features/fileExplorer/lib/pathUtils";
-import { isDiffPath, getTextPreviewKind, parseRepoDiffPath } from "../constants/fileExplorer.js";
+import { GIT_REFRESH_EVENT, isDiffPath, getTextPreviewKind, parseRepoDiffPath } from "../constants/fileExplorer.js";
 import { useFileTreeState } from "@/features/fileExplorer/hooks/useFileTreeState";
 import { useFileOperations } from "@/features/fileExplorer/hooks/useFileOperations";
 import ExplorerRow, { TruncatedNote, indentFor } from "./ExplorerRow";
