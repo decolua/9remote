@@ -322,6 +322,11 @@ export function useAiSession({
   // Mirrors hydratingRef as state so the pane can say "Syncing" — a ref alone would
   // never repaint the status line.
   const [hydrating, setHydrating] = useState(false);
+  // Whether the host has ever answered for this session. An empty store means "still
+  // loading" until it has: a pane that shows its empty state on an unanswered hydrate is
+  // telling the user the chat is new when the truth is that nobody has replied yet.
+  // Reset per session, and only an ok ack sets it — a rejected one is not an answer.
+  const [synced, setSynced] = useState(false);
   const olderSeqRef = useRef(0);
   const loadingOlderRef = useRef(false);
 
@@ -612,7 +617,7 @@ export function useAiSession({
         // the carrier reports a dead RTC) means the host was never reached, so the rung
         // armed while this round was in flight keeps its timer — and one that was never
         // armed is armed now, or that dropped frame costs the pane its history for good.
-        if (res?.ok) clearHydrateRetry();
+        if (res?.ok) { setSynced(true); clearHydrateRetry(); }
         else scheduleHydrateRetry();
       }
     });
@@ -659,6 +664,8 @@ export function useAiSession({
     if (gateSessionRef.current !== sessionId) {
       gateSessionRef.current = sessionId;
       hydratingRef.current = false;
+      // A different chat has not been answered for yet, whatever the last one did.
+      setSynced(false);
     }
     // Held in a ref: re-running this effect on a store-action identity change would
     // re-emit ai:create over a session that is mid-stream.
@@ -938,6 +945,7 @@ export function useAiSession({
 
   return {
     hydrating,
+    synced,
     hasOlder,
     loadOlder,
     // Re-pull the host's log for this session. Mount, resume and reconnect call it

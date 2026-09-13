@@ -7,47 +7,18 @@ import { MessageBubble } from "./MessageBubble";
 import { AiTurn } from "./AiTurn";
 import { ENGINE_INFO, STARTER_PROMPTS } from "../constants";
 import { ArrowDown, Check, Loader2, Pencil, History } from "@/shared/components/ui/Icon";
-import { describeLive, estimateTurnTokens, countTurnChanges } from "../lib/liveStatus";
+import { describeLive, estimateTurnTokens, countTurnChanges, formatTokens } from "../lib/liveStatus";
 import { vibrate } from "@/shared/utils/vibration";
+import { termLog } from "@/shared/utils/termLog";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
+import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, windowTop } from "../lib/messageWindow";
 
 const EMPTY_MESSAGES = [];
 // How many past conversations the empty state offers before deferring to /resume.
 const RECENT_SESSIONS = 8;
-// Dynamic byte budget per slice: adapts flexibly to message sizes. Long turns (diffs/code)
-// stop early to keep DOM light; short turns ("ok", "yes") pack multiple exchanges.
-const PAGE_BUDGET_BYTES = 32 * 1024; // 32 KB per load slice
 const LOAD_MORE_THRESHOLD_PX = 120;
-
-function estimateMessageBytes(msg) {
-  if (!msg) return 0;
-  let bytes = (msg.content?.length || 0) + (msg.thinking?.length || 0);
-  if (Array.isArray(msg.tools)) {
-    for (const t of msg.tools) {
-      bytes += (t.command?.length || 0) + (t.output?.length || 0) + 120;
-    }
-  }
-  if (Array.isArray(msg.diffs)) {
-    for (const d of msg.diffs) {
-      bytes += (d.diff?.length || 0) + (d.file?.length || 0) + 80;
-    }
-  }
-  return Math.max(bytes, 100);
-}
-
-function countMessagesByBudget(messages, budgetBytes, minCount = 2) {
-  if (!Array.isArray(messages) || messages.length === 0) return 0;
-  let accumulated = 0;
-  let count = 0;
-  for (let i = messages.length - 1; i >= 0; i--) {
-    accumulated += estimateMessageBytes(messages[i]);
-    count++;
-    if (accumulated >= budgetBytes && count >= minCount) break;
-  }
-  return count;
-}
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -332,20 +303,39 @@ export const AiMessagesList = memo(function AiMessagesList({
   const scrollTimerRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [visibleBytes, setVisibleBytes] = useState(PAGE_BUDGET_BYTES);
+  // The mounted window's top, kept across renders so appends never move it: recomputing it
+  // from the newest message each render slid it down, hiding turns already shown.
+  const [topId, setTopId] = useState(null);
 
   // Subscribe ONLY to messages of this session
   const messages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY_MESSAGES;
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
 
-  // A history rebuilt from the host log is a different list — start from the tail again
-  useEffect(() => { setVisibleBytes(PAGE_BUDGET_BYTES); }, [sessionId]);
+  // A history rebuilt from the host log is a different list — start from the tail again.
+  useEffect(() => {
+    setVisibleBytes(PAGE_BUDGET_BYTES);
+    setTopId(null);
+  }, [sessionId]);
 
-  const visibleCount = useMemo(
-    () => countMessagesByBudget(messages, visibleBytes),
-    [messages, visibleBytes]
+  // Derived during render, not through state, so the frame that receives a hydrate mounts
+  // the right slice. Through state it would mount the previous slice for one frame — and
+  // on a hydrate, where the ids are all new, that slice is the whole session.
+  const { id: nextTopId, index: hiddenCount } = useMemo(
+    () => windowTop(topId, messages, visibleBytes, MAX_MOUNTED_BYTES),
+    [topId, messages, visibleBytes]
   );
+  useEffect(() => { setTopId(nextTopId); }, [nextTopId]);
 
-  const hiddenCount = Math.max(0, messages.length - visibleCount);
+  // TEMP DIAGNOSTIC — the window's own view of the log, once per change. If this never
+  // fires on scroll-up the button was not reached; if hiddenCount stays put the window
+  // was clamped; if it drops but the DOM shows nothing, the slice is the problem.
+  useEffect(() => {
+    termLog("ai-page", "window", {
+      sessionId, total: messages.length, hiddenCount, visibleBytes, topId, nextTopId,
+      firstVisible: messages[hiddenCount]?.id
+    });
+  }, [sessionId, messages.length, hiddenCount, visibleBytes, topId, nextTopId, messages]);
+
   const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
   // One turn = a user message plus every assistant segment that followed it. The list

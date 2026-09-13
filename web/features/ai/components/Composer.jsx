@@ -129,13 +129,14 @@ export const Composer = memo(function Composer({
   const justSentRef = useRef(0);
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
 
-  // Auto-focus only when this specific pane is active/focused and not busy running.
-  // Never while a modal is open — it would drag focus back out of the modal panel.
+  // Focus the box whenever this pane becomes the active one — switching tabs is how you
+  // get here to type, and a running turn is exactly when a prompt gets queued. Keyed on
+  // focus/modal only, never on the turn: a turn edge must not yank focus back from
+  // wherever the user moved it. Never while a modal is open — that would drag focus
+  // back out of the modal panel.
   useEffect(() => {
-    if (isFocused && !isTurnRunning && !modalOpen) {
-      textareaRef.current?.focus();
-    }
-  }, [isFocused, isTurnRunning, modalOpen]);
+    if (isFocused && !modalOpen) textareaRef.current?.focus();
+  }, [isFocused, modalOpen]);
 
   // Auto-close the model popover on outside click
   useEffect(() => {
@@ -843,18 +844,20 @@ export const Composer = memo(function Composer({
 
         {/* Action strip: Model selector, Mode selector & Send button */}
         <div className="relative flex items-center justify-between text-xs pt-0.5 border-t border-border-subtle/30">
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 flex-1 min-w-0">
             {/* Model Selector Dropdown */}
-            <div ref={modelMenuRef} className="relative">
+            <div ref={modelMenuRef} className="relative min-w-0">
               <button
                 type="button"
                 onClick={() => setModelMenuOpen((v) => !v)}
-                className="px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
+                className="max-w-full px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
                 title="Select model (/model)"
               >
                 <img src={agentIconUrl(`${engine}-ui`)} alt="" className={`w-3.5 h-3.5 object-contain shrink-0 ${AGENT_ICON_CLS}`} />
-                <span className="truncate max-w-[170px] sm:max-w-[240px]">{displayModel}</span>
-                <ChevronUp size={11} className={`text-text-muted transition-transform ${modelMenuOpen ? "" : "rotate-180"}`} />
+                {/* dir=rtl keeps the tail visible when the id is too long, so the
+                    version suffix (the part that distinguishes models) survives. */}
+                <span dir="rtl" className="truncate min-w-0"><bdi>{displayModel}</bdi></span>
+                <ChevronUp size={11} className={`text-text-muted shrink-0 transition-transform ${modelMenuOpen ? "" : "rotate-180"}`} />
               </button>
               {modelMenuOpen && (
                 <div className="absolute left-0 bottom-[calc(100%+6px)] min-w-[260px] max-h-56 bg-surface border border-border-subtle rounded-brand shadow-xl overflow-y-auto z-50 p-1 custom-scrollbar">
@@ -895,7 +898,7 @@ export const Composer = memo(function Composer({
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 shrink-0 pl-1.5">
             {/* Attach a file or image — the host stages it where the CLI can read it */}
             <label
               className="p-1.5 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer flex items-center justify-center"
