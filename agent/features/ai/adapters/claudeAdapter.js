@@ -285,6 +285,9 @@ export class ClaudeAdapter {
       const contents = msg.content || [];
       for (const item of contents) {
         if (item.type === "tool_use") {
+          // Kept until its result arrives: `tool_result` carries only the id, and the
+          // diff for an edit needs the name and input the call was made with.
+          this.toolCalls.set(item.id, { name: item.name, input: item.input });
           this.onEvent?.("tool_start", {
             id: item.id,
             name: item.name,
@@ -320,6 +323,15 @@ export class ClaudeAdapter {
             status: isError ? "error" : "done",
             parentToolUseId
           });
+          // The diff comes from the RESULT, not the call: an edit the user denied never
+          // reaches here, so a rejected change cannot paint itself as one that landed.
+          // (Codex is gated the same way — it emits on `file_change`.)
+          const call = this.toolCalls.get(item.tool_use_id);
+          this.toolCalls.delete(item.tool_use_id);
+          if (call && !isError && DIFF_TOOLS.has(call.name)) {
+            const diff = buildEditDiff(call.name, call.input);
+            if (diff) this.onEvent?.("diff", diff);
+          }
         }
       }
     }

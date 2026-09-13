@@ -128,6 +128,17 @@ function capToolOutput(data) {
   return { ...data, output: cut(data.output), error: cut(data.error) };
 }
 
+// A diff is replayed and re-serialized exactly like tool output, so it takes the same
+// cap: a Write of a large file would otherwise put the whole file in the log and in every
+// snapshot written after it.
+function capDiff(data) {
+  if (!data) return data;
+  const cut = (v) => (typeof v === "string" && v.length > AI_MAX_TOOL_OUTPUT
+    ? `${v.slice(0, AI_MAX_TOOL_OUTPUT)}\n… [truncated]`
+    : v);
+  return { ...data, patch: cut(data.patch), content: cut(data.content) };
+}
+
 function compactEvents(events) {
   if (!Array.isArray(events) || events.length <= 1) return events;
   const compacted = [];

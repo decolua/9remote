@@ -10,20 +10,29 @@
 // that shape (useAiSession's reduceSessionEvents, aiStore's appendTool): text, thinking,
 // tools and diffs each land in the segment they arrived in.
 
-import { getToolCategory } from "../registry";
+import { getToolCategory } from "../registry.js";
 
 // Tools whose whole effect is the pinned checklist strip (AiTaskCard) — inline they
 // would only repeat it.
 const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todowrite"]);
 
+// Must match DIFF_TOOL_NAMES in agent/features/ai/adapters/claudeAdapter.js: every tool
+// the host turns into a diff row has to be hidden here, or the file shows twice. All
+// four name their target, and NotebookEdit uses `notebook_path` rather than `file_path`.
+const DIFF_TOOL_NAMES = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+const editTarget = (input = {}) => input.file_path || input.notebook_path || input.path || "";
+
+/** The tool row a diff replaces, by file — shared with `buildTurnRows`'s dedupe. */
+export const editsFile = (t, path) =>
+  DIFF_TOOL_NAMES.has(t?.name) && path && editTarget(t.input) === path;
+
 /** Tool calls worth a row: no duplicate of a diff card, no pinned-strip tool. */
 export function visibleTools(engine, tools, diffs) {
   return (tools || []).filter((t) => {
     if (!t || !t.name) return false;
-    const path = t.input?.file_path || t.input?.path || "";
-    if ((t.name === "Edit" || t.name === "Write") && path && (diffs || []).some((d) => d.file === path)) {
-      return false;
-    }
+    // A diff for this file replaces those calls: same file as a tool row would show
+    // twice, as its own row and again as a diff.
+    if ((diffs || []).some((d) => d.file && editsFile(t, d.file))) return false;
     if (getToolCategory(engine, t.name) === "task" && TASK_STRIP_TOOLS.has(t.name)) return false;
     return true;
   });
@@ -63,7 +72,9 @@ export function buildTurnRows(messages = [], engine = "claude") {
   return rows;
 }
 
-const isStep = (r) => r.kind === "thought" || r.kind === "tool";
+// A diff belongs in the same run as the tool calls around it: it is one more step the
+// agent took, and it pages with them under the same "N more" bar.
+const isStep = (r) => r.kind === "thought" || r.kind === "tool" || r.kind === "diff";
 
 /**
  * Split rows into what the pane paints.

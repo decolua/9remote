@@ -18,6 +18,20 @@ import MarkdownBody from "@/shared/components/ui/MarkdownBody";
 // tail, and the rest waits behind "N more".
 function StepCard({ row, engine, workspacePath, deferred }) {
   if (row.kind === "thought") return <AiThinkingBlock text={row.text} isLive={row.isLive} />;
+  // Checked before `row.tool`: a diff row carries no tool, and reading one off it threw.
+  if (row.kind === "diff") {
+    const d = row.diff;
+    return (
+      <AiDiffCard
+        file={d.file}
+        name={d.name}
+        patch={d.patch}
+        diff={d.diff}
+        content={d.content}
+        workspacePath={workspacePath}
+      />
+    );
+  }
 
   const t = row.tool;
   const cat = getToolCategory(engine, t.name);
