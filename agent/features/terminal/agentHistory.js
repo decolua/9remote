@@ -540,8 +540,19 @@ export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fr
   }
   rows.sort((a, b) => b.updatedAt - a.updatedAt || SOURCE_RANK.get(a.agent) - SOURCE_RANK.get(b.agent));
 
-  cache.set(cwd, { at: Date.now(), rows });
-  return rows.slice(0, limit);
+  // A resumed Codex conversation writes a second rollout file under the same
+  // session id, so the store holds several transcripts for one conversation.
+  // Rows are newest first: keep the newest and drop the rest.
+  const seen = new Set();
+  const unique = rows.filter((row) => {
+    const key = `${row.agent}:${row.sessionId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+
+  cache.set(cwd, { at: Date.now(), rows: unique });
+  return unique.slice(0, limit);
 }
 
 /**
