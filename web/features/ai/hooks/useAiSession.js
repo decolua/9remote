@@ -6,10 +6,8 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
+import { createRetryLadder } from "../lib/hydrateRetry";
 import { RECOVER_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
-
-const DEFAULT_STATS = { inputTokens: 0, outputTokens: 0, totalTurns: 0 };
-const DEFAULT_METADATA = { model: "" };
 
 // The CLI reports skills as bare id strings; the agent-side scan reports objects.
 // Normalize both to one shape so the "/" menu and skills modal never render `undefined`.
@@ -17,13 +15,15 @@ const normalizeSkills = (skills) =>
   Array.isArray(skills)
     ? skills.map((s) => (typeof s === "string" ? { id: s, name: s, description: "" } : s))
     : [];
-const EMPTY_MESSAGES = [];
 // How long live events are held while waiting for the ai:create snapshot ack.
 const HYDRATE_TIMEOUT_MS = 4000;
 // An ack wait budget for the scroll-up fetch. A carrier that dies mid-flight never
 // calls back, and the same guard is what keeps the terminal's history fetch alive
 // (see features/terminal/lib/reconnectState.js).
 const HISTORY_TIMEOUT_MS = 4000;
+// A hydrate whose ack never arrived leaves the pane without the host's tail, and with
+// it the load-older affordance. The ladder that re-asks lives in lib/hydrateRetry, and
+// the lib owns the delays — this hook only drives its timer.
 
 // Pure reducer that transforms an event log into a complete session snapshot in RAM
 // in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
@@ -237,6 +237,13 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         turnEnded = true;
         isTurnRunning = false;
         break;
+      case "stall":
+        // The watchdog killed a silent turn. Ends the turn like `stopped`, but draws no
+        // bubble: it fires on a timeout guess, so a slow build must not read as an error.
+        turnEnded = true;
+        isTurnRunning = false;
+        for (const m of messages) if (m.isLive) m.isLive = false;
+        break;
       case "exit":
         turnEnded = true;
         // The CLI process went away. Turn ends either way — without this the pane
@@ -318,13 +325,10 @@ export function useAiSession({
   const olderSeqRef = useRef(0);
   const loadingOlderRef = useRef(false);
 
-  // Read session-specific state from Zustand
-  const sessionState = useAiStore((s) => s.bySession[sessionId]);
-  const messages = sessionState?.messages || EMPTY_MESSAGES;
-  const isTurnRunning = sessionState?.isTurnRunning || false;
-  const stats = sessionState?.stats || DEFAULT_STATS;
-  const metadata = sessionState?.metadata || DEFAULT_METADATA;
-  const activeBlocked = sessionState?.activeBlocked || null;
+  // This hook does not read the session slice: it only dispatches into it, and the
+  // panes subscribe to what they need themselves. Subscribing here would rebuild the
+  // whole hook body — and every callback and effect hanging off it — once per streamed
+  // frame, which is the cost the delta buffering below exists to avoid.
 
   // One reducer for BOTH live events and join-replay — the host (daemon) is the
   // single source of truth, so replayed history must land in the same store
@@ -415,6 +419,11 @@ export function useAiSession({
       case "stopped":
         setTurnRunning(sid, false);
         break;
+      case "stall":
+        // Same release as `stopped`, deliberately without the text `error` appends.
+        setTurnRunning(sid, false);
+        finishTurn(sid);
+        break;
       case "error":
         // Spawn/CLI failure never produces a turn_complete — surface it as text
         // and release the turn, or the pane spins on a process that is gone.
@@ -453,14 +462,56 @@ export function useAiSession({
   // release the gate the second attempt is still holding — a stale callback stands
   // down instead of clearing state a newer cycle owns.
   const hydrateSeqRef = useRef(0);
+  // The re-ask ladder for a hydrate nobody answered; decisions live in the lib, this
+  // holds the one timer they drive.
+  const ladderRef = useRef(null);
+  if (ladderRef.current == null) ladderRef.current = createRetryLadder();
+  const retryTimerRef = useRef(null);
+  // The debounce in front of the one door, and the ack watchdog of the round it opens.
+  const hydrateDebounceRef = useRef(null);
+  const releaseTimerRef = useRef(null);
+  // Holds `requestHydrate`, assigned once the callback exists. The ladder's timer fires
+  // outside React's render, so it reaches the door through this.
+  const doorRef = useRef({});
+  // The session whose round last owned the gate, so a re-run for the SAME session
+  // (workspacePath resolving late) cannot open it a second time.
+  const gateSessionRef = useRef(null);
+
+  const clearHydrateRetry = useCallback(() => {
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    retryTimerRef.current = null;
+    ladderRef.current?.answered();
+  }, []);
+
+  // The one door into a hydrate. Every trigger (carrier rejoin, resume) reaches it
+  // through `doorRef`, so a resume that fires several of them within milliseconds still
+  // costs one round-trip. A request that lands while a round is in flight is NOT dropped
+  // and NOT stacked: it arms one rung of the ladder, which stands the failure timer down
+  // if that round answers and re-asks if it does not.
+  const scheduleHydrateRetry = useCallback(() => {
+    const delay = ladderRef.current?.schedule(useConnectionStore.getState().connected);
+    if (delay == null) return;
+    retryTimerRef.current = setTimeout(() => {
+      retryTimerRef.current = null;
+      ladderRef.current?.fired();
+      // Through the door, not straight at the host: another trigger may have fired
+      // while this timer was pending, and two rounds in flight is what the gate forbids.
+      doorRef.current.request?.();
+    }, delay);
+  }, []);
 
   // 1. Pull the host's event log for this session. The host is authoritative, so a
   // client rebuilds its view from it (truncate then replay) rather than trusting its
   // own localStorage — that is what makes web 3000 / agent UI / mobile show one
   // identical history. It is also the reconnect path: a carrier that dropped while
   // the phone slept took its events with it, and this is the only way back.
-  const hydrate = useCallback(() => {
+  const hydrateNow = useCallback(() => {
     if (!sessionId || !bus) return;
+    // One round at a time. Without this, mount + terminal:ready + carrier rejoin each
+    // emit their own ai:create within a few ms of each other, and the older ack lands
+    // over the newer cycle's replay. A request that arrives mid-round is not dropped:
+    // it arms the ladder, which stands down if this round answers and re-asks if not.
+    if (hydratingRef.current) { scheduleHydrateRetry(); return; }
     const gen = ++hydrateSeqRef.current;
     hydratingRef.current = true;
     setHydrating(true);
@@ -495,7 +546,10 @@ export function useAiSession({
     const releaseTimer = setTimeout(() => {
       if (gen !== hydrateSeqRef.current || !hydratingRef.current) return;
       releaseHeld();
+      // Nobody answered — the pane would hold a partial view with no way to page back.
+      scheduleHydrateRetry();
     }, HYDRATE_TIMEOUT_MS);
+    releaseTimerRef.current = releaseTimer;
     // A brand-new session starts fully permitted; the host ignores this once it has
     // a snapshot, so reopening an old chat keeps the mode that chat ran with.
     bus.emit("ai:create", {
@@ -554,50 +608,123 @@ export function useAiSession({
         // Always drains — a failed ack must not discard events that really arrived.
         clearTimeout(releaseTimer);
         if (gen === hydrateSeqRef.current) releaseHeld();
+        // Only a real answer stands the ladder down. A rejected ack (`rtc-closed` is how
+        // the carrier reports a dead RTC) means the host was never reached, so the rung
+        // armed while this round was in flight keeps its timer — and one that was never
+        // armed is armed now, or that dropped frame costs the pane its history for good.
+        if (res?.ok) clearHydrateRetry();
+        else scheduleHydrateRetry();
       }
     });
-    return () => clearTimeout(releaseTimer);
-  }, [sessionId, engine, workspacePath, bus, setTurnRunning]);
+  }, [sessionId, engine, workspacePath, bus, setTurnRunning, scheduleHydrateRetry, clearHydrateRetry]);
+
+  const requestHydrate = useCallback(() => {
+    // Offline, the send would sit in the carrier's buffer to be answered by a host that
+    // has moved on — the bus "connect" trigger asks again once there is someone to ask.
+    if (!useConnectionStore.getState().connected) return;
+    if (hydrateDebounceRef.current) return; // burst already pending
+    hydrateDebounceRef.current = setTimeout(() => {
+      hydrateDebounceRef.current = null;
+      hydrateNow();
+    }, RECOVER_DEBOUNCE_MS);
+  }, [hydrateNow]);
+
+  // The debounce and the ladder's timer both fire outside React's render, so they reach
+  // the newest callback through a ref rather than through a captured closure. Nothing
+  // clears this: the only caller is the ladder's timer, and the effect below stops it.
+  useEffect(() => {
+    doorRef.current = { request: requestHydrate };
+  }, [requestHydrate]);
+
+  // Leaving the session stops every timer that could emit for it, and drops the gate. Both
+  // matter for a StrictMode remount, where the refs survive: the ack of a round in flight
+  // is cancelled by this cleanup, so without the flag being cleared the next mount would
+  // find the gate shut and buffer every live event forever.
+  useEffect(() => () => {
+    if (hydrateDebounceRef.current) clearTimeout(hydrateDebounceRef.current);
+    if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
+    if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current);
+    hydrateDebounceRef.current = retryTimerRef.current = releaseTimerRef.current = null;
+    hydratingRef.current = false;
+    pendingLiveRef.current = [];
+  }, []);
 
   // Initial mount, and every remount that changes the session's identity.
   useEffect(() => {
     if (!sessionId) return;
+    // The effect also re-runs when workspacePath resolves (the session list lands after
+    // the pane), and that is not a new session: opening the gate again there would let a
+    // second ai:create out while the first is still in flight. Only a real change of id
+    // drops a round the previous session left holding the gate.
+    if (gateSessionRef.current !== sessionId) {
+      gateSessionRef.current = sessionId;
+      hydratingRef.current = false;
+    }
     // Held in a ref: re-running this effect on a store-action identity change would
     // re-emit ai:create over a session that is mid-stream.
     initSessionRef.current(sessionId);
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- hydrate sets the syncing flag; a mount that is not syncing has nothing to show
-    return hydrate();
-  }, [sessionId, hydrate]);
+    // Straight at the host, NOT through requestHydrate: on a cold start no carrier is
+    // ready yet and that door would drop the ask, while the carrier's "connect" only
+    // fires on LATER rejoins — the pane would sit empty over a healthy host until the
+    // user hit refresh. PM buffers the emit and flushes it on the first adapter, which
+    // is the behavior this mount has always relied on. A rejoin landing in the same
+    // breath is then held off by the in-flight gate above, not by a delay.
+    return hydrateNow();
+  }, [sessionId, hydrateNow]);
 
   // Backgrounded-then-resumed, and carrier rejoin (the same triggers the terminal
   // recovers on). A live app that never remounts has no other path: the store is not
   // persisted, so events lost while the carrier was down stay lost until the pane is
-  // remounted. A resume fires both triggers within ms — debounce into one round-trip.
+  // remounted. A resume fires both triggers within ms — the one door debounces them into
+  // one round-trip.
   useEffect(() => {
     if (!bus || !sessionId) return;
-    let timer = null;
-    // Offline, the send would sit in PM's buffer and be answered by a host that has
-    // since moved on — the `connect` below fires when there is someone to ask.
-    const requestHydrate = () => {
-      if (!useConnectionStore.getState().connected) return;
-      if (timer) clearTimeout(timer);
-      timer = setTimeout(() => { timer = null; hydrate(); }, RECOVER_DEBOUNCE_MS);
-    };
+    // Online is the door's own check, so a resume while offline needs no branch here:
+    // the `connect` below fires when there is someone to ask.
     const onVisible = () => {
       if (!document.hidden) requestHydrate();
     };
     bus.on("connect", requestHydrate);
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      if (timer) clearTimeout(timer);
       bus.off("connect", requestHydrate);
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [bus, sessionId, hydrate]);
+  }, [bus, sessionId, requestHydrate]);
 
   // 2. Subscribe to AI bus events
   useEffect(() => {
     if (!bus || !sessionId) return;
+
+    // The CLI emits one `delta` per token. Applying each one immediately is one store
+    // write, one localStorage round-trip and one React commit per token — thousands a
+    // turn, for text that is only ever read at screen refresh rate. Text and thinking
+    // are pure appends with no ordering against each other, so they accumulate here and
+    // land once per frame. Everything else (a tool, a permission gate, turn_complete)
+    // must not wait: it changes what the pane is allowed to do, not just what it shows.
+    let bufferedText = "";
+    let bufferedThinking = "";
+    let flushHandle = null;
+    const flushStreamed = () => {
+      // Dropped either way: called from the frame itself this is a no-op, and called
+      // synchronously from an event below it stops that frame from firing again on an
+      // empty buffer and stealing the next batch's schedule.
+      if (flushHandle != null) cancelAnimationFrame(flushHandle);
+      flushHandle = null;
+      const text = bufferedText;
+      const thinking = bufferedThinking;
+      bufferedText = "";
+      bufferedThinking = "";
+      const apply = applyEventRef.current;
+      if (text) apply(sessionId, "delta", { text });
+      if (thinking) apply(sessionId, "thinking", { text: thinking });
+    };
+    const bufferStream = (event, text) => {
+      if (!text) return;
+      if (event === "delta") bufferedText += text;
+      else bufferedThinking += text;
+      if (flushHandle == null) flushHandle = requestAnimationFrame(flushStreamed);
+    };
 
     const handleAiEvent = (payload) => {
       if (!payload || payload.sessionId !== sessionId) return;
@@ -607,6 +734,13 @@ export function useAiSession({
         pendingLiveRef.current.push(payload);
         return;
       }
+      // Text held for this frame goes in first: anything below either changes what the
+      // pane may do, or restarts the log the text belongs to.
+      if (payload.event === "delta" || payload.event === "thinking") {
+        bufferStream(payload.event, payload.data?.text);
+        return;
+      }
+      flushStreamed();
       // A reset means the host is starting a NEW log whose seqs begin again at 1.
       // The old watermark would drop every replayed event as "already applied", so
       // it must be cleared before the replay that follows.
@@ -632,6 +766,8 @@ export function useAiSession({
     bus.on("ai:event", handleAiEvent);
     return () => {
       bus.off("ai:event", handleAiEvent);
+      // A pane closing mid-frame must not swallow the last tokens it received.
+      flushStreamed();
     };
   }, [bus, sessionId, applyEvent]);
 
@@ -801,18 +937,13 @@ export function useAiSession({
   }, [sessionId, engine]);
 
   return {
-    messages,
-    isTurnRunning,
-    stats,
-    metadata,
-    activeBlocked,
     hydrating,
     hasOlder,
     loadOlder,
     // Re-pull the host's log for this session. Mount, resume and reconnect call it
     // on their own; the pane's refresh button is the manual one for when a run of
     // events was lost while the carrier was up.
-    reload: hydrate,
+    reload: hydrateNow,
     sendPrompt,
     resolvePermission,
     stop,
