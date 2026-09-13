@@ -7,21 +7,33 @@ import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
 import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, resolveDefaultModel } from "./models.js";
-import { runEngineDoctor } from "./aiSession.js";
-import { renameSessionTitle, broadcastAiStatus } from "../terminal/terminalSocket.js";
+import { runEngineDoctor, TURN_END_EVENTS } from "./aiSession.js";
+import { broadcastAiStatus } from "../terminal/terminalSocket.js";
 import { getConversation, getSessionAgent, setConversationId } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
 import { aiTailStart } from "./aiEventSlice.js";
 import { AI_REPLAY_BYTES } from "./constants.js";
+import { rewindSupport, unsupportedReason } from "./rewind.js";
+import { listRewindPoints, rewindable, previewRewind, applyRewind } from "./opencodeRewind.js";
 
 const logger = createLogger("ai");
 let broadcastAttached = false;
+// session ids whose async create is still in flight. Two mounts of the same pane (a
+// reconnect, a second tab) both miss the "already live" check while the first is still
+// awaiting its CLI, and would then build and start it twice — the second create killing
+// the first one's process. One shared set; keys are session-scoped, not connection-scoped.
+const creating = new Map();
 
-function mirrorAiStatus(sessionId, event, engine) {
-  if (event === "permission_request") broadcastAiStatus?.(sessionId, "blocked", engine);
-  else if (event === "turn_complete") broadcastAiStatus?.(sessionId, "done", engine);
-  else if (event === "user_message") broadcastAiStatus?.(sessionId, "working", engine);
+// The tab dot / bell / push all read statusManager, and a chat UI session has no PTY
+// hook to feed it — this is the only writer of its state. Every event the session
+// emits passes through here, so a turn that is refused or dies mid-flight still
+// lands on a state instead of leaving the dot spinning until the reaper clears it.
+function mirrorAiStatus(sessionId, event, data, engine) {
+  if (event === "permission_request") broadcastAiStatus?.(sessionId, "blocked", engine, data);
+  else if (event === "turn_complete") broadcastAiStatus?.(sessionId, "done", engine, data);
+  else if (TURN_END_EVENTS.has(event)) broadcastAiStatus?.(sessionId, "idle", engine, data);
+  else if (event === "user_message") broadcastAiStatus?.(sessionId, "working", engine, data);
 }
 
 // Model ids the host's own CLI offers, per engine. Null means the engine's registry
@@ -79,7 +91,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       logger.debug(`[ai] event: ${event} session: ${sessionId}`);
       broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data });
       const engine = manager.getSession(sessionId)?.engine || "claude";
-      mirrorAiStatus(sessionId, event, engine);
+      mirrorAiStatus(sessionId, event, data, engine);
       mirrorAiConversation(sessionId, event, data, engine);
     });
   }
@@ -113,6 +125,20 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
           session: publicSession(existing)
         });
       }
+      // A create already on its way for this session: the caller waits for THAT one and
+      // gets its result, instead of starting a second CLI on the same conversation.
+      if (creating.has(sessionId)) {
+        const { session, done } = creating.get(sessionId);
+        await done;
+        return cb?.({
+          ok: true,
+          sessionId,
+          engine,
+          cwd: session.cwd,
+          skills: session.skills,
+          session: publicSession(session)
+        });
+      }
       logger.info(`[ai] create session: ${sessionId} engine: ${engine} cwd: ${cwd}`);
       // A terminal holding a CLI conversation that is now opening as a chat: bind the
       // chat to that conversation, so the pane shows it rather than an empty one. The
@@ -126,7 +152,14 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         defaultModel: defaultModelFor(engine)
       };
       const session = manager.createSession(sessionId, engine, cwd, { ...spawnOptions, mock });
-      await session.ready;
+      let releaseCreate;
+      creating.set(sessionId, { session, done: new Promise((r) => { releaseCreate = r; }) });
+      try {
+        await session.ready;
+      } finally {
+        creating.delete(sessionId);
+        releaseCreate();
+      }
       const skills = listSkills(engine, cwd);
       const mcpServers = listMcpServers(engine);
       const modelOptions = listModelOptionsFor(engine);
@@ -159,14 +192,27 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       let session = manager.getSession(sessionId);
       if (!session) {
         logger.warn(`[ai] session ${sessionId} not found on prompt, auto-creating with claude`);
-        // cwd rides along so the raced session lands in the right directory, not $HOME
-        session = manager.createSession(sessionId, "claude", cwd || process.cwd(), { defaultModel: defaultModelFor("claude") });
-        await session.ready;
+        // A create already in flight owns this id — wait for its session rather than
+        // building a second CLI that would then be torn down by the first.
+        if (creating.has(sessionId)) {
+          await creating.get(sessionId).done;
+          session = manager.getSession(sessionId);
+        }
+        if (!session) {
+          // cwd rides along so the raced session lands in the right directory, not $HOME
+          session = manager.createSession(sessionId, "claude", cwd || process.cwd(), { defaultModel: defaultModelFor("claude") });
+          await session.ready;
+        }
       }
+      if (!session) throw new Error(`AI session unavailable: ${sessionId}`);
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
+      // /clear is a host-side reset, not a message. The pane has already dropped its own
+      // log by the time this arrives, so a refusal (the turn is still running) leaves the
+      // user staring at an empty chat with no way back. Stop the turn first and let the
+      // reset through — which is what "clear" means.
+      if (String(message).trim() === "/clear" && session.isTurnRunning) session.stop();
       // User message is emitted via session.sendPrompt -> emitNormalized -> broadcast
       session.sendPrompt(message, attachments);
-      renameSessionTitle?.(sessionId, message);
       broadcastAiStatus?.(sessionId, "working", session.engine);
       cb?.({ ok: true });
     } catch (err) {
@@ -257,6 +303,46 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     try {
       cb?.({ ok: true, sessions: manager.listSessions() });
     } catch (err) {
+      cb?.({ ok: false, error: err.message });
+    }
+  });
+
+  // What can this session rewind to, and can it rewind at all?
+  socket.on(AI_SOCKET_EVENTS.REWIND, async ({ sessionId, action = "list", messageId, files = true }, cb) => {
+    try {
+      const session = manager.getSession(sessionId);
+      const engine = session?.engine || "claude";
+      const support = rewindSupport(engine);
+      if (!support.conversation) {
+        return cb?.({ ok: false, error: unsupportedReason(engine), support });
+      }
+      const convId = rewindable(engine, session?.cliSessionId);
+      if (!convId) {
+        return cb?.({ ok: false, error: "This conversation is not one opencode can rewind.", support });
+      }
+      if (action === "list") {
+        return cb?.({ ok: true, support, points: listRewindPoints(convId) });
+      }
+      if (!messageId) return cb?.({ ok: false, error: "Missing messageId", support });
+      if (action === "preview") {
+        return cb?.({ ok: true, support, ...(await previewRewind(convId, messageId, { files })) });
+      }
+      if (action === "apply") {
+        // A rewind rewrites the conversation the CLI is holding. The running turn is
+        // not part of any checkpoint, so applying mid-turn would strand it.
+        if (session.isTurnRunning) {
+          return cb?.({ ok: false, error: "Stop the running turn before rewinding.", support });
+        }
+        const result = await applyRewind(convId, messageId, { files });
+        // The CLI's own store is now the shortened conversation. Rebuild the host's log
+        // from it and broadcast a reset, or every client keeps rendering the turns the
+        // rewind just discarded.
+        session.reloadFromStore?.();
+        return cb?.({ ok: true, support, ...result });
+      }
+      cb?.({ ok: false, error: `Unknown rewind action: ${action}`, support });
+    } catch (err) {
+      logger.error(`[ai] rewind failed: ${err.message}`);
       cb?.({ ok: false, error: err.message });
     }
   });

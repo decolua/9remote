@@ -52,14 +52,18 @@ export class AiManager {
     return this.sessions.get(sessionId);
   }
 
+  /**
+   * Stop the session and drop it from the registry before any IPC. `destroy()` starts
+   * an async adapter stop; leaving the session in the map while that is in flight lets
+   * a create for the same id find it and hand back a dead session — and lets a
+   * re-create race the stop, so the old process's exit tears down the new one.
+   */
   destroySession(sessionId) {
     const session = this.sessions.get(sessionId);
-    if (session) {
-      session.destroy();
-      this.sessions.delete(sessionId);
-      return true;
-    }
-    return false;
+    if (!session) return false;
+    this.sessions.delete(sessionId);
+    session.destroy();
+    return true;
   }
 
   listSessions() {

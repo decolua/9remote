@@ -103,7 +103,7 @@ function loadSessionSnapshot(sessionId, engine) {
 
 // Events that end a turn — the session's own flag must clear on all of them, not just
 // the happy path, or a client hydrating after a crash shows a spinner forever.
-const TURN_END_EVENTS = new Set(["turn_complete", "stopped", "error", "exit"]);
+export const TURN_END_EVENTS = new Set(["turn_complete", "stopped", "error", "exit"]);
 
 // A sub-agent's tool events, renamed on the wire so the client nests rather than
 // appends them. Only these two carry a parentToolUseId today.
@@ -230,7 +230,7 @@ export class AiSession {
 
     switch (this.engine) {
       case AI_ENGINES.CLAUDE:
-        mine = new ClaudeAdapter({ cwd: this.cwd, onEvent, proc: this.managed ? this.proc : null });
+        mine = new ClaudeAdapter({ cwd: this.cwd, onEvent, proc: this.managed ? this.proc : null, hostSessionId: this.id });
         this.adapter = mine;
         // Set spawn-time options BEFORE start(): setOptions would restart the CLI,
         // and calling start() afterwards would spawn a second process. Both paths
@@ -243,7 +243,8 @@ export class AiSession {
           cwd: this.cwd,
           onEvent,
           threadId: this.threadId,
-          model: this.model || this.options.model
+          model: this.model || this.options.model,
+          hostSessionId: this.id
         });
         this.adapter = mine;
         // Mode is re-sent on every rebuild: the CLI is spawned fresh per turn, and the
@@ -257,7 +258,8 @@ export class AiSession {
           cwd: this.cwd,
           onEvent,
           sessionId: this.cliSessionId,
-          model: this.model || this.options.model
+          model: this.model || this.options.model,
+          hostSessionId: this.id
         });
         this.adapter = mine;
         if (this.permissionMode || this.options.model || this.options.variant || this.options.flags) {
@@ -269,7 +271,8 @@ export class AiSession {
           cwd: this.cwd,
           onEvent,
           conversationId: this.cliSessionId,
-          model: this.model || this.options.model
+          model: this.model || this.options.model,
+          hostSessionId: this.id
         });
         this.adapter = mine;
         if (this.permissionMode || this.options.model || this.options.flags) {
@@ -335,6 +338,19 @@ export class AiSession {
    * conversation down the live bus is what made `/resume` slow — the rest belongs to
    * the scroll-up fetch, which needs `fromSeq` to know what it is missing.
    */
+  // A rewind changed the conversation under us: the CLI's own store is now shorter than
+  // the log this host has been accumulating. Rebuild from that store and broadcast a
+  // reset, or every client keeps rendering the turns the rewind just discarded.
+  // Returns false when the engine keeps no transcript to rebuild from — the caller
+  // decides what to say rather than showing a conversation that no longer exists.
+  reloadFromStore() {
+    if (!this.cliSessionId) return false;
+    const recovered = recoverFromTranscript(this.engine, this.cwd, this.cliSessionId);
+    if (!recovered) return false;
+    this._adoptLog(recovered);
+    return true;
+  }
+
   _adoptLog(events) {
     const log = (events || []).map((ev, i) => ({
       seq: i + 1, event: ev.event, data: ev.data, timestamp: Date.now()
@@ -700,12 +716,18 @@ export class AiSession {
   destroy() {
     this.clearIdleWatchdog();
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
-    if (!this.options.mock) this.adapter?.stop();
+    // The stop is async under the daemon, so the unlink below has to wait for it —
+    // otherwise the stop's own 'exit' event schedules a debounced write that puts the
+    // snapshot straight back after we deleted it.
+    const stopped = this.options.mock ? Promise.resolve() : this.adapter?.stop();
     // The exit event is emitted BEFORE the file goes, and persistence is off from here:
     // emitting after the unlink would schedule a write that puts the snapshot straight
     // back, and the next boot would resurrect a chat with no terminal behind it.
     this.destroyed = true;
     this.emitNormalized("stopped", {});
-    try { fs.unlinkSync(aiSnapshotFile(this.id, this.engine)); } catch {}
+    const file = aiSnapshotFile(this.id, this.engine);
+    const drop = () => { try { fs.unlinkSync(file); } catch {} };
+    if (stopped?.then) stopped.then(drop, drop);
+    else drop();
   }
 }

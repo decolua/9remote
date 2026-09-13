@@ -146,8 +146,9 @@ test("a hydrate ack ships a tail and says there is more — that is what arms sc
   assert.match(SOCKET, /const from = aiTailStart\(session\.history, AI_REPLAY_BYTES\)/);
   assert.match(SOCKET, /events: from > 0 \? session\.history\.slice\(from\) : session\.history,/);
   assert.match(SOCKET, /hasMore: from > 0,/);
-  // ...and it rides on both answers: a fresh create and a re-mount of a live one.
-  assert.equal((SOCKET.match(/session: publicSession\(/g) || []).length, 2);
+  // Every answer that hydrates a client carries it: a fresh create, a re-mount of a
+  // live one, and the wait for a create already in flight.
+  assert.equal((SOCKET.match(/session: publicSession\(/g) || []).length, 3);
 });
 
 test("a thin snapshot is topped up from the CLI's own transcript", () => {
@@ -198,9 +199,13 @@ test("Stop interrupts the turn instead of killing the CLI process", () => {
   assert.match(SESSION, /if \(!sent\) this\.adapter\?\.signal\?\.\("SIGINT"\);/);
 });
 
-test("/clear is refused mid-turn instead of killing the running turn", () => {
+test("/clear mid-turn stops the turn and resets, instead of stranding an empty pane", () => {
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
+  // The session refuses to rebuild over a running turn (that would kill the CLI mid-turn).
   assert.match(SESSION, /Turn is still running — stop it before \/clear\./);
+  // ...so the socket stops it FIRST. The pane has already dropped its own log by then,
+  // and a refusal would leave the user on a blank chat with no way back.
+  assert.match(SOCKET, /if \(String\(message\)\.trim\(\) === "\/clear" && session\.isTurnRunning\) session\.stop\(\);/);
   // A fresh process numbers its lines from scratch, so the watermark resets with it.
   assert.match(SESSION, /this\.consumedLines = 0;/);
 });
@@ -266,6 +271,32 @@ test("the daemon never imports outside its own folder", () => {
   // is gone until the version is bumped.
   const escaping = [...DAEMON.matchAll(/from "(\.\.\/[^"]+)"/g)].map((m) => m[1]);
   assert.deepEqual(escaping, [], `daemon imports outside features/terminal: ${escaping.join(", ")}`);
+});
+
+test("two mounts of one chat cannot build it twice", () => {
+  // A reconnect and a second tab both miss the "already live" check while the first
+  // create is still awaiting its CLI. Without a shared gate the second builds and
+  // starts the same session, and the second process kills the first one's turn.
+  assert.match(SOCKET, /const creating = new Map\(\)/);
+  assert.match(SOCKET, /if \(creating\.has\(sessionId\)\) \{/);
+  assert.match(SOCKET, /creating\.set\(sessionId, \{ session, done: new Promise/);
+  // Released in a finally: a failed create must not wedge the id forever.
+  assert.match(SOCKET, /\} finally \{\s*creating\.delete\(sessionId\);/);
+  // A prompt that has to auto-create waits on the same gate rather than racing it.
+  assert.match(SOCKET, /await creating\.get\(sessionId\)\.done;/);
+});
+
+test("a destroyed chat cannot come back from its own stop event", () => {
+  // destroy() starts an async adapter stop; that stop emits 'exit', which schedules a
+  // debounced snapshot write. Deleting the file first puts it straight back.
+  const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
+  assert.match(SESSION, /const stopped = this\.options\.mock \? Promise\.resolve\(\) : this\.adapter\?\.stop\(\);/);
+  assert.match(SESSION, /if \(stopped\?\.then\) stopped\.then\(drop, drop\);/);
+  // ...and it leaves the registry BEFORE that IPC, so a create cannot adopt a dying one.
+  const MANAGER = fs.readFileSync(path.join(root, "agent/features/ai/aiManager.js"), "utf8");
+  const body = MANAGER.slice(MANAGER.indexOf("destroySession(sessionId)"));
+  assert.ok(body.indexOf("this.sessions.delete(sessionId)") < body.indexOf("session.destroy()"),
+    "the session must leave the registry before the async stop starts");
 });
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
