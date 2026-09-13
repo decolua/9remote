@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff } from "@/shared/components/ui/Icon";
+import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History } from "@/shared/components/ui/Icon";
 import { ENGINE_INFO } from "../constants";
 import { getEngineConfig } from "../registry";
 import { vibrate } from "@/shared/utils/vibration";
@@ -11,7 +11,11 @@ import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agen
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useI18n } from "@/shared/i18n";
+import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useAttachments } from "@/features/terminal/hooks/useAttachments";
+import CommandSuggestions, { pickCommandItems } from "@/shared/components/ui/CommandSuggestions";
+import { useAiHistoryStore } from "@/shared/stores/historyStore";
+import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
 
 const EMPTY_ARRAY = [];
 
@@ -34,6 +38,7 @@ export const Composer = memo(function Composer({
   modalOpen = false
 }) {
   const { t, locale } = useI18n();
+  const hasKeyboard = useInputMode() === "mouse";
   const engineConfig = getEngineConfig(engine);
   const CLAUDE_MODES = engineConfig.permissionModes;
   const SLASH_COMMANDS = engineConfig.slashCommands;
@@ -52,7 +57,9 @@ export const Composer = memo(function Composer({
   const rawModel = storeModel !== undefined ? storeModel : propModel;
 
   const [text, setText] = useState("");
-  const [queuedText, setQueuedText] = useState("");
+  // Messages sent while a turn is running. A list, not a single slot: sending a second
+  // one used to overwrite the first with no sign anything was lost.
+  const [queue, setQueue] = useState(EMPTY_ARRAY);
   const [history, setHistory] = useState([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const [menuOpen, setMenuOpen] = useState(false);
@@ -62,8 +69,22 @@ export const Composer = memo(function Composer({
   const [selectedIdx, setSelectedIdx] = useState(0);
   // The slash command whose second-level option list is open (e.g. /effort)
   const [submenuCmd, setSubmenuCmd] = useState(null);
+  // Keyboard-highlighted row in the prompt-history dropdown (-1 = none). Tab cycles.
+  const [suggestActive, setSuggestActive] = useState(-1);
+
+  const addCommand = useAiHistoryStore((s) => s.addCommand);
+  const resolveAlias = useAiHistoryStore((s) => s.resolveAlias);
+  const promptHistory = useAiHistoryStore((s) => s.history);
+  const pinnedPrompts = useAiHistoryStore((s) => s.pinned);
+  // No commonCommands: an agent composer suggests past prompts and pinned snippets,
+  // not shell commands — those only make sense inside a terminal.
+  const suggestItems = useMemo(
+    () => (menuOpen ? [] : pickCommandItems(text, promptHistory, pinnedPrompts, [], !hasKeyboard)),
+    [text, promptHistory, pinnedPrompts, hasKeyboard, menuOpen]
+  );
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(false);
   const modelMenuRef = useRef(null);
 
   // Staged files/images, held as base64 until send then handed to the host, which
@@ -233,7 +254,9 @@ export const Composer = memo(function Composer({
 
   const executeSend = useCallback(() => {
     const raw = textareaRef.current ? textareaRef.current.value : text;
-    const trimmed = (raw || text).trim();
+    // A bare snippet alias expands to its prompt before anything reads the text —
+    // history, the shell branch and the host must all see the prompt, not the alias.
+    const trimmed = resolveAlias((raw || text).trim());
     // Read the staged files live, not from this render's closure: the send button's
     // own re-render does not update a memoized callback, so a file picked right
     // before Send was silently dropped.
@@ -246,7 +269,11 @@ export const Composer = memo(function Composer({
     justSentRef.current = now;
 
     vibrate();
-    if (trimmed) setHistory((prev) => [...prev.filter((h) => h !== trimmed), trimmed].slice(-50));
+    if (trimmed) {
+      setHistory((prev) => [...prev.filter((h) => h !== trimmed), trimmed].slice(-50));
+      // Suggested prompts only, never a shell command the user ran with "!".
+      if (!trimmed.startsWith("!")) addCommand(trimmed);
+    }
     setHistoryIdx(-1);
     setText("");
     if (textareaRef.current) {
@@ -265,7 +292,10 @@ export const Composer = memo(function Composer({
     // Turn state read live, not from this render's closure — a memoized callback
     // would otherwise queue a prompt for a turn that has already ended.
     if (useAiStore.getState().bySession[sessionId]?.isTurnRunning) {
-      setQueuedText(trimmed);
+      // Attachments ride with the item: staged files belong to the message that was
+      // being typed, not to whatever gets composed next.
+      setQueue((q) => [...q, { id: `q-${now}`, text: trimmed, attachments: pending }]);
+      setAttachments([]);
       return;
     }
 
@@ -275,39 +305,43 @@ export const Composer = memo(function Composer({
     onSend?.(trimmed, {
       attachments: pending.map(({ name, type, content }) => ({ filename: name, type, content }))
     });
-  }, [text, sessionId, onSend, onRunShell, setAttachments]);
+  }, [text, sessionId, onSend, onRunShell, setAttachments, addCommand, resolveAlias]);
 
-  // When stream finishes normally, automatically drain and send queued prompt
+  // Dispatch one queued item: a shell command goes to the terminal, anything else to
+  // the agent. Attachments are converted the same way a directly-sent prompt's are.
+  const dispatchQueued = useCallback((item) => {
+    if (item.text.startsWith("!")) {
+      onRunShell?.(item.text.slice(1).trim());
+      return;
+    }
+    const files = (item.attachments || []).map(({ name, type, content }) => ({ filename: name, type, content }));
+    onSend?.(item.text, files.length ? { attachments: files } : undefined);
+  }, [onSend, onRunShell]);
+
+  // A turn ended: take exactly ONE item off the queue. Keyed on the running→idle edge
+  // only — with `queue` in the deps the effect re-ran on its own setQueue, draining the
+  // whole list in a single tick while the host still refused every prompt but the first.
+  const queueRef = useRef(queue);
+  useEffect(() => { queueRef.current = queue; }, [queue]);
   const prevRunningRef = useRef(isTurnRunning);
   useEffect(() => {
-    if (prevRunningRef.current && !isTurnRunning && queuedText) {
-      const nextPrompt = queuedText;
-      setQueuedText("");
-      if (nextPrompt.startsWith("!")) {
-        onRunShell?.(nextPrompt.slice(1).trim());
-      } else {
-        onSend?.(nextPrompt);
-      }
-    }
+    const ended = prevRunningRef.current && !isTurnRunning;
     prevRunningRef.current = isTurnRunning;
-  }, [isTurnRunning, queuedText, onSend, onRunShell]);
+    if (!ended || queueRef.current.length === 0) return;
+    const [next, ...rest] = queueRef.current;
+    setQueue(rest);
+    dispatchQueued(next);
+  }, [isTurnRunning, dispatchQueued]);
 
-  // Stop stream and immediately dispatch queued prompt if one exists
+  // Stop the turn and hand the queue's head to the fresh turn instead of waiting.
   const handleStopClick = useCallback(() => {
     vibrate();
     onStop?.();
-    if (queuedText) {
-      const nextPrompt = queuedText;
-      setQueuedText("");
-      setTimeout(() => {
-        if (nextPrompt.startsWith("!")) {
-          onRunShell?.(nextPrompt.slice(1).trim());
-        } else {
-          onSend?.(nextPrompt);
-        }
-      }, 70);
-    }
-  }, [onStop, queuedText, onSend, onRunShell]);
+    if (queue.length === 0) return;
+    const [next, ...rest] = queue;
+    setQueue(rest);
+    setTimeout(() => dispatchQueued(next), 70);
+  }, [onStop, queue, dispatchQueued]);
 
   // Dispatch a picked slash command by its declared action. The action lives in
   // the engine registry, so this switch never needs an engine-specific branch.
@@ -337,7 +371,7 @@ export const Composer = memo(function Composer({
       // CLI-owned command (e.g. /compact, /review). Mid-turn it would be dropped by
       // the running guard, so queue it the same way a normal prompt is queued.
       if (isTurnRunning) {
-        setQueuedText(item.name);
+        setQueue((q) => [...q, { id: `q-${Date.now()}`, text: item.name, attachments: EMPTY_ARRAY }]);
         setText("");
         return;
       }
@@ -392,6 +426,17 @@ export const Composer = memo(function Composer({
     textareaRef.current?.focus();
   }, [submenuCmd, onOptionChange]);
 
+  // Picking a suggested prompt replaces the word being typed, it does not send it —
+  // the user still gets to edit and press Enter themselves.
+  const selectSuggestion = useCallback((cmd) => {
+    vibrate();
+    const lastWordMatch = /(?:^|\s)(\S*)$/.exec(text);
+    const token = lastWordMatch ? lastWordMatch[1] : "";
+    setText(text.slice(0, text.length - token.length) + cmd);
+    setSuggestActive(-1);
+    textareaRef.current?.focus();
+  }, [text]);
+
   const handleKeyDown = (e) => {
     // A modal above owns the keyboard: the composer keeps focus underneath, so an
     // unguarded Escape would stop the turn and Enter would send a prompt.
@@ -433,9 +478,9 @@ export const Composer = memo(function Composer({
         handleStopClick();
         return;
       }
-      if (queuedText) {
+      if (queue.length > 0) {
         e.preventDefault();
-        setQueuedText("");
+        setQueue(EMPTY_ARRAY);
         return;
       }
     }
@@ -479,6 +524,22 @@ export const Composer = memo(function Composer({
       }
     }
 
+    // Prompt-history suggestions: Tab cycles, Enter replaces the trailing word with
+    // the picked prompt. Sits after the slash/at menu so those keep priority.
+    if (suggestItems.length > 0) {
+      const activeIdx = suggestActive < 0 ? -1 : ((suggestActive % suggestItems.length) + suggestItems.length) % suggestItems.length;
+      if (e.key === "Tab" && !e.shiftKey) {
+        e.preventDefault();
+        setSuggestActive(activeIdx === -1 ? 0 : (activeIdx + 1) % suggestItems.length);
+        return;
+      }
+      if ((e.key === "Enter" || e.key === "Tab") && activeIdx !== -1) {
+        e.preventDefault();
+        selectSuggestion(suggestItems[activeIdx].cmd);
+        return;
+      }
+    }
+
     // History traversal on empty or unchanged input
     if (e.key === "ArrowUp" && !text && history.length > 0) {
       e.preventDefault();
@@ -500,8 +561,16 @@ export const Composer = memo(function Composer({
       return;
     }
 
-    // Submit on Enter (without Shift) — Shift+Enter inserts newline
-    if (e.key === "Enter" && !e.shiftKey) {
+    // Enter sends on a physical keyboard; on touch it inserts a newline, because a
+    // phone's Enter key is how you start the next line and there is a Send button
+    // right there. Cmd/Ctrl+Enter is the shortcut that sends either way.
+    if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+      e.preventDefault();
+      executeSend();
+      return;
+    }
+    if (e.key === "Enter" && !e.shiftKey && hasKeyboard) {
+      if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
       e.preventDefault();
       executeSend();
     }
@@ -610,26 +679,51 @@ export const Composer = memo(function Composer({
         </div>
       )}
 
-      {/* Queued Message Pill */}
-      {queuedText && (
-        <div className="mb-1 px-2 py-0.5 rounded bg-brand-500/10 border border-brand-500/30 flex items-center justify-between text-xs animate-in fade-in duration-100">
-          <div className="flex items-center gap-1.5 truncate min-w-0">
-            <span className="font-mono text-[9px] uppercase tracking-wider font-semibold px-1 py-0.2 rounded bg-brand-500/20 text-brand-400 shrink-0">
-              Queued
-            </span>
-            <span className="truncate text-text font-mono text-[11px]">{queuedText}</span>
-          </div>
-          <div className="flex items-center gap-1.5 shrink-0 ml-2">
-            <span className="text-[10px] text-text-muted hidden sm:inline font-mono">Esc to stop & send</span>
-            <button
-              type="button"
-              onClick={() => { vibrate(); setQueuedText(""); }}
-              className="text-text-muted hover:text-text p-0.5 rounded hover:bg-surface-2 transition-colors cursor-pointer"
-              title="Cancel queued message"
+      {/* Queued messages. Each one goes on its own when the turn that is running ends;
+          Send promotes it to the head instead of waiting its turn. */}
+      {queue.length > 0 && (
+        <div className="mb-1 space-y-0.5">
+          {queue.map((item, idx) => (
+            <div
+              key={item.id}
+              className="px-2 py-0.5 rounded bg-brand-500/10 border border-brand-500/30 flex items-center justify-between text-xs animate-in fade-in duration-100"
             >
-              <X size={12} />
-            </button>
-          </div>
+              <div className="flex items-center gap-1.5 truncate min-w-0">
+                <span className="font-mono text-[9px] uppercase tracking-wider font-semibold px-1 rounded bg-brand-500/20 text-brand-400 shrink-0">
+                  {idx === 0 ? "Next" : `Queued ${idx + 1}`}
+                </span>
+                <span className="truncate text-text font-mono text-[11px]">{item.text}</span>
+                {item.attachments?.length > 0 && (
+                  <span className="shrink-0 text-text-muted flex items-center gap-0.5 font-mono text-[10px]">
+                    <Paperclip size={10} />
+                    {item.attachments.length}
+                  </span>
+                )}
+              </div>
+              <div className="flex items-center gap-1 shrink-0 ml-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrate();
+                    setQueue((q) => [item, ...q.filter((x) => x.id !== item.id)]);
+                  }}
+                  disabled={idx === 0}
+                  className="text-text-muted hover:text-brand-400 disabled:opacity-30 disabled:hover:text-text-muted p-0.5 rounded hover:bg-surface-2 transition-colors cursor-pointer disabled:cursor-default"
+                  title={idx === 0 ? "Runs next" : "Send this one next"}
+                >
+                  <Send size={11} />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { vibrate(); setQueue((q) => q.filter((x) => x.id !== item.id)); }}
+                  className="text-text-muted hover:text-text p-0.5 rounded hover:bg-surface-2 transition-colors cursor-pointer"
+                  title="Remove from queue"
+                >
+                  <X size={12} />
+                </button>
+              </div>
+            </div>
+          ))}
         </div>
       )}
 
@@ -647,7 +741,7 @@ export const Composer = memo(function Composer({
       )}
 
       {/* Main Composer Box — Transparent, compact height */}
-      <div className="rounded-brand border border-border-subtle/80 bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
+      <div className="relative rounded-brand border border-border-subtle/80 bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
         {/* Staged attachments — image thumbnails, or a name chip for other files */}
         {attachments.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scroll-thin-x pt-0.5">
@@ -679,32 +773,71 @@ export const Composer = memo(function Composer({
           </div>
         )}
 
-        <textarea
-          ref={textareaRef}
+        <CommandSuggestions
           value={text}
-          onPaste={handleAttachPaste}
-          onChange={(e) => {
-            if (Date.now() - justSentRef.current < 200) {
-              if (textareaRef.current) textareaRef.current.value = "";
-              return;
-            }
-            setText(e.target.value);
-          }}
-          onFocus={() => onActivate?.()}
-          onKeyDown={handleKeyDown}
-          onCompositionStart={() => { isComposingRef.current = true; }}
-          onCompositionEnd={() => {
-            isComposingRef.current = false;
-            lastCompositionEndRef.current = Date.now();
-            if (Date.now() - justSentRef.current < 200) {
-              if (textareaRef.current) textareaRef.current.value = "";
-              setText("");
-            }
-          }}
-          placeholder={isTurnRunning ? "Type command · Enter to queue · Esc to stop" : "Type command"}
-          rows={1}
-          className="ai-conversation ai-composer-input w-full bg-transparent resize-none text-xs text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-snug min-h-[24px]"
+          store={useAiHistoryStore}
+          isMobile={!hasKeyboard}
+          activeIndex={suggestActive}
+          onSelect={selectSuggestion}
         />
+
+        {/* Textarea and clear button share a row: absolute-positioning the X on top of
+            the text meant a long first line ran underneath it. */}
+        <div className="flex items-start gap-1">
+          <textarea
+            ref={textareaRef}
+            value={text}
+            onPaste={handleAttachPaste}
+            onChange={(e) => {
+              if (Date.now() - justSentRef.current < 200) {
+                if (textareaRef.current) textareaRef.current.value = "";
+                return;
+              }
+              setText(e.target.value);
+              setSuggestActive(-1);
+            }}
+            onFocus={() => onActivate?.()}
+            onKeyDown={handleKeyDown}
+            onCompositionStart={() => { isComposingRef.current = true; }}
+            onCompositionEnd={() => {
+              isComposingRef.current = false;
+              lastCompositionEndRef.current = Date.now();
+              if (Date.now() - justSentRef.current < 200) {
+                if (textareaRef.current) textareaRef.current.value = "";
+                setText("");
+              }
+            }}
+            placeholder={
+              isTurnRunning
+                ? (hasKeyboard ? "Type command · Enter to queue · Esc to stop" : "Type command · Send to queue")
+                : "Type command"
+            }
+            rows={1}
+            className="ai-conversation ai-composer-input flex-1 min-w-0 bg-transparent resize-none text-xs text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-snug min-h-[24px]"
+          />
+
+          {/* Wipe the draft without sending it, and only while there is one — an empty
+              box shows the history door in this slot instead. */}
+          {text.trim().length > 0 ? (
+            <button
+              type="button"
+              onClick={clearText}
+              className="shrink-0 mt-0.5 p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
+              title="Clear input"
+            >
+              <X size={13} />
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() => { vibrate(); setHistoryOpen(true); }}
+              className="shrink-0 mt-0.5 p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
+              title={t("history.title")}
+            >
+              <History size={13} />
+            </button>
+          )}
+        </div>
 
         {/* Action strip: Model selector, Mode selector & Send button */}
         <div className="relative flex items-center justify-between text-xs pt-0.5 border-t border-border-subtle/30">
@@ -786,18 +919,6 @@ export const Composer = memo(function Composer({
               </button>
             )}
 
-            {/* Wipe the draft without sending it */}
-            {text.trim().length > 0 && (
-              <button
-                type="button"
-                onClick={clearText}
-                className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center justify-center"
-                title="Clear input"
-              >
-                <X size={12} />
-              </button>
-            )}
-
             {isTurnRunning ? (
               <>
                 {(text.trim() || attachments.length > 0) && (
@@ -805,7 +926,7 @@ export const Composer = memo(function Composer({
                     type="button"
                     onClick={executeSend}
                     className="px-2 py-0.5 rounded bg-brand-500 hover:bg-brand-600 text-white flex items-center gap-1 text-[11px] font-medium transition-colors shadow-sm cursor-pointer"
-                    title="Queue message (Enter)"
+                    title={hasKeyboard ? "Queue message (Enter)" : "Queue message"}
                   >
                     <Send size={11} />
                     <span>Queue</span>
@@ -815,7 +936,7 @@ export const Composer = memo(function Composer({
                   type="button"
                   onClick={handleStopClick}
                   className="px-2 py-0.5 rounded bg-danger/20 hover:bg-danger/30 text-danger flex items-center gap-1 text-[11px] font-medium transition-colors cursor-pointer"
-                  title={queuedText ? "Stop & send queued message (Esc)" : "Stop generation (Esc)"}
+                  title={queue.length ? "Stop & run the next queued message (Esc)" : "Stop generation (Esc)"}
                 >
                   <Square size={11} className="fill-current" />
                 </button>
@@ -825,19 +946,28 @@ export const Composer = memo(function Composer({
                 type="button"
                 onClick={executeSend}
                 disabled={!text.trim() && attachments.length === 0}
-                className={`p-1 rounded transition-colors flex items-center justify-center ${
+                className={`px-2 py-1 rounded transition-colors flex items-center justify-center ${
                   text.trim() || attachments.length > 0
                     ? "bg-brand-500 hover:bg-brand-600 text-white shadow-sm cursor-pointer"
                     : "text-text-muted bg-surface-2 cursor-not-allowed opacity-40"
                 }`}
                 title="Send (Enter)"
               >
-                <Send size={12} />
+                <Send size={14} />
               </button>
             )}
           </div>
         </div>
       </div>
+
+      {/* Prompt history — the same modal the terminal uses, on the AI store so it
+          lists prompts and pinned snippets rather than shell commands. */}
+      <CommandHistoryModal
+        isOpen={historyOpen}
+        store={useAiHistoryStore}
+        onSelect={selectSuggestion}
+        onClose={() => setHistoryOpen(false)}
+      />
 
       {/* Dictation language picker — only reachable while dictating, like the terminal */}
       <VoiceLangModal

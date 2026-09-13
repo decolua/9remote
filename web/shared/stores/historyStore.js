@@ -108,3 +108,5 @@ export const useHistoryStore = createHistoryStore("terminal-command-history");
 export const useTerminalHistoryStore = useHistoryStore;
 // Remote desktop input has its own independent history.
 export const useRemoteHistoryStore = createHistoryStore("remote-input-history");
+// AI composer prompts — suggestions here are prompts and pinned snippets, never shell commands.
+export const useAiHistoryStore = createHistoryStore("ai-command-history");
