@@ -11,17 +11,20 @@ export const AiBashCard = memo(function AiBashCard({
   input = null,
   output = "",
   error = "",
-  status = "done"
+  status = "done",
+  deferred = false
 }) {
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
-  const [expanded, setExpanded] = useState(false);
+  // History opens collapsed: an error row is auto-opened because it matters, but a
+  // screenful of them would dump every output into the DOM at once.
+  const [expanded, setExpanded] = useState(isError && !deferred);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [copiedOut, setCopiedOut] = useState(false);
 
   useEffect(() => {
-    if (isError) setExpanded(true);
-  }, [isError]);
+    if (isError && !deferred) setExpanded(true);
+  }, [isError, deferred]);
 
   const command = input?.command || "";
   const description = input?.description || "";

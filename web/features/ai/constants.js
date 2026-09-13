@@ -21,10 +21,10 @@ export const AI_FONT_SIZE_BOOST = 1;
 // it stays subtle on both light and dark palettes.
 export const AI_DOT_GRID = { alpha: 7, size: 18 };
 
-// Turn status line: the verb rotates while the agent works, the way the CLI does.
-// Shared by every engine — the registry stays for engine *config*, not flavour text.
-export const AI_TURN_VERBS = Object.freeze([
-  "Percolating", "Noodling", "Puttering", "Simmering", "Cogitating",
-  "Musing", "Churning", "Deliberating", "Ruminating", "Working"
+// Prompts offered on an empty conversation. Diagnostics (/doctor) and resuming are
+// not here — they are commands, not a way to start a chat.
+export const STARTER_PROMPTS = Object.freeze([
+  "Explain this project's structure",
+  "What changed recently in this repo?",
+  "! git status"
 ]);
-export const AI_TURN_VERB_INTERVAL_MS = 3000;

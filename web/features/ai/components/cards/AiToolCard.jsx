@@ -16,18 +16,21 @@ export const AiToolCard = memo(function AiToolCard({
   status = "done",
   children = [],
   engine = "claude",
-  workspacePath = ""
+  workspacePath = "",
+  deferred = false
 }) {
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
 
-  const [expanded, setExpanded] = useState(isError);
+  // History opens collapsed: an error row is auto-opened because it matters, but a
+  // screenful of them would dump every output into the DOM at once.
+  const [expanded, setExpanded] = useState(isError && !deferred);
   const [copied, setCopied] = useState(false);
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
 
   useEffect(() => {
-    if (isError) setExpanded(true);
-  }, [isError]);
+    if (isError && !deferred) setExpanded(true);
+  }, [isError, deferred]);
 
   const isCommand = Boolean(command) || typeof input !== "string" && Boolean(input?.command);
   const pathArg = typeof input === "string" ? "" : input?.file_path || input?.notebook_path || input?.path || input?.file || "";

@@ -3,8 +3,8 @@
 import { memo, useState } from "react";
 import { Sparkles, ChevronDown, ChevronRight } from "@/shared/components/ui/Icon";
 
-export const AiThinkingBlock = memo(function AiThinkingBlock({ text = "", isLive = false }) {
-  const [expanded, setExpanded] = useState(false);
+export const AiThinkingBlock = memo(function AiThinkingBlock({ text = "", isLive = false, defaultOpen = false }) {
+  const [expanded, setExpanded] = useState(defaultOpen);
 
   // Whitespace-only runs carry nothing — don't render an empty "Thought process" toggle
   if (!text?.trim()) return null;

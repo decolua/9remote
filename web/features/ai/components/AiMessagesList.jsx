@@ -2,13 +2,20 @@
 
 import { memo, useRef, useEffect, useState, useCallback, useMemo } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { MessageBubble } from "./MessageBubble";
-import { ENGINE_INFO, AI_TURN_VERBS, AI_TURN_VERB_INTERVAL_MS } from "../constants";
-import { ArrowDown, Check, Loader2, Pencil } from "@/shared/components/ui/Icon";
+import { AiTurn } from "./AiTurn";
+import { ENGINE_INFO, STARTER_PROMPTS } from "../constants";
+import { ArrowDown, Check, Loader2, Pencil, History } from "@/shared/components/ui/Icon";
+import { describeLive, estimateTurnTokens } from "../lib/liveStatus";
 import { vibrate } from "@/shared/utils/vibration";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
+import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 
 const EMPTY_MESSAGES = [];
+// How many past conversations the empty state offers before deferring to /resume.
+const RECENT_SESSIONS = 8;
 // Dynamic byte budget per slice: adapts flexibly to message sizes. Long turns (diffs/code)
 // stop early to keep DOM light; short turns ("ok", "yes") pack multiple exchanges.
 const PAGE_BUDGET_BYTES = 32 * 1024; // 32 KB per load slice
@@ -63,15 +70,6 @@ function formatTokens(n) {
   return String(v);
 }
 
-// Hosts report usage only at the end of a turn, so the live count would sit still and
-// then jump. Estimate the running text instead (~4 chars/token) and let the real number
-// replace it — the same trick the CLIs use to make the counter tick while streaming.
-const ESTIMATED_CHARS_PER_TOKEN = 4;
-
-function estimateTokens(text) {
-  return Math.round((text?.length || 0) / ESTIMATED_CHARS_PER_TOKEN);
-}
-
 // The turn's own token count. Hidden until there is something to report.
 function tokenReadout(outputTokens) {
   if (!outputTokens) return null;
@@ -85,31 +83,31 @@ function tokenReadout(outputTokens) {
 
 // The turn's own line, at the tail of the history like the user's message: the running
 // spinner and the finished summary are states of one row, so nothing jumps when it ends.
-const AiTurnStatus = memo(function AiTurnStatus({ sessionId }) {
+const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrating = false }) {
   const isTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const turnStartedAt = useAiStore((s) => s.bySession[sessionId]?.turnStartedAt);
   const stats = useAiStore((s) => s.bySession[sessionId]?.stats);
   const turnBaseline = useAiStore((s) => s.bySession[sessionId]?.turnBaseline);
+  const connected = useConnectionStore((s) => s.connected);
+  const retryStatus = useConnectionStore((s) => s.retryStatus);
   const lastMsg = useAiStore((s) => {
     const list = s.bySession[sessionId]?.messages;
     return list && list.length > 0 ? list[list.length - 1] : null;
   });
+  // The whole turn, not just the last message: a tool call closes the streaming
+  // segment, so reading the tail alone made the count fall back on every command.
+  const turnMessages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY_MESSAGES;
 
   // The host reports a session-running total; the line shows only this turn's share.
   const turnOutput = Math.max(0, (stats?.outputTokens || 0) - (turnBaseline?.outputTokens || 0));
 
   const [now, setNow] = useState(Date.now());
-  const [verbIdx, setVerbIdx] = useState(0);
 
   useEffect(() => {
     if (!isTurnRunning) return;
     setNow(Date.now());
     const timer = setInterval(() => setNow(Date.now()), 1000);
-    const verbTimer = setInterval(
-      () => setVerbIdx((i) => (i + 1) % AI_TURN_VERBS.length),
-      AI_TURN_VERB_INTERVAL_MS
-    );
-    return () => { clearInterval(timer); clearInterval(verbTimer); };
+    return () => clearInterval(timer);
   }, [isTurnRunning]);
 
   // Freeze the summary against the same clock the live line used. Tokens and span are
@@ -149,19 +147,22 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId }) {
   const activeTool = lastMsg?.tools?.find((t) => t.status === "running");
   // The host's number lags the stream, so the live count is the last reported total plus
   // an estimate of what has arrived since. turn_complete replaces it with the real one.
-  const liveOutput = turnOutput + estimateTokens(lastMsg?.content);
+  const liveOutput = turnOutput + estimateTurnTokens(turnMessages);
+  // What the agent is doing, named from state the pane already holds (see lib/liveStatus).
+  const live = describeLive({ connected, hydrating, retryStatus, activeTool, engine, lastMsg });
 
   return (
     <div className="flex items-center gap-2 py-1 select-none text-xs text-text-muted">
-      <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
-      <span className="truncate font-mono text-[11px] ai-sheen-text">
-        {activeTool ? (
-          <>
-            Running {activeTool.name}: {activeTool.command || activeTool.path || ""}
-          </>
-        ) : (
-          <>{AI_TURN_VERBS[verbIdx]}…</>
-        )}
+      {live.tone === "alert" ? (
+        <span className="w-2 h-2 rounded-full bg-danger animate-pulse shrink-0" />
+      ) : (
+        <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
+      )}
+      {/* The sheen owns the verb alone: `background-clip: text` re-anchors its gradient
+          per element, so nesting children inside it broke the sweep across the line. */}
+      <span className="truncate font-mono text-[11px]">
+        <span className={`ai-sheen-text${live.tone === "alert" ? " !text-danger" : ""}`}>{live.verb}…</span>
+        {live.detail && <span className="text-text-subtle"> {live.detail}</span>}
         <span className="text-text-muted/60"> · </span>
         {formatDuration(now - (turnStartedAt || now))}
         {tokenReadout(liveOutput)}
@@ -170,15 +171,140 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId }) {
   );
 });
 
+// Relative age the way the sidebar writes it: short, one unit.
+function relativeAge(ms) {
+  if (!ms) return "";
+  const mins = Math.round((Date.now() - ms) / 60000);
+  if (mins < 60) return `${Math.max(1, mins)}m`;
+  const hours = Math.round(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.round(hours / 24)}d`;
+}
+
+// What a brand-new conversation shows: where it will run, and what was already
+// talked about here. Only mounted while the list is empty, so the session scan and
+// the git poll stay off a chat that is under way.
+const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspacePath, fileBus, onSendPrompt, onOpenResume }) {
+  const [recent, setRecent] = useState([]);
+  const [homedir, setHomedir] = useState(null);
+  const git = useWorkspaceGit(workspacePath, fileBus, { enabled: Boolean(workspacePath) });
+
+  // Home is only needed to print "~/…" — the git poll does not wait on it.
+  useEffect(() => {
+    if (!workspacePath) return;
+    let live = true;
+    fileBus?.getSystemInfo?.().then((res) => { if (live && res?.success) setHomedir(res.homedir || null); }).catch(() => {});
+    return () => { live = false; };
+  }, [fileBus, workspacePath]);
+
+  // The same scan the sidebar and /resume read, so the rows match what those show.
+  useEffect(() => {
+    if (!workspacePath) return;
+    let live = true;
+    const bus = useConnectionStore.getState().bus;
+    if (!bus?.emit) return;
+    bus.emit("getAgentSessions", { cwd: workspacePath }, (res) => {
+      if (!live) return;
+      const rows = Array.isArray(res?.sessions) ? res.sessions : [];
+      // Another engine's transcript is unreadable to this CLI, so it is not offered.
+      setRecent(rows.filter((r) => !engine || r.agent === engine).slice(0, RECENT_SESSIONS));
+    });
+    return () => { live = false; };
+  }, [workspacePath, engine]);
+
+  const dirLabel = workspacePath ? shortenHomePath(workspacePath, homedir) : "";
+
+  return (
+    <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none overflow-y-auto custom-scrollbar">
+      <div
+        className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-md border border-border-subtle/40 backdrop-blur-sm shrink-0"
+        style={{ backgroundColor: `${engineMeta.color}15` }}
+      >
+        <img
+          src={agentIconUrl(`${engine}-ui`)}
+          alt={engineMeta.label}
+          className={`w-7 h-7 object-contain ${AGENT_ICON_CLS}`}
+        />
+      </div>
+      <h3 className="text-base font-semibold text-text mb-1">{engineMeta.label}</h3>
+
+      {/* Where this chat runs — the fact a phone user cannot get from anywhere else. */}
+      {dirLabel && (
+        <div className="flex items-center justify-center gap-2 mb-3 text-[11px] font-mono text-text-muted" title={workspacePath}>
+          <span className="truncate max-w-[220px]">{dirLabel}</span>
+          {git.branch && (
+            <>
+              <span className="text-text-muted/50">·</span>
+              <span className="truncate max-w-[140px]">{git.branch}</span>
+              {git.dirty && <span className="text-amber-400" title={`${git.changedCount} changed`}>●{git.changedCount}</span>}
+            </>
+          )}
+        </div>
+      )}
+
+      {recent.length > 0 && (
+        <div className="w-full max-w-md mb-4 text-left">
+          <div className="flex items-center gap-1.5 mb-1.5 px-1 text-[10px] uppercase tracking-wide text-text-muted">
+            <History size={11} />
+            <span>Recent in this project</span>
+          </div>
+          <div className="max-h-[38vh] overflow-y-auto custom-scrollbar rounded-brand border border-border-subtle bg-surface-2/30">
+            {recent.map((row) => (
+              <button
+                key={`${row.agent}:${row.sessionId}`}
+                type="button"
+                onClick={() => { vibrate(); onOpenResume?.(row); }}
+                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left border-b border-border-subtle/50 last:border-b-0 hover:bg-surface-2 transition-colors"
+              >
+                <span className="flex-1 min-w-0 truncate text-[11px] text-text">
+                  {row.title || "Untitled conversation"}
+                </span>
+                <span className="shrink-0 text-[10px] font-mono text-text-muted">{relativeAge(row.updatedAt)}</span>
+              </button>
+            ))}
+          </div>
+          {recent.length >= RECENT_SESSIONS && (
+            <button
+              type="button"
+              onClick={() => { vibrate(); onOpenResume?.(); }}
+              className="mt-1.5 px-1 text-[10px] font-mono text-text-muted hover:text-text transition-colors"
+            >
+              All conversations →
+            </button>
+          )}
+        </div>
+      )}
+
+      <div className="flex flex-wrap items-center justify-center gap-2 max-w-md shrink-0">
+        {STARTER_PROMPTS.map((prompt) => (
+          <button
+            key={prompt}
+            type="button"
+            onClick={() => onSendPrompt?.(prompt)}
+            className="px-2.5 py-1 rounded-full bg-surface-2 hover:bg-surface-3 text-[11px] text-text font-mono border border-border-subtle transition-colors"
+          >
+            {prompt}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+});
+
 export const AiMessagesList = memo(function AiMessagesList({
   sessionId,
   engine = "claude",
   workspacePath = "",
+  fileBus = null,
   onSendPrompt,
   onResolvePermission,
-  onRewind,
   hasOlder = false,
-  onLoadOlder
+  onLoadOlder,
+  onRewind,
+  onPreviewRewind,
+  onListRewindPoints,
+  onOpenResume,
+  hydrating = false
 }) {
   const scrollRef = useRef(null);
   // Marks the top of the mounted window — watched so paging also fires on first paint
@@ -203,6 +329,29 @@ export const AiMessagesList = memo(function AiMessagesList({
 
   const hiddenCount = Math.max(0, messages.length - visibleCount);
   const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
+
+  // One turn = a user message plus every assistant segment that followed it. The list
+  // renders turns, not messages, because a turn is what folds (see AiTurn).
+  // Only an engine that can actually rewind gets the control on a prompt. Asked once
+  // per session, not per bubble.
+  const [rewind, setRewind] = useState(null);
+  useEffect(() => {
+    let live = true;
+    onListRewindPoints?.().then((r) => { if (live) setRewind(r); }).catch(() => {});
+    return () => { live = false; };
+    // Re-asked when the engine changes: a pane can be repointed at another one.
+  }, [onListRewindPoints, engine, sessionId]);
+
+  const canRewind = Boolean(rewind?.support?.conversation);
+
+  const turns = useMemo(() => {
+    const out = [];
+    for (const m of visibleMessages) {
+      if (m.role === "user" || out.length === 0) out.push({ key: m.id, messages: [m] });
+      else out[out.length - 1].messages.push(m);
+    }
+    return out;
+  }, [visibleMessages]);
 
   // Prepending shifts everything down; anchor on the old scrollHeight so the turn the
   // user was reading stays put.
@@ -256,12 +405,36 @@ export const AiMessagesList = memo(function AiMessagesList({
     return () => io.disconnect();
   }, [handleLoadMore]);
 
-  // Smart auto-scroll: only scroll if user hasn't scrolled up
+  // Structure, not content: changes when a step APPEARS (a new segment, tool, diff or
+  // prose block), not while text streams into one that already exists. Auto-scroll keys
+  // on this — scrolling per delta made the pane impossible to read upward, since every
+  // keystroke of the agent's reply yanked the view back to the bottom.
+  const structureKey = useMemo(
+    () => messages.map((m) => `${m.id}:${m.thinking ? 1 : 0}:${m.content ? 1 : 0}:${m.tools?.length || 0}:${m.diffs?.length || 0}:${m.permission ? 1 : 0}`).join("|"),
+    [messages]
+  );
+
+  // Smart auto-scroll: only when the user is already at the bottom. A new step scrolls
+  // into view; a growing one does not.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !isAtBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages]);
+  }, [structureKey]);
+
+  // Soft keyboard, rotation, safe-area change: the container shrinks but scrollTop does
+  // not, so the tail slides down under the composer and the user types blind. Re-pin
+  // while they were already at the bottom; leave a reader who scrolled up where they are.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(() => {
+      if (!isAtBottomRef.current) return;
+      el.scrollTop = el.scrollHeight;
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const scrollToBottom = useCallback(() => {
     vibrate();
@@ -271,6 +444,10 @@ export const AiMessagesList = memo(function AiMessagesList({
     isAtBottomRef.current = true;
     setShowScrollBottom(false);
   }, []);
+
+  // A turn scrolled into view is history, not a turn being watched — its cards open
+  // collapsed so paging in old turns mounts rows instead of every output they hold.
+  const isLiveTurn = useCallback((turn) => turn.messages.some((m) => m.isLive), []);
 
   const handleRewind = useCallback((messageId, newText) => {
     vibrate();
@@ -286,47 +463,14 @@ export const AiMessagesList = memo(function AiMessagesList({
       >
         {(hiddenCount > 0 || hasOlder) && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
-          <div className="h-full flex flex-col items-center justify-center text-center p-6 select-none">
-            <div
-              className="w-12 h-12 rounded-2xl flex items-center justify-center mb-3 shadow-md border border-border-subtle/40 backdrop-blur-sm"
-              style={{ backgroundColor: `${engineMeta.color}15` }}
-            >
-              <img
-                src={agentIconUrl(`${engine}-ui`)}
-                alt={engineMeta.label}
-                className={`w-7 h-7 object-contain ${AGENT_ICON_CLS}`}
-              />
-            </div>
-            <h3 className="text-base font-semibold text-text mb-1">
-              {engineMeta.label}
-            </h3>
-            <p className="text-xs text-text-muted max-w-sm mb-4 leading-relaxed">
-              {engineMeta.desc}. Ask questions, request code edits, or run terminal commands.
-            </p>
-            <div className="flex flex-wrap items-center justify-center gap-2 max-w-md">
-              <button
-                type="button"
-                onClick={() => onSendPrompt?.("/doctor")}
-                className="px-2.5 py-1 rounded-full bg-surface-2 hover:bg-surface-3 text-[11px] text-text font-mono border border-border-subtle transition-colors"
-              >
-                /doctor
-              </button>
-              <button
-                type="button"
-                onClick={() => onSendPrompt?.("Explain this codebase structure")}
-                className="px-2.5 py-1 rounded-full bg-surface-2 hover:bg-surface-3 text-[11px] text-text font-mono border border-border-subtle transition-colors"
-              >
-                Explain codebase structure
-              </button>
-              <button
-                type="button"
-                onClick={() => onSendPrompt?.("git status")}
-                className="px-2.5 py-1 rounded-full bg-surface-2 hover:bg-surface-3 text-[11px] text-text font-mono border border-border-subtle transition-colors"
-              >
-                ! git status
-              </button>
-            </div>
-          </div>
+          <AiEmptyState
+            engine={engine}
+            engineMeta={engineMeta}
+            workspacePath={workspacePath}
+            fileBus={fileBus}
+            onSendPrompt={onSendPrompt}
+            onOpenResume={onOpenResume}
+          />
         ) : (
           <>
             {(hiddenCount > 0 || hasOlder) && (
@@ -338,17 +482,45 @@ export const AiMessagesList = memo(function AiMessagesList({
                 {hiddenCount > 0 ? `Load older · ${hiddenCount} more` : "Load older turns"}
               </button>
             )}
-            {visibleMessages.map((msg) => (
-              <MessageBubble
-                key={msg.id}
-                message={msg}
-                engine={engine}
-                workspacePath={workspacePath}
-                onResolvePermission={onResolvePermission}
-                onRewind={onRewind}
-              />
-            ))}
-            <AiTurnStatus sessionId={sessionId} />
+            {turns.map((turn) => {
+              const [first, ...rest] = turn.messages;
+              // A user prompt stays a bubble of its own; everything the agent did in
+              // response is one foldable turn under it. A window that starts mid-turn
+              // has no prompt to show, so the whole thing is the turn.
+              if (first.role !== "user") {
+                return (
+                  <AiTurn
+                    key={turn.key}
+                    messages={turn.messages}
+                    engine={engine}
+                    workspacePath={workspacePath}
+                    onResolvePermission={onResolvePermission}
+                    isLive={isLiveTurn(turn)}
+                  />
+                );
+              }
+              return (
+                <div key={turn.key}>
+                  <MessageBubble
+                    message={first}
+                    engine={engine}
+                    workspacePath={workspacePath}
+                    onResolvePermission={onResolvePermission}
+                    onRewind={onRewind}
+                    onPreviewRewind={onPreviewRewind}
+                    canRewind={canRewind}
+                  />
+                  <AiTurn
+                    messages={rest}
+                    engine={engine}
+                    workspacePath={workspacePath}
+                    onResolvePermission={onResolvePermission}
+                    isLive={isLiveTurn(turn)}
+                  />
+                </div>
+              );
+            })}
+            <AiTurnStatus sessionId={sessionId} engine={engine} hydrating={hydrating} />
           </>
         )}
       </div>
