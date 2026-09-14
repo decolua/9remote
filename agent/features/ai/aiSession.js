@@ -7,8 +7,8 @@ import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
 import { readThreadGoal } from "./goal.js";
 import { ClaudeAdapter } from "./adapters/claudeAdapter.js";
-import { DaemonProc, decodeLine } from "./proc/daemonProc.js";
-import { aiTailStart } from "./aiEventSlice.js";
+import { DaemonProc } from "./proc/daemonProc.js";
+import { replayWindow } from "./aiEventSlice.js";
 import { AI_REPLAY_BYTES } from "./constants.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
 import { CodexAdapter } from "./adapters/codexAdapter.js";
@@ -120,25 +120,69 @@ const RESUME_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 // but must never be remembered as a model id (see emitNormalized).
 const MODEL_LABELS = new Set(["codex default", "opencode default"]);
 
-// Cap what a tool result contributes to the log: it is replayed in full to every
-// joining client and re-serialized into the snapshot on every debounce tick.
-function capToolOutput(data) {
-  if (!data) return data;
-  const cut = (v) => (typeof v === "string" && v.length > AI_MAX_TOOL_OUTPUT
-    ? `${v.slice(0, AI_MAX_TOOL_OUTPUT)}\n… [truncated]`
-    : v);
-  return { ...data, output: cut(data.output), error: cut(data.error) };
+// Cap what ONE event contributes to the log. It is replayed in full to every joining
+// client and re-serialized into the snapshot on every debounce tick, and a replay window
+// is a single wire frame — so one unbounded event can put the whole window over the cap
+// and cost the client its history. Walks the payload rather than naming fields: the
+// offenders are not only a tool's `output` but a Write tool's `input.content` (50KB seen)
+// and a long `thinking` block (28KB seen), each of which used to ride through untouched.
+//
+// Copy-on-write, so it is cheap enough to run on every event: a payload with nothing to
+// truncate comes back as the SAME reference and allocates nothing — which matters for
+// `delta`, emitted once per token.
+function capDeep(value) {
+  if (typeof value === "string") {
+    return value.length > AI_MAX_TOOL_OUTPUT ? `${value.slice(0, AI_MAX_TOOL_OUTPUT)}\n… [truncated]` : value;
+  }
+  if (Array.isArray(value)) {
+    let changed = false;
+    const out = value.map((v) => {
+      const next = capDeep(v);
+      if (next !== v) changed = true;
+      return next;
+    });
+    return changed ? out : value;
+  }
+  if (value && typeof value === "object") {
+    let changed = false;
+    const out = {};
+    for (const k of Object.keys(value)) {
+      const next = capDeep(value[k]);
+      if (next !== value[k]) changed = true;
+      out[k] = next;
+    }
+    return changed ? out : value;
+  }
+  return value;
 }
 
-// A diff is replayed and re-serialized exactly like tool output, so it takes the same
-// cap: a Write of a large file would otherwise put the whole file in the log and in every
-// snapshot written after it.
-function capDiff(data) {
+// The one door every event takes into the log — live, adopted from the CLI's transcript,
+// or read back from a snapshot written before these caps existed. Capping at the emit
+// site alone left old logs unbounded on every load. Called for every event, so the skip
+// list below is a perf guard, not a safety one: an event type missing from it is capped.
+function capEvent(event, data) {
   if (!data) return data;
-  const cut = (v) => (typeof v === "string" && v.length > AI_MAX_TOOL_OUTPUT
-    ? `${v.slice(0, AI_MAX_TOOL_OUTPUT)}\n… [truncated]`
-    : v);
-  return { ...data, patch: cut(data.patch), content: cut(data.content) };
+  // Metadata the client renders as-is; nothing in it is a payload worth truncating.
+  if (event === "init" || event === "options_changed" || event === "stats") return data;
+  return capDeep(data);
+}
+
+// A stored seq is a position, and positions move: compaction folds deltas and the event
+// cap sheds the head, so a snapshot can hold seqs that repeat or run backwards. The
+// client's scroll-up walks `e.seq >= before` and stops at the first such event, hiding
+// every turn before it — so the log is renumbered on load.
+function renumber(events) {
+  return (events || []).map((ev, i) => (ev.seq === i + 1 ? ev : { ...ev, seq: i + 1 }));
+}
+
+// A snapshot written before capEvent existed holds raw payloads, and one of those makes
+// every replay window over the wire cap for as long as the file lives. Idempotent: an
+// event that already went through the cap is returned untouched.
+function capLog(events) {
+  return (events || []).map((ev) => {
+    const data = capEvent(ev.event, ev.data);
+    return data === ev.data ? ev : { ...ev, data };
+  });
 }
 
 function compactEvents(events) {
@@ -201,7 +245,7 @@ export class AiSession {
     // No snapshot of its own yet (a chat opened from the history list, or an agent
     // restarted): replay the conversation from the CLI's own store, so the pane shows
     // it instead of an empty log. A snapshot wins — it is this session's own state.
-    this.history = snap ? compactEvents(snap.events) : [];
+    this.history = snap ? capLog(renumber(compactEvents(snap.events))) : [];
     // A snapshot can be thin — a legacy file, or one written just before a crash. The
     // CLI's own transcript is the fuller store, so when it knows more turns than the
     // snapshot does, it wins. Only ever upward: a good snapshot is never replaced.
@@ -210,17 +254,23 @@ export class AiSession {
       const snapTurns = this.history.filter((e) => e.event === "user_message").length;
       const recoveredTurns = (recovered || []).filter((e) => e.event === "user_message").length;
       if (recovered && recoveredTurns > snapTurns) {
-        this.history = recovered.map((ev, i) => ({
+        this.history = capLog(recovered).map((ev, i) => ({
           seq: i + 1, event: ev.event, data: ev.data, timestamp: Date.now()
         }));
       }
     }
+    // Where the next event's seq comes from. Seed from the log rather than the snapshot
+    // field so a snapshot written before this counter existed still continues upward.
+    this.seqCounter = this.history.at(-1)?.seq || 0;
     // Snapshot write in flight / coalesced, so a streaming turn does not re-serialize
     // the whole log on every delta.
     this.persisting = false;
     this.persistAgain = false;
     this.persistTimer = null;
     this.model = snap?.model || options.model || "";
+    // Reasoning effort the session runs with. Empty means "the CLI's own config decides"
+    // — the composer falls back to reading that, so it never shows a level nobody chose.
+    this.effort = snap?.effort || options.effort || "";
     // Restored so a reload keeps the mode the user picked (codex/opencode run a fresh
     // CLI per turn, so the mode has to be re-sent with every prompt). A session the
     // host has never seen starts at the engine's own default mode, sent by the client.
@@ -256,7 +306,7 @@ export class AiSession {
         // and calling start() afterwards would spawn a second process. Both paths
         // honour the resumed conversation id (or /resume silently starts a new one)
         // and the session's own permission mode (or it falls back to the CLI default).
-        if (this.options.effort) mine.effort = this.options.effort;
+        if (this.effort) mine.effort = this.effort;
         return this._startManaged(mine, mode);
       case AI_ENGINES.CODEX:
         mine = new CodexAdapter({
@@ -350,8 +400,10 @@ export class AiSession {
     // reader came back.
     this.lastMissed = fetch.missed || 0;
     if (fetch.missed > 0) this._fillGap(fetch.missed);
-    for (const line of fetch.lines) this.adapter.feed(decodeLine(line));
-    fetch.release();
+    // One door for every carrier: feeds the fetched lines, lets the held ones through,
+    // closes stdin. `commit` decodes on the way in, so no caller has to know whether the
+    // lines arrived live (a string) or from a fetch (a numbered b64 record).
+    fetch.commit?.((line) => this.adapter.feed(line));
     // The daemon's own line number is the watermark a restart resumes from, and it is
     // only honest once release() has fed through the lines that arrived mid-replay.
     // The epoch rides with it: line numbers belong to a process, and a later turn is a
@@ -366,6 +418,22 @@ export class AiSession {
    * conversation down the live bus is what made `/resume` slow — the rest belongs to
    * the scroll-up fetch, which needs `fromSeq` to know what it is missing.
    */
+  // The CLI's own store is the fuller one: the log here is capped (AI_MAX_EVENTS sheds
+  // its head) and a snapshot can be short. Called before a hydrate is answered, so the
+  // window it reports covers everything the pane could ask for. It adopts only when the
+  // transcript knows MORE turns — a good log is never replaced by a shorter one.
+  // Returns whether it replaced the log.
+  recoverIfThinner() {
+    if (!this.cliSessionId || this.isTurnRunning) return false;
+    const recovered = recoverFromTranscript(this.engine, this.cwd, this.cliSessionId);
+    if (!recovered) return false;
+    const turns = recovered.filter((e) => e.event === "user_message").length;
+    const known = this.history.filter((e) => e.event === "user_message").length;
+    if (turns <= known) return false;
+    this._adoptLog(recovered);
+    return true;
+  }
+
   // A rewind changed the conversation under us: the CLI's own store is now shorter than
   // the log this host has been accumulating. Rebuild from that store and broadcast a
   // reset, or every client keeps rendering the turns the rewind just discarded.
@@ -380,16 +448,19 @@ export class AiSession {
   }
 
   _adoptLog(events) {
-    const log = (events || []).map((ev, i) => ({
+    // Numbered from 1 on purpose: the reset tells every client this is a NEW log. The
+    // counter restarts with it, or the next live event would carry a seq from the log
+    // that just ended and the client would drop it as already applied.
+    const log = capLog(events).map((ev, i) => ({
       seq: i + 1, event: ev.event, data: ev.data, timestamp: Date.now()
     }));
+    this.seqCounter = log.length;
     this.history = log;
-    const from = aiTailStart(log, AI_REPLAY_BYTES);
-    this.onEvent?.(this.id, "conversation_reset", {
-      hasMore: from > 0,
-      fromSeq: log[from]?.seq ?? 0
-    });
-    for (const ev of log.slice(from)) this.onEvent?.(this.id, ev.event, ev.data, ev.seq);
+    // One door for the reset replay, same as the hydrate ack: it steps over any event too
+    // wide for a single frame, or the carrier refuses the whole reset.
+    const { events: replay, hasMore, fromSeq } = replayWindow(log, AI_REPLAY_BYTES);
+    this.onEvent?.(this.id, "conversation_reset", { hasMore, fromSeq });
+    for (const ev of replay) this.onEvent?.(this.id, ev.event, ev.data, ev.seq);
     this.flushSaveSnapshot();
     return log;
   }
@@ -433,15 +504,16 @@ export class AiSession {
     // from the log (the parent's own events carry no `subagent` flag), and an old log
     // whose child events still say tool_start simply drops them rather than floating
     // a sub-agent's internals loose on the timeline.
-    if (event === "tool_result") data = capToolOutput(data);
-    if (event === "diff") data = capDiff(data);
+    data = capEvent(event, data);
     const childEvent = CHILD_EVENTS[event];
     const wire = data?.parentToolUseId && childEvent ? { event: childEvent, data } : { event, data };
 
     // A seq on every event is what lets a hydrating client drop the live events it
-    // already replayed, and what marks where its scroll-up window ends. The log is
-    // this session's own, so its length IS the watermark.
-    const seq = this.history.length + 1;
+    // already replayed, and what marks where its scroll-up window ends. It is a counter,
+    // never the array length: compaction and the event cap both shrink the log, and a
+    // seq derived from its length went backwards (or stuck at AI_MAX_EVENTS+1), which
+    // left the client unable to walk further back than the last such step.
+    const seq = ++this.seqCounter;
     // record=false pushes the event to clients without appending to the replay log —
     // used for per-connect metadata that would otherwise accumulate on every F5
     if (record) {
@@ -580,6 +652,7 @@ export class AiSession {
         threadId: this.threadId,
         cliSessionId: this.cliSessionId,
         model: this.model,
+        effort: this.effort,
         permissionMode: this.permissionMode,
         createdAt: this.createdAt,
         // Where in the CLI's own output stream this log ends, and which process that
@@ -623,6 +696,9 @@ export class AiSession {
       this.threadId = null;
       this.cliSessionId = null;
       this.history = [];
+      // The new log's seqs begin at 1 again, and the counter must restart with them —
+      // carrying the old one over would drop this log's first events as already applied.
+      this.seqCounter = 0;
       // A fresh process numbers its lines from scratch; the old watermark would make
       // the next agent skip the new conversation's first lines as "already consumed".
       this.consumedLines = 0;
@@ -639,7 +715,7 @@ export class AiSession {
         this.ready = this.initAdapter();
       }
       const init = this.metadata();
-      this.history.push({ seq: this.history.length + 1, event: "init", data: init, timestamp: Date.now() });
+      this.history.push({ seq: ++this.seqCounter, event: "init", data: init, timestamp: Date.now() });
       this.onEvent?.(this.id, "conversation_reset", { hasMore: false, fromSeq: 0 });
       this.onEvent?.(this.id, "init", init);
       this.flushSaveSnapshot();
@@ -689,6 +765,8 @@ export class AiSession {
     // Remember the mode on the session too — it is what the snapshot stores, so a
     // reload comes back to the mode the user actually chose.
     if (rest?.mode) this.permissionMode = rest.mode;
+    // Same for the reasoning effort, which the init event publishes for the composer.
+    if (rest?.effort) this.effort = rest.effort;
     // Resuming a past conversation moves the thread/session id this session holds,
     // so a reload keeps talking to the resumed one.
     if (resume) {
@@ -731,7 +809,7 @@ export class AiSession {
   applyPendingOptions() {
     if (!this.restartPending) return;
     this.restartPending = false;
-    const fetch = this.adapter?.setOptions?.({ mode: this.permissionMode, model: this.model, effort: this.options?.effort });
+    const fetch = this.adapter?.setOptions?.({ mode: this.permissionMode, model: this.model, effort: this.effort });
     if (fetch?.then) fetch.then((f) => this._replay(f));
   }
 

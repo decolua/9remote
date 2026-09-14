@@ -48,12 +48,21 @@ export const AI_PERSIST_STREAM_MS = 1000;
 
 // Tail replayed on connect, and the size of each scroll-up fetch. Measured on a real
 // conversation: 6.9 MB of events for one long chat, enough to stall a phone on F5.
-export const AI_REPLAY_BYTES = 128 * 1024;
+//
+// A budget of serialized event bytes, and it must leave room for the envelope around
+// them (session metadata, skills) under CONTROL_RTC_MAX_BYTES: the reply rides the RTC
+// control channel in one SCTP message, and one byte over is thrown away — a chat that
+// then sits on "Syncing…" forever, since every re-ask rebuilds the same oversize frame.
+// The oldest turns stay reachable through the scroll-up fetch.
+export const AI_REPLAY_BYTES = 32 * 1024;
 
 // The chat log is the agent's own store now. Same ceilings the daemon used: bound the
 // in-memory log, and cap what one tool result contributes to it.
 export const AI_MAX_EVENTS = 5000;
-export const AI_MAX_TOOL_OUTPUT = 64 * 1024;
+// A cap on one event, so no single tool result can fill a replay window on its own —
+// at 64KB one `cat` of a big file was larger than the whole tail budget, and every
+// window holding it went over the wire limit with it.
+export const AI_MAX_TOOL_OUTPUT = 16 * 1024;
 
 // How long a `/doctor` health check may run before it is killed.
 export const AI_DOCTOR_TIMEOUT_MS = 30000;

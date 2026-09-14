@@ -6,13 +6,13 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, resolveDefaultModel } from "./models.js";
+import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor, TURN_END_EVENTS } from "./aiSession.js";
 import { broadcastAiStatus } from "../terminal/terminalSocket.js";
 import { getConversation, getSessionAgent, setConversationId } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
-import { aiTailStart } from "./aiEventSlice.js";
+import { replayWindow } from "./aiEventSlice.js";
 import { AI_REPLAY_BYTES, AI_ENGINES } from "./constants.js";
 import { rewindSupport, unsupportedReason } from "./rewind.js";
 import { listRewindPoints, rewindable, previewRewind, applyRewind } from "./opencodeRewind.js";
@@ -43,17 +43,23 @@ function mirrorAiStatus(sessionId, event, data, engine) {
 // measured 6.9 MB of events, and shipping that on every mount is what stalls a phone.
 // `hasMore` is what arms the client's scroll-up fetch, so it must travel with the tail.
 function publicSession(session, extra = {}) {
-  const from = aiTailStart(session.history, AI_REPLAY_BYTES);
+  const { events, hasMore } = replayWindow(session.history, AI_REPLAY_BYTES);
   return {
-    events: from > 0 ? session.history.slice(from) : session.history,
-    hasMore: from > 0,
+    events,
+    hasMore,
     isTurnRunning: session.isTurnRunning,
     // The newest seq, NOT the array length: past AI_MAX_EVENTS the log sheds its head,
     // so length stops equalling the highest seq and the client would swallow an event.
     seq: session.history.at(-1)?.seq ?? 0,
     permissionMode: session.permissionMode,
     model: session.model,
-    effort: session.options?.effort || "",
+    // The session's own pick, snapshot-restored. Empty means "the CLI's config decides",
+    // which the init event states — this only overrides it once the user has chosen.
+    effort: session.effort || "",
+    // Usage the replay cannot reconstruct: the adapter's counters are what the status
+    // bar reads, and a log holds only the events, not the running totals. Without this
+    // a fresh load showed an empty context row while the CLI held tens of thousands.
+    stats: session.adapter?.stats || null,
     ...extra
   };
 }
@@ -70,6 +76,12 @@ function listModelOptionsFor(engine) {
 // resort: a host-specific id must never be replaced by a canned one.
 function defaultModelFor(engine) {
   return resolveDefaultModel(engine) || "";
+}
+
+// The effort the CLI would run with on its own. Published for display only, exactly
+// like defaultModelFor: forcing it into argv would override a project-level setting.
+function defaultEffortFor(engine) {
+  return resolveDefaultEffort(engine) || "";
 }
 
 // A chat UI session runs its CLI without the PTY's session env, so no hook ever
@@ -111,12 +123,18 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   // 2. Client requests
   socket.on(AI_SOCKET_EVENTS.CREATE, async ({ sessionId, engine, cwd, options = {}, mock = false }, cb) => {
+    // TEMP DIAGNOSTIC — every create the host receives, and which branch answered it.
+    // A hydrate that shows "Syncing…" forever with no "create recv" line here means the
+    // request never reached the host at all. Remove with the rest of the ai-hydrate logs.
+    const recvAt = Date.now();
+    logger.info(`[ai] create recv: ${sessionId} engine=${engine} (syncClientSession)`);
     try {
       if (!sessionId || !engine) throw new Error("Missing sessionId or engine");
       // A create repeats on every mount (F5, second tab). The live session is already
       // this chat, so re-creating it would kill its CLI and lose the turn in flight.
       if (manager.getSession(sessionId)) {
         const existing = manager.getSession(sessionId);
+        logger.info(`[ai] create → live session (${Date.now() - recvAt}ms)`);
         return cb?.({
           ok: true,
           sessionId,
@@ -130,7 +148,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       // gets its result, instead of starting a second CLI on the same conversation.
       if (creating.has(sessionId)) {
         const { session, done } = creating.get(sessionId);
+        logger.info(`[ai] create → waiting on in-flight create`);
         await done;
+        logger.info(`[ai] create → in-flight create done (${Date.now() - recvAt}ms)`);
         return cb?.({
           ok: true,
           sessionId,
@@ -156,7 +176,11 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       let releaseCreate;
       creating.set(sessionId, { session, done: new Promise((r) => { releaseCreate = r; }) });
       try {
+        // TEMP DIAGNOSTIC — a fresh spawn is the branch that can hang: `ready` resolves
+        // on the CLI's first init, and a CLI that never prints one leaves the client's
+        // ack outstanding forever. Remove with the rest of the ai-hydrate logs.
         await session.ready;
+        logger.info(`[ai] create → spawned, ready in ${Date.now() - recvAt}ms`);
       } finally {
         creating.delete(sessionId);
         releaseCreate();
@@ -164,12 +188,26 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       const skills = listSkills(engine, cwd);
       const mcpServers = listMcpServers(engine);
       const modelOptions = listModelOptionsFor(engine);
+      // A re-attach that finds the log thinner than the CLI's own transcript rebuilds it
+      // BEFORE the ack snapshots a window over it. Without this the pane is answered from
+      // the agent's log — which the event cap and a legacy snapshot can leave short — and
+      // the missing turns are not merely unshown: the ack's `fromSeq` tells the client
+      // where its window begins, so its scroll-up never asks for them.
+      session.recoverIfThinner();
       // Kept on the session so a Clear can re-seed the log with the same metadata
       session.skills = skills;
       // Already-hydrated sessions skip the append: this runs on every connect (F5,
       // extra tab), and a log that grew an `init` per connect would never stop growing.
       // The event is still broadcast so the joining client sees the current metadata.
-      session.emitNormalized("init", { skills, mcpServers, modelOptions, model: session.model || defaultModelFor(engine) }, !session.hasRecordedInit());
+      session.emitNormalized("init", {
+        skills,
+        mcpServers,
+        modelOptions,
+        model: session.model || defaultModelFor(engine),
+        // The session's own pick wins; otherwise the CLI's config is what it will run
+        // with, and that is what the composer must show beside the model.
+        effort: session.effort || defaultEffortFor(engine)
+      }, !session.hasRecordedInit());
       cb?.({
         ok: true,
         sessionId: session.id,
@@ -183,7 +221,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         session: publicSession(session)
       });
     } catch (err) {
-      logger.error(`[ai] create failed: ${err.message}`);
+      // TEMP DIAGNOSTIC — the host DID answer, with a failure. Without this line the
+      // client's `ok:false` looks identical to a carrier that ate the ack.
+      logger.error(`[ai] create failed after ${Date.now() - recvAt}ms: ${err.message}`);
       cb?.({ ok: false, error: err.message });
     }
   });
