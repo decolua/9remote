@@ -308,18 +308,18 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
 }
 
 /** Tunnel status chip — the single spot where tunnel state is visible. */
-function TunnelChip({ step, onRestart }) {
+function TunnelChip({ step }) {
   // STEP enum: STOPPED=0, PREPARING=1 … READY=5
   const isStopped = step === 0;
   const isReady = step === 5;
-  const canRestart = (isStopped || isReady) && onRestart;
   const dotColor = isReady ? "var(--success)" : isStopped ? "var(--danger)" : "var(--warn)";
   const label = isReady ? "tunnel · online" : isStopped ? "tunnel · offline" : "tunnel · connecting";
+  // Read-only: it used to fire the restart action, so a tap meant to inspect the state
+  // dropped every connected client. Restart lives in the settings menu behind a confirm.
   return (
     <div
-      onClick={canRestart ? onRestart : undefined}
-      title={canRestart ? "Restart tunnel" : undefined}
-      className={`inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full max-w-full transition-colors ${canRestart ? "cursor-pointer hover:opacity-80" : ""}`}
+      title={label}
+      className="inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full max-w-full"
       style={{ border: "1px solid var(--border-subtle)", background: "var(--row-bg)", color: isReady ? "var(--text-main)" : "var(--text-muted)" }}
     >
       <span
@@ -387,6 +387,7 @@ function TunnelSteps({ step, stepDesc, t }) {
 }
 
 export default function MainScreen({
+  agentReachable = true,
   step, stepDesc = "", healthCheck, transport, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
   permissions, desktopEnabled, updateVersion, connections = [], version = "",
   onRequestPermission, onDesktopToggle, onStop, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
@@ -458,6 +459,16 @@ export default function MainScreen({
       {/* Full-bleed 50/50 split — pairing left, manage right.
           Mobile: single column, whole page scrolls; panes get own scroll from lg. */}
       <main className="flex-1 min-w-0 grid grid-cols-1 lg:grid-cols-2 overflow-y-auto lg:overflow-hidden">
+        {/* Every chip below keeps its last value when the agent process dies, so without
+            this the page keeps claiming a healthy tunnel over a dead server. */}
+        {!agentReachable && (
+          <div
+            className="col-span-full px-4 py-2 text-center text-xs font-medium"
+            style={{ background: "var(--danger)", color: "#fff" }}
+          >
+            {t("connection.agentUnreachable")}
+          </div>
+        )}
 
         {/* ═══ LEFT — pairing ═══ */}
         <section className="relative flex flex-col p-6 lg:p-10 min-w-0 lg:overflow-y-auto">
@@ -466,7 +477,7 @@ export default function MainScreen({
           {/* my-auto centers when room, collapses when overflowing (justify-center would clip the top) */}
           <div className="relative z-[1] flex flex-col items-center my-auto">
             <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
-              <TunnelChip step={step} onRestart={onStop} />
+              <TunnelChip step={step} />
               <RtcChip transport={transport} />
             </div>
             {step > 0 && step < 5 ? (

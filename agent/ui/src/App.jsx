@@ -32,6 +32,7 @@ const MAX_LOGS = 200;
 
 export default function App() {
   const [mainState, setMainState] = useState(defaultState);
+  const [agentReachable, setAgentReachable] = useState(true);
   const [permissions, setPermissions] = useState(defaultPermissions);
   const [transport, setTransport] = useState(defaultTransport);
   const [desktopEnabled, setDesktopEnabled] = useState(false);
@@ -127,6 +128,7 @@ export default function App() {
     es.onmessage = (e) => {
       try {
         const data = JSON.parse(e.data);
+        setAgentReachable(true);
         if (data.type === "state") {
           setMainState({
             step: data.step ?? 0,
@@ -169,7 +171,11 @@ export default function App() {
       } catch { /* ignore parse errors */ }
     };
 
-    es.onerror = () => {};
+    // A dead agent process leaves the last state on screen: a green "tunnel · online"
+    // over a server that is gone. EventSource reconnects on its own, so this only
+    // raises the flag; a message that arrives later clears it.
+    es.onerror = () => setAgentReachable(false);
+    es.onopen = () => setAgentReachable(true);
 
     // Load initial auto-approve state
     fetch("/api/device/auto-approve").then(r => r.json()).then(d => {
@@ -422,6 +428,7 @@ export default function App() {
 
   return (
     <MainScreen
+      agentReachable={agentReachable}
       step={mainState.step}
       stepDesc={mainState.stepDesc}
       healthCheck={mainState.healthCheck}

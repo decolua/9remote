@@ -231,6 +231,7 @@ export default {
     startTunnel: "Start the tunnel to get a QR code and connect your devices from anywhere.",
     connect: "Connect",
     connecting: "Connecting…",
+    agentUnreachable: "Lost connection to the agent — the app may have quit",
     pairDevice: "Pair a device",
     scanToSignIn: "Scan QR or open link to sign in",
     oneTimeKey: "One-Time Key",
