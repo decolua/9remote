@@ -9,6 +9,7 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { debugLog } from "@/shared/utils/debugLog";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { isLoopbackOrigin, isLocalAgentNetwork } from "@/shared/utils/localOrigin";
+import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
 
@@ -51,13 +52,17 @@ export function useBus(config = {}) {
 
     const start = async () => {
       let auth = getAuth();
-      // Page served BY the agent on this machine: the loopback carrier always
-      // wins over any stored remote auth (a stale tunnel login). The key fetch
-      // is loopback-only — /api/ui/state is a localhost-only endpoint.
+      // Agent-served page on the agent's own port: the loopback carrier always
+      // wins over any stored remote auth (a stale tunnel login), so the key is
+      // read straight from the agent.
+      //
+      // Deliberately NOT done on the web dev server, which is loopback too but
+      // is not the agent: auto-minting a session there would skip the login
+      // screen entirely, which is exactly what a build must not do.
       const isLoopback = isLoopbackOrigin();
-      if (isLoopback && auth?.tunnelUrl !== window.location.origin) {
+      if (isLoopback && window.location.port === String(AGENT_PORT) && auth?.tunnelUrl !== window.location.origin) {
         try {
-          const res = await fetch("/api/ui/state");
+          const res = await fetch(LOCAL_AGENT_STATE);
           const data = res.ok ? await res.json() : null;
           if (res.ok) {
             if (data?.permanentKey) {
@@ -70,7 +75,7 @@ export function useBus(config = {}) {
                 tunnelUrl: window.location.origin,
                 mode: "local",
                 tempKey: null,
-                localIp: null
+                localIp: data.localIp || null
               };
               setAuth(auth);
             }

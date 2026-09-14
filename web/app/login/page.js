@@ -24,6 +24,7 @@ import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
 import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
+import { AGENT_PORT } from "@/shared/constants/API";
 
 // One-time pairing input: "K7QP3Max" (6-char tempKey + 2-char TAIL, no
 // separator), a bare "K7QP3M", or a full login URL carrying either in
@@ -130,8 +131,11 @@ function LoginContent() {
       setAuthTab("github");
     }
 
-    // Auto-connect when accessing directly on the agent's loopback origin
-    if (isLoopbackOrigin()) {
+    // Auto-connect when the agent itself serves this page. Port-gated: the web
+    // dev server is loopback too, but a page there must log in like any other
+    // build — auto-minting a session from the agent's own key would skip the
+    // login screen, and that key is exactly what a dev page would be handed.
+    if (isLoopbackOrigin() && window.location.port === String(AGENT_PORT)) {
       fetch("/api/ui/state")
         .then((res) => (res.ok ? res.json() : null))
         .then((data) => {

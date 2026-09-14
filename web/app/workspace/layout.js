@@ -37,6 +37,7 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
+import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 
 import SessionList from "@/features/session/components/SessionList";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
@@ -169,8 +170,11 @@ export default function WorkspaceLayout({ children }) {
 
   useEffect(() => {
     setHydrated(true);
-    if (!auth?.apiKey && isLoopbackOrigin()) {
-      fetch("/api/ui/state")
+    // Only the agent's own port: there the agent serves the page and holds the
+    // key, so a reload must not dump the user back on the login screen. A page
+    // on the web dev server is loopback too — it logs in like any other build.
+    if (!auth?.apiKey && isLoopbackOrigin() && window.location.port === String(AGENT_PORT)) {
+      fetch(LOCAL_AGENT_STATE)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (data?.permanentKey) {

@@ -9,6 +9,18 @@ export const WORKER_API = process.env.NEXT_PUBLIC_WORKER_URL
 export const HOMEPAGE_URL = "https://9remote.cc/";
 export const DOCS_URL = "https://docs.9remote.cc/";
 
+// Port the agent serves its local API on. Mirrors agent/lib/constants.js
+// SERVER_PORT — the two runtimes share no module, only this number.
+export const AGENT_PORT = 2208;
+
+// The agent on this machine, addressed directly. A local page talks to it
+// cross-origin rather than through a dev-server rewrite: proxying would reach the
+// agent with a rewritten Host, which defeats its DNS-rebinding guard and exposes
+// its loopback-only endpoints on whatever interface the dev server bound.
+// The agent admits this origin (LOCAL_UI_ORIGINS) and answers only a loopback peer.
+export const LOCAL_AGENT_ORIGIN = `http://127.0.0.1:${AGENT_PORT}`;
+export const LOCAL_AGENT_STATE = `${LOCAL_AGENT_ORIGIN}/api/ui/state`;
+
 // Command to update the agent to latest version
 export const AGENT_UPDATE_COMMAND = "npm i -g 9remote@latest";
 

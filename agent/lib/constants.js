@@ -74,16 +74,26 @@ export async function hideDockIcon() {
 // Vite dev server port (dev-mode UI origin)
 export const VITE_DEV_PORT = 5173;
 
+// Next dev server port (web UI in a dev checkout)
+export const WEB_DEV_PORT = 3000;
+
 // Reserved deviceId for the trusted local UI — never persisted/tracked as a client.
 export const LOCAL_UI_DEVICE_ID = "local-ui";
 
 // Allowed origins for the localhost UI (token endpoint + socket trust guard).
 // A malicious cross-origin page sends a different Origin → rejected.
+// Every entry is loopback: the port differs per UI (agent, Vite, Next dev) but
+// the machine does not. These are ports, not a trust decision — the checks that
+// matter are the key TAIL and, for /api/ui/state, that the request arrived over
+// loopback with a local Host (see middleware/cors.js). Gating these on
+// NODE_ENV instead would make a production install reject its own dev UI.
 export const LOCAL_UI_ORIGINS = [
   `http://localhost:${SERVER_PORT}`,
   `http://127.0.0.1:${SERVER_PORT}`,
   `http://localhost:${VITE_DEV_PORT}`,
   `http://127.0.0.1:${VITE_DEV_PORT}`,
+  `http://localhost:${WEB_DEV_PORT}`,
+  `http://127.0.0.1:${WEB_DEV_PORT}`,
 ];
 
 // Centralized log file config — single sink for console + crash + tunnel + remote

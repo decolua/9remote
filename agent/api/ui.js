@@ -130,13 +130,26 @@ setSseEmitter((line) => pushUiEvent("log", { message: line }));
 
 export function getUiState() { return uiState; }
 
+/** LAN endpoint of this agent, or null. A browser on the same network can reach
+ *  the agent directly — no tunnel, no Worker. */
+export function getLocalEndpoint() {
+  const lanIp = getLocalIp();
+  return lanIp ? `${lanIp}:${SERVER_PORT}` : null;
+}
+
+/** Origin a same-machine page should address the agent by. 127.0.0.1, not the
+ *  LAN IP: the host's own browser then arrives over loopback and is admitted by
+ *  key tail, without a device-approval prompt. */
+export function getLoopbackOrigin() {
+  return `http://127.0.0.1:${SERVER_PORT}`;
+}
+
 export function getTunnelPayload() {
   const isReady = uiState.step === STEP.READY && !!uiState.tunnelUrl;
-  const lanIp = getLocalIp();
   return {
     status: isReady ? "ready" : "down",
     tunnelUrl: isReady ? uiState.tunnelUrl : null,
-    localIp: lanIp ? `${lanIp}:${SERVER_PORT}` : null
+    localIp: getLocalEndpoint()
   };
 }
 
@@ -287,7 +300,14 @@ export function handleSseEvents(req, res) {
 }
 
 export function handleStateGet(req, res) {
-  jsonOk(res, { ...uiState, ...cachedPermissions, desktopEnabled, remoteAvailable, transport: getTransportState() });
+  // localIp + loopbackOrigin ride along so a page served elsewhere (the web dev
+  // server) can open the direct carriers without waiting on the Worker — the
+  // tunnel only feeds the tunnel rung.
+  jsonOk(res, {
+    ...uiState, ...cachedPermissions, desktopEnabled, remoteAvailable,
+    localIp: getLocalEndpoint(), loopbackOrigin: getLoopbackOrigin(),
+    transport: getTransportState()
+  });
 }
 
 export async function handleStatePost(req, res) {

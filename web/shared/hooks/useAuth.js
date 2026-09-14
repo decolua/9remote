@@ -1,9 +1,9 @@
 import { useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
-import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS, TUNNEL_VERIFY_TIMEOUT_MS, CONNECT_TIMEOUT_MS } from "@/shared/constants/API";
+import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS, TUNNEL_VERIFY_TIMEOUT_MS, CONNECT_TIMEOUT_MS, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
-import { isLocalAgentNetwork } from "@/shared/utils/localOrigin";
+import { isLocalAgentNetwork, isLoopbackOrigin, agentOriginFrom } from "@/shared/utils/localOrigin";
 
 // Plain text, not a translation key: this hook has no i18n context, and the
 // login page swaps it for the localised string it already owns.
@@ -50,6 +50,27 @@ export async function verifyKeyWithAgent(tunnelUrl, { tail, tempKey }, timeout =
   }
 }
 
+/**
+ * Which origin the agent answers on, or null when this page is not local.
+ * Agent-served pages (loopback/LAN) are their own answer; a dev-server page is
+ * loopback but is NOT the agent, so asking its own origin would 404 and silently
+ * demote a machine the LAN can reach to the Worker.
+ */
+async function resolveAgentOrigin() {
+  if (!isLoopbackOrigin()) return isLocalAgentNetwork() ? window.location.origin : null;
+  return agentOriginFrom(await fetchAgentState());
+}
+
+/** The agent's own state payload from this browser, or null when none answers. */
+async function fetchAgentState() {
+  try {
+    const res = await fetch(LOCAL_AGENT_STATE);
+    return res.ok ? await res.json() : null;
+  } catch {
+    return null;
+  }
+}
+
 // Centralized auth logic - handles both token and API key auth
 export function useAuth() {
   const [loading, setLoading] = useState(false);
@@ -65,20 +86,20 @@ export function useAuth() {
     try {
       // Only a page the agent itself serves (loopback/LAN) may receive the
       // TAIL — never an arbitrary origin that happens to host this bundle.
-      const isDirectAgent = isLocalAgentNetwork();
+      const agentOrigin = await resolveAgentOrigin();
 
-      if (isDirectAgent) {
+      if (agentOrigin) {
         const tail = credentials.tail || tailOf(credentials.apiKey || "");
         const tempKey = credentials.tempKey || (credentials.token?.length <= 8 ? credentials.token : null);
         try {
-          const directCheck = await verifyKeyWithAgent(window.location.origin, { tail, tempKey });
+          const directCheck = await verifyKeyWithAgent(agentOrigin, { tail, tempKey });
           if (directCheck === true) {
             const rawKey = credentials.apiKey || tempKey || "";
             const apiKey = headOf(rawKey) || "direct";
             if (tail) setTrust(apiKey, { tail });
             setAuth({
               apiKey,
-              tunnelUrl: window.location.origin,
+              tunnelUrl: agentOrigin,
               mode: "local",
               tempKey: tempKey ? tempKey.toUpperCase() : null,
               localIp: null
