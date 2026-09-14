@@ -131,18 +131,30 @@ export function formatTokens(n) {
 const ESTIMATED_CHARS_PER_TOKEN = 4;
 
 /**
- * Tokens sitting in the session's context window.
+ * Tokens sitting in the session's context window — what the next turn has to resend.
  *
- * Cached reads count: the CLI's `inputTokens` is only the uncached part, so a resumed
- * conversation reports a few thousand there while the window really holds tens of
- * thousands. Engines that report no cache fields (codex, opencode) already fold
- * everything into `inputTokens`.
+ * Engines count this differently and each field is already normalized by its adapter:
+ * claude reports the turn's own `usage` (input + both cache fields), codex folds the
+ * cached part into `inputTokens`, and opencode/antigravity publish the last step's
+ * input as `contextTokens`. Prefer the explicit field; the sum is the fallback for a
+ * session hydrated from a log written before the adapters normalized it.
  *
  * @param {object} [stats] The host's latest reported usage.
  * @returns {number}
  */
 export function contextUsedTokens(stats = {}) {
+  if (Number.isFinite(stats.contextTokens) && stats.contextTokens > 0) return stats.contextTokens;
   return (stats.inputTokens || 0) + (stats.cacheReadInputTokens || 0) + (stats.cacheCreationInputTokens || 0);
+}
+
+/**
+ * Share of the window in use, 0–1, or null when the host never stated its size.
+ * Engines that report no window (opencode) answer null rather than a made-up ceiling.
+ */
+export function contextFill(stats = {}) {
+  const used = contextUsedTokens(stats);
+  const window = stats.contextWindow || 0;
+  return window > 0 ? Math.min(1, used / window) : null;
 }
 
 /**

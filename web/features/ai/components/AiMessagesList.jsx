@@ -39,7 +39,7 @@ function tokenReadout(outputTokens) {
   return (
     <>
       <span className="text-text-muted/60"> · </span>
-      {formatTokens(outputTokens)} token
+      {formatTokens(outputTokens)} tokens
     </>
   );
 }
@@ -59,9 +59,25 @@ function changeReadout({ added, removed }) {
 }
 
 // The chat is being rebuilt from the host. Shown in place of the empty state, which would
-// otherwise claim the conversation is new while the ask is still unanswered.
-const AiLoadingState = memo(function AiLoadingState({ engine = "claude" }) {
+// otherwise claim the conversation is new while the ask is still unanswered. Once the
+// re-ask ladder is spent the spinner is a lie, so it becomes a retry.
+const AiLoadingState = memo(function AiLoadingState({ engine = "claude", failed = false, onRetry }) {
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
+  if (failed) {
+    return (
+      <div className="h-full flex flex-col items-center justify-center gap-3 text-center p-6 select-none">
+        <span className="font-mono text-[12px] text-danger">Couldn&apos;t load this conversation</span>
+        <span className="text-[11px] font-mono text-text-muted/70">{engineMeta.label}</span>
+        <button
+          type="button"
+          onClick={() => { vibrate(); onRetry?.(); }}
+          className="px-3 py-1.5 rounded-brand text-[11px] font-mono text-text bg-surface-2 hover:bg-surface-3 transition-colors"
+        >
+          Retry
+        </button>
+      </div>
+    );
+  }
   return (
     <div className="h-full flex flex-col items-center justify-center gap-3 text-center p-6 select-none">
       <Loader2 size={20} className="animate-spin text-brand-500" />
@@ -108,7 +124,6 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
       const end = Date.now();
       setFinished({
         ms: end - turnStartedAt,
-        doneAt: new Date(end),
         outputTokens: turnOutput,
         changes: countTurnChanges(turnMessages)
       });
@@ -125,12 +140,16 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
     return (
       <div className="flex items-center gap-2 py-1 select-none text-xs text-text-muted">
         <Check size={14} className="text-emerald-400 shrink-0" />
-        <span className="truncate font-mono text-[11px]">
-          Worked for <span className="text-text">{formatDuration(finished.ms)}</span>
-          <span className="text-text-muted/60"> · </span>
-          done {pad2(finished.doneAt.getHours())}:{pad2(finished.doneAt.getMinutes())}
-          {changeReadout(finished.changes)}
-          {tokenReadout(finished.outputTokens)}
+        {/* The counts sit outside the truncating span: an ellipsis eats the tail first,
+            which is exactly where the changed-line and token readouts are. */}
+        <span className="flex items-center min-w-0 font-mono text-[11px]">
+          <span className="truncate">
+            Worked for <span className="text-text">{formatDuration(finished.ms)}</span>
+          </span>
+          <span className="shrink-0">
+            {changeReadout(finished.changes)}
+            {tokenReadout(finished.outputTokens)}
+          </span>
         </span>
       </div>
     );
@@ -152,12 +171,14 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
       )}
       {/* The sheen owns the verb alone: `background-clip: text` re-anchors its gradient
           per element, so nesting children inside it broke the sweep across the line. */}
-      <span className="truncate font-mono text-[11px]">
-        <span className={`ai-sheen-text${live.tone === "alert" ? " !text-danger" : ""}`}>{live.verb}…</span>
-        {live.detail && <span className="text-text-subtle"> {live.detail}</span>}
-        <span className="text-text-muted/60"> · </span>
-        {formatDuration(now - (turnStartedAt || now))}
-        {tokenReadout(liveOutput)}
+      <span className="flex items-center min-w-0 font-mono text-[11px]">
+        <span className="truncate">
+          <span className={`ai-sheen-text${live.tone === "alert" ? " !text-danger" : ""}`}>{live.verb}…</span>
+          {live.detail && <span className="text-text-subtle"> {live.detail}</span>}
+          <span className="text-text-muted/60"> · </span>
+          {formatDuration(now - (turnStartedAt || now))}
+        </span>
+        <span className="shrink-0">{tokenReadout(liveOutput)}</span>
       </span>
     </div>
   );
@@ -297,7 +318,9 @@ export const AiMessagesList = memo(function AiMessagesList({
   onListRewindPoints,
   onOpenResume,
   hydrating = false,
-  synced = true
+  synced = true,
+  hydrateFailed = false,
+  onReload
 }) {
   const scrollRef = useRef(null);
   // Marks the top of the mounted window — watched so paging also fires on first paint
@@ -495,7 +518,7 @@ export const AiMessagesList = memo(function AiMessagesList({
               onOpenResume={onOpenResume}
             />
           ) : (
-            <AiLoadingState engine={engine} />
+            <AiLoadingState engine={engine} failed={hydrateFailed} onRetry={onReload} />
           )
         ) : (
           <>

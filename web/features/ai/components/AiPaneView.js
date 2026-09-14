@@ -19,10 +19,12 @@ import { ModeModal } from "./modals/ModeModal";
 import { DoctorModal } from "./modals/DoctorModal";
 import { TasksModal } from "./modals/TasksModal";
 import { RewindModal } from "./modals/RewindModal";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
 import { AiBlockedCard } from "./cards/AiBlockedCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiTaskCard } from "./cards/AiTaskCard";
+import { AiAgentStrip } from "./AiAgentStrip";
 import { getEngineConfig } from "../registry";
 import { AI_FONT_SIZE_BOOST, AI_DOT_GRID, ENGINE_INFO } from "../constants";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
@@ -69,9 +71,12 @@ export const AiPaneView = memo(function AiPaneView({
   const [activeModal, setActiveModal] = useState(null); // 'skills' | 'mcp' | 'model'
   const [refreshing, setRefreshing] = useState(false);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
+  // The trash sits one tap from the composer and wipes the whole log on the host, so it
+  // asks first — deleting a single file already does.
+  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const { t } = useI18n();
 
-  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced } = useAiSession({
+  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced, hydrateFailed } = useAiSession({
     sessionId,
     engine,
     workspacePath,
@@ -305,6 +310,10 @@ export const AiPaneView = memo(function AiPaneView({
       {/* Pinned Task Checklist Strip at the Top */}
       <AiTaskCard sessionId={sessionId} />
 
+      {/* Running sub-agents, same idea one level down: their cards scroll out of view
+          while the work they are doing is still going. */}
+      <AiAgentStrip sessionId={sessionId} />
+
       {/* Scrollable Message List */}
       <AiMessagesList
         sessionId={sessionId}
@@ -321,6 +330,8 @@ export const AiPaneView = memo(function AiPaneView({
         onOpenResume={handleOpenResume}
         hydrating={hydrating}
         synced={synced}
+        hydrateFailed={hydrateFailed}
+        onReload={reload}
       />
 
       {/* Pinned blocked-action card: codex/opencode cannot prompt, so this offers a mode escalation */}
@@ -380,13 +391,21 @@ export const AiPaneView = memo(function AiPaneView({
         sessionId={sessionId}
         sessionName={sessionName}
         engine={engine}
+        workspacePath={workspacePath}
         isDesktop={isDesktop}
         onModeChange={handleModeChange}
-        onClear={handleClear}
+        onClear={() => setClearConfirmOpen(true)}
       />
 
       {/* Modals. Skills/MCP lost their status-bar buttons but keep the slash entries
           (/skills, /mcp), so the panes stay mounted. */}
+      <ConfirmDialog
+        isOpen={clearConfirmOpen}
+        onClose={() => setClearConfirmOpen(false)}
+        onConfirm={handleClear}
+        title="Clear chat history?"
+        message="This erases the conversation on the host. It cannot be undone."
+      />
       {activeModal === "skills" && (
         <SkillsModal
           skills={skills}

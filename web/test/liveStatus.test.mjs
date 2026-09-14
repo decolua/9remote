@@ -4,7 +4,7 @@
 //
 // Run: node --import ./test/loader-alias.mjs web/test/liveStatus.test.mjs
 import assert from "node:assert/strict";
-import { describeLive, estimateTurnTokens, countTurnChanges, contextUsedTokens, formatTokens } from "../features/ai/lib/liveStatus.js";
+import { describeLive, estimateTurnTokens, countTurnChanges, contextUsedTokens, contextFill, formatTokens } from "../features/ai/lib/liveStatus.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -256,6 +256,21 @@ test("context usage counts what the cache holds, not just the fresh input", () =
 test("engines that report no cache fields are read as-is", () => {
   assert.equal(contextUsedTokens({ inputTokens: 45200 }), 45200);
   assert.equal(contextUsedTokens(), 0);
+});
+
+test("an explicit contextTokens wins over the summed counters", () => {
+  // opencode/antigravity add every step into inputTokens; summing those with the
+  // cache fields would bill the same conversation once per step.
+  assert.equal(contextUsedTokens({ inputTokens: 19572, contextTokens: 8918 }), 8918);
+  assert.equal(contextUsedTokens({ contextTokens: 0, inputTokens: 300 }), 300, "no reading yet falls back");
+});
+
+test("the window's fill is used over its size, and null when the host never said", () => {
+  assert.equal(contextFill({ contextTokens: 250000, contextWindow: 1000000 }), 0.25);
+  assert.equal(contextFill({ inputTokens: 900, contextWindow: 1000 }), 0.9);
+  assert.equal(contextFill({ contextTokens: 250000 }), null, "no window size means no percentage to claim");
+  assert.equal(contextFill({ contextWindow: 1000000 }), 0);
+  assert.equal(contextFill({ contextTokens: 2000000, contextWindow: 1000000 }), 1, "never past full");
 });
 
 test("token counts use the CLI's shorthand", () => {

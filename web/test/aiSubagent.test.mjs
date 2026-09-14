@@ -5,6 +5,7 @@
 import assert from "node:assert/strict";
 import { reduceSessionEvents } from "../features/ai/hooks/useAiSession.js";
 import { shellIdFromResult } from "../features/ai/lib/shellId.js";
+import { runningAgents } from "../features/ai/lib/toolTree.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -119,6 +120,52 @@ test("the CLI's real background output does not name a shell", () => {
   // A finished BashOutput read must not make the card look like a live shell.
   const out = "<retrieval_status>success</retrieval_status>\n<status>completed</status>\n<output>\nhi\n</output>";
   assert.equal(shellIdFromResult(out), "");
+});
+
+// The pinned AGENTS strip reads this: what is running RIGHT NOW, which the timeline
+// cards cannot answer once they have scrolled away.
+const agentMsg = (tools) => ({ role: "assistant", tools });
+
+test("only sub-agents that are still running reach the strip", () => {
+  const messages = [agentMsg([
+    { id: "a1", name: "Agent", input: { subagent_type: "Explore" }, status: "done" },
+    { id: "a2", name: "Agent", input: { subagent_type: "Plan" }, status: "running" }
+  ])];
+  assert.deepEqual(runningAgents(messages), [{ id: "a2", label: "Plan" }]);
+});
+
+test("a sub-agent spawned by a sub-agent is found too", () => {
+  const messages = [agentMsg([
+    {
+      id: "a1", name: "Agent", input: { subagent_type: "Explore" }, status: "running",
+      children: [{ id: "a2", name: "task", input: { description: "scan deps" }, status: "running" }]
+    }
+  ])];
+  assert.deepEqual(runningAgents(messages), [
+    { id: "a1", label: "Explore" },
+    { id: "a2", label: "scan deps" }
+  ]);
+});
+
+test("a message TO a sub-agent is not a launch", () => {
+  // SendMessage / close_agent share the "agent" category but spawn nothing.
+  const messages = [agentMsg([{ id: "m1", name: "SendMessage", input: { message: "hi" }, status: "running" }])];
+  assert.deepEqual(runningAgents(messages), []);
+});
+
+test("an older turn's agent is not reported as running", () => {
+  // The scan stops at the newest message that yields anything: a stale run is over.
+  const messages = [
+    agentMsg([{ id: "old", name: "Agent", status: "running" }]),
+    { role: "user" },
+    agentMsg([{ id: "new", name: "Agent", input: { subagent_type: "Plan" }, status: "running" }])
+  ];
+  assert.deepEqual(runningAgents(messages), [{ id: "new", label: "Plan" }]);
+});
+
+test("a turn with no sub-agent yields nothing, so the strip stays hidden", () => {
+  assert.deepEqual(runningAgents([agentMsg([{ id: "b", name: "Bash", status: "running" }])]), []);
+  assert.deepEqual(runningAgents([]), []);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

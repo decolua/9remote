@@ -6,18 +6,7 @@ import { AiToolCard } from "./AiToolCard";
 import { AiBashCard } from "./AiBashCard";
 import { StepWindow } from "../StepWindow";
 import { getToolCategory } from "../../registry";
-
-// Tools whose `prompt`/`description` field is the brief worth showing on the row.
-// Everything else in the agent category (SendMessage, close_agent, wait) carries no
-// brief, so the row shows its own name instead.
-// Names are matched exactly: each engine spells them its own way, and opencode's is
-// lowercase (`task`), so Claude's `Task` does not cover it.
-const LAUNCH_TOOLS = new Set([
-  "Agent", "Task", "Workflow",   // claude
-  "task",                        // opencode
-  "browser_subagent", "invoke_subagent", // antigravity
-  "spawn_agent",                 // codex
-]);
+import { LAUNCH_TOOLS, agentLabel } from "../../lib/toolTree";
 
 /** First line of the prompt — enough to tell one sub-agent from another. */
 function firstLine(text) {
@@ -56,13 +45,13 @@ export const AiAgentCard = memo(function AiAgentCard({
   // sub-agent: this card only renders for the "agent" category, so naming the tool is
   // more useful than the literal fallback.
   const isLaunch = LAUNCH_TOOLS.has(name);
-  const label = isLaunch ? (input?.subagent_type || input?.agent || input?.description || "agent") : name || "agent";
+  const label = isLaunch ? agentLabel({ input }) : name || "agent";
   const text = isLaunch
     ? firstLine(input?.prompt ?? input?.description ?? input?.message)
     : firstLine(input?.message ?? input?.prompt ?? input?.query);
 
   return (
-    <div className="my-1 text-xs">
+    <div className="my-1 text-xs" id={id ? `agent-${id}` : undefined}>
       <div
         onClick={() => setExpanded(!expanded)}
         className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"

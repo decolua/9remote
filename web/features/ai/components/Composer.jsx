@@ -50,6 +50,8 @@ export const Composer = memo(function Composer({
   const MODELS = hostModels?.length ? hostModels : engineConfig.models;
   const storeSkills = useAiStore((s) => s.bySession[sessionId]?.metadata?.skills) || EMPTY_ARRAY;
   const storeMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode);
+  // Reasoning tier beside the model: whichever name this engine publishes it under.
+  const storeTier = useAiStore((s) => s.bySession[sessionId]?.metadata?.effort || s.bySession[sessionId]?.metadata?.variant);
   // Before the host answers, the engine's own defaultMode is the truth.
   const permissionMode = storeMode || engineConfig.defaultMode;
 
@@ -166,14 +168,16 @@ export const Composer = memo(function Composer({
     }
   }, [selectedIdx, menuOpen]);
 
-  // Load draft on session change
+  // Load draft on session change. The queue and staged attachments are per-conversation
+  // too: leaving them behind would dispatch another session's messages and files on send.
   useEffect(() => {
     if (!sessionId) return;
+    setQueue(EMPTY_ARRAY);
+    setAttachments([]);
     try {
-      const d = localStorage.getItem(`9remote_draft_${sessionId}`);
-      if (d) setText(d);
+      setText(localStorage.getItem(`9remote_draft_${sessionId}`) || "");
     } catch {}
-  }, [sessionId]);
+  }, [sessionId, setAttachments]);
 
   // Save draft debounced
   useEffect(() => {
@@ -587,6 +591,12 @@ export const Composer = memo(function Composer({
   // `short` is the real id for host slot models; the alias label is the no-custom fallback.
   const displayModel = matchedModel?.short || matchedModel?.label || rawModel || "Model";
 
+  // The reasoning tier the CLI is actually running with. Engines name this field
+  // differently (claude/codex say effort, opencode says variant) and some have none at
+  // all (antigravity folds the tier into the model id) — so the chip is simply absent
+  // when there is nothing to say, never a placeholder.
+  const displayTier = storeTier || "";
+
   // The running model may not be in the host's list (set from another surface, or a
   // settings change since) — show it anyway rather than pretending another is active.
   const allModels = useMemo(() => {
@@ -857,6 +867,13 @@ export const Composer = memo(function Composer({
                 {/* dir=rtl keeps the tail visible when the id is too long, so the
                     version suffix (the part that distinguishes models) survives. */}
                 <span dir="rtl" className="truncate min-w-0"><bdi>{displayModel}</bdi></span>
+                {/* The tier sits outside the model's flex-1 span so a long model id
+                    cannot swallow it — how hard the model thinks is not a detail. */}
+                {displayTier && (
+                  <span className="shrink-0 px-1 rounded bg-surface-2/80 text-[10px] text-text-muted uppercase tracking-wide">
+                    {displayTier}
+                  </span>
+                )}
                 <ChevronUp size={11} className={`text-text-muted shrink-0 transition-transform ${modelMenuOpen ? "" : "rotate-180"}`} />
               </button>
               {modelMenuOpen && (

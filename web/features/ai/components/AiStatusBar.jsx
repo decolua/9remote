@@ -1,12 +1,14 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import Icon, { Target, Trash2, ChevronUp, Check, LayoutDashboard } from "@/shared/components/ui/Icon";
+import Icon, { Target, Trash2, ChevronUp, Check } from "@/shared/components/ui/Icon";
 import { getEngineConfig } from "../registry";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { vibrate } from "@/shared/utils/vibration";
-import { contextUsedTokens, formatTokens } from "../lib/liveStatus";
 import TerminalBeam from "@/shared/components/ui/TerminalBeam";
+import BranchBadge from "@/features/terminal/components/BranchBadge";
+import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import { isDefaultBranch } from "@/features/terminal/constants/terminalConfig";
 
 // Colour by the shared mode icon, so a mode reads the same on every engine.
 const MODE_ICON_COLOR = {
@@ -20,6 +22,7 @@ export const AiStatusBar = memo(function AiStatusBar({
   sessionId = "",
   sessionName = "",
   engine = "claude",
+  workspacePath = "",
   isTurnRunning: propTurnRunning = false,
   isDesktop = true,
   onModeChange,
@@ -35,10 +38,9 @@ export const AiStatusBar = memo(function AiStatusBar({
   const permissionMode = storedMode || getEngineConfig(engine).defaultMode;
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
-  const stats = useAiStore((s) => s.bySession[sessionId]?.stats);
-  // How full the context window is: everything the CLI would have to resend. Read from
-  // the host's per-turn totals, so mid-turn it still shows the previous turn's reading.
-  const contextUsed = contextUsedTokens(stats);
+  // Mobile only: a branch is worth the row on a phone, and only when it is not the
+  // workspace default. Desktop polls it in the sidebar instead.
+  const { branch, dirty } = useWorkspaceGit(workspacePath, undefined, { enabled: !isDesktop && !!workspacePath });
 
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef(null);
@@ -127,15 +129,9 @@ export const AiStatusBar = memo(function AiStatusBar({
         )}
       </div>
 
-      {/* Right: context window, Clear */}
+      {/* Right: branch (mobile, non-default only), Clear */}
       <div className="flex items-center gap-2.5 shrink-0">
-        <span
-          className="flex items-center gap-1"
-          title={`Context: ${contextUsed.toLocaleString()} tokens`}
-        >
-          <LayoutDashboard size={11} className="text-accent shrink-0" />
-          <span>{formatTokens(contextUsed)}</span>
-        </span>
+        {!isDesktop && branch && !isDefaultBranch(branch) && <BranchBadge branch={branch} dirty={dirty} size={11} />}
 
         <button
           type="button"

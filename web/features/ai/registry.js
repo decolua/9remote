@@ -92,11 +92,14 @@ export const PERSONALITY_OPTIONS = Object.freeze([
 
 // Codex's persistent goal (its state DB, read back over the app-server).
 
-// Claude's --effort accepts two extra levels beyond the shared three.
+// Claude's --effort accepts three levels beyond the shared three, and `ultracode` sits
+// above them all: it pins xhigh reasoning AND turns on dynamic workflows, so it is the
+// heaviest setting the CLI has, not a tier between two others.
 const CLAUDE_EFFORT_OPTIONS = Object.freeze([
   ...EFFORT_OPTIONS,
   { value: "xhigh", label: "xhigh", desc: "Extra-high reasoning" },
   { value: "max", label: "max", desc: "Maximum reasoning" },
+  { value: "ultracode", label: "ultracode", desc: "Highest: max reasoning + dynamic workflows" },
 ]);
 
 /**

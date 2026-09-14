@@ -1,15 +1,17 @@
 "use client";
 
 import { memo, useState } from "react";
-import { FileCode, ChevronDown, ChevronRight, Copy, Check, ExternalLink } from "@/shared/components/ui/Icon";
+import { FileCode, ChevronDown, ChevronRight, ExternalLink } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
+import useIsTouch from "@/shared/hooks/useIsTouch.js";
 import { splitPath } from "../../lib/shortenPath";
 
-export const AiDiffCard = memo(function AiDiffCard({ file = "", name = "", patch = "", diff = "", content = "", workspacePath = "" }) {
+export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff = "", content = "", workspacePath = "" }) {
   const [expanded, setExpanded] = useState(false);
-  const [copied, setCopied] = useState(false);
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
+  // Hover never fires on a phone, so this one would be unreachable there.
+  const isTouch = useIsTouch();
 
   // A whole-file add has no patch text, only the new content — show it all as additions
   const isNewFile = !patch && !diff && Boolean(content);
@@ -28,15 +30,6 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", name = "", patch
     if (file) openEditorFile(file);
   };
 
-  const handleCopy = (e) => {
-    e.stopPropagation();
-    vibrate();
-    if (!rawDiff) return;
-    navigator.clipboard.writeText(rawDiff);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
   return (
     <div className="my-1 text-xs">
       {/* Clean borderless 1-line diff row flush with left margin.
@@ -51,13 +44,6 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", name = "", patch
               errored, success done). A diff only exists once its edit landed — a denied
               one never reaches the client — so it is always the done colour. */}
           <FileCode size={13} className="text-success shrink-0" />
-          {/* The tool that made the change reads first, the same chip a plain tool row
-              carries — a diff row replaced that row, so it owes the reader the name. */}
-          {name && (
-            <span className="font-mono text-[10px] font-semibold text-text uppercase tracking-wider shrink-0 px-1 py-0.5 rounded bg-surface-2/80" title={name}>
-              {name}
-            </span>
-          )}
           {/* Wraps rather than clipping: a path has no space to break on, so break-all
               keeps every segment readable instead of cutting the file name off. */}
           <span className="min-w-0 font-mono font-medium text-text text-[11px] break-all" title={file}>
@@ -74,7 +60,7 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", name = "", patch
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover/tool:opacity-100 transition-opacity">
+        <div className={`flex items-center gap-1 shrink-0 ml-2 transition-opacity ${isTouch ? "opacity-100" : "opacity-0 group-hover/tool:opacity-100"}`}>
           {file && (
             <button
               type="button"
@@ -83,18 +69,8 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", name = "", patch
               title="Open file in editor"
             >
               <ExternalLink size={11} />
-              <span className="hidden sm:inline">Open</span>
             </button>
           )}
-
-          <button
-            type="button"
-            onClick={handleCopy}
-            className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
-            title="Copy diff"
-          >
-            {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
-          </button>
         </div>
       </div>
 

@@ -24,7 +24,6 @@ function StepCard({ row, engine, workspacePath, deferred }) {
     return (
       <AiDiffCard
         file={d.file}
-        name={d.name}
         patch={d.patch}
         diff={d.diff}
         content={d.content}
