@@ -33,14 +33,6 @@ function formatDuration(ms) {
   return `${s}s`;
 }
 
-// Token counts follow the CLI's shorthand: 1234 → 1.2k, 1234567 → 1.2M
-function formatTokens(n) {
-  const v = Number(n) || 0;
-  if (v >= 1e6) return `${(v / 1e6).toFixed(1)}M`;
-  if (v >= 1e3) return `${(v / 1e3).toFixed(1)}k`;
-  return String(v);
-}
-
 // The turn's own token count. Hidden until there is something to report.
 function tokenReadout(outputTokens) {
   if (!outputTokens) return null;
@@ -88,13 +80,11 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
   const turnBaseline = useAiStore((s) => s.bySession[sessionId]?.turnBaseline);
   const connected = useConnectionStore((s) => s.connected);
   const retryStatus = useConnectionStore((s) => s.retryStatus);
-  const lastMsg = useAiStore((s) => {
-    const list = s.bySession[sessionId]?.messages;
-    return list && list.length > 0 ? list[list.length - 1] : null;
-  });
   // The whole turn, not just the last message: a tool call closes the streaming
   // segment, so reading the tail alone made the count fall back on every command.
+  // One subscription serves both — the tail is read off the end of this same list.
   const turnMessages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY_MESSAGES;
+  const lastMsg = turnMessages[turnMessages.length - 1] || null;
 
   // The host reports a session-running total; the line shows only this turn's share.
   const turnOutput = Math.max(0, (stats?.outputTokens || 0) - (turnBaseline?.outputTokens || 0));

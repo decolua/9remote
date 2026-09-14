@@ -72,7 +72,6 @@ export const AiTurn = memo(function AiTurn({
     () => splitTurnBlocks(rows, WINDOW_STEPS, { deferred: !isLive }),
     [rows, isLive]
   );
-
   return (
     <div className="my-1">
       {blocks.map((b) => {
