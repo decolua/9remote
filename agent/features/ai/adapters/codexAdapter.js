@@ -2,6 +2,7 @@
 import { getExtendedEnv } from "./env.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 import { AgentProc } from "../proc/agentProc.js";
+import { readCodexFileChanges } from "../transcript.js";
 
 // Codex reports a refusal as plain assistant text ("I can't create X because this
 // workspace is read-only"), not a structured event. Matching that text is the only
@@ -12,9 +13,40 @@ import { AgentProc } from "../proc/agentProc.js";
 // a bare "read-only" would also match an ordinary sentence describing a file.
 const BLOCKED_TEXT_RE = /(?:can(?:not|'t|not)\s+(?:create|write|edit|modify|delete)|unable to\s+(?:create|write|edit|modify)|permission denied|operation not permitted|not permitted to|(?:workspace|sandbox)\s+is\s+read-?only|outside the (?:workspace|sandbox))/i;
 
-// Codex reports file_change either as {changes:[{path}]} or a bare path/paths field
-function firstPath(item) {
-  return item?.changes?.[0]?.path || item?.path || item?.paths?.[0] || "";
+// Every path the item touched. Codex reports a file_change as {changes:[{path}]}, as a
+// bare path/paths field, or (in the rollout) as `changes` keyed by path. One item can
+// carry several files, and the client needs them all to hide the row for each file it
+// shows a diff card for.
+export function changePaths(item) {
+  if (Array.isArray(item?.changes)) return item.changes.map((c) => c.path).filter(Boolean);
+  if (item?.changes) return Object.keys(item.changes);
+  if (Array.isArray(item?.paths)) return item.paths;
+  return item?.path ? [item.path] : [];
+}
+
+// The exec stream's item names the changed files but carries no patch, so the text comes
+// from the rollout the CLI wrote beside it (`recorded`, keyed by path). Only the changed
+// files are returned: a card with nothing in it would still hide the tool row that could
+// have said something, and an ephemeral run has no rollout to read at all.
+export function fileChangeDiffs(item, recorded) {
+  const changes = Array.isArray(item?.changes)
+    ? item.changes
+    : Object.entries(item?.changes || {}).map(([path, change]) => ({ path, ...change }));
+  const out = [];
+  for (const change of changes) {
+    const file = change.path || "";
+    if (!file) continue;
+    const rec = recorded?.[file] || {};
+    const kind = change.kind || change.type || "";
+    const raw = change.unified_diff || change.diff || change.patch || rec.patch || "";
+    // An add or a delete has no patch, only the whole file — and `content` is the file in
+    // BOTH cases: the new text for an add, the removed text for a delete. Which way it
+    // reads is the kind, so a delete is signed here rather than shown as an addition.
+    const body = raw ? "" : (change.content || rec.content || "");
+    const patch = body ? body.replace(/\n$/, "").split("\n").map((l) => `${kind === "delete" ? "-" : "+"}${l}`).join("\n") : raw;
+    if (patch) out.push({ file, patch, content: "" });
+  }
+  return out;
 }
 
 // Composer permission mode → codex sandbox policy. The CLI has no single "mode" flag:
@@ -310,12 +342,17 @@ export class CodexAdapter {
           status: "running"
         });
       } else if (item.type === "file_change") {
-        this.onEvent?.("tool_start", {
-          id: item.id,
-          name: "file_change",
-          input: { file_path: firstPath(item), path: firstPath(item) },
-          status: "running"
-        });
+        // A row is opened only when there is a path to name it by; the patch itself only
+        // arrives with item.completed.
+        const paths = changePaths(item);
+        if (paths.length) {
+          this.onEvent?.("tool_start", {
+            id: item.id,
+            name: "file_change",
+            input: { file_path: paths[0], path: paths[0], paths },
+            status: "running"
+          });
+        }
       } else if (item.type === "mcp_tool_call") {
         this.onEvent?.("tool_start", {
           id: item.id,
@@ -375,13 +412,9 @@ export class CodexAdapter {
           this.onEvent?.("tool_result", { id: item.id, name: "command", output, status: "done" });
         }
       } else if (item.type === "file_change") {
-        for (const change of item.changes || []) {
-          this.onEvent?.("diff", {
-            file: change.path,
-            patch: change.diff || change.patch || "",
-            content: change.kind === "add" ? change.content : ""
-          });
-        }
+        // The rollout holds the patch; read it once per change, not once per file.
+        const recorded = readCodexFileChanges(this.cwd, this.activeThreadId);
+        for (const d of fileChangeDiffs(item, recorded)) this.onEvent?.("diff", d);
         this.onEvent?.("tool_result", { id: item.id, name: "file_change", output: "", status: "done" });
       } else if (item.type === "todo_list") {
         this.onEvent?.("tool_result", { id: item.id, name: "todo_list", output: "", status: "done" });

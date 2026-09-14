@@ -16,7 +16,7 @@ const test = (name, fn) => {
   catch (err) { fail++; console.error(`  ✗ ${name}\n    ${err.message}`); }
 };
 
-const { recoverFromTranscript } = await import("../features/ai/transcript.js");
+const { recoverFromTranscript, readCodexFileChanges } = await import("../features/ai/transcript.js");
 const { AiManager } = await import("../features/ai/aiManager.js");
 
 console.log("Running in-agent AI resume tests...");
@@ -79,6 +79,50 @@ test("codex binds the conversation id and replays it on construction", () => {
     s.destroy();
     fs.rmSync(process.env.CODEX_HOME, { recursive: true, force: true });
     delete process.env.CODEX_HOME;
+  }
+});
+
+test("codex file changes carry the patch out of the rollout", () => {
+  const prevHome = process.env.CODEX_HOME;
+  const codexId = "01a09616-67a3-7470-9745-70ceaa6d5232";
+  process.env.CODEX_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-codex-diff-"));
+  const fixture = path.join(process.env.CODEX_HOME, "sessions", "2099", "01", "03");
+  fs.mkdirSync(fixture, { recursive: true });
+  // The rollout stores `changes` as an object keyed by path — not the list the exec
+  // stream prints — and an `add` carries content instead of a diff.
+  fs.writeFileSync(path.join(fixture, `rollout-2099-01-03T00-00-00-${codexId}.jsonl`), [
+    JSON.stringify({ type: "session_meta", payload: { id: codexId, cwd } }),
+    JSON.stringify({
+      type: "event_msg",
+      payload: {
+        type: "item_completed",
+        item: {
+          type: "FileChange",
+          changes: {
+            [`${cwd}/a.txt`]: { type: "update", unified_diff: "@@ -1 +1 @@\n-x\n+y\n", move_path: null },
+            [`${cwd}/b.txt`]: { type: "add", content: "new\n" },
+          },
+        },
+      },
+    }),
+  ].join("\n"));
+
+  try {
+    const map = readCodexFileChanges(cwd, codexId);
+    assert.equal(map[`${cwd}/a.txt`].patch, "@@ -1 +1 @@\n-x\n+y\n");
+    assert.equal(map[`${cwd}/b.txt`].content, "new\n");
+    // Codex canonicalises the cwd it records, so a symlinked path (macOS /tmp) has to
+    // still resolve to the same rollout — otherwise the lookup misses silently.
+    const link = path.join(os.tmpdir(), "9remote-resume-link");
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.rmSync(link, { force: true });
+    fs.symlinkSync(cwd, link);
+    assert.equal(readCodexFileChanges(link, codexId)[`${cwd}/a.txt`].patch, "@@ -1 +1 @@\n-x\n+y\n");
+  } finally {
+    fs.rmSync(path.join(os.tmpdir(), "9remote-resume-link"), { force: true });
+    fs.rmSync(process.env.CODEX_HOME, { recursive: true, force: true });
+    if (prevHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prevHome;
   }
 });
 

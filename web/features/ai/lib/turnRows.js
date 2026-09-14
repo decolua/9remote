@@ -16,15 +16,19 @@ import { getToolCategory } from "../registry.js";
 // would only repeat it.
 const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todowrite"]);
 
-// Must match DIFF_TOOL_NAMES in agent/features/ai/adapters/claudeAdapter.js: every tool
-// the host turns into a diff row has to be hidden here, or the file shows twice. All
-// four name their target, and NotebookEdit uses `notebook_path` rather than `file_path`.
-const DIFF_TOOL_NAMES = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
+// Must match the diff-emitting tool names in the agent adapters: every tool the host
+// turns into a diff row has to be hidden here, or the file shows twice. All four claude
+// tools name their target, and NotebookEdit uses `notebook_path` rather than `file_path`;
+// codex's own name comes from the CLI's item type.
+const DIFF_TOOL_NAMES = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "file_change"]);
 const editTarget = (input = {}) => input.file_path || input.notebook_path || input.path || "";
 
 /** The tool row a diff replaces, by file — shared with `buildTurnRows`'s dedupe. */
 export const editsFile = (t, path) =>
-  DIFF_TOOL_NAMES.has(t?.name) && path && editTarget(t.input) === path;
+  DIFF_TOOL_NAMES.has(t?.name) && path &&
+  // Codex edits several files under one call and lists them all; the other engines name
+  // exactly one, so they fall back to the single target.
+  ((t.input?.paths || []).includes(path) || editTarget(t.input) === path);
 
 /** Tool calls worth a row: no duplicate of a diff card, no pinned-strip tool. */
 export function visibleTools(engine, tools, diffs) {

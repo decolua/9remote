@@ -1,7 +1,7 @@
 // Tests for the Codex adapter's argv construction and mode mapping.
 // Run: node agent/test/codexAdapter.test.mjs
 import assert from "node:assert/strict";
-import { CodexAdapter } from "../features/ai/adapters/codexAdapter.js";
+import { CodexAdapter, fileChangeDiffs, changePaths } from "../features/ai/adapters/codexAdapter.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -130,6 +130,30 @@ await test("every Config-modal option is echoed on metadata, so reopening shows 
   assert.ok(args.includes('plan_mode_reasoning_effort="xhigh"'));
   assert.ok(args.includes("--add-dir") && args.includes("--enable") && args.includes("--disable"));
   assert.ok(args.includes("--skip-git-repo-check") && args.includes("--ephemeral"));
+});
+
+await test("a file_change takes its patch from the rollout, and only when there is one", () => {
+  // The exec stream names the files; the rollout holds the text. A change with nothing
+  // to show is dropped rather than emitted empty — an empty card would still hide the
+  // tool row that could have said which file it was.
+  const item = { changes: [{ path: "/w/a.txt", kind: "update" }, { path: "/w/b.txt", kind: "update" }] };
+  const diffs = fileChangeDiffs(item, { "/w/a.txt": { patch: "@@ -1 +1 @@\n-x\n+y\n" } });
+  assert.deepEqual(diffs, [{ file: "/w/a.txt", patch: "@@ -1 +1 @@\n-x\n+y\n", content: "" }]);
+});
+await test("an added file is shown as additions, a deleted one as removals", () => {
+  // `content` is the whole file in both cases — which way it reads is the kind alone.
+  const add = fileChangeDiffs({ changes: [{ path: "/w/new.txt", kind: "add" }] }, { "/w/new.txt": { content: "a\nb\n" } });
+  assert.deepEqual(add, [{ file: "/w/new.txt", patch: "+a\n+b", content: "" }]);
+  const del = fileChangeDiffs({ changes: [{ path: "/w/gone.txt", kind: "delete" }] }, { "/w/gone.txt": { content: "a\nb\n" } });
+  assert.deepEqual(del, [{ file: "/w/gone.txt", patch: "-a\n-b", content: "" }]);
+});
+
+await test("every path a call touched is reported, so each diff hides its own row", () => {
+  assert.deepEqual(changePaths({ changes: [{ path: "a" }, { path: "b" }] }), ["a", "b"]);
+  // The rollout writes `changes` as an object keyed by path.
+  assert.deepEqual(changePaths({ changes: { a: { type: "update" }, b: { type: "add" } } }), ["a", "b"]);
+  assert.deepEqual(changePaths({ paths: ["c"] }), ["c"]);
+  assert.deepEqual(changePaths({}), []);
 });
 
 await test("a refusal offers a mode that can actually write, never Read Only", () => {

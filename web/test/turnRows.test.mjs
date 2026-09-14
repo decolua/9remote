@@ -53,6 +53,14 @@ test("an Edit with no matching diff card still gets a row", () => {
   assert.deepEqual(out.map((t) => t.id), ["t1"]);
 });
 
+test("a codex file_change is replaced by its diffs, one row per file", () => {
+  // Codex names every file it touched on one call; each gets its own diff card, so the
+  // row must go once any of them is on screen — but not before.
+  const call = tool("t1", "file_change", { file_path: "src/a.js", path: "src/a.js", paths: ["src/a.js", "src/b.js"] });
+  assert.deepEqual(visibleTools("codex", [call], [{ file: "src/a.js", patch: "+x" }]).map((t) => t.id), []);
+  assert.deepEqual(visibleTools("codex", [call], []).map((t) => t.id), ["t1"]);
+});
+
 test("checklist tools stay out — the pinned strip already owns them", () => {
   const out = visibleTools("claude", [tool("t1", "TodoWrite", { todos: [] }), tool("t2", "Read", { file_path: "x" })], []);
   assert.deepEqual(out.map((t) => t.id), ["t2"]);

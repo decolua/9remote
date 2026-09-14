@@ -196,5 +196,64 @@ test("an oversize event at the tail does not empty the window", () => {
   assert.deepEqual(tail.map((e) => e.seq), [1, 2], "the replay is the events behind it");
 });
 
+// ── Tool calls are carried whole ──
+// The client reduces each window on its own, and `tool_result` only nests into the
+// `tool_start` of the same window — the reducer walks the messages it was handed and
+// skips a result whose parent is above them. So a chunk that begins between a call and
+// its answer costs the reader that card AND its output: measured 94 results across 21
+// of 40 real chats, 11% of one log's output.
+const call = (seq, id, outputSize = 200) => [
+  { seq, event: "tool_start", data: { id, name: "Bash", command: "ls" } },
+  { seq: seq + 1, event: "tool_result", data: { id, name: "Bash", output: "o".repeat(outputSize) } }
+];
+
+test("a chunk landing between a tool call and its result carries the call too", () => {
+  // Turn 2 is one oversized event, so the walk back stops inside turn 3 — right on the
+  // tool_result at seq 7. Its tool_start (seq 6) sits just above the boundary.
+  const events = [
+    { seq: 1, event: "user_message", data: { text: "u".repeat(500) } },
+    { seq: 2, event: "delta", data: { text: "d".repeat(9000) } },
+    { seq: 3, event: "turn_complete", data: {} },
+    { seq: 4, event: "user_message", data: { text: "u" } },
+    { seq: 5, event: "delta", data: { text: "d".repeat(4000) } },
+    ...call(6, "t1", 4000)
+  ];
+  const { events: older } = aiHistoryChunk(events, 8, 9000);
+  const ids = older.map((e) => e.seq);
+  assert.ok(ids.includes(6), `tool_start must ride with its result: got ${ids}`);
+  assert.ok(ids.includes(7), "and the result is still there");
+  assert.ok(windowBytes(older) <= 9000, "the widened chunk still fits the budget");
+});
+
+test("a tool call the window cannot afford is left out, not sent over budget", () => {
+  // The call's own payload is larger than the widen ceiling (AI_REPLAY_WIDEN_BYTES), so
+  // carrying it would put the frame near the SCTP cap — which costs the client its
+  // history entirely. The window starts at the result instead.
+  const events = [
+    { seq: 1, event: "user_message", data: { text: "u".repeat(500) } },
+    { seq: 2, event: "delta", data: { text: "d".repeat(9000) } },
+    { seq: 3, event: "turn_complete", data: {} },
+    { seq: 4, event: "user_message", data: { text: "u" } },
+    { seq: 5, event: "tool_start", data: { id: "t1", name: "Bash", input: { command: "c".repeat(60000) } } },
+    { seq: 6, event: "tool_result", data: { id: "t1", name: "Bash", output: "o".repeat(3000) } }
+  ];
+  const { events: older } = aiHistoryChunk(events, 7, 9000);
+  assert.equal(older[0].seq, 6, "the chunk starts where it fits, call or not");
+});
+
+test("the replayed tail carries the calls its own results need", () => {
+  const events = [
+    { seq: 1, event: "user_message", data: { text: "u".repeat(500) } },
+    ...Array.from({ length: 12 }, (_, i) => ({ seq: i + 2, event: "thinking", data: { text: "t".repeat(1000) } })),
+    { seq: 14, event: "user_message", data: { text: "u" } },
+    ...call(15, "t9", 500)
+  ];
+  const start = aiTailStart(events, 8192);
+  const tail = events.slice(start);
+  const ids = new Set(tail.filter((e) => e.event === "tool_start").map((e) => e.data.id));
+  assert.ok(ids.has("t9"), "the tail's result has its call above it");
+  assert.ok(windowBytes(tail) <= 8192, "and the tail still fits");
+});
+
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

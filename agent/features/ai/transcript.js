@@ -34,7 +34,15 @@ const isHarnessTurn = (text) => HARNESS_TURN_RE.test(text);
 
 // ── Codex: ~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl ──
 
+// A thread id names exactly one rollout, forever, and a live turn asks for it once per
+// file it changes — so the directory scan is memoized rather than repeated (and the
+// rollout path is stable once the CLI has created it).
+const rolloutPathCache = new Map();
+
 function findCodexRollout(sessionId, cwd) {
+  const key = `${cwd}\n${sessionId}`;
+  if (rolloutPathCache.has(key)) return rolloutPathCache.get(key);
+
   const root = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
   const sessionsDir = path.join(root, "sessions");
   if (!fs.existsSync(sessionsDir)) return null;
@@ -53,6 +61,7 @@ function findCodexRollout(sessionId, cwd) {
           if (!name.endsWith(suffix)) continue;
           const file = path.join(dir, name);
           if (cwd && !rolloutMatchesCwd(file, cwd)) continue;
+          rolloutPathCache.set(key, file);
           return file;
         }
       }
@@ -71,10 +80,49 @@ function rolloutMatchesCwd(file, cwd) {
   try {
     const first = fs.readFileSync(file, "utf8").split("\n", 1)[0];
     const rec = JSON.parse(first);
-    return !rec?.payload?.cwd || path.resolve(rec.payload.cwd) === path.resolve(cwd);
+    return !rec?.payload?.cwd || sameDir(rec.payload.cwd, cwd);
   } catch {
     return true;
   }
+}
+
+// Codex records the cwd it was handed, canonicalised — on macOS `/tmp/x` comes back as
+// `/private/tmp/x`. Comparing them raw missed every rollout under a symlinked path, which
+// showed up as a resumed chat with no diff cards rather than as an obvious failure.
+function sameDir(a, b) {
+  const real = (p) => { try { return fs.realpathSync(p); } catch { return path.resolve(p); } };
+  return real(a) === real(b);
+}
+
+// The exec stream (`--json`) names a changed file but carries no patch — the patch is
+// written into the rollout instead, and it is on disk before the CLI prints the matching
+// item. Keyed by path: the rollout stores `changes` as an object, not a list.
+export function readCodexFileChanges(cwd, sessionId) {
+  if (!cwd || !sessionId) return null;
+  const file = findCodexRollout(sessionId, cwd);
+  if (!file) return null;
+
+  let lines;
+  try {
+    lines = fs.readFileSync(file, "utf8").trim().split("\n");
+  } catch {
+    return null;
+  }
+
+  const out = {};
+  for (const line of lines) {
+    // Skip before parsing: a thread's rollout runs to thousands of records and only a
+    // handful of them are file changes.
+    if (!line.includes('"FileChange"')) continue;
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    const item = rec.payload?.item;
+    if (item?.type !== "FileChange") continue;
+    for (const [p, change] of Object.entries(item.changes || {})) {
+      out[p] = { patch: change.unified_diff || "", content: change.content || "" };
+    }
+  }
+  return out;
 }
 
 export function recoverFromCodexTranscript(cwd, sessionId) {

@@ -56,6 +56,15 @@ export const AI_PERSIST_STREAM_MS = 1000;
 // The oldest turns stay reachable through the scroll-up fetch.
 export const AI_REPLAY_BYTES = 32 * 1024;
 
+// How far past the replay budget a window may stretch to carry a tool call its own
+// results need. The packing budget leaves ~32KB unused under the 64KB SCTP cap, and a
+// tool_start sitting just above a window's start costs a few hundred bytes to include —
+// but without it the client drops the matching tool_result whole, card and output both
+// (measured: 90 results across 33 of 39 real chats). Only a window that fits within this
+// ceiling is widened; the packing budget itself is untouched, so a window is never less
+// than it was before.
+export const AI_REPLAY_WIDEN_BYTES = 48 * 1024;
+
 // The chat log is the agent's own store now. Same ceilings the daemon used: bound the
 // in-memory log, and cap what one tool result contributes to it.
 export const AI_MAX_EVENTS = 5000;
@@ -66,3 +75,8 @@ export const AI_MAX_TOOL_OUTPUT = 16 * 1024;
 
 // How long a `/doctor` health check may run before it is killed.
 export const AI_DOCTOR_TIMEOUT_MS = 30000;
+
+// How long an engine's model catalog is reused. Each create re-reads it (a connecting
+// client must see the host's current list), and codex/opencode answer by spawning a
+// CLI — 0.2s and 1.3s measured — which would otherwise be paid on every F5.
+export const AI_MODEL_CACHE_TTL_MS = 30000;

@@ -68,3 +68,17 @@ export function windowTop(prevTopId, messages, pageBytes, ceilingBytes) {
   const index = held < 0 ? fresh : Math.max(held, bound);
   return { id: messages[index].id, index };
 }
+
+// Does the mounted window open mid-turn? The host answers a hydrate with a tail measured
+// in bytes, and one agentic turn can run past that budget — so a reopened chat mounts a
+// column of tool cards with no prompt bubble above them. That is the normal opening for
+// an agentic chat (measured: 23 of 46 real ones, one turn running 194 steps), so the
+// pane fetches until it opens on a bubble; lib/aiReach proves scroll-up reaches the top
+// of the worst of them either way.
+export function opensMidTurn(messages, hiddenCount, hasOlder) {
+  if (!hasOlder || !messages?.length) return false;
+  // The first message the window mounts is what the reader sees at the top. A prompt
+  // opens a turn; anything else means the turn's own bubble sits above the window — even
+  // when nothing is hidden, which is the log whose prompts the event cap shed.
+  return messages[hiddenCount]?.role !== "user";
+}

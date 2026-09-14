@@ -4,8 +4,11 @@
 //
 // A window is a frame on the wire: the reply rides the RTC control channel as ONE SCTP
 // message, and one byte over the cap is thrown away — the pane then sits on "Syncing…"
-// forever, since every re-ask rebuilds the same oversize frame. So the budget here is
-// measured the way the wire measures it, and a window that returns never exceeds it.
+// forever, since every re-ask rebuilds the same oversize frame. So every budget here is
+// measured the way the wire measures it, and no window may pass the SCTP cap — the
+// packing budget the callers pass stays well under it, with room for the widening below.
+
+import { AI_REPLAY_WIDEN_BYTES } from "./constants.js";
 
 // What one event costs on the wire: the codec JSON-serializes it into the frame header
 // verbatim, so this is exact, not an estimate. Counting character data alone (the old
@@ -58,10 +61,40 @@ function snapWithin(events, start, end, maxBytes) {
   return i < end ? i : start;
 }
 
+// A `tool_start` is the card; its `tool_result` is the answer that card exists to show.
+// The client reduces every window on its own, and a result whose start is not in the
+// same window is dropped whole — the card never appears and the command's output is
+// gone. Measured on real logs: 94 such results across 21 of 40 chats, 11% of the
+// output in one long one. So a window that lands just under a tool call walks its start
+// back to carry the calls its own results need.
+//
+// Only while the widened window fits the widen ceiling. The budget the caller asked for
+// cannot be the test: a window packed to its budget has room for nothing more, so the
+// rescue would never fire — and it is exactly the full windows that cut a call in half.
+function backToToolStarts(events, start, end, maxBytes) {
+  if (start === 0) return start;
+  const owner = new Map();
+  for (let i = 0; i < end; i++) {
+    const ev = events[i];
+    if (ev.event === "tool_start" && ev.data?.id) owner.set(ev.data.id, i);
+  }
+  let first = start;
+  for (let i = start; i < end; i++) {
+    const ev = events[i];
+    if (ev.event !== "tool_result" || !ev.data?.id) continue;
+    const at = owner.get(ev.data.id);
+    if (at != null && at < first) first = at;
+  }
+  if (first === start) return start;
+  return windowBytes(events.slice(first, end)) <= Math.max(maxBytes, AI_REPLAY_WIDEN_BYTES) ? first : start;
+}
+
 // Index where the newest `maxBytes` of `events` begin. A log under the budget returns 0.
 export function aiTailStart(events, maxBytes) {
   const start = fitStart(events, events.length, maxBytes);
-  return start === 0 ? 0 : snapWithin(events, start, events.length, maxBytes);
+  if (start === 0) return 0;
+  const snapped = snapWithin(events, start, events.length, maxBytes);
+  return backToToolStarts(events, snapped, events.length, maxBytes);
 }
 
 // The events a window holds, minus any single event too large to be sent at all. A
@@ -96,7 +129,10 @@ export function aiHistoryChunk(events, before, maxBytes) {
   // over the trailing ones, so the client's next `before` lands beyond them and the
   // scroll-up keeps moving instead of asking for the same impossible event forever.
   const from = snapWithin(events, fit, end, maxBytes);
-  return { events: sliceWindow(events, from, end, maxBytes), hasMore: from > 0 };
+  // Same rescue as the tail's: a chunk that starts between a tool call and its result
+  // leaves the client a result it cannot attach, and the client drops those whole.
+  const starts = backToToolStarts(events, from, end, maxBytes);
+  return { events: sliceWindow(events, starts, end, maxBytes), hasMore: starts > 0 };
 }
 // Walk back to the user_message that OPENS the turn containing `start`, so a chunk or a
 // replayed tail never begins mid-turn. The nearest one at or before `start`, never an
