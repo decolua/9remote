@@ -106,8 +106,11 @@ test("the agent owns the chat snapshot, under the agent's own root", () => {
 // ── Event log + seq watermark ──
 
 test("every event carries a monotonic seq", () => {
+  // A counter, not the log's length: compaction folds deltas and AI_MAX_EVENTS sheds the
+  // head, so a position-derived seq repeats and runs backwards — and the client's
+  // scroll-up (`e.seq >= before`) stops at the first such step, hiding older turns.
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
-  assert.match(SESSION, /const seq = this\.history\.length \+ 1;/);
+  assert.match(SESSION, /const seq = \+\+this\.seqCounter;/);
   assert.match(SESSION, /this\.history\.push\(\{ seq, event: wire\.event, data, timestamp: Date\.now\(\) \}\);/);
 });
 
@@ -116,7 +119,7 @@ test("the published watermark is the newest seq, not the log's length", () => {
   // seq — the client gates on this number and would drop an event if it were short.
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
   assert.match(SOCKET, /seq: session\.history\.at\(-1\)\?\.seq \?\? 0/);
-  assert.match(SESSION, /const seq = this\.history\.length \+ 1;/);
+  assert.match(SESSION, /const seq = \+\+this\.seqCounter;/);
   // AI_MAX_EVENTS trims the head, which is exactly what decouples the two.
   assert.match(SESSION, /this\.history\.length > AI_MAX_EVENTS/);
 });
@@ -129,14 +132,15 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   // window begins or scroll-up re-fetches what the tail already replayed.
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
   assert.match(SESSION, /_adoptLog\(events\) \{/);
-  assert.match(SESSION, /const from = aiTailStart\(log, AI_REPLAY_BYTES\)/);
-  assert.match(SESSION, /hasMore: from > 0,\s*fromSeq: log\[from\]\?\.seq \?\? 0/);
-  assert.match(SESSION, /for \(const ev of log\.slice\(from\)\) this\.onEvent\?\.\(this\.id, ev\.event, ev\.data, ev\.seq\)/);
+  assert.match(SESSION, /const \{ events: replay, hasMore, fromSeq \} = replayWindow\(log, AI_REPLAY_BYTES\)/);
+  assert.match(SESSION, /this\.onEvent\?\.\(this\.id, "conversation_reset", \{ hasMore, fromSeq \}\)/);
+  assert.match(SESSION, /for \(const ev of replay\) this.onEvent\?\.\(this\.id, ev\.event, ev\.data, ev\.seq\)/);
   // Every path that replaces the log with real content goes through it: /resume, the
-  // gap rebuild, and a rewind that finds the CLI's store shorter than this log.
-  // /clear is the fourth reset but ships an empty window directly — nothing to page.
+  // gap rebuild, a rewind that finds the CLI's store shorter, and the re-attach that
+  // finds this log thinner than the CLI's transcript.
+  // /clear is the fifth reset but ships an empty window directly — nothing to page.
   const callers = (SESSION.match(/this\._adoptLog\(/g) || []).length;
-  assert.equal(callers, 3, `resume, gap and rewind must share the one delivery, saw ${callers}`);
+  assert.equal(callers, 4, `resume, gap, rewind and thin-recovery must share the one delivery, saw ${callers}`);
   // ...and /clear still states the empty window rather than sending no payload at all.
   assert.match(SESSION, /conversation_reset", \{ hasMore: false, fromSeq: 0 \}/);
 });
@@ -146,9 +150,10 @@ test("a hydrate ack ships a tail and says there is more — that is what arms sc
   // log that ships whole must report hasMore:false or the client's scroll-up fetches
   // a window it already has and renders every turn twice.
   assert.match(SOCKET, /function publicSession\(session, extra = \{\}\)/);
-  assert.match(SOCKET, /const from = aiTailStart\(session\.history, AI_REPLAY_BYTES\)/);
-  assert.match(SOCKET, /events: from > 0 \? session\.history\.slice\(from\) : session\.history,/);
-  assert.match(SOCKET, /hasMore: from > 0,/);
+  assert.match(SOCKET, /const \{ events, hasMore \} = replayWindow\(session\.history, AI_REPLAY_BYTES\)/);
+  // Through `replayWindow`, not a bare index: the tail must also be free of any single
+  // event too wide for one wire frame, which the carrier would throw away whole.
+  assert.match(SOCKET, /events,\s*hasMore,/);
   // Every answer that hydrates a client carries it: a fresh create, a re-mount of a
   // live one, and the wait for a create already in flight.
   assert.equal((SOCKET.match(/session: publicSession\(/g) || []).length, 3);
@@ -223,10 +228,16 @@ test("an agent restart that loses a conversation drops the refused resume id", (
 
 // ── Persistence ──
 
-test("tool output is capped before it enters the re-serialized log", () => {
+test("every payload-bearing event is capped before it enters the re-serialized log", () => {
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
-  assert.match(SESSION, /if \(event === "tool_result"\) data = capToolOutput\(data\);/);
-  assert.match(SESSION, /function capToolOutput\(data\)/);
+  // A Write tool's `input.content` and a long `thinking` block are as large as a tool
+  // result, and a replay window is one wire frame — an uncapped one costs the chat.
+  // Unconditional on purpose: naming the event types here is how `thinking` and
+  // `tool_start` were missed in the first place.
+  assert.match(SESSION, /data = capEvent\(event, data\);/);
+  assert.match(SESSION, /function capEvent\(event, data\)/);
+  // Old snapshots hold raw payloads; capping only at emit left them unbounded on load.
+  assert.match(SESSION, /capLog\(renumber\(compactEvents\(snap\.events\)\)\)/);
 });
 
 // ── Reducer coverage ──

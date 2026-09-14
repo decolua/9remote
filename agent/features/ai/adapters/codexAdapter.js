@@ -2,7 +2,6 @@
 import { getExtendedEnv } from "./env.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 import { AgentProc } from "../proc/agentProc.js";
-import { decodeLine } from "../proc/daemonProc.js";
 
 // Codex reports a refusal as plain assistant text ("I can't create X because this
 // workspace is read-only"), not a structured event. Matching that text is the only
@@ -277,9 +276,12 @@ export class CodexAdapter {
       cwd: this.cwd,
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     }).then(
-      // The turn is non-interactive: codex exec blocks on a piped stdin that never
-      // closes, so it has to be closed before the CLI will run.
-      () => this.proc.closeStdin?.(),
+      // commit, not just closeStdin: the process prints its first items while the start
+      // handshake is still in flight, and anything it printed before the handlers were
+      // live has to be fed here — then the held lines let through, then stdin closed
+      // (codex exec blocks on a pipe nobody closes). Skipping it made the whole turn
+      // silent: the chat showed the prompt and then nothing.
+      (started) => started.commit((line) => this.feed(line)),
       // A missing binary or a daemon that refused the start reports here.
       (err) => {
         this.isTurnRunning = false;
@@ -407,8 +409,10 @@ export class CodexAdapter {
     }
 
     if (type === "turn.completed" && event.usage) {
-      // codex reports session-running totals here, not this turn's — verified across a
-      // resume: the second turn's number already contained the first. Assign them.
+      // A resume resends the whole conversation, so this number grows with the thread
+      // rather than counting one turn: measured 14067 on a fresh run, 28142 on the
+      // resumed one. Assign it — adding would count the earlier turns twice.
+      // input_tokens includes the cached part, so it IS the window's current fill.
       this.stats.inputTokens = event.usage.input_tokens || 0;
       this.stats.outputTokens = event.usage.output_tokens || 0;
       this.stats.cachedTokens = event.usage.cached_input_tokens || 0;

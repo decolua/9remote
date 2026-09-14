@@ -38,7 +38,7 @@ export class DaemonProc {
       if (this._hold) this._hold.push({ n, data });
       else {
         this._lastLine = n;
-        this.onLine?.(data, n);
+        this.onLine?.(decodeLine(data), n);
       }
     };
     this._handleExit = ({ procId: id, epoch, code, signal, error }) => {
@@ -102,7 +102,7 @@ export class DaemonProc {
           // would duplicate a message in the conversation.
           if (held.n <= this._lastLine) continue;
           this._lastLine = held.n;
-          this.onLine?.(held.data, held.n);
+          this.onLine?.(decodeLine(held.data), held.n);
         }
       }
     };
@@ -111,8 +111,14 @@ export class DaemonProc {
   /**
    * Start the CLI under the daemon. Returns the lines it emitted before the handlers
    * were in place, for the caller to parse before live output.
+   *
+   * Call `commit(feed)` — not `release()` — on the result: a process born from the
+   * composer prints its first lines while the start handshake is still in flight, and
+   * skipping it parks every later line in the hold for good. `commit` feeds what was
+   * fetched, lets the held lines through, and closes stdin; a turn-per-CLI engine
+   * blocks on a pipe that never closes without that last part.
    */
-  async start({ bin, args = [], cwd, env = {}, from = 0 }) {
+  async start({ bin, args = [], cwd, env = {}, from = 0, keepStdin = false }) {
     // A new process numbers its lines from 1, so the watermark restarts with it. Keeping
     // the old one would make every new line look already-consumed and be dropped — the
     // chat would sit silent until the agent restarted again.
@@ -126,7 +132,11 @@ export class DaemonProc {
       if (!res.success) throw new Error(res.error || "Failed to start process");
       this._epoch = res.epoch ?? null;
       const fetched = await this.client.procLines(this.procId, from);
-      return this._result(fetched.total, fetched.lines || [], fetched.oldest);
+      const result = this._result(fetched.total, fetched.lines || [], fetched.oldest);
+      // A turn-per-CLI engine (codex, opencode, agy) is not interactive: an open stdin
+      // only risks the CLI blocking on it, so `commit` closes it. Claude's keeps it —
+      // the CLI takes every later turn, interrupt and permission answer on that pipe.
+      return startResult(keepStdin ? result : { ...result, closeStdin: () => this.closeStdin() });
     } catch (e) {
       this._unsubscribe();
       throw e;
@@ -146,7 +156,7 @@ export class DaemonProc {
     const res = await this.client.procAttach(this.procId, from);
     if (!res.success) {
       this._unsubscribe();
-      return { alive: false, lines: [], after: [], release: () => {}, missed: 0 };
+      return { alive: false, ...startResult() };
     }
     this._epoch = res.epoch ?? null;
     this.dead = !res.alive;
@@ -158,7 +168,7 @@ export class DaemonProc {
     // watermark has to go — otherwise the resumed conversation's head is skipped as
     // "already consumed". Turn-per-CLI engines hand `from = 0` and never notice.
     if (epoch != null && res.epoch !== epoch) this._lastLine = 0;
-    return { alive: res.alive, ...this._result(res.total, res.lines || [], res.oldest) };
+    return { alive: res.alive, ...startResult(this._result(res.total, res.lines || [], res.oldest)) };
   }
 
   /** Highest line number this reader has consumed, for a restart to resume from.
@@ -177,8 +187,8 @@ export class DaemonProc {
   async lines(from = 0) {
     this._openHold();
     const res = await this.client.procLines(this.procId, from);
-    if (!res.success) return { lines: [], after: [], release: () => {}, missed: 0 };
-    return this._result(res.total, res.lines || [], res.oldest);
+    if (!res.success) return startResult();
+    return startResult(this._result(res.total, res.lines || [], res.oldest));
   }
 
   write(text) {
@@ -208,4 +218,27 @@ export function decodeLine(line) {
   if (typeof line === "string") return line;
   if (!line?.data) return "";
   return line.enc === "b64" ? Buffer.from(line.data, "base64").toString("utf8") : line.data;
+}
+
+/**
+ * The one shape every carrier answers `start()` with, so an adapter never learns which
+ * transport it got. `commit(feed)` is the single door a caller uses on it: feed the
+ * lines printed before the handlers were live, then let the held ones through, then
+ * close stdin — a turn-per-CLI engine blocks forever on a pipe nobody closes.
+ *
+ * A carrier with nothing buffered (a direct child, a fresh turn) still gets the same
+ * call, so the adapter has one code path instead of one per transport.
+ */
+export function startResult({ lines = [], after = [], missed = 0, release = () => {}, closeStdin = null } = {}) {
+  return {
+    lines,
+    after,
+    missed,
+    release,
+    commit: (feed) => {
+      for (const line of lines) feed(decodeLine(line));
+      release();
+      closeStdin?.();
+    }
+  };
 }

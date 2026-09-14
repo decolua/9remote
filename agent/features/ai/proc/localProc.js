@@ -5,7 +5,7 @@
 // The surface is deliberately the same as DaemonProc's and AgentProc's, so an adapter
 // never learns which carrier it got.
 import { spawn } from "node:child_process";
-import { toLines } from "./daemonProc.js";
+import { toLines, startResult } from "./daemonProc.js";
 
 export class LocalProc {
   constructor() {
@@ -15,7 +15,7 @@ export class LocalProc {
     this.tail = "";
   }
 
-  async start({ bin, args = [], cwd, env = {} }) {
+  async start({ bin, args = [], cwd, env = {}, keepStdin = false }) {
     const child = spawn(bin, args, { cwd, stdio: ["pipe", "pipe", "pipe"], env });
     this.child = child;
     // The spawn is asynchronous: a missing binary reports through "error", which
@@ -27,19 +27,21 @@ export class LocalProc {
       if (this.tail) { this.onLine?.(this.tail); this.tail = ""; }
       this.onExit?.({ code, signal: signal || null });
     });
-    // Same fetch shape DaemonProc returns: a direct child has no backlog to replay,
-    // and nothing can be held because the handlers are already live.
-    return { lines: [], after: [], release: () => {} };
+    // Same shape every carrier answers start() with: a direct child has no backlog to
+    // replay and nothing to hold, but the caller still gets the one `commit` door.
+    // `keepStdin` is claude's: its CLI takes every later turn, interrupt and permission
+    // answer on this pipe, so ending it would kill the conversation at birth.
+    return startResult(keepStdin ? {} : { closeStdin: () => this.closeStdin() });
   }
 
   // Nothing to adopt: this process dies with the agent, so there is never a live
   // one to re-attach to.
   async attach() {
-    return { alive: false, lines: [], after: [], release: () => {} };
+    return { alive: false, ...startResult() };
   }
 
   async lines() {
-    return { lines: [], after: [], release: () => {} };
+    return startResult();
   }
 
   _pump(stream) {

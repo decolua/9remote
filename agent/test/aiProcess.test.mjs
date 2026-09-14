@@ -204,6 +204,36 @@ await test("a started turn's lines are delivered live, not held for a replay nob
   assert.deepEqual(seen, ["turn output"]);
 });
 
+await test("commit closes stdin for a turn-per-CLI engine, and leaves claude's pipe open", async () => {
+  // The pipe is claude's whole conversation: its CLI takes every later turn, interrupt
+  // and permission answer on stdin, so a commit that ends it kills the chat at birth —
+  // the prompt is written into a dead process and no reply ever comes back.
+  const ended = [];
+  const client = { ...makeProcClient("p-stdin"), procEndInput: async (id) => { ended.push(id); return { success: true }; } };
+
+  const turn = new DaemonProc({ procId: "p-turn", client });
+  const started = await turn.start({ bin: "codex", cwd: "/tmp" });
+  started.commit(() => {});
+  assert.deepEqual(ended, ["p-turn"], "a turn-per-CLI engine's stdin must be closed");
+
+  const chat = new DaemonProc({ procId: "p-chat", client });
+  const kept = await chat.start({ bin: "claude", cwd: "/tmp", keepStdin: true });
+  kept.commit(() => {});
+  assert.deepEqual(ended, ["p-turn"], "claude's stdin must survive the start handshake");
+});
+
+await test("an adopted turn keeps its `alive` and its commit door", async () => {
+  // The session's replay goes through `commit` on every carrier, and the caller reads
+  // `alive` to decide whether the turn is still running. AgentProc.attach used to hand
+  // back a bare fetch with neither: the adopted turn replayed nothing and read as ended.
+  const proc = new AgentProc({ procId: "p-adopt", client: makeProcClient("p-adopt") });
+  const fetch = await proc.attach({ from: 0, epoch: 1 });
+
+  assert.equal(fetch.alive, true, "a live turn must not read as ended");
+  assert.equal(typeof fetch.commit, "function", "the replay calls commit, not release");
+  assert.equal(fetch.missed, 0);
+});
+
 await test("adopting a different process drops a watermark taken from the old one", async () => {
   // Claude keeps one proc id across turns, so a watermark outlives the process it was
   // measured against. Applied to a new process — which numbers from 1 again — it would

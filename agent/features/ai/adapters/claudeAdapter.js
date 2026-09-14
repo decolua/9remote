@@ -83,7 +83,7 @@ export class ClaudeAdapter {
     // Tool calls awaiting their result, by tool_use id — see handleMessage.
     this.toolCalls = new Map();
     this.turnStreamedText = "";
-    this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
+    this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 0 };
     this.metadata = { model: "", sessionId: "", tools: [], skills: [], slashCommands: [] };
     // Set when the resume id was refused, so the caller can drop it from its snapshot
     // instead of retrying a conversation the CLI does not have.
@@ -97,7 +97,10 @@ export class ClaudeAdapter {
    */
   async start(mode = "default", resumeSessionId = null) {
     this._reset(mode);
-    return await this.proc.start({ bin: claudeBin(), args: this._args(mode, resumeSessionId), cwd: this.cwd, env: getExtendedEnv({ hostSessionId: this.hostSessionId }) });
+    // `keepStdin`: this CLI is interactive — it takes every later turn, interrupt and
+    // permission answer on the same pipe, so closing it after the handshake would end
+    // the conversation at birth (the chat then shows the prompt and nothing back).
+    return await this.proc.start({ bin: claudeBin(), args: this._args(mode, resumeSessionId), cwd: this.cwd, env: getExtendedEnv({ hostSessionId: this.hostSessionId }), keepStdin: true });
   }
 
   /**
@@ -162,7 +165,7 @@ export class ClaudeAdapter {
       this.isTurnRunning = false;
       fetch = await this.start(this.currentMode, this.metadata.sessionId || null);
     }
-    this.onEvent?.("init", { ...this.metadata, permissionMode: this.currentMode, effort: this.effort });
+    this.onEvent?.("init", { ...this.metadata, permissionMode: this.currentMode, ...(this.effort ? { effort: this.effort } : {}) });
     return fetch;
   }
 
@@ -210,7 +213,9 @@ export class ClaudeAdapter {
         skills: data.skills || [],
         slashCommands: data.slash_commands || [],
       };
-      this.onEvent?.("init", { ...this.metadata, effort: this.effort });
+      // Empty effort means "the CLI's own config decides" — sending it would wipe the
+      // level the init published for display, so the chip vanished on the first prompt.
+      this.onEvent?.("init", { ...this.metadata, ...(this.effort ? { effort: this.effort } : {}) });
       return;
     }
 
@@ -222,6 +227,14 @@ export class ClaudeAdapter {
         this.onEvent?.("delta", { text });
       } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
         this.onEvent?.("thinking", { text: event.delta.thinking });
+      } else if (event?.usage?.input_tokens) {
+        // Per-step usage: each API step resends the whole conversation, so THIS reading
+        // is the window's current fill. result.usage is the sum over every step of the
+        // turn (measured 26915 + 27656 = 54571), which overstates the window.
+        const u = event.usage;
+        this.stats.contextTokens = (u.input_tokens || 0)
+          + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
+        this.onEvent?.("stats", { stats: this.stats });
       }
       return;
     }
@@ -246,26 +259,23 @@ export class ClaudeAdapter {
       if (data.total_cost_usd) {
         this.stats.totalCost += Number(data.total_cost_usd) || 0;
       }
-      // modelUsage carries the running session totals, already summed by the CLI over
-      // every model it used — assign, never add, or each turn re-counts the ones before it.
+      // The top-level `usage` is THIS turn's own count — the tokens the CLI resent for
+      // it, which is the context window's current fill. Verified on 2.1.270: turn 2
+      // reported input 26923 while modelUsage (a session-running sum) said 53829.
+      if (data.usage) {
+        this.stats.inputTokens = data.usage.input_tokens || 0;
+        this.stats.outputTokens = data.usage.output_tokens || 0;
+        this.stats.cacheReadInputTokens = data.usage.cache_read_input_tokens || 0;
+        this.stats.cacheCreationInputTokens = data.usage.cache_creation_input_tokens || 0;
+      }
+      // modelUsage is the only place the window's size is stated. Summed across models
+      // because a turn can span more than one; the widest is the one that can overflow.
       if (data.modelUsage) {
-        // modelUsage carries this turn's own usage, not a session-running total —
-        // verified across a resume: the second turn reported cacheRead 20288 + input
-        // 5708, the first 25989 alone. Assign, never add.
-        let inputTokens = 0;
-        let outputTokens = 0;
-        let cacheReadInputTokens = 0;
-        let cacheCreationInputTokens = 0;
+        let contextWindow = 0;
         for (const usage of Object.values(data.modelUsage)) {
-          inputTokens += usage?.inputTokens || 0;
-          outputTokens += usage?.outputTokens || 0;
-          cacheReadInputTokens += usage?.cacheReadInputTokens || 0;
-          cacheCreationInputTokens += usage?.cacheCreationInputTokens || 0;
+          contextWindow = Math.max(contextWindow, usage?.contextWindow || 0);
         }
-        this.stats.inputTokens = inputTokens;
-        this.stats.outputTokens = outputTokens;
-        this.stats.cacheReadInputTokens = cacheReadInputTokens;
-        this.stats.cacheCreationInputTokens = cacheCreationInputTokens;
+        if (contextWindow) this.stats.contextWindow = contextWindow;
       }
 
       // If no delta text was streamed yet, use data.result as output (e.g. from /cost, /compact)
@@ -279,7 +289,7 @@ export class ClaudeAdapter {
     }
 
     // Assistant message: Tool calls and text fallback. Its `usage` is zeroed in
-    // stream-json output — the real counts only arrive on `result` (see modelUsage above).
+    // stream-json output — the real counts only arrive on `result` (see above).
     if (data.type === "assistant" && data.message) {
       const msg = data.message;
       const contents = msg.content || [];

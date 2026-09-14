@@ -88,7 +88,10 @@ export function listCodexModelOptions() {
       short: m.display_name || m.slug,
       desc: m.description || "",
       defaultEffort: m.default_reasoning_level || "",
-      efforts: (m.supported_reasoning_levels || []).map((r) => r.effort)
+      efforts: (m.supported_reasoning_levels || []).map((r) => r.effort),
+      // How full the client may fill the window before the CLI compacts. `effective_
+      // context_window_percent` is the CLI's own headroom, so it is what it enforces.
+      contextWindow: Math.round((m.context_window || 0) * ((m.effective_context_window_percent ?? 100) / 100)) || 0
     }));
 }
 
@@ -150,5 +153,35 @@ export function resolveDefaultModel(engine) {
     }
   }
 
+  return "";
+}
+
+/**
+ * The reasoning effort a brand-new chat runs with, read from the CLI's own config the
+ * same way the model is. Empty string means "let the CLI decide" — which is only
+ * correct when the CLI's config says nothing either.
+ *
+ * Without this the pane showed no effort until the user picked one, because the value
+ * only ever arrived from `setOptions`. The CLI was running `medium` the whole time.
+ */
+export function resolveDefaultEffort(engine) {
+  if (engine === "claude") {
+    const level = readClaudeSettings().effortLevel;
+    return typeof level === "string" ? level.trim() : "";
+  }
+
+  if (engine === "codex") {
+    // `model_reasoning_effort` at the top level, before any [section]. The per-profile
+    // copies further down are not what a plain `codex exec` picks up.
+    try {
+      const text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
+      const top = text.split(/^\s*\[/m)[0] || "";
+      return /^\s*model_reasoning_effort\s*=\s*"([^"]+)"/m.exec(top)?.[1] || "";
+    } catch {
+      return "";
+    }
+  }
+
+  // opencode keeps its variant in `--variant`, which it stores nowhere readable.
   return "";
 }

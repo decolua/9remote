@@ -1,7 +1,6 @@
 // Adapter for OpenCode CLI using run --format json --thinking
 import { getExtendedEnv } from "./env.js";
 import { AgentProc } from "../proc/agentProc.js";
-import { decodeLine } from "../proc/daemonProc.js";
 import { stageAttachment } from "../aiAttachment.js";
 
 // eslint-disable-next-line no-control-regex
@@ -35,7 +34,7 @@ export class OpenCodeAdapter {
     // Empty model means "CLI default" — never a label. This metadata is echoed back by
     // the session and later fed to `-m`, so a display string here would be sent to the
     // CLI as a real model id.
-    this.metadata = { model: this.currentModel, sessionId: this.activeSessionId || "", permissionMode: this.permissionMode };
+    this.metadata = { model: this.currentModel, sessionId: this.activeSessionId || "", permissionMode: this.permissionMode, variant: this.currentVariant };
   }
 
   setOptions({ model, variant, mode, resume, flags }) {
@@ -45,6 +44,9 @@ export class OpenCodeAdapter {
     }
     if (variant) {
       this.currentVariant = variant;
+      // Published so the composer can show the running tier beside the model, the way
+      // claude and codex already do through this same field.
+      this.metadata.variant = variant;
     }
     // The composer sends `mode`; it used to be dropped here, so switching to Auto had
     // no effect on the CLI at all.
@@ -177,7 +179,9 @@ export class OpenCodeAdapter {
       cwd: this.cwd,
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     }).then(
-      () => this.proc.closeStdin?.(),
+      // commit feeds what the CLI printed before the handlers were live, releases the
+      // lines held during the handshake, then closes stdin. See DaemonProc.start.
+      (started) => started.commit((line) => this.feed(line)),
       (err) => {
         this.isTurnRunning = false;
         this.onEvent?.("error", { message: err.message });
@@ -239,6 +243,9 @@ export class OpenCodeAdapter {
         this.stats.inputTokens += tokens.input || 0;
         this.stats.outputTokens += tokens.output || 0;
         this.stats.reasoningTokens = (this.stats.reasoningTokens || 0) + (tokens.reasoning || 0);
+        // The sum above bills the whole turn; each step resends the growing
+        // conversation, so the LAST step's input is what the window currently holds.
+        this.stats.contextTokens = tokens.input || 0;
         this.stats.totalTurns += 1;
         this.onEvent?.("stats", { stats: this.stats });
       }

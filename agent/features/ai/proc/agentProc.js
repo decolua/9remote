@@ -7,6 +7,7 @@
 // it got. The daemon owns the process, which is the whole point: an agent restart
 // mid-turn can adopt it instead of losing it.
 import * as daemonClient from "../../terminal/ptyDaemonClient.js";
+import { startResult } from "./daemonProc.js";
 
 export class AgentProc {
   constructor({ procId, client = daemonClient }) {
@@ -82,7 +83,7 @@ export class AgentProc {
       // Nothing was missed and nothing has to be replayed: this process was born with
       // the handlers already live, so every line it prints is delivered as it arrives.
       // Holding them for a release() the caller never calls would mute the whole turn.
-      return { lines: [], after: [], missed: 0, release: () => {} };
+      return startResult({ closeStdin: () => this.closeStdin() });
     } catch (e) {
       this._unsubscribe();
       throw e;
@@ -102,7 +103,7 @@ export class AgentProc {
     const res = await this.client.procAttach(this.procId, from);
     if (!res.success) {
       this._unsubscribe();
-      return { alive: false, lines: [], after: [], release: () => {} };
+      return { alive: false, ...startResult() };
     }
     this.epoch = res.epoch ?? null;
     // Line numbers belong to the PROCESS, not the chat. A stored watermark only means
@@ -115,7 +116,12 @@ export class AgentProc {
     const missed = same || first == null ? 0 : Math.max(0, first - 1);
     this.lineNo = all.at(-1)?.n ?? res.total ?? 0;
     if (!res.alive) this._notifyExit({ code: res.exitCode ?? 0, signal: null });
-    return { alive: Boolean(res.alive), lines, after: this._hold, missed, release: () => this._release() };
+    // The same `commit` door as start(): the adopted turn is non-interactive, so its
+    // stdin is already closed or never needed. Handing the caller a bare fetch here
+    // left the replay with nothing to call and the adopted turn silently empty.
+    // `alive` spreads OUTSIDE startResult: it only carries the fetch fields, so one
+    // passed inside is dropped and a live turn reads as ended.
+    return { alive: Boolean(res.alive), ...startResult({ lines, after: this._hold, missed, release: () => this._release() }) };
   }
 
   _openHold() {

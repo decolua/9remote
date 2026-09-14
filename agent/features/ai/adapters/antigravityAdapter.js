@@ -1,7 +1,6 @@
 // Adapter for the Antigravity CLI (`agy`) using --output-format stream-json.
 import { getExtendedEnv } from "./env.js";
 import { AgentProc } from "../proc/agentProc.js";
-import { decodeLine } from "../proc/daemonProc.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 
 // `agy` has no `--permission-mode` flag: the gate is either on or bypassed. Plan mode
@@ -169,8 +168,9 @@ export class AntigravityAdapter {
       cwd: this.cwd,
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     }).then(
-      // The turn is non-interactive: an open stdin only risks the CLI waiting on it.
-      () => this.proc.closeStdin?.(),
+      // commit feeds what the CLI printed before the handlers were live, releases the
+      // lines held during the handshake, then closes stdin. See DaemonProc.start.
+      (started) => started.commit((line) => this.feed(line)),
       (err) => {
         this.isTurnRunning = false;
         this.onEvent?.("error", { message: err.message });
@@ -312,6 +312,9 @@ export class AntigravityAdapter {
     this.stats.outputTokens += usage.output_tokens || 0;
     this.stats.thinkingTokens += usage.thinking_tokens || 0;
     this.stats.cachedTokens += usage.cache_read_tokens || 0;
+    // The sum above bills every step; each step resends the growing conversation, so
+    // the LAST step's input is what the window currently holds.
+    this.stats.contextTokens = usage.input_tokens || 0;
   }
 
   stop() {
