@@ -7,6 +7,7 @@ import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
 import { createRetryLadder } from "../lib/hydrateRetry";
+import { termLog } from "@/shared/utils/termLog";
 import { RECOVER_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
 
 // The CLI reports skills as bare id strings; the agent-side scan reports objects.

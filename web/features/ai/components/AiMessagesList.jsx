@@ -296,7 +296,8 @@ export const AiMessagesList = memo(function AiMessagesList({
   onPreviewRewind,
   onListRewindPoints,
   onOpenResume,
-  hydrating = false
+  hydrating = false,
+  synced = true
 }) {
   const scrollRef = useRef(null);
   // Marks the top of the mounted window — watched so paging also fires on first paint
@@ -370,10 +371,17 @@ export const AiMessagesList = memo(function AiMessagesList({
     const el = scrollRef.current;
     const prevHeight = el?.scrollHeight ?? 0;
     const prevTop = el?.scrollTop ?? 0;
+    // TEMP DIAGNOSTIC — scroll-up shows no older turns; log the decision inputs and the
+    // outcome so we can tell "never asked the host" from "host had nothing" from "got it
+    // but never mounted". Remove once the paging path is confirmed end to end.
+    const diagBefore = { hiddenCount, hasOlder, scrollTop: prevTop, scrollHeight: prevHeight };
     // The in-RAM window grows first; past its end the older turns still live on the host.
-    // The byte budget is measured from the END, so a freshly prepended chunk is hidden by
-    // the same pagination that was showing the tail until the budget moves too.
-    if (hiddenCount === 0 && hasOlder) await onLoadOlder?.();
+    // Dropping the mark is what reveals a page that arrived while it was still standing —
+    // a held top wins over the page budget by design.
+    let fetched = null;
+    if (hiddenCount === 0 && hasOlder) fetched = await onLoadOlder?.();
+    termLog("ai-page", "loadMore", { ...diagBefore, fetched });
+    setTopId(null);
     setVisibleBytes((b) => b + PAGE_BUDGET_BYTES);
     requestAnimationFrame(() => {
       if (el) el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
