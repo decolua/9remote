@@ -22,12 +22,14 @@ import { PATHS } from "../../lib/constants.js";
 const ANSI_RE = /\[[0-9;]*m/g;
 const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
 
-// Engines whose CLI is driven as a managed child process rather than by an adapter of
-// its own: the process outlives the agent (the daemon holds it) while the parsing and
-// the conversation log stay here. Moving another engine onto this path is one entry
-// here plus its adapter accepting a `proc` — nothing in the daemon, and no
-// daemon-version bump.
-const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE]);
+// Engines whose CLI the daemon owns, so a turn outlives an agent restart. The daemon
+// holds only the process; the parsing and the conversation log stay here.
+//
+// Claude spawns once per conversation and its adapter drives that process for its whole
+// life. The other three are turn-per-CLI: the adapter still decides when a process is
+// born, it just asks the daemon instead of spawning — which is what lets a turn in
+// flight be adopted by the agent that comes back.
+const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY]);
 
 // Engine → the CLI's own health command. Read from each adapter's static spec so
 // the command name lives next to the adapter that owns it, and asking for it
