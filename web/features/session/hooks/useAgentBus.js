@@ -47,7 +47,6 @@ export function useAgentBus() {
   //   approved          = terminal for this session
   //   carrier-reconnect = NOT an answer, must never clear a standing verdict
   const applyApproval = useCallback((next) => {
-    termLog("diag", `applyApproval ${next}`); // TEMP DIAGNOSTIC — approval stuck
     setApprovalStatus((prev) => {
       // Updater stays pure — the arrival log lives outside (StrictMode double-invokes updaters).
       if (next === APPROVAL_STATUS.reconnect) return prev === APPROVAL_STATUS.approved ? null : prev;

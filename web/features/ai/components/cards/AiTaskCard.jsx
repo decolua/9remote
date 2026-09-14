@@ -33,7 +33,7 @@ export const AiTaskCard = memo(function AiTaskCard({ sessionId = "" }) {
       {/* 1-line summary row */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer transition-colors group"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer data-pane-control transition-colors group"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           {allDone ? (

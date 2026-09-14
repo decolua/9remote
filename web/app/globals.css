@@ -631,6 +631,15 @@ html.terminal-page body {
   background-color: transparent !important;
 }
 
+/* Soft-KB document pan (WebKit #191204): the keyboard makes the document itself
+   scrollable, so a drag that no inner scroller consumes pans the whole page. Same
+   guard the terminal wrapper uses. touch-action only intersects up to the nearest
+   scroll container, so the chat list needs its own — .terminal-container never saw it. */
+.ai-pane { touch-action: none; }
+/* Y axis only: `contain` on both axes also trapped horizontal wheel gestures, so a
+   trackpad swipe over a chat never reached the panes row behind it. */
+.ai-conversation { touch-action: pan-y; overscroll-behavior-y: contain; }
+
 /* AI pane tracks the terminal's font size. Only the conversation layer is sized —
    buttons, badges and modals keep their compact chrome sizing. Tailwind's `text-*`
    utilities pair a px size with a px line-height, so both are set here. */
@@ -680,6 +689,15 @@ html.terminal-page body {
    below the composer's own size rather than matching it. */
 .ai-pane .ai-composer-input::placeholder {
   font-size: var(--ai-fs, 12px);
+}
+
+/* PC gets a step below the phone: the pane already has room for the tab-switch hint
+   in the placeholder, so nothing needs the extra size there. */
+@media (min-width: 760px) and (pointer: fine) {
+  .ai-pane .ai-composer-input,
+  .ai-pane .ai-composer-input::placeholder {
+    font-size: calc(var(--ai-fs, 12px) - 1px);
+  }
 }
 
 /* Terminal wrapper — default clip; .is-scrollable unlocks pan when soft-KB shrinks viewport */

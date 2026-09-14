@@ -141,6 +141,9 @@ export function loadSessionMetadata() {
 // Persist cols/rows (from client's last resize) so a respawned PTY after an agent
 // restart inherits the real terminal size instead of falling back to 80×24.
 export function buildSessionMetadata(session, sessionId) {
+  // The agent CLI and conversation this terminal is running: the PTY survives
+  // an agent restart, so the link to its chat has to survive with it.
+  const conv = sessionId ? conversationMetadata(sessionId) : null;
   return {
     name: session.name,
     // Whether the name is still ours to change: an auto-named terminal follows
@@ -153,10 +156,11 @@ export function buildSessionMetadata(session, sessionId) {
     workspacePath: session.workspacePath ?? null,
     cols: session.lastCols ?? session.cols ?? null,
     rows: session.lastRows ?? session.rows ?? null,
-    agent: session.agent || (sessionId ? getSessionAgent(sessionId) : null) || null,
-    // The agent CLI and conversation this terminal is running: the PTY survives
-    // an agent restart, so the link to its chat has to survive with it.
-    ...(sessionId ? conversationMetadata(sessionId) || {} : {}),
+    ...(conv || {}),
+    // Last, and the SURFACE outranks the engine the conversation runs on: the pane
+    // picks chat vs terminal by this string, so a chat written back as its bare
+    // engine (conversationMetadata's `agent`) reopens as an ordinary terminal.
+    agent: session.agent || (sessionId ? getSessionAgent(sessionId) : null) || conv?.agent || null,
   };
 }
 

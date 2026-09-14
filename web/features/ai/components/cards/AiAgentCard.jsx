@@ -54,7 +54,7 @@ export const AiAgentCard = memo(function AiAgentCard({
     <div className="my-1 text-xs" id={id ? `agent-${id}` : undefined}>
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer data-pane-control select-none transition-colors group/tool"
       >
         <div className="flex items-center gap-2 min-w-0 flex-1">
           <span className="shrink-0">

@@ -30,8 +30,6 @@ export function sendControl(pm, event, args) {
     if (ws?.ready) adapter = ws;
   }
   debugLog("transport", `[pm] send control event=${event} via=${adapter.constructor.id}`);
-  if (event === "getSessions" || event === "getWorkspaces") termLog("diag", `send ${event} via=${adapter.constructor.id}`); // TEMP DIAGNOSTIC
-  if (event === "getSessions" || event === "getWorkspaces") termLog("diag", `send ${event} via=${adapter.constructor.id}`); // TEMP DIAGNOSTIC
   if (adapter.constructor.id === "rtc") {
     let ackId = null;
     if (cb) {
@@ -102,7 +100,6 @@ export function dispatch(pm, event, payload, source) {
   // If ICE timed out while waiting (host took >30s), the peer is gone — the
   // agent's buffered answer can't revive it, so renegotiate a fresh offer.
   if (event === "device:approved") {
-    termLog("diag", `device:approved reached transport via=${source}`); // TEMP DIAGNOSTIC
     pm._awaitingApproval = false;
     const rtc = pm._adapters.get("rtc");
     if (pm._canSignal() && (!rtc || rtc.state === ADAPTER_STATE.closed)) {

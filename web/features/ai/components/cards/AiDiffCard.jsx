@@ -37,7 +37,7 @@ export const AiDiffCard = memo(function AiDiffCard({ file = "", patch = "", diff
           made every tool's actions appear on message hover. */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer data-pane-control select-none transition-colors group/tool"
       >
         <div className="flex items-center gap-2 min-w-0">
           {/* Status-coloured like every other row's leading icon (accent running, danger
