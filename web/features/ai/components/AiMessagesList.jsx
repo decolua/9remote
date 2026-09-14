@@ -366,6 +366,19 @@ export const AiMessagesList = memo(function AiMessagesList({
   );
   useEffect(() => { setTopId(nextTopId); }, [nextTopId]);
 
+  // TEMP DIAGNOSTIC — the mounted window, once per change, with the session id. This is
+  // the line that says whether the pane is short because the WINDOW hides turns (mount >
+  // 0 while the store holds more) or because the STORE itself is short (mount == 0 with
+  // fewer messages than the host sent). Remove once the short-reopen is settled.
+  useEffect(() => {
+    termLog("ai-page", "window", {
+      sessionId, total: messages.length, hiddenCount, visibleBytes,
+      topId: nextTopId, firstVisible: messages[hiddenCount]?.role || "none",
+      prompts: messages.filter((m) => m.role === "user").length,
+      hasOlder, hydrating, synced
+    });
+  }, [sessionId, messages, hiddenCount, visibleBytes, nextTopId, hasOlder, hydrating, synced]);
+
   const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
   // One turn = a user message plus every assistant segment that followed it. The list

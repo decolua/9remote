@@ -935,7 +935,8 @@ export default function WorkspaceLayout({ children }) {
       </div>
       {/* Child routes are URL markers only (render nothing) */}
       <div hidden><Suspense fallback={null}>{children}</Suspense></div>
-      {/* <DevTermLog /> */}
+      {/* TEMP DIAGNOSTIC — on while the short-reopen is being chased. Remove after. */}
+      <DevTermLog />
     </>
   );
 }

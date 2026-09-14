@@ -14,6 +14,11 @@ const CAT_COLORS = {
   switch: "text-purple-400",
   resize: "text-cyan-400",
   send: "text-orange-400",
+  // The AI chat pane's own diagnostics: hydrate (the ack), page (the mounted window and
+  // each scroll-up fetch), gate (a permission card).
+  "ai-hydrate": "text-pink-400",
+  "ai-page": "text-amber-400",
+  "ai-gate": "text-red-400",
 };
 
 function fmtTime(ts) {

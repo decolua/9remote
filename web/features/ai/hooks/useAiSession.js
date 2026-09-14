@@ -1114,6 +1114,16 @@ export function useAiSession({
       while (chunks < OLDER_MAX_CHUNKS) {
         const res = await fetchChunk(before);
         chunks++;
+        // TEMP DIAGNOSTIC — one line PER CHUNK, with the session id. This is the line
+        // that separates the two ways a scroll-up dies: a null ack (nobody answered —
+        // carrier or route) from success:false / empty (the host had nothing behind
+        // `before`). The summary line below cannot tell them apart once the loop has run.
+        // Remove with the rest of the ai-page logging.
+        termLog("ai-page", "chunk", {
+          sessionId, asked: before, ms: Date.now() - t0,
+          res: res == null ? "TIMEOUT/no-ack"
+               : { ok: res.success, events: res.events?.length ?? null, hasMore: res.hasMore, err: res.error }
+        });
         // A timed-out ack is not an answer — keep the door open so the next scroll
         // retries. Only the host saying "no such session" closes it.
         if (res == null) break;
