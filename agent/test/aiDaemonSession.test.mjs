@@ -149,23 +149,63 @@ test("a hydrate ack ships a tail and says there is more — that is what arms sc
   // Shipping the whole log stalls a phone (6.9 MB measured on one real chat), and a
   // log that ships whole must report hasMore:false or the client's scroll-up fetches
   // a window it already has and renders every turn twice.
-  assert.match(SOCKET, /function publicSession\(session, extra = \{\}\)/);
+  assert.match(SOCKET, /function publicSession\(session\)/);
   assert.match(SOCKET, /const \{ events, hasMore \} = replayWindow\(session\.history, AI_REPLAY_BYTES\)/);
   // Through `replayWindow`, not a bare index: the tail must also be free of any single
   // event too wide for one wire frame, which the carrier would throw away whole.
   assert.match(SOCKET, /events,\s*hasMore,/);
   // Every answer that hydrates a client carries it: a fresh create, a re-mount of a
-  // live one, and the wait for a create already in flight.
-  assert.equal((SOCKET.match(/session: publicSession\(/g) || []).length, 3);
+  // live one, and the wait for a create already in flight — all three through doorSession.
+  assert.equal((SOCKET.match(/\.\.\.doorSession\(/g) || []).length, 3);
 });
 
-test("a thin snapshot is topped up from the CLI's own transcript", () => {
-  // A legacy snapshot, or one written just before a crash, holds a turn or two while
-  // the CLI's transcript holds the conversation. Without this the pane reopens on a
-  // stub. Never downward: a fuller snapshot is left alone.
+test("one rule says what a thin log is, and all three doors read it", () => {
+  // A legacy snapshot, or one written just before a crash, holds a turn or two while the
+  // CLI's transcript holds the conversation. Without the top-up the pane reopens on a stub.
+  //
+  // "Fuller" is counted in EVENTS, not turns: the event cap sheds the head of the log, and
+  // that is where the prompts are — a shed log can hold thousands of tool events and not
+  // one `user_message`, so a turn-for-turn test called it healthy and the pane reopened
+  // with nothing to scroll to.
+  //
+  // The rule had been written out three times (the constructor's top-up, recoverIfThinner,
+  // _fillGap) and had already drifted — two counted events, one counted turns. That is how
+  // a pane came back short from one door while another door showed the whole chat.
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
-  assert.match(SESSION, /this\.history\.filter\(\(e\) => e\.event === "user_message"\)\.length <= 1/);
-  assert.match(SESSION, /recoveredTurns > snapTurns/);
+  assert.match(SESSION, /function isFullerLog\(recovered, current\)/);
+  assert.match(SESSION, /return recovered\.length > \(current\?\.length \|\| 0\)/);
+  assert.match(SESSION, /recovered\.some\(\(e\) => e\.event === "user_message"\)/);
+  // One definition, three callers — no door may carry its own copy of the test.
+  assert.equal((SESSION.match(/isFullerLog\(/g) || []).length, 4, "one definition, three callers");
+  assert.doesNotMatch(SESSION, /recoveredTurns > snapTurns/);
+  assert.doesNotMatch(SESSION, /turns > known/);
+});
+
+test("an ack is rebuilt, then described — in that order, from one place", () => {
+  // Three doors answer a create (a live session, a create already in flight, a fresh
+  // spawn) and all three built their reply by spreading emitConnectMetadata and calling
+  // publicSession side by side — two expressions whose evaluation order is invisible at
+  // the call site, which is exactly how they got swapped.
+  //
+  //   1. rebuild: a log thinner than the CLI's transcript is replaced. A window measured
+  //      before that hides the restored turns from scroll-up for good (fromSeq is where
+  //      the client's paging begins).
+  //   2. connect metadata: appended into the log that survived step 1. Reversed, a fresh
+  //      `init` lands in the log the rebuild replaces, and the ack goes out with no model
+  //      catalog and no skills on a chat that was just restored.
+  const SOCKET = fs.readFileSync(path.join(root, "agent/features/ai/aiSocket.js"), "utf8");
+  const door = SOCKET.slice(SOCKET.indexOf("function doorSession("));
+  const body = door.slice(0, door.indexOf("\n}"));
+  assert.ok(
+    body.indexOf("session.recoverIfThinner()") < body.indexOf("emitConnectMetadata("),
+    "the rebuild must precede the metadata it would otherwise throw away"
+  );
+  // No door may assemble its own pair again — the order is only safe in one place.
+  assert.equal((SOCKET.match(/\.\.\.doorSession\(/g) || []).length, 3, "three doors, one builder");
+  // ...and doorSession is the only place that pairs them: one `session: publicSession(`,
+  // inside it.
+  assert.equal((SOCKET.match(/session: publicSession\(/g) || []).length, 1, "publicSession is paired only in doorSession");
+  assert.match(body, /session: publicSession\(session\)/);
 });
 
 test("live events are gated by the client's applied-seq watermark", () => {

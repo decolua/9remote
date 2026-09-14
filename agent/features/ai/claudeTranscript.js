@@ -51,7 +51,11 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
       if (!line.trim()) continue;
       try {
         const d = JSON.parse(line);
-        if (d.type === "user" && d.message) {
+        // A sidechain record is a sub-agent's own turn, not one the user typed. Kept out
+        // of the log for the same reason the rewind list keeps it out: the pane would
+        // show it as a prompt nobody sent, and every turn after it would be counted one
+        // too high — which is exactly what the rewind control names turns by.
+        if (d.type === "user" && d.message && !d.isSidechain) {
           const textBlock = (d.message.content || []).find((c) => c.type === "text");
           if (textBlock && textBlock.text) {
             events.push({ seq: seq++, event: "user_message", data: { text: textBlock.text } });

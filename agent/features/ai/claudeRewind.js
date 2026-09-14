@@ -4,18 +4,21 @@
 // the SDK entrypoint — which is how 9Remote drives the CLI — the transcript gets no
 // `file-history-snapshot` and no backup, so nothing can be restored. Setting
 // CLAUDE_FILE_CHECKPOINTING_ENV on the spawn (see adapters/env.js) is what enables it;
-// with that env the CLI writes both, and the two flags below do the rewind.
+// with that env the CLI writes both, and the flag below does the file half.
 //
 //   --rewind-files <userMessageUuid>   restore files to their state at that message
-//   --resume-session-at <uuid>         resume with the conversation cut at that message
 //
-// Both are real flags the CLI parses; neither appears in `--help`.
+// The conversation half is NOT a flag: `--resume-session-at` only truncates the context
+// the CLI loads, it does not shorten the transcript, so the old turns stay on disk and
+// come back. It is also what `--fork-session` had to be paired with, and that pairing
+// minted a new session id — a second `.jsonl` for one conversation, which is what the
+// history list showed as two chats. `cutAt` rewrites the transcript in place instead,
+// keeping the session id; see its comment and agent/test/spike-rewindInPlace.mjs.
 
 import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import crypto from "node:crypto";
 import { claudeBin } from "./constants.js";
 import { CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
 import { getExtendedEnv } from "./adapters/env.js";
@@ -155,85 +158,61 @@ export async function rewindFiles(sessionId, messageId, cwd) {
 }
 
 /**
- * Cut the conversation at a turn and continue under a NEW session id.
+ * Cut the conversation at a turn, in place, under the SAME session id.
  *
- * Three things here are semantics, not plumbing:
+ * Not a fork. Claude Code's own `/rewind` moves the leaf inside one transcript file
+ * (anthropics/claude-code#55347), and the CLI accepts a transcript truncated by hand:
+ * measured against 2.1.270 — resume loads the shortened thread, keeps the id, appends
+ * to the same file afterwards (see agent/test/spike-rewindInPlace.mjs).
  *
- * `--resume-session-at <uuid>` KEEPS the turn whose uuid is given and drops everything
- * after it. "Rewind to prompt X" means dropping X as well, so the caller passes the uuid
- * of the turn BEFORE X — see `rewindTarget`.
+ * The fork this replaces was the bug, not just a way of doing it: `--fork-session` mints
+ * a new session id, so a rewind left a SECOND `.jsonl` in the project directory, and the
+ * history list enumerates that directory — one rewind, two conversations on screen.
  *
- * `--fork-session` is what makes the cut real. Without it the CLI answers from the full
- * context and APPENDS to the same transcript, so nothing is discarded (verified: the
- * model still recalled a turn that had supposedly been rewound). With it the CLI
- * requires `--session-id`, so passing one keeps a predictable id instead of an unknown
- * fork.
+ * The cost is real and the UI says so: the turns after the cut are gone from this
+ * conversation. A branch that survives alongside the original cannot exist without a
+ * second file, which is the thing being fixed.
  *
- * The CLI cannot fork without a prompt, and the prompt becomes a real user turn in the
- * new transcript. `stripForkPrompt` removes that turn afterwards, so the forked
- * conversation is exactly the history that was kept.
+ * `keepThroughUuid` is `undefined` for "no rewind target in this conversation" (refuse),
+ * `null` for "keep nothing" (the target is the first turn).
  */
-export async function forkAt(sessionId, keepThroughUuid, { cwd = null, newSessionId = null } = {}) {
-  // `undefined` means "no cut asked for"; `null` means "keep nothing". Both omit the
-  // flag, but only the second is a rewind, so the caller resolves that beforehand.
+export function cutAt(sessionId, keepThroughUuid) {
   if (keepThroughUuid === undefined) return { ok: false, error: "No rewind target in this conversation." };
-  const target = newSessionId || crypto.randomUUID();
-  const marker = `${FORK_MARKER}${crypto.randomUUID()}`;
-  const args = ["-p", marker, "--resume", sessionId, "--fork-session", "--session-id", target];
-  // A null target keeps nothing, and the flag cannot express that: omitting it keeps
-  // everything. The conversation is made empty by cutting at its own first turn.
-  if (keepThroughUuid) args.push("--resume-session-at", keepThroughUuid);
-  const res = await runClaude(args, cwd);
-  if (!res.ok) return { ok: false, error: res.error };
-  // The marker turn is the CLI's price for forking; leaving it in would show up as a
-  // user message the person never sent, and the model would read it as one.
-  const stripped = stripForkPrompt(target, marker, { dropAll: !keepThroughUuid });
-  if (!stripped) return { ok: false, error: "Could not clean the forked conversation." };
-  return { ok: true, sessionId: target };
+  const file = findTranscript(sessionId);
+  if (!file) return { ok: false, error: "This conversation's transcript is not on disk." };
+  let raw;
+  try { raw = fs.readFileSync(file, "utf8"); } catch { return { ok: false, error: "Could not read this conversation." }; }
+  const lines = raw.split("\n").filter((l) => l.trim());
+  if (keepThroughUuid === null) {
+    // Nothing survives but the header: a zero-byte transcript makes the CLI report
+    // "No conversation found" and the session becomes unusable (verified), so the
+    // file keeps its own records and a summary that says what happened.
+    const kept = [
+      ...conversationHeader(lines, lines.length),
+      JSON.stringify({ type: "summary", summary: "Rewound to the start of this conversation", sessionId })
+    ];
+    return writeTranscript(file, kept);
+  }
+  const cut = lines.findIndex((line) => {
+    try { return JSON.parse(line).uuid === keepThroughUuid; } catch { return false; }
+  });
+  if (cut === -1) return { ok: false, error: "That turn is no longer in this conversation." };
+  // Everything from the cut turn onward goes, including any branch that ran off it —
+  // the file holds one thread, which is what "rewind" asked for.
+  return writeTranscript(file, lines.slice(0, cut + 1));
 }
 
-// Marks the throwaway prompt a fork needs. Kept odd enough that a real prompt never
-// matches it, and removed before the session is ever read back.
-const FORK_MARKER = "9remote-rewind-marker-";
-
-/**
- * Drop the marker turn (and the reply it drew) from a freshly forked transcript.
- *
- * Everything before the marker is the history the fork kept, so the cut is made at the
- * marker's own line — the records after it are the throwaway turn's.
- *
- * `dropAll` is the rewind-to-the-first-turn case: the CLI is given no cut point, so it
- * forked the WHOLE conversation and the caller wanted none of it. Even then the file
- * cannot be emptied — a zero-byte transcript makes the CLI report "No conversation
- * found" and the session becomes unusable (verified). The session's own header records
- * are kept so the file still names a conversation, and a small `summary` marks it as
- * rewound rather than blank.
- *
- * Written through a temp file so a crash mid-write cannot leave a half transcript.
- */
-function stripForkPrompt(cliSessionId, marker, { dropAll = false } = {}) {
-  const file = findTranscript(cliSessionId);
-  if (!file) return false;
-  let raw;
-  try { raw = fs.readFileSync(file, "utf8"); } catch { return false; }
-  const lines = raw.split("\n").filter((l) => l.trim());
-  const cut = lines.findIndex((line) => {
-    if (!line.includes(marker)) return false;
-    try { return userText(JSON.parse(line)).includes(marker); } catch { return false; }
-  });
-  if (cut === -1) return false;
-  const kept = dropAll
-    ? [...conversationHeader(lines, cut), JSON.stringify({ type: "summary", summary: "Rewound to the start of this conversation", sessionId: cliSessionId })]
-    : lines.slice(0, cut);
+/** Atomic: a crash mid-write must not leave a half transcript behind. */
+function writeTranscript(file, kept) {
   const tmp = `${file}.rewind`;
   try {
     fs.writeFileSync(tmp, `${kept.join("\n")}\n`);
     fs.renameSync(tmp, file);
   } catch {
     try { fs.unlinkSync(tmp); } catch {}
-    return false;
+    return { ok: false, error: "Could not write this conversation." };
   }
-  return true;
+  return { ok: true };
 }
 
 /**
@@ -254,10 +233,8 @@ function conversationHeader(lines, upTo) {
  * The turn a rewind to `messageId` must keep: the one immediately before it.
  *
  * Two outcomes, and the caller must not conflate them:
- *   - a uuid  → pass it as `--resume-session-at`; the cut keeps everything through there
- *   - null    → the target is the FIRST turn, so nothing should be kept. `forkAt` must
- *               then omit the flag entirely: omitting it keeps the WHOLE conversation,
- *               which is the opposite of what this rewind asked for.
+ *   - a uuid  → the cut keeps everything through there
+ *   - null    → the target is the FIRST turn, so nothing is kept
  */
 export function rewindTarget(sessionId, messageId) {
   const points = listRewindPoints(sessionId);
@@ -299,23 +276,23 @@ export function filesForCheckpoint(sessionId, messageId) {
 
 export async function applyRewind(sessionId, messageId, { files = true, cwd = null } = {}) {
   const before = filesForCheckpoint(sessionId, messageId);
+  // The file half runs first, while the transcript still names this turn's checkpoint —
+  // the cut below removes it. It is a one-shot CLI run against the ORIGINAL id, which
+  // the conversation keeps.
   if (files) {
     const res = await rewindFiles(sessionId, messageId, cwd);
     if (!res.ok) return { ok: false, error: res.error, messageId };
   }
-  // The conversation half forks: the CLI cuts the thread at the turn BEFORE this one
-  // and continues under an id we choose, which the caller hands to setOptions({resume}).
-  const fork = await forkAt(sessionId, rewindTarget(sessionId, messageId), { cwd });
-  if (!fork.ok) return { ok: false, error: fork.error, messageId, filesRewound: files };
-  // The fork's transcript carries the file mapping the source session leaves blank.
-  const after = filesForCheckpoint(fork.sessionId, messageId);
+  // The conversation half is a cut in place: the turns after the one BEFORE `messageId`
+  // go, and the session keeps its id — so no second transcript, no second history row.
+  const cut = cutAt(sessionId, rewindTarget(sessionId, messageId));
+  if (!cut.ok) return { ok: false, error: cut.error, messageId, filesRewound: files };
   return {
     ok: true,
     messageId,
-    files: after.length > 0 ? after : before,
-    filesUnknown: files && after.length === 0 && before.length === 0,
-    conversation: true,
-    // The session id the caller must resume — the CLI cut the thread and continues here.
-    newSessionId: fork.sessionId
+    files: before,
+    // An empty list is "the CLI did not report it", not "nothing changes" — say so.
+    filesUnknown: files && before.length === 0,
+    conversation: true
   };
 }

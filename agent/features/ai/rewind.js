@@ -5,7 +5,7 @@
 // evidence. The short version:
 //
 //   opencode  undo a prompt and restore the files it touched, over HTTP
-//   claude    --rewind-files + --resume-session-at, once SDK checkpointing is enabled
+//   claude    --rewind-files, plus a cut of its own transcript in place
 //   codex     forks a conversation; it cannot rewind one, and never restores files
 //   antigravity  /rewind rolls the conversation back, files are undocumented
 //
@@ -20,7 +20,7 @@
 /** Per-engine rewind support. `files` means the engine can restore what the agent wrote. */
 export const REWIND_SUPPORT = Object.freeze({
   opencode: { conversation: true, files: true, how: "opencode server: stage, then commit" },
-  claude: { conversation: true, files: true, how: "claude --rewind-files / --resume-session-at" },
+  claude: { conversation: true, files: true, how: "claude --rewind-files, plus a cut of its transcript" },
   codex: { conversation: false, files: false, how: "codex forks; it has no rewind" },
   antigravity: { conversation: false, files: false, how: "no app-server API for /rewind" }
 });
@@ -30,6 +30,23 @@ export function rewindSupport(engine) {
 }
 
 export const canRewind = (engine) => rewindSupport(engine).conversation;
+
+/**
+ * A turn named by position, counted from the END of the thread.
+ *
+ * The client's own message ids are minted locally (`u-<timestamp>`), so they mean
+ * nothing to a CLI. Its edit button therefore sends an offset instead: the tail is the
+ * part both sides always agree on, whatever paging hid at the top of the pane.
+ * Returns undefined for an offset that is not a turn — the caller refuses.
+ */
+export function resolveRewindTarget(points, index) {
+  // Absent is not zero: `Number(null)` is 0, which would silently name the newest turn
+  // for a client that sent nothing at all.
+  if (index === null || index === undefined || index === "") return undefined;
+  const i = Number(index);
+  if (!Number.isInteger(i) || i < 0 || i >= points.length) return undefined;
+  return points[points.length - 1 - i].messageId;
+}
 
 export function unsupportedReason(engine) {
   return `${engine} cannot rewind a conversation: ${rewindSupport(engine).how}.`;

@@ -15,7 +15,7 @@ import path from "node:path";
 import { setupAiHandlers } from "../features/ai/aiSocket.js";
 import { AiManager } from "../features/ai/aiManager.js";
 import { AI_SOCKET_EVENTS } from "../features/ai/constants.js";
-import { rewindSupport } from "../features/ai/rewind.js";
+import { rewindSupport, resolveRewindTarget } from "../features/ai/rewind.js";
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
@@ -62,6 +62,89 @@ await test("ai:rewind on an unknown conversation is refused, and still reports s
   // — the "list" call doubles as the capability probe.
   assert.match(res.error, /not one \w+ can rewind/i);
   assert.equal(typeof res.support.conversation, "boolean");
+});
+
+// The client shows the rewind control on `ok` alone, and keeps asking while support is
+// true but ok is false. So a refusal must never carry ok, whatever the reason: a chat
+// that has bound no conversation yet must still read as "not yet", not as "never".
+await test("a refusal never reports ok, and always reports support", async () => {
+  const socket = new MockSocket();
+  setupAiHandlers(socket, null, new AiManager());
+  const noTurn = await socket.call(AI_SOCKET_EVENTS.REWIND, { sessionId, action: "list" });
+  assert.equal(noTurn.ok, false);
+  assert.equal(noTurn.support.conversation, true);
+  assert.deepEqual(noTurn.points, []);
+  // Naming a turn that cannot exist is refused the same way, not answered with an empty
+  // success — an ok here would let the pane offer a rewind that goes nowhere.
+  const noTarget = await socket.call(AI_SOCKET_EVENTS.REWIND, { sessionId, action: "apply", index: 0 });
+  assert.equal(noTarget.ok, false);
+  assert.ok(noTarget.error);
+});
+
+// The regression a fresh chat hit: the conversation resolved, but the CLI had not
+// stored its turn yet — so `list` answered ok with an empty list, the pane armed its
+// edit button on a conversation with nothing to go back to, and pressing Enter got a
+// protocol-level "Missing messageId" back. ok must mean "a turn exists to return to".
+await test("a conversation with no turn yet does not report ok", async () => {
+  const { default: fsMod } = await import("node:fs");
+  // A transcript that exists but holds no user record yet — the CLI writes the file as
+  // soon as a turn starts, and nothing in it is rewindable until the turn lands.
+  const projects = fs.mkdtempSync(path.join(os.tmpdir(), "9r-rewind-empty-"));
+  const claudeId = "88888888-1111-2222-3333-444444444444";
+  const dir = path.join(projects, "-tmp-empty");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, `${claudeId}.jsonl`), `${JSON.stringify({ type: "mode", mode: "normal", sessionId: claudeId })}\n`);
+  const prev = process.env.NREMOTE_CLAUDE_PROJECTS_DIR;
+  process.env.NREMOTE_CLAUDE_PROJECTS_DIR = projects;
+
+  try {
+    const manager = new AiManager();
+    manager.sessions.set(sessionId, { id: sessionId, engine: "claude", cliSessionId: claudeId, cwd });
+    const socket = new MockSocket();
+    setupAiHandlers(socket, null, manager);
+
+    const listed = await socket.call(AI_SOCKET_EVENTS.REWIND, { sessionId, action: "list" });
+    assert.equal(listed.ok, false, "an empty conversation must not arm the control");
+    assert.deepEqual(listed.points, []);
+    // Support still travels: the pane must keep asking rather than give up on the
+    // engine, because this conversation earns the control a turn later.
+    assert.equal(listed.support.conversation, true);
+
+    // And the turn it never had is refused in words about the conversation, not about
+    // our wire format — "Missing messageId" told the user nothing they could act on.
+    const applied = await socket.call(AI_SOCKET_EVENTS.REWIND, { sessionId, action: "apply", index: 0 });
+    assert.equal(applied.ok, false);
+    assert.doesNotMatch(applied.error, /missing message ?id/i);
+  } finally {
+    if (prev === undefined) delete process.env.NREMOTE_CLAUDE_PROJECTS_DIR;
+    else process.env.NREMOTE_CLAUDE_PROJECTS_DIR = prev;
+    fs.rmSync(projects, { recursive: true, force: true });
+  }
+});
+
+// The edit button on a bubble sends a position, never its own id: the client mints
+// those locally and a CLI has never seen one. Counting from the end is what makes the
+// tail — the part paging cannot hide — enough to name a turn.
+await test("a turn named by position counts back from the end of the thread", async () => {
+  const points = [{ messageId: "u1" }, { messageId: "u2" }, { messageId: "u3" }];
+  assert.equal(resolveRewindTarget(points, 0), "u3");
+  assert.equal(resolveRewindTarget(points, 2), "u1");
+  // Offsets that are not turns are refused, not wrapped or clamped onto a neighbour.
+  assert.equal(resolveRewindTarget(points, 3), undefined);
+  assert.equal(resolveRewindTarget(points, -1), undefined);
+  assert.equal(resolveRewindTarget(points, null), undefined);
+  assert.equal(resolveRewindTarget(points, "1.5"), undefined);
+  assert.equal(resolveRewindTarget([], 0), undefined);
+});
+
+// The handler has to accept both namings, or the rewind modal (which lists the turns
+// from the host and so holds real ids) would stop working.
+await test("ai:rewind refuses a request that names no turn at all", async () => {
+  const socket = new MockSocket();
+  setupAiHandlers(socket, null, new AiManager());
+  const res = await socket.call(AI_SOCKET_EVENTS.REWIND, { sessionId, action: "preview", index: 7 });
+  assert.equal(res.ok, false);
+  assert.ok(res.error);
 });
 
 await test("list returns opencode's own message ids, not ids we minted", async () => {

@@ -12,7 +12,8 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listRewindPoints, previewRewind, rewindTarget } from "../features/ai/claudeRewind.js";
+import { listRewindPoints, previewRewind, rewindTarget, cutAt } from "../features/ai/claudeRewind.js";
+import { resolveRewindTarget } from "../features/ai/rewind.js";
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
@@ -137,6 +138,75 @@ try {
 
   await test("an unknown target is refused, not treated as a rewind", () => {
     assert.equal(rewindTarget(SESSION_ID, "nope"), undefined);
+  });
+
+  // What the edit button sends. The pane counts turns from the end of what IT is showing,
+  // and the host resolves that against the CLI's own list — so the two must agree on the
+  // same conversation, including on which records count as a turn at all.
+  // Kept ABOVE the cut tests: those rewrite the fixture, and this one reads it.
+  await test("a position from the end resolves to the same list the pane counted", () => {
+    const points = listRewindPoints(SESSION_ID);
+    // Newest is 0: the tail is the part the pane and the transcript always share.
+    assert.equal(resolveRewindTarget(points, 0), "u2");
+    assert.equal(resolveRewindTarget(points, 1), "u1");
+    // Past the oldest turn there is nothing to name, and the host must refuse rather
+    // than clamp onto a neighbour. A sub-agent turn is not a turn here either — if the
+    // pane counted it, every index below it would be off by one.
+    assert.equal(resolveRewindTarget(points, 2), undefined);
+    assert.equal(points.length, 2);
+  });
+
+  // ── The cut itself ──
+  //
+  // `cutAt` is what keeps a rewind to ONE conversation: it rewrites the transcript in
+  // place under the same session id, where the fork it replaced minted a new id and so
+  // left a second `.jsonl` — the "2 histories" the history list showed. These read the
+  // file back, because the file IS the deliverable, and they run LAST: each one rewrites
+  // the fixture the tests above read.
+
+  const readUuids = () => fs.readFileSync(transcript, "utf8").split("\n")
+    .filter((l) => l.trim())
+    .map((l) => { try { return JSON.parse(l).uuid; } catch { return null; } })
+    .filter(Boolean);
+
+  await test("a cut naming an absent turn changes nothing", () => {
+    // Before any real cut: a refusal must not half-write the file.
+    const before = fs.readFileSync(transcript, "utf8");
+    const res = cutAt(SESSION_ID, "not-a-turn");
+    assert.equal(res.ok, false);
+    assert.equal(fs.readFileSync(transcript, "utf8"), before);
+  });
+
+  await test("a cut keeps the named turn and drops everything after it", () => {
+    const res = cutAt(SESSION_ID, "u1");
+    assert.equal(res.ok, true);
+    const uuids = readUuids();
+    assert.ok(uuids.includes("u1"), "the turn the cut names survives");
+    assert.ok(!uuids.includes("u2"), "turns after it are gone");
+    assert.ok(!uuids.includes("sc1"), "and so is any branch that ran off them");
+  });
+
+  await test("a cut leaves the session id on every surviving record", () => {
+    // The whole point: the conversation is the same conversation afterwards, so the
+    // history list has one row for it and the pane can keep its id.
+    for (const line of fs.readFileSync(transcript, "utf8").split("\n")) {
+      if (!line.trim()) continue;
+      const record = JSON.parse(line);
+      if (!record.sessionId) continue;
+      assert.equal(record.sessionId, SESSION_ID);
+    }
+  });
+
+  await test("keeping nothing leaves a usable, non-empty transcript", () => {
+    // A zero-byte transcript makes the CLI report "No conversation found" and the
+    // session becomes unresumable, so the header and a summary must survive.
+    const res = cutAt(SESSION_ID, null);
+    assert.equal(res.ok, true);
+    const lines = fs.readFileSync(transcript, "utf8").split("\n").filter((l) => l.trim());
+    assert.ok(lines.length > 0, "the file still names a conversation");
+    const records = lines.map((l) => JSON.parse(l));
+    assert.ok(records.every((r) => r.type !== "user"), "no turn survives");
+    assert.ok(records.some((r) => r.type === "summary"), "and the rewind is recorded");
   });
 } finally {
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}

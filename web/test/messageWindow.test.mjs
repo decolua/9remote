@@ -7,7 +7,7 @@
 import assert from "node:assert/strict";
 import {
   PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES,
-  countMessagesByBudget, windowTop, estimateMessageBytes
+  countMessagesByBudget, windowTop, estimateMessageBytes, opensMidTurn
 } from "../features/ai/lib/messageWindow.js";
 
 let pass = 0, fail = 0;
@@ -150,6 +150,43 @@ test("an empty log has no top to mark", () => {
 
 test("countMessagesByBudget never returns an empty slice", () => {
   assert.equal(countMessagesByBudget([bulky("a")], PAGE_BUDGET_BYTES, undefined), 0);
+});
+
+// ── Opening on a turn, not mid-turn ──
+// The host answers a hydrate with a byte-measured tail, and one agentic turn can run
+// past that budget: a reopened chat then mounts a column of tool cards with no prompt
+// above them, and the prompt only arrives if the reader pages up.
+
+const userMsg = (id) => ({ id, role: "user", content: "hi" });
+
+test("a window whose top is not a prompt asks for a page", () => {
+  const messages = [bulky("tool-a"), bulky("tool-b"), userMsg("u-1"), bulky("tool-c")];
+  assert.equal(opensMidTurn(messages, 0, true), true, "tools above the newest prompt");
+});
+
+test("a window that opens on a prompt asks for nothing", () => {
+  const messages = [userMsg("u-1"), bulky("tool-a")];
+  assert.equal(opensMidTurn(messages, 0, true), false, "the mounted window starts on the prompt");
+  // Index 1 is the tool: the prompt sits above the mounted window, so it is mid-turn.
+  assert.equal(opensMidTurn(messages, 1, true), true);
+});
+
+test("nothing hidden, but the top is still a card: the cap shed this log's prompts", () => {
+  // The whole log is mounted and it holds no prompt at all — the head, where the prompts
+  // lived, was shed. The host's older events are the only place one can come from.
+  const messages = [bulky("tool-a"), bulky("tool-b")];
+  assert.equal(opensMidTurn(messages, 0, true), true);
+});
+
+test("nothing hidden and the top is a prompt: nothing to fetch", () => {
+  const messages = [userMsg("u-1"), bulky("tool-a")];
+  assert.equal(opensMidTurn(messages, 0, true), false);
+});
+
+test("no older events on the host means nothing to ask for", () => {
+  const messages = [bulky("tool-a")];
+  assert.equal(opensMidTurn(messages, 0, false), false);
+  assert.equal(opensMidTurn([], 0, true), false);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

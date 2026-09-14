@@ -13,12 +13,21 @@ import { termLog } from "@/shared/utils/termLog";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
-import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, windowTop } from "../lib/messageWindow";
+import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, windowTop, opensMidTurn } from "../lib/messageWindow";
 
 const EMPTY_MESSAGES = [];
 // How many past conversations the empty state offers before deferring to /resume.
 const RECENT_SESSIONS = 8;
 const LOAD_MORE_THRESHOLD_PX = 120;
+// How many pages the open-time fetch may pull to get a prompt into view. Measured on 46
+// real chats: 23 already open on one, and of the 23 that open mid-turn, 4 need one more
+// page, 5 need two, and the rest up to seven. Six cures 20 of those 23; the cap is what
+// keeps a log whose turns all sit behind the same window from fetching itself to death.
+const MAX_AUTO_PAGES = 6;
+// How many times the pane re-asks whether this conversation is rewindable while waiting
+// for the engine to make it so. Enough to cover a slow first turn, few enough that a
+// host which will never say yes does not get polled.
+const REWIND_ASKS_MAX = 6;
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
@@ -315,6 +324,7 @@ export const AiMessagesList = memo(function AiMessagesList({
   onLoadOlder,
   onRewind,
   onPreviewRewind,
+  onCutLocal,
   onListRewindPoints,
   onOpenResume,
   hydrating = false,
@@ -333,6 +343,9 @@ export const AiMessagesList = memo(function AiMessagesList({
   // The mounted window's top, kept across renders so appends never move it: recomputing it
   // from the newest message each render slid it down, hiding turns already shown.
   const [topId, setTopId] = useState(null);
+  // How many open-time pages this session has already pulled, and for which session — a
+  // pane repointed at another chat starts its budget over.
+  const autoPagedRef = useRef({ sessionId: null, n: 0 });
 
   // Subscribe ONLY to messages of this session
   const messages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY_MESSAGES;
@@ -353,31 +366,46 @@ export const AiMessagesList = memo(function AiMessagesList({
   );
   useEffect(() => { setTopId(nextTopId); }, [nextTopId]);
 
-  // TEMP DIAGNOSTIC — the window's own view of the log, once per change. If this never
-  // fires on scroll-up the button was not reached; if hiddenCount stays put the window
-  // was clamped; if it drops but the DOM shows nothing, the slice is the problem.
-  useEffect(() => {
-    termLog("ai-page", "window", {
-      sessionId, total: messages.length, hiddenCount, visibleBytes, topId, nextTopId,
-      firstVisible: messages[hiddenCount]?.id
-    });
-  }, [sessionId, messages.length, hiddenCount, visibleBytes, topId, nextTopId, messages]);
-
   const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
   // One turn = a user message plus every assistant segment that followed it. The list
   // renders turns, not messages, because a turn is what folds (see AiTurn).
-  // Only an engine that can actually rewind gets the control on a prompt. Asked once
-  // per session, not per bubble.
+  //
+  // Only an engine that can actually rewind gets the control on a prompt. A fresh chat
+  // is refused until its conversation is readable, and when that happens depends on the
+  // engine — claude binds an id at startup but writes its transcript once the turn is
+  // underway. Rather than guess a trigger, the question is re-asked (a handful of times,
+  // then left alone) each time the prompt count changes.
   const [rewind, setRewind] = useState(null);
+  const rewindAsksRef = useRef(0);
+  const promptCount = useMemo(() => messages.filter((m) => m.role === "user").length, [messages]);
   useEffect(() => {
+    if (rewind?.ok || rewind?.supported === false) return;
+    // The wait is for a transcript being written, which is a turn's work, not a chat's.
+    if (rewindAsksRef.current >= REWIND_ASKS_MAX) return;
+    rewindAsksRef.current += 1;
     let live = true;
     onListRewindPoints?.().then((r) => { if (live) setRewind(r); }).catch(() => {});
     return () => { live = false; };
-    // Re-asked when the engine changes: a pane can be repointed at another one.
-  }, [onListRewindPoints, engine, sessionId]);
+    // Re-asked when the engine changes too: a pane can be repointed at another one.
+  }, [onListRewindPoints, engine, sessionId, promptCount, rewind?.ok, rewind?.supported]);
 
-  const canRewind = Boolean(rewind?.support?.conversation);
+  const canRewind = Boolean(rewind?.ok);
+
+  // Which turn each bubble is, counted from the END of the thread.
+  //
+  // A bubble's id is minted in this client's store (`u-<timestamp>`) and means nothing
+  // to a CLI, so the host cannot look the turn up by it. A position from the end is what
+  // both sides always agree on, however much paging hid above.
+  const rewindIndex = useMemo(() => {
+    const out = new Map();
+    let n = 0;
+    for (let i = messages.length - 1; i >= 0; i--) {
+      if (messages[i].role !== "user") continue;
+      out.set(messages[i].id, n++);
+    }
+    return out;
+  }, [messages]);
 
   const turns = useMemo(() => {
     const out = [];
@@ -407,9 +435,28 @@ export const AiMessagesList = memo(function AiMessagesList({
     setTopId(null);
     setVisibleBytes((b) => b + PAGE_BUDGET_BYTES);
     requestAnimationFrame(() => {
-      if (el) el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
+      if (!el) return;
+      // A reader paging up stays on the turn they were reading; a pane paging at open
+      // (or while live at the bottom) stays at the bottom, where it already was.
+      el.scrollTop = isAtBottomRef.current ? el.scrollHeight : prevTop + (el.scrollHeight - prevHeight);
     });
   }, [hiddenCount, hasOlder, onLoadOlder]);
+
+  // Open on a turn: the host answers a hydrate with a byte-measured tail, and one agentic
+  // turn can run past that budget — a reopened chat then mounts a column of cards with no
+  // prompt above them. Bounded, so a log whose turns all sit behind one window cannot
+  // fetch itself to death; scroll-up still reaches the rest.
+  useEffect(() => {
+    const paged = autoPagedRef.current;
+    // A pane repointed at another chat starts its budget over.
+    if (paged.sessionId !== sessionId) { paged.sessionId = sessionId; paged.n = 0; }
+    if (paged.n >= MAX_AUTO_PAGES) return;
+    // Only on a settled hydrate — mid-hydrate the window still belongs to the old log.
+    if (hydrating || !synced) return;
+    if (!opensMidTurn(messages, hiddenCount, hasOlder)) return;
+    paged.n += 1;
+    handleLoadMore();
+  }, [sessionId, messages, hiddenCount, hasOlder, hydrating, synced, handleLoadMore]);
 
   // Optimized scroll handler using requestAnimationFrame
   const handleScroll = useCallback(() => {
@@ -491,11 +538,6 @@ export const AiMessagesList = memo(function AiMessagesList({
   // collapsed so paging in old turns mounts rows instead of every output they hold.
   const isLiveTurn = useCallback((turn) => turn.messages.some((m) => m.isLive), []);
 
-  const handleRewind = useCallback((messageId, newText) => {
-    vibrate();
-    onRewind?.(messageId, newText);
-  }, [onRewind]);
-
   return (
     <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
       <div
@@ -557,6 +599,8 @@ export const AiMessagesList = memo(function AiMessagesList({
                     onResolvePermission={onResolvePermission}
                     onRewind={onRewind}
                     onPreviewRewind={onPreviewRewind}
+                    onCutLocal={onCutLocal}
+                    rewindIndex={rewindIndex.get(first.id)}
                     canRewind={canRewind}
                   />
                   <AiTurn
