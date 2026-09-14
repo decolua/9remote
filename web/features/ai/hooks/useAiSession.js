@@ -579,6 +579,13 @@ export function useAiSession({
         // The host replays only the tail of a long log; the rest is fetched on scroll-up.
         olderSeqRef.current = events[0]?.seq ?? 0;
         setHasOlder(Boolean(res.session.hasMore) && events.length > 0);
+        // TEMP DIAGNOSTIC — what the host's tail actually carried. hasMore false here
+        // means the pane will never offer "load older", so scroll-up is a dead end by
+        // construction. Remove with the rest of the ai-page logging.
+        termLog("ai-page", "hydrate", {
+          sessionId, replayed: events.length, hasMore: res.session.hasMore, fromSeq: events[0]?.seq ?? 0,
+          lastSeq: snapshotSeq, oldestId: null
+        });
         // An empty host log means the host has nothing for this session yet (fresh
         // one, or a legacy session created before the daemon owned state). Leave
         // whatever the client already has instead of blanking it.
@@ -918,11 +925,19 @@ export function useAiSession({
     // instead of prepending one log's turns onto another's.
     const logSeq = olderSeqRef.current;
     try {
+      const t0 = Date.now();
       const res = await new Promise((resolve) => {
         let settled = false;
         const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
         const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
         b.emit("aiHistory", { sessionId, before: logSeq }, done);
+      });
+      // TEMP DIAGNOSTIC — the host side of the scroll-up fetch. A null ack means nobody
+      // answered (carrier or route), success:false means the host had nothing to give.
+      // Remove once paging is confirmed end to end.
+      termLog("ai-page", "loadOlder", {
+        sessionId, before: logSeq, ms: Date.now() - t0, transport: b.transport || b.carrier || "?",
+        res: res == null ? "TIMEOUT/no-ack" : { success: res.success, events: res.events?.length, hasMore: res.hasMore, error: res.error }
       });
       if (olderSeqRef.current !== logSeq) return false;
       // A timed-out ack is not an answer — keep the door open so the next scroll retries.

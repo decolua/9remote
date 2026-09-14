@@ -66,6 +66,19 @@ function changeReadout({ added, removed }) {
   );
 }
 
+// The chat is being rebuilt from the host. Shown in place of the empty state, which would
+// otherwise claim the conversation is new while the ask is still unanswered.
+const AiLoadingState = memo(function AiLoadingState({ engine = "claude" }) {
+  const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
+  return (
+    <div className="h-full flex flex-col items-center justify-center gap-3 text-center p-6 select-none">
+      <Loader2 size={20} className="animate-spin text-brand-500" />
+      <span className="ai-sheen-text font-mono text-[12px] text-text-muted">Syncing…</span>
+      <span className="text-[11px] font-mono text-text-muted/70">{engineMeta.label}</span>
+    </div>
+  );
+});
+
 // The turn's own line, at the tail of the history like the user's message: the running
 // spinner and the finished summary are states of one row, so nothing jumps when it ends.
 const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrating = false }) {
@@ -471,14 +484,21 @@ export const AiMessagesList = memo(function AiMessagesList({
       >
         {(hiddenCount > 0 || hasOlder) && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
-          <AiEmptyState
-            engine={engine}
-            engineMeta={engineMeta}
-            workspacePath={workspacePath}
-            fileBus={fileBus}
-            onSendPrompt={onSendPrompt}
-            onOpenResume={onOpenResume}
-          />
+          // An unanswered hydrate is not an empty chat. The empty state offers starter
+          // prompts and past conversations — all of which a chat that already has history
+          // would be lying about, so nothing is shown until the host has answered.
+          synced ? (
+            <AiEmptyState
+              engine={engine}
+              engineMeta={engineMeta}
+              workspacePath={workspacePath}
+              fileBus={fileBus}
+              onSendPrompt={onSendPrompt}
+              onOpenResume={onOpenResume}
+            />
+          ) : (
+            <AiLoadingState engine={engine} />
+          )
         ) : (
           <>
             {(hiddenCount > 0 || hasOlder) && (

@@ -71,7 +71,7 @@ export const AiPaneView = memo(function AiPaneView({
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const { t } = useI18n();
 
-  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating } = useAiSession({
+  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced } = useAiSession({
     sessionId,
     engine,
     workspacePath,
@@ -320,6 +320,7 @@ export const AiPaneView = memo(function AiPaneView({
         onLoadOlder={loadOlder}
         onOpenResume={handleOpenResume}
         hydrating={hydrating}
+        synced={synced}
       />
 
       {/* Pinned blocked-action card: codex/opencode cannot prompt, so this offers a mode escalation */}
