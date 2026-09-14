@@ -31,6 +31,31 @@ export const MessageBubble = memo(function MessageBubble({
   };
 
   if (role === "user") {
+    // A rewind discards every turn after this one and, where the engine can, puts the
+    // files back. Both are destructive and neither is obvious, so the host is asked
+    // first what would actually change and that list is what the user confirms.
+    // Declared before the edit box below: that box's Enter handler is a closure over
+    // this binding, and an early return above it would leave the binding uninitialized.
+    const beginRewind = async (text) => {
+      setBusy(true);
+      const preview = await onPreviewRewind?.(message.id);
+      setBusy(false);
+      if (!preview?.ok) {
+        setConfirm({ error: preview?.error || "The host could not preview this rewind.", text });
+        return;
+      }
+      setConfirm({ files: preview.files || [], text });
+    };
+
+    const applyRewind = async () => {
+      const text = confirm?.text;
+      setConfirm(null);
+      setEditing(false);
+      setBusy(true);
+      await onRewind?.(message.id, text);
+      setBusy(false);
+    };
+
     if (editing) {
       return (
         <div className="flex justify-end my-3">
@@ -57,29 +82,6 @@ export const MessageBubble = memo(function MessageBubble({
         </div>
       );
     }
-
-    // A rewind discards every turn after this one and, where the engine can, puts the
-    // files back. Both are destructive and neither is obvious, so the host is asked
-    // first what would actually change and that list is what the user confirms.
-    const beginRewind = async (text) => {
-      setBusy(true);
-      const preview = await onPreviewRewind?.(message.id);
-      setBusy(false);
-      if (!preview?.ok) {
-        setConfirm({ error: preview?.error || "The host could not preview this rewind.", text });
-        return;
-      }
-      setConfirm({ files: preview.files || [], text });
-    };
-
-    const applyRewind = async () => {
-      const text = confirm?.text;
-      setConfirm(null);
-      setEditing(false);
-      setBusy(true);
-      await onRewind?.(message.id, text);
-      setBusy(false);
-    };
 
     return (
       <>

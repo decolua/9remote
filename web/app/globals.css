@@ -638,13 +638,25 @@ html.terminal-page body {
 .ai-pane .ai-conversation li,
 .ai-pane .ai-conversation th,
 .ai-pane .ai-conversation td,
-.ai-pane .ai-conversation pre,
-.ai-pane .ai-conversation pre code,
 .ai-pane .ai-conversation .text-sm,
 .ai-pane .ai-conversation .text-xs {
   font-size: var(--ai-fs, 12px);
   line-height: 1.6;
 }
+
+/* A fenced block is reference text, not the reply itself — one step below chat text,
+   the ratio tool rows already use. Inline code keeps its em-relative size. The block
+   is a neutral translucent sheet rather than a solid surface, so it reads as quoted
+   code over whatever pane background is behind it. Neutral, not brand: a user bubble
+   is already brand-tinted, and the two must not read as the same thing. Mixing the
+   text colour keeps it correct in both themes. */
+.ai-pane .ai-conversation pre {
+  font-size: calc(var(--ai-fs, 12px) - 2px);
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  border-color: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+.ai-pane .ai-conversation pre code { font-size: calc(var(--ai-fs, 12px) - 2px); }
 
 /* Tool output, thinking and detail rows sit a step below chat text — keep that
    ratio, but follow the setting instead of a fixed px. `pre` is here because a Bash

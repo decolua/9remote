@@ -121,6 +121,18 @@ test("idle-but-running with nothing yet says Working", () => {
   assert.equal(r.detail, "");
 });
 
+test("a trailing newline does not hide the line that just landed", () => {
+  const r = describeLive({ lastMsg: { thinking: "", content: "line one\nline two\n" } });
+  assert.equal(r.detail, "line two");
+});
+
+test("a long line still yields a detail, and the last line wins inside the window", () => {
+  // Longer than the scan window with no newline in it: the tail is shown rather than
+  // nothing, so the row never goes blank mid-line.
+  assert.equal(describeLive({ lastMsg: { thinking: "", content: "x".repeat(600) } }).detail, `${"x".repeat(59)}…`);
+  assert.equal(describeLive({ lastMsg: { thinking: "", content: `${"x".repeat(500)}\nlast line` } }).detail, "last line");
+});
+
 test("a long detail is clipped, not wrapped", () => {
   const r = describeLive({ engine: "claude", activeTool: tool("Bash", { command: "x".repeat(200) }) });
   assert.equal(r.detail.length, 60);
