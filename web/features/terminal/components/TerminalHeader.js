@@ -12,6 +12,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
+import useIsTouch from "@/shared/hooks/useIsTouch.js";
 import { withHint } from "@/features/terminal/constants/shortcuts";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { isAgentOutdated } from "./AgentOutdatedBanner";
@@ -80,6 +81,9 @@ function TerminalHeader({
   const { formattedStars } = useGithubStars();
   // Chords only fire on desktop, so only a pointer device gets the hint.
   const hasKeyboard = useInputMode() === "mouse";
+  // Touch has no hover, so the tab's close button must show on its own there — otherwise
+  // closing a terminal is a hidden 500ms long-press with nothing on screen to suggest it.
+  const isTouch = useIsTouch();
   const hint = (label, id) => (hasKeyboard ? withHint(label, id) : label);
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
@@ -356,6 +360,9 @@ function TerminalHeader({
                       title={t(v.label)}
                     />
                   )}
+                  {/* Desktop: hover swaps the status mark for the close button in place, which
+                      is safe because hover is transient. Touch has no hover, so on a phone the
+                      button lives after the label instead — never over the status mark. */}
                   {onDeleteSession && (
                     <button
                       type="button"
@@ -367,7 +374,7 @@ function TerminalHeader({
                         vibrate();
                         openTabDeleteConfirm(session);
                       }}
-                      className="hidden sm:group-hover:flex w-full h-full p-0.5 rounded text-text hover:bg-text/15 items-center justify-center transition-colors"
+                      className="hidden w-full h-full p-0.5 rounded text-text hover:bg-text/15 sm:group-hover:flex items-center justify-center transition-colors"
                       title={hint(t("sessions.deleteTitle"), "closeTerminal")}
                     >
                       <X size={11} strokeWidth={2.4} />
@@ -375,6 +382,23 @@ function TerminalHeader({
                   )}
                 </div>
                 <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tabName}>{tabName}</span>
+                {onDeleteSession && isTouch && isActiveTab && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      vibrate();
+                      openTabDeleteConfirm(session);
+                    }}
+                    className="-my-2 -mr-1 flex items-center justify-center w-6 h-6 rounded text-text-muted hover:bg-text/15 hover:text-text transition-colors"
+                    title={t("sessions.deleteTitle")}
+                  >
+                    <X size={12} strokeWidth={2.4} />
+                  </button>
+                )}
               </div>
             );
           })}

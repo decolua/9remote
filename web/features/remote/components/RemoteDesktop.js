@@ -342,6 +342,7 @@ export default function RemoteDesktop({ onClose, busRef, protocolRef, connected,
             canvasPan={canvasPan}
             fitScale={fitScale}
             streaming={streaming}
+            hasFrame={tiles.hasFrame}
             selectionRect={selectionRect}
             clickIndicator={clickIndicator}
             pointerMode={pointerMode}

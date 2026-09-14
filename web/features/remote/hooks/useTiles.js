@@ -76,6 +76,9 @@ async function _decodeTile(blob) {
 
 export function useTiles(busRef, streaming, canvasRef) {
   const [totalTileCount, setTotalTileCount] = useState(126);
+  // Flips once the first real frame lands — the canvas is black until then and the pane
+  // has to say so rather than look broken.
+  const [hasFrame, setHasFrame] = useState(false);
   const renderedTilesRef = useRef(new Set());
   const loadingTilesRef = useRef(new Map());
   const clientTileHashesRef = useRef([]);
@@ -115,6 +118,7 @@ export function useTiles(busRef, streaming, canvasRef) {
       try {
         ctx.drawImage(bitmap, x, y, width, height);
         renderedTilesRef.current.add(tileIndex);
+        setHasFrame(true);
         if (frameTs > maxTs) maxTs = frameTs;
         bitmap?.close?.();
       } catch {
@@ -156,6 +160,7 @@ export function useTiles(busRef, streaming, canvasRef) {
           for (let i = 0; i < totalTileCount; i++) {
             renderedTilesRef.current.add(i);
           }
+          setHasFrame(true);
         } catch (e) {
           // Canvas may have been unmounted
         }
@@ -424,6 +429,7 @@ export function useTiles(busRef, streaming, canvasRef) {
     tileTimestampRef.current.clear();
     lastDataTimeRef.current = 0;
     isRequestingRef.current = false;
+    setHasFrame(false);
     // Kill the (possibly suspended) decode worker + drop orphan promises so a fresh one
     // is spawned on the next tile batch — otherwise tiles never draw (black canvas).
     resetBinWorker();
@@ -449,6 +455,7 @@ export function useTiles(busRef, streaming, canvasRef) {
   return {
     renderedTilesRef,
     totalTileCount,
+    hasFrame,
     handleFullScreenData,
     handleTilesData,
     handleTilesBinary,

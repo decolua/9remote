@@ -149,7 +149,11 @@ export default function NewSiteTabModal({ isOpen, onClose, onOpenSite, busRef, c
         </div>
 
         <div className="p-4 overflow-y-auto modal-scrollable" style={{ maxHeight: "45vh" }}>
-          {sites === null ? (
+          {!connected ? (
+            <div className="py-8 text-center text-sm text-text-muted">
+              {t("sites.notConnected", { defaultValue: "Not connected to the agent" })}
+            </div>
+          ) : sites === null ? (
             <div className="flex items-center justify-center gap-2 py-8 text-brand-500 text-sm">
               <Loader2 size={16} className="animate-spin" />
               <span>{t("sites.loadingSites")}</span>
@@ -207,10 +211,10 @@ export default function NewSiteTabModal({ isOpen, onClose, onOpenSite, busRef, c
           </span>
           <button
             onClick={loadSites}
-            disabled={sites === null || !connected}
+            disabled={!connected}
             className="flex items-center gap-2 px-3 py-1.5 text-sm text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors disabled:opacity-50"
           >
-            <RefreshCw className={sites === null ? "animate-spin text-brand-500" : ""} size={16} />
+            <RefreshCw className={sites === null && connected ? "animate-spin text-brand-500" : ""} size={16} />
             {t("sites.refresh")}
           </button>
         </div>

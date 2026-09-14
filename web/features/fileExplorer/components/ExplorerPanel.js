@@ -304,14 +304,18 @@ export default function ExplorerPanel({
   // The one upload path: a drop and the modal's file picker both land here.
   const runUpload = useCallback(async (items, targetDir) => {
     if (!items.length) return;
-    setUpload({ total: items.length, done: 0 });
+    let failed = 0;
+    setUpload({ total: items.length, done: 0, failed: 0 });
     await fileBus.uploadFiles(targetDir, items, {
       onConflict: (file, relativePath) =>
         new Promise((resolve) => setUploadConflict({ name: relativePath || file?.name, resolve })),
       onFileDone: () => setUpload((p) => (p ? { ...p, done: p.done + 1 } : p)),
-      onError: () => setUpload((p) => (p ? { ...p, done: p.done + 1 } : p))
+      onError: () => { failed += 1; setUpload((p) => (p ? { ...p, done: p.done + 1, failed } : p)); }
     });
-    setUpload(null);
+    // A batch that lost nothing clears itself; one with failures keeps the banner up until
+    // dismissed (`upload.failed` is what the banner branches on), so a failed file is never
+    // silently counted as uploaded.
+    setUpload((p) => (p && failed ? p : null));
     setUploadConflict(null);
     await loadDir(targetDir);
     expandDir(targetDir);
@@ -783,8 +787,19 @@ export default function ExplorerPanel({
 
       {/* Drop-upload progress + the Skip/Replace prompt it may raise */}
       {upload && (
-        <div className="absolute bottom-0 inset-x-0 bg-surface-2 border-t border-border px-3 py-1.5 pb-safe text-[11px] text-text-muted">
-          Uploading {Math.min(upload.done + 1, upload.total)}/{upload.total}…
+        <div className="absolute bottom-0 inset-x-0 bg-surface-2 border-t border-border px-3 py-1.5 pb-safe text-[11px] text-text-muted flex items-center gap-2">
+          {upload.failed ? (
+            <>
+              <span className="text-danger">
+                {t("fileExplorer.uploadFailedCount", { n: upload.failed, total: upload.total })}
+              </span>
+              <button type="button" onClick={() => setUpload(null)} className="ml-auto underline hover:text-text">
+                {t("common.close")}
+              </button>
+            </>
+          ) : (
+            <span>{t("fileExplorer.uploadingCount", { n: Math.min(upload.done + 1, upload.total), total: upload.total })}</span>
+          )}
         </div>
       )}
       {uploadConflict && (

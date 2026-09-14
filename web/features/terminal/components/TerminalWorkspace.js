@@ -167,22 +167,6 @@ function TerminalWorkspace({
   );
   // Where the focused terminal actually stands — the panel opens the worktree holding it.
   const activeCwd = activeSessionId ? cwdBySession[activeSessionId] || null : null;
-  // TEMP DIAGNOSTIC: mobile swipe shows no slide on a chat pane — is the class missing, or
-  // does the animation run without a visible frame? Remove once answered.
-  useEffect(() => {
-    if (process.env.NODE_ENV === "production" || isDesktop || !slideClass || !activeSessionId) return;
-    const el = panesContainerRef.current?.querySelector(":scope > .opacity-100");
-    console.log("TEMP DIAGNOSTIC swipe-slide", {
-      sessionId: activeSessionId,
-      agent: agentBySession[activeSessionId],
-      slideClass,
-      paneClass: el?.className,
-      paneWidth: el?.offsetWidth,
-      animations: el?.getAnimations?.().map((a) => ({ name: a.animationName, state: a.playState })),
-      scrollWidth: el?.scrollWidth,
-      at: performance.now()
-    });
-  }, [slideClass, activeSessionId, isDesktop, agentBySession, panesContainerRef]);
   // Switching terminals drops a manual reveal: that pin belongs to the pane it was taken
   // from, and keeping it would strand the tree on another terminal's worktree.
   useEffect(() => {

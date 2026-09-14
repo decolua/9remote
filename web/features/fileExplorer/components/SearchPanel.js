@@ -81,6 +81,7 @@ export default function SearchPanel({ workspace, fileBus, onOpenFile }) {
   const [showReplace, setShowReplace] = useState(false);
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
+  const [searchError, setSearchError] = useState(false);
   const [expandedFiles, setExpandedFiles] = useState(new Set());
   const [confirmReplaceOpen, setConfirmReplaceOpen] = useState(false);
   const debounceRef = useRef(null);
@@ -88,6 +89,7 @@ export default function SearchPanel({ workspace, fileBus, onOpenFile }) {
   const runSearch = useCallback(async () => {
     if (!query || !workspace || !fileBus?.searchInFiles) {
       setResults([]);
+      setSearchError(false);
       return;
     }
     setLoading(true);
@@ -100,10 +102,14 @@ export default function SearchPanel({ workspace, fileBus, onOpenFile }) {
     });
     setLoading(false);
     if (res?.success) {
+      setSearchError(false);
       const list = res.results || [];
       setResults(list);
       setExpandedFiles(new Set(list.map((r) => r.path)));
     } else {
+      // A failed search reads exactly like "no matches" otherwise — the user thinks the
+      // term is absent rather than that the ask never landed.
+      setSearchError(true);
       setResults([]);
     }
   }, [query, workspace, fileBus, caseSensitive, wholeWord, regex, includeGlob, excludeGlob]);
@@ -216,8 +222,12 @@ export default function SearchPanel({ workspace, fileBus, onOpenFile }) {
           </div>
         )}
 
-        <div className="text-[11px] text-text-muted">
-          {loading ? "Searching..." : query ? `${totals.matches} results in ${totals.files} files` : "Type to search"}
+        <div className={`text-[11px] ${searchError ? "text-danger" : "text-text-muted"}`}>
+          {loading
+            ? "Searching..."
+            : searchError
+              ? "Search failed — try again"
+              : query ? `${totals.matches} results in ${totals.files} files` : "Type to search"}
         </div>
       </div>
 

@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { useI18n } from "@/shared/i18n";
-import Icon, { Lock, Eye, EyeOff } from "@/shared/components/ui/Icon";
+import Icon, { Lock, Eye, EyeOff, Loader2 } from "@/shared/components/ui/Icon";
 import MonitorSwitcher from "@/features/remote/components/MonitorSwitcher";
 
 // Remote Desktop Canvas component - handles screen rendering
@@ -14,6 +14,7 @@ export default function RemoteCanvas({
   canvasPan,
   fitScale,
   streaming,
+  hasFrame = true,
   selectionRect,
   clickIndicator,
   pointerMode,
@@ -181,6 +182,18 @@ export default function RemoteCanvas({
         tabIndex={0}
         onKeyDown={onKeyDown}
       />
+
+      {/* First-frame wait: connected is not the same as seeing anything, and the canvas
+          is plain black until the first tile paints. Below the lock screen (z-10) — a
+          locked host is a real screen, not a stalled stream. */}
+      {streaming && !hasFrame && !screenLocked && (
+        <div className="absolute inset-0 z-20 flex items-center justify-center pointer-events-none">
+          <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-black/60 text-white/80 text-[11px] font-mono">
+            <Loader2 size={12} className="animate-spin" />
+            {t("remote.receivingImage", { defaultValue: "Receiving screen…" })}
+          </div>
+        </div>
+      )}
 
       {/* Selection Rectangle */}
       {selectionRect && (
