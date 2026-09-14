@@ -12,6 +12,25 @@
 // short enough that a user staring at a half-loaded chat sees it fill in.
 export const HYDRATE_RETRY_DELAYS_MS = [1200, 3000, 6000];
 
+// Which `ai:create` ack the pane may apply. Two rules, and they are the whole of it:
+//   · the newest round owns the gate — an older ack must stand down;
+//   · UNLESS this round's snapshot carries events the store does not have. The release
+//     timeout re-asks every ~5s, so a host slower than that supersedes every round in
+//     flight: every snapshot was dropped and the pane kept the view it woke up with,
+//     while the refresh button (which asks without the ladder) worked. Newer is newer,
+//     whichever round asked for it.
+// Two ways a superseded ack is still refused:
+//   · its snapshot is at or below the watermark — applying it would walk the view
+//     backwards over events already folded in;
+//   · the log was replaced since it was asked for (`sameLog` false). Its seqs belong to
+//     the conversation that just ended, and seq alone cannot tell: a /clear restarts at 1,
+//     so the stale snapshot's HIGH seq would read as newer than the fresh log's.
+export function shouldApplyHydrateAck({ isNewest, snapshotSeq = 0, appliedSeq = 0, sameLog = true }) {
+  if (isNewest) return true;
+  if (!sameLog) return false;
+  return (snapshotSeq || 0) > (appliedSeq || 0);
+}
+
 export function createRetryLadder(delays = HYDRATE_RETRY_DELAYS_MS) {
   let attempt = 0;
   let armed = false;

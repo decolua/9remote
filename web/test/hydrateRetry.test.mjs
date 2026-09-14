@@ -4,7 +4,7 @@
 //
 // Run: node web/test/hydrateRetry.test.mjs
 import assert from "node:assert/strict";
-import { createRetryLadder, HYDRATE_RETRY_DELAYS_MS } from "../features/ai/lib/hydrateRetry.js";
+import { createRetryLadder, shouldApplyHydrateAck, HYDRATE_RETRY_DELAYS_MS } from "../features/ai/lib/hydrateRetry.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -94,6 +94,36 @@ test("a rejected ack leaves the armed rung standing", () => {
   const l = createRetryLadder([10, 20]);
   assert.equal(l.schedule(true), 10);
   assert.equal(l.schedule(true), null, "a second rung was armed while one was pending");
+});
+
+test("the newest round's ack always applies", () => {
+  assert.equal(shouldApplyHydrateAck({ isNewest: true, snapshotSeq: 5, appliedSeq: 9 }), true);
+});
+
+test("a superseded round still applies when it carries newer content", () => {
+  // The case the pane actually hit: the release timeout re-asks every ~5s, so a host
+  // slower than that supersedes every round in flight. Dropping all of them left the
+  // chat on the view it woke up with while the host had newer events to give.
+  assert.equal(shouldApplyHydrateAck({ isNewest: false, snapshotSeq: 12, appliedSeq: 9 }), true);
+});
+
+test("a superseded round at or below the watermark stands down", () => {
+  // Applying it would walk the view backwards over events already folded in.
+  assert.equal(shouldApplyHydrateAck({ isNewest: false, snapshotSeq: 9, appliedSeq: 9 }), false);
+  assert.equal(shouldApplyHydrateAck({ isNewest: false, snapshotSeq: 3, appliedSeq: 9 }), false);
+});
+
+test("a superseded round from a log that has since been replaced stands down", () => {
+  // /clear, /resume and rewind replace the host's log. A round asked for the old one
+  // holds its seqs — and a seq alone cannot tell, because the fresh log restarts at 1,
+  // so the STALE snapshot's high seq reads as newer than everything now in the store.
+  assert.equal(shouldApplyHydrateAck({ isNewest: false, snapshotSeq: 500, appliedSeq: 3, sameLog: false }), false);
+});
+
+test("the newest round still applies across a log replacement", () => {
+  // It asked after the reset, so its snapshot IS the new log — the epoch must not
+  // strand a round that is correct.
+  assert.equal(shouldApplyHydrateAck({ isNewest: true, snapshotSeq: 2, appliedSeq: 0, sameLog: false }), true);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
