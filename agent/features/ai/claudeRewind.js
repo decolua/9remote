@@ -68,6 +68,14 @@ const userText = (record) => {
   return "";
 };
 
+/** A turn the user typed — the only kind a rewind point or a cut boundary is. */
+const isTurn = (line) => {
+  try {
+    const record = JSON.parse(line);
+    return record.type === "user" && !record.isSidechain && Boolean(userText(record));
+  } catch { return false; }
+};
+
 /**
  * The user turns a rewind can land on, oldest first.
  *
@@ -197,9 +205,12 @@ export function cutAt(sessionId, keepThroughUuid) {
     try { return JSON.parse(line).uuid === keepThroughUuid; } catch { return false; }
   });
   if (cut === -1) return { ok: false, error: "That turn is no longer in this conversation." };
-  // Everything from the cut turn onward goes, including any branch that ran off it —
-  // the file holds one thread, which is what "rewind" asked for.
-  return writeTranscript(file, lines.slice(0, cut + 1));
+  // The kept turn's own answer comes AFTER its uuid, so the cut lands on the next turn
+  // the user typed — otherwise the reply to the turn that was kept is discarded and the
+  // pane shows a prompt with nothing under it (the rewind target is the turn BEFORE the
+  // one being rewound). Everything from there on goes, including any branch off it.
+  const next = lines.findIndex((line, i) => i > cut && isTurn(line));
+  return writeTranscript(file, next === -1 ? lines : lines.slice(0, next));
 }
 
 /** Atomic: a crash mid-write must not leave a half transcript behind. */

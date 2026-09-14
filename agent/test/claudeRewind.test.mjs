@@ -186,6 +186,15 @@ try {
     assert.ok(!uuids.includes("sc1"), "and so is any branch that ran off them");
   });
 
+  // The reply to the turn being kept is written AFTER that turn's uuid. Cutting on the
+  // uuid alone left the pane with a prompt and no answer under it — the reported bug.
+  await test("a cut keeps the answer to the turn it keeps", () => {
+    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
+    const res = cutAt(SESSION_ID, "u1");
+    assert.equal(res.ok, true);
+    assert.ok(readUuids().includes("a1"), "the answer that followed u1 stays");
+  });
+
   await test("a cut leaves the session id on every surviving record", () => {
     // The whole point: the conversation is the same conversation afterwards, so the
     // history list has one row for it and the pane can keep its id.
