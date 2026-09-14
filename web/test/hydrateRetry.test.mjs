@@ -17,20 +17,35 @@ console.log("Running hydrateRetry tests...");
 test("failures walk the ladder in order", () => {
   const l = createRetryLadder();
   assert.deepEqual(
-    [l.schedule(true), l.fired(), l.schedule(true), l.fired(), l.schedule(true), l.fired(), l.schedule(true)].filter((x) => x !== undefined && x !== null),
+    [l.schedule(true), l.fired(), l.schedule(true), l.fired(), l.schedule(true)].filter((x) => x != null),
     HYDRATE_RETRY_DELAYS_MS
   );
 });
 
-test("the ladder gives up instead of retrying forever", () => {
+test("past the last rung it repeats that rung instead of stopping", () => {
+  // The pane must not be left spinning on an ask that stopped happening: a host that is
+  // merely slow to answer comes back on its own.
   const l = createRetryLadder([10, 20]);
   assert.equal(l.schedule(true), 10);
   l.fired();
   assert.equal(l.schedule(true), 20);
   l.fired();
-  assert.equal(l.schedule(true), null);
+  assert.equal(l.schedule(true), 20, "the ladder stopped asking");
   l.fired();
-  assert.equal(l.schedule(true), null);
+  assert.equal(l.schedule(true), 20);
+});
+
+test("exhausted reports the repeat, not a stop", () => {
+  const l = createRetryLadder([10, 20]);
+  assert.equal(l.exhausted(), false, "exhausted before it even started");
+  l.schedule(true); l.fired();
+  assert.equal(l.exhausted(), false, "exhausted one rung in");
+  l.schedule(true); l.fired();
+  assert.equal(l.exhausted(), true);
+  // A timer is armed on the repeating rung; that is still exhaustion, and the pane has
+  // to say so rather than spin while the ask goes unanswered.
+  l.schedule(true);
+  assert.equal(l.exhausted(), true, "disarmed the verdict by arming the repeat");
 });
 
 test("two failures before the timer fires do not consume two rungs", () => {

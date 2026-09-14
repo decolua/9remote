@@ -328,6 +328,9 @@ export function useAiSession({
   // telling the user the chat is new when the truth is that nobody has replied yet.
   // Reset per session, and only an ok ack sets it — a rejected one is not an answer.
   const [synced, setSynced] = useState(false);
+  // The re-ask ladder ran out with nothing answered. Distinct from `synced`: the pane
+  // must offer a retry instead of spinning on a hydrate that is no longer in flight.
+  const [hydrateFailed, setHydrateFailed] = useState(false);
   const olderSeqRef = useRef(0);
   const loadingOlderRef = useRef(false);
 
@@ -496,6 +499,16 @@ export function useAiSession({
   // if that round answers and re-asks if it does not.
   const scheduleHydrateRetry = useCallback(() => {
     const delay = ladderRef.current?.schedule(useConnectionStore.getState().connected);
+    // Every rung spent means the next ask is a repeat of the last backoff, not progress
+    // — that is what the pane reports. A null delay is only "offline" or "a timer is
+    // already armed", neither of which is a failure. The re-ask itself keeps coming.
+    setHydrateFailed(Boolean(ladderRef.current?.exhausted()));
+    // TEMP DIAGNOSTIC — the ladder's own decision, which is what decides whether the
+    // pane ever re-asks. Remove with the rest of the ai-hydrate logging.
+    termLog("ai-hydrate", "ladder", {
+      delay: delay ?? null, exhausted: ladderRef.current?.exhausted(),
+      connected: useConnectionStore.getState().connected, armed: retryTimerRef.current != null
+    });
     if (delay == null) return;
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null;
@@ -517,12 +530,27 @@ export function useAiSession({
     // emit their own ai:create within a few ms of each other, and the older ack lands
     // over the newer cycle's replay. A request that arrives mid-round is not dropped:
     // it arms the ladder, which stands down if this round answers and re-asks if not.
-    if (hydratingRef.current) { scheduleHydrateRetry(); return; }
+    if (hydratingRef.current) {
+      // TEMP DIAGNOSTIC — a round is already open. If this line repeats while the pane
+      // says Syncing, the gate is stuck: nothing will ever clear it. Remove with the
+      // rest of the ai-hydrate logging.
+      termLog("ai-hydrate", "blocked (round in flight)", { gen: hydrateSeqRef.current });
+      scheduleHydrateRetry();
+      return;
+    }
     const gen = ++hydrateSeqRef.current;
     hydratingRef.current = true;
     setHydrating(true);
     pendingLiveRef.current = [];
     olderSeqRef.current = 0;
+    // TEMP DIAGNOSTIC — one line per round: when it opened, who triggered it, and how
+    // long its ack took (see the matching "ack" log below). Remove with the rest.
+    const sentAt = Date.now();
+    termLog("ai-hydrate", "emit ai:create", {
+      gen, sessionId, engine, cwd: workspacePath,
+      carrier: useConnectionStore.getState().carrier,
+      connected: useConnectionStore.getState().connected
+    });
     // Drains the held events in arrival order, skipping any the snapshot covers.
     const releaseHeld = () => {
       const queued = pendingLiveRef.current;
@@ -567,6 +595,15 @@ export function useAiSession({
       // A newer hydrate (StrictMode remount) owns the gate now — stand down.
       if (gen !== hydrateSeqRef.current) return;
       const events = res?.session?.events;
+      // TEMP DIAGNOSTIC — the ack, or the absence of one (this line never printed = the
+      // callback was never called at all). `ok:false` carries the host's own error.
+      // Remove with the rest of the ai-hydrate logging.
+      termLog("ai-hydrate", "ack", {
+        gen, stale: gen !== hydrateSeqRef.current, ms: Date.now() - sentAt,
+        ok: res?.ok ?? null, error: res?.error ?? null,
+        events: Array.isArray(events) ? events.length : null,
+        hasMore: res?.session?.hasMore ?? null
+      });
       try {
         clearTimeout(releaseTimer);
         // Both paths answer with a replayable log: the daemon sends its live session
@@ -597,9 +634,13 @@ export function useAiSession({
             messages: hydrated.messages,
             tasks: hydrated.tasks,
             // The host is the authority on spawn-time options: its snapshot carries
-            // the effort the CLI actually runs with, which the replay may not.
+            // the effort the CLI actually runs with, which the replay may not. An empty
+            // one means the session has no pick of its own — leave the init event's
+            // reading alone rather than blanking the chip.
             metadata: { ...hydrated.metadata, ...(res.session.effort ? { effort: res.session.effort } : {}) },
-            stats: hydrated.stats,
+            // The host's counters outrank the replay's: the log holds events, not the
+            // adapter's running usage, so a reload would otherwise blank the context row.
+            stats: { ...hydrated.stats, ...(res.session.stats || {}) },
             isTurnRunning: res.session.isTurnRunning !== undefined ? Boolean(res.session.isTurnRunning) : hydrated.isTurnRunning,
             permissionMode: res.session.permissionMode || hydrated.permissionMode,
             activeBlocked: hydrated.activeBlocked
@@ -612,6 +653,9 @@ export function useAiSession({
           if (res.session.permissionMode) {
             useAiStore.getState().setPermissionMode(sessionId, res.session.permissionMode);
           }
+          // No log to replay, but the adapter still knows what it has spent — a fresh
+          // pane on a running session reads the same numbers as the one it replaced.
+          if (res.session.stats) useAiStore.getState().setStats(sessionId, res.session.stats);
         }
         // The snapshot is authoritative for this log. Assign rather than max: after a
         // /resume or /clear the host starts a NEW log whose seqs begin at 1, so a
@@ -625,8 +669,14 @@ export function useAiSession({
         // the carrier reports a dead RTC) means the host was never reached, so the rung
         // armed while this round was in flight keeps its timer — and one that was never
         // armed is armed now, or that dropped frame costs the pane its history for good.
-        if (res?.ok) { setSynced(true); clearHydrateRetry(); }
+        if (res?.ok) { setSynced(true); setHydrateFailed(false); clearHydrateRetry(); }
         else scheduleHydrateRetry();
+        // TEMP DIAGNOSTIC — the state the pane renders from. `synced:false, hydrating:false`
+        // is exactly the "Syncing… that never ends" the user sees. Remove with the rest.
+        termLog("ai-hydrate", "settled", {
+          gen, stale: gen !== hydrateSeqRef.current, ok: res?.ok ?? null,
+          hydrating: hydratingRef.current, synced: !!res?.ok
+        });
       }
     });
   }, [sessionId, engine, workspacePath, bus, setTurnRunning, scheduleHydrateRetry, clearHydrateRetry]);
@@ -641,6 +691,14 @@ export function useAiSession({
       hydrateNow();
     }, RECOVER_DEBOUNCE_MS);
   }, [hydrateNow]);
+
+  // The ladder's timer re-asks through the door, so an automatic retry keeps the same
+  // spacing. A tap is the user saying "now": drop the pending rung and ask immediately —
+  // otherwise the pane would spin for another 6s over a request the user already made.
+  const retryNow = useCallback(() => {
+    clearHydrateRetry();
+    hydrateNow();
+  }, [clearHydrateRetry, hydrateNow]);
 
   // The debounce and the ladder's timer both fire outside React's render, so they reach
   // the newest callback through a ref rather than through a captured closure. Nothing
@@ -672,8 +730,12 @@ export function useAiSession({
     if (gateSessionRef.current !== sessionId) {
       gateSessionRef.current = sessionId;
       hydratingRef.current = false;
-      // A different chat has not been answered for yet, whatever the last one did.
+      // A different chat has not been answered for yet, whatever the last one did. The
+      // ladder is reset with it: a spent ladder would otherwise report the new chat as
+      // already failed and re-ask on the last rung before its first round came back.
+      clearHydrateRetry();
       setSynced(false);
+      setHydrateFailed(false);
     }
     // Held in a ref: re-running this effect on a store-action identity change would
     // re-emit ai:create over a session that is mid-stream.
@@ -685,7 +747,7 @@ export function useAiSession({
     // is the behavior this mount has always relied on. A rejoin landing in the same
     // breath is then held off by the in-flight gate above, not by a delay.
     return hydrateNow();
-  }, [sessionId, hydrateNow]);
+  }, [sessionId, hydrateNow, clearHydrateRetry]);
 
   // Backgrounded-then-resumed, and carrier rejoin (the same triggers the terminal
   // recovers on). A live app that never remounts has no other path: the store is not
@@ -962,12 +1024,13 @@ export function useAiSession({
   return {
     hydrating,
     synced,
+    hydrateFailed,
     hasOlder,
     loadOlder,
     // Re-pull the host's log for this session. Mount, resume and reconnect call it
     // on their own; the pane's refresh button is the manual one for when a run of
     // events was lost while the carrier was up.
-    reload: hydrateNow,
+    reload: retryNow,
     sendPrompt,
     resolvePermission,
     stop,
