@@ -52,7 +52,9 @@ function StepCard({ row, engine, workspacePath, deferred }) {
 
 function ProseRow({ content, isLive }) {
   return (
-    <div className="text-sm leading-relaxed text-text py-1.5">
+    // wrap-anywhere, not break-words: only `anywhere` shrinks min-content, so a path
+    // with no space to break on wraps instead of widening the column into a scrollbar.
+    <div className="text-sm leading-relaxed text-text py-1.5 wrap-anywhere">
       <MarkdownBody content={content} />
       {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
     </div>

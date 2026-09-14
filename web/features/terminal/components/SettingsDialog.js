@@ -27,7 +27,7 @@ import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image };
 
 
 /**
@@ -44,7 +44,6 @@ export default function SettingsDialog({
   const [reloading, setReloading] = useState(false);
 
   const [languageOpen, setLanguageOpen] = useState(false);
-  const [bgPickerOpen, setBgPickerOpen] = useState(false);
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
@@ -86,7 +85,7 @@ export default function SettingsDialog({
     // single Escape would reach both and close the dialog underneath it. The
     // innermost layer wins: skip while a child modal is up.
     const onKey = (e) => {
-      if (e.key === "Escape" && !languageOpen && !bgPickerOpen) {
+      if (e.key === "Escape" && !languageOpen) {
         e.preventDefault();
         e.stopPropagation();
         onClose();
@@ -98,7 +97,7 @@ export default function SettingsDialog({
       window.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = "";
     };
-  }, [onClose, languageOpen, bgPickerOpen]);
+  }, [onClose, languageOpen]);
 
   // Actions that navigate away close the dialog first
   const run = useCallback((fn) => { vibrate(); onClose(); setTimeout(() => fn?.(), 50); }, [onClose]);
@@ -171,7 +170,8 @@ export default function SettingsDialog({
             </button>
           </div>
 
-          <div className="flex-1 overflow-y-auto modal-scrollable px-6 py-5">
+          <div className={`flex-1 overflow-y-auto modal-scrollable px-6 ${section === "background" ? "py-4" : "py-5"}`}>
+            {section === "background" && <BackgroundPickerSheet inline busRef={context.busRef} />}
             {section === "general" && (
               <div className="space-y-6">
                 {(push.supported || showInstall) && (
@@ -284,11 +284,6 @@ export default function SettingsDialog({
                     </select>
                   </SelectRow>
                   <ToggleRow icon={Monitor} label={t("menu.webgl")} hint={t("menu.webglHint")} value={webglEnabled} onChange={setWebglEnabled} />
-                  <ActionRow
-                    icon={Image}
-                    label={t("menu.terminalBackground")}
-                    onClick={() => { vibrate(); setBgPickerOpen(true); }}
-                  />
                 </Group>
               </div>
             )}
@@ -375,7 +370,6 @@ export default function SettingsDialog({
       </div>
 
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
-      <BackgroundPickerSheet isOpen={bgPickerOpen} onClose={() => setBgPickerOpen(false)} busRef={context.busRef} />
     </div>
   );
 }

@@ -60,23 +60,24 @@ export const AiBashCard = memo(function AiBashCard({
 
   return (
     <div className="my-1 text-xs">
-      {/* 1-line row: $ command.
-          Named group — see AiToolCard: a bare `group` nested in the message's own
-          made every tool's actions appear on message hover. */}
+      {/* $ command, capped at two lines. Named group — see AiToolCard: a bare `group`
+          nested in the message's own made every tool's actions appear on message hover. */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"
+        className="flex items-start justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer data-pane-control select-none transition-colors group/tool"
       >
-        <div className="flex items-center gap-2 min-w-0 flex-1">
-          {showRunning ? (
-            <Loader2 size={13} className="animate-spin text-accent shrink-0" />
-          ) : isError ? (
-            <AlertCircle size={13} className="text-danger shrink-0" />
-          ) : (
-            <Terminal size={13} className="text-success shrink-0" />
-          )}
-          <span className="text-text-muted select-none shrink-0 font-mono text-[11px]">$</span>
-          <span className="font-mono text-[11px] text-text truncate min-w-0" title={command}>
+        <div className="flex items-start gap-2 min-w-0 flex-1">
+          <span className="shrink-0 mt-0.5">
+            {showRunning ? (
+              <Loader2 size={13} className="animate-spin text-accent" />
+            ) : isError ? (
+              <AlertCircle size={13} className="text-danger" />
+            ) : (
+              <Terminal size={13} className="text-success" />
+            )}
+          </span>
+          <span className="text-text-muted select-none shrink-0 font-mono text-[11px] leading-relaxed">$</span>
+          <span className="font-mono text-[11px] leading-relaxed text-text line-clamp-2 min-w-0" title={command}>
             {command || name}
           </span>
           {isBackground && (

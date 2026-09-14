@@ -14,7 +14,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import {
-  Folder, Monitor, Smartphone, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight
+  Folder, Monitor, Smartphone, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight, Image
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -24,6 +24,7 @@ import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import SessionCard from "./SessionCard";
+import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
 
 const UNGROUPED_KEY = "ungrouped";
 
@@ -65,6 +66,7 @@ export default function SessionList({
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
 
   const [sheet, setSheet] = useState(null);                 // { target } — a long-pressed terminal
+  const [bgTarget, setBgTarget] = useState(null);           // session whose background sheet is open
   const [renaming, setRenaming] = useState(null);           // { kind, id, value }
   const [confirm, setConfirm] = useState(null);             // { kind, id, name }
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
@@ -274,12 +276,25 @@ export default function SessionList({
               onClick: () => setRenaming({ kind: "session", id: sheet.target.id, value: sheet.target.name })
             },
             {
+              icon: Image,
+              label: t("menu.terminalBackground"),
+              onClick: () => setBgTarget(sheet.target)
+            },
+            {
               icon: Trash2,
               danger: true,
               label: t("sessions.deleteTitle"),
               onClick: () => setConfirm({ kind: "session", id: sheet.target.id, name: sheet.target.name })
             }
           ]}
+        />
+      )}
+
+      {bgTarget && (
+        <SessionBackgroundModal
+          sessionId={bgTarget.id}
+          title={bgTarget.name}
+          onClose={() => setBgTarget(null)}
         />
       )}
 

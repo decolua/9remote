@@ -1,19 +1,16 @@
 "use client";
 
 import { memo, useState, useEffect, useRef, useCallback } from "react";
-import { Check, ChevronLeft, ChevronRight, CornerDownLeft } from "@/shared/components/ui/Icon";
+import { HelpCircle, Check, ChevronLeft, ChevronRight, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { parseAnswered } from "../../lib/parseAnswered";
-
-// Skipping is a deny, not a made-up answer: the CLI tells the model the user declined,
-// and the turn carries on without it. Inventing a choice would put words in their mouth.
-const SKIP_BEHAVIOR = "deny";
-const SKIP_MESSAGE = "User skipped the question";
+import { SKIP_BEHAVIOR, SKIP_MESSAGE } from "../../constants";
 
 export const AiQuestionCard = memo(function AiQuestionCard({
   requestId = "",
   questions = [],
   answers = null, // past answer: raw host text, or {question: answer}
+  failed = false, // the last answer never reached the host — the card stays, and says so
   onResolve // (requestId, behavior, message, answers) — the host's permission signature
 }) {
   const [selectedAnswers, setSelectedAnswers] = useState({});
@@ -63,6 +60,28 @@ export const AiQuestionCard = memo(function AiQuestionCard({
     onResolve?.(requestId, SKIP_BEHAVIOR, SKIP_MESSAGE);
   }, [submitted, skipped, requestId, onResolve]);
 
+  const handleSelect = useCallback((qText, optLabel, multiSelect) => {
+    vibrate();
+    if (!multiSelect) {
+      setSelectedAnswers((prev) => ({ ...prev, [qText]: optLabel }));
+      // A single-choice question is answered the moment it is clicked, so the card moves
+      // on by itself. Not on the last one: that is the whole reply, and the user still
+      // wants a beat to change it or go back before submitting.
+      // Picking clears a half-typed free-text answer: both write the same slot, and
+      // leaving the text behind would silently override the option that was just picked.
+      setOtherText((prev) => (prev[qText] ? { ...prev, [qText]: "" } : prev));
+      if (!isLast) setStep((s) => s + 1);
+      return;
+    }
+    setSelectedAnswers((prev) => {
+      const curr = prev[qText] ? prev[qText].split(", ") : [];
+      const idx = curr.indexOf(optLabel);
+      if (idx > -1) curr.splice(idx, 1);
+      else curr.push(optLabel);
+      return { ...prev, [qText]: curr.join(", ") };
+    });
+  }, [isLast]);
+
   // Keyboard: 1-9 pick an option on the question in view; Enter advances (or submits
   // on the last one). Both act on the visible question, never on questions[0].
   useEffect(() => {
@@ -79,26 +98,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [current, selectedAnswers, submitted, skipped, answers, handleNext]);
-
-  const handleSelect = (qText, optLabel, multiSelect) => {
-    vibrate();
-    if (!multiSelect) {
-      setSelectedAnswers((prev) => ({ ...prev, [qText]: optLabel }));
-      // A single-choice question is answered the moment it is clicked, so the card moves
-      // on by itself. Not on the last one: that is the whole reply, and the user still
-      // wants a beat to change it or go back before submitting.
-      if (!isLast) setStep((s) => s + 1);
-    } else {
-      setSelectedAnswers((prev) => {
-        const curr = prev[qText] ? prev[qText].split(", ") : [];
-        const idx = curr.indexOf(optLabel);
-        if (idx > -1) curr.splice(idx, 1);
-        else curr.push(optLabel);
-        return { ...prev, [qText]: curr.join(", ") };
-      });
-    }
-  };
+  }, [current, selectedAnswers, submitted, skipped, answers, handleNext, handleSelect]);
 
   const handleOther = (qText, val) => {
     setOtherText((prev) => ({ ...prev, [qText]: val }));
@@ -110,7 +110,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
 
   if (skipped) {
     return (
-      <div className="my-2 p-3 rounded-brand-lg bg-surface text-xs flex flex-col gap-1">
+      <div className="my-2 p-3 rounded-brand-lg bg-surface text-[13px] flex flex-col gap-1">
         <span className="text-text-muted font-medium">Skipped</span>
         {current && <span className="text-text-muted/70 leading-snug">{current.question}</span>}
       </div>
@@ -119,7 +119,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
 
   if (submitted || answers) {
     return (
-      <div className="my-2 p-3 rounded-brand-lg border border-success/30 bg-success/10 text-xs font-medium flex flex-col gap-1.5">
+      <div className="my-2 p-3 rounded-brand-lg border border-success/30 bg-success/10 text-[13px] font-medium flex flex-col gap-1.5">
         <div className="flex items-center gap-2 text-success">
           <Check size={14} />
           <span>Answered</span>
@@ -129,7 +129,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
           if (!a) return null;
           return (
             <div key={idx} className="flex flex-col gap-0.5">
-              <span className="text-[10px] font-normal text-text-muted leading-snug">{q.question}</span>
+              <span className="text-[11px] font-normal text-text-muted leading-snug">{q.question}</span>
               <span className="font-mono text-text pl-2 border-l-2 border-success/40">{a}</span>
             </div>
           );
@@ -150,10 +150,28 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   const selectedList = current.multiSelect && currentAnswer ? currentAnswer.split(", ") : [currentAnswer];
 
   return (
-    // Solid surface rather than a tinted wash: --warning is amber in dark and dark-orange
-    // in light, so bg-warning/10 read as a muddy brown block over the pane's background.
-    <div className="my-2 p-3 rounded-brand-lg bg-surface shadow-sm text-xs select-none">
-      <div className="text-xs font-medium text-text leading-snug mb-1.5">{current.question}</div>
+    // Same tint as the answered view below, so the card reads the same before and after
+    // the tap instead of changing colour under the user's finger.
+    <div className="my-2 p-3 rounded-brand-lg shadow-sm text-[13px] select-none border border-success/30 bg-success/10">
+      {/* Same header grammar as AiPermissionCard/AiBlockedCard: icon, what this card is,
+          and the tool's own badge. Without it the card opened on a bare sentence and read
+          as another paragraph of the transcript rather than something waiting on a tap. */}
+      <div className="flex items-center gap-2 mb-2 text-text font-medium">
+        <HelpCircle size={16} className="text-success shrink-0" />
+        <span>Question</span>
+        {questions.length > 1 && (
+          <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-text-muted">
+            {step + 1}/{questions.length}
+          </span>
+        )}
+        {current.multiSelect && (
+          <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-text-muted uppercase">
+            multi
+          </span>
+        )}
+      </div>
+
+      <div className="text-text leading-snug mb-1.5">{current.question}</div>
 
       {/* Options are borderless rows — a list of choices, not a stack of tiles. Only the
           picked one takes a tint, so the answer reads without nine boxes on screen.
@@ -168,20 +186,22 @@ export const AiQuestionCard = memo(function AiQuestionCard({
                 key={optIdx}
                 type="button"
                 onClick={() => handleSelect(current.question, opt.label, current.multiSelect)}
-                className={`px-1.5 py-1 rounded text-left flex items-start gap-2 transition-colors text-[11px] ${
+                className={`px-1.5 py-1 rounded text-left flex items-start gap-2 transition-colors text-[12px] ${
                   isSelected
                     ? "bg-brand-500/12"
                     : "text-text-muted hover:bg-surface-2 hover:text-text"
                 }`}
               >
-                <span className="font-mono text-[10px] text-text-muted/70 shrink-0 mt-0.5 w-2.5">
+                <span className="font-mono text-[11px] text-text-muted/70 shrink-0 mt-0.5 w-2.5">
                   {optIdx + 1}
                 </span>
-                {/* Label owns its line; the description drops below it so neither truncates. */}
+                {/* Label owns its line; the description drops below it so neither truncates.
+                    The label carries the full text colour, the description sits well below
+                    it — a two-line option otherwise read as one run-on sentence. */}
                 <span className="flex flex-col gap-0.5 min-w-0 flex-1">
                   <span className={`font-medium ${isSelected ? "text-brand-400" : "text-text"}`}>{opt.label}</span>
                   {opt.description && (
-                    <span className="text-[10px] text-text-muted leading-snug">{opt.description}</span>
+                    <span className="text-[11px] text-text-muted/70 leading-snug">{opt.description}</span>
                   )}
                 </span>
                 {isSelected && <Check size={12} className="text-brand-500 shrink-0 mt-0.5" />}
@@ -191,8 +211,8 @@ export const AiQuestionCard = memo(function AiQuestionCard({
         </div>
       )}
 
-      {/* Free-text escape hatch: the only input on an optionless question, otherwise the
-          way to answer something the CLI's list did not guess. */}
+      {/* Free text is a row of the list, not behind a toggle: hiding it cost a tap on
+          every question, and on an optionless one there was nothing to toggle from. */}
       <input
         type="text"
         value={otherText[current.question] || ""}
@@ -203,21 +223,24 @@ export const AiQuestionCard = memo(function AiQuestionCard({
           e.preventDefault();
           handleNext();
         }}
-        placeholder="Other (type custom answer)..."
-        className="w-full mt-2 px-2 py-1 rounded bg-bg border border-border-subtle text-[11px] text-text placeholder-text-muted/70 focus:outline-none focus:border-brand-500"
+        placeholder="Type your answer..."
+        className={`w-full px-1.5 py-1 rounded bg-bg border border-border-subtle text-[12px] text-text placeholder-text-muted/70 focus:outline-none focus:border-brand-500 ${
+          current.options?.length ? "mt-1.5" : "mt-1"
+        }`}
       />
 
-      {/* Progress and the one forward action share the bottom line */}
-      <div className="mt-2 flex items-center gap-2">
-        {questions.length > 1 && (
-          <span className="font-mono text-[10px] text-text-muted">{step + 1}/{questions.length}</span>
-        )}
-        {current.multiSelect && <span className="font-mono text-[10px] text-text-muted">multi</span>}
-        <div className="flex-1" />
+      {/* One action row. The forward action is the only filled button; Skip and Back are
+          quiet, and Skip says what it does — it declines, it does not answer. */}
+      {failed && (
+        <div className="mt-1.5 text-[12px] text-danger leading-snug">
+          Not sent — the host did not answer. Try again.
+        </div>
+      )}
+      <div className="mt-2 flex items-center gap-1.5 justify-end">
         <button
           type="button"
           onClick={handleSkip}
-          className="px-2 py-0.5 rounded text-[11px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
+          className="px-2 py-1 rounded text-[12px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
         >
           Skip
         </button>
@@ -225,7 +248,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
           <button
             type="button"
             onClick={handleBack}
-            className="px-2 py-0.5 rounded text-[11px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center gap-0.5"
+            className="px-2 py-1 rounded text-[12px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors flex items-center gap-0.5"
           >
             <ChevronLeft size={13} />
             <span>Back</span>
@@ -239,7 +262,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
           type="button"
           onClick={handleNext}
           disabled={!canAdvance}
-          className="px-2 py-0.5 rounded bg-brand-500 hover:bg-brand-600 text-white flex items-center gap-1 text-[11px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+          className="px-2.5 py-1 rounded bg-brand-500 hover:bg-brand-600 text-white flex items-center gap-1 text-[12px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           <span>{isLast ? "Submit" : "Next"}</span>
           {isLast ? <CornerDownLeft size={11} /> : <ChevronRight size={12} />}

@@ -17,7 +17,8 @@ import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
-import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, paneBackgroundKey, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
+import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, resolvePaneBackground } from "@/features/terminal/constants/terminalConfig";
+import { makePanePointerHandlers } from "@/shared/utils/paneActivation";
 
 // Floating quick-action circles at the pane's top-right: thumb-sized on touch,
 // slimmer on desktop where the hover bg need not carry the whole tap target.
@@ -72,7 +73,8 @@ function TerminalPane({
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
-  const paneBgKey = paneBackgroundKey(resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds), bgIndex);
+  const sessionBgKey = useTerminalStore((s) => s.backgroundBySession[sessionId]);
+  const paneBgKey = resolvePaneBackground(sessionBgKey, terminalBackgrounds, customBackgrounds, bgIndex);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
   const showNoteButton = useTerminalStore((s) => s.showNoteButton);
   // What the AI has shown from this terminal, newest first. Only this pane's stack —
@@ -252,9 +254,11 @@ function TerminalPane({
   };
 
   // Click pane → request activation from parent
-  const handlePaneClick = () => {
-    if (!isFocused) onActivate?.(sessionId);
-  };
+  // A control inside the pane handles its own pointer; only empty space activates.
+  const panePointer = makePanePointerHandlers({
+    isFocused,
+    onActivate: () => onActivate?.(sessionId)
+  });
 
   // Status border now lives on the pane WRAPPER (layout.js), not this inner node.
   const focusClass = [
@@ -271,8 +275,8 @@ function TerminalPane({
         background: `linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
         backgroundBlendMode: "normal, screen, normal"
       } : { background: currentTheme.background }}
-      onMouseDown={handlePaneClick}
-      onTouchStart={() => handlePaneClick()}
+      onMouseDown={panePointer.onMouseDown}
+      onTouchStart={panePointer.onTouchStart}
     >
       {/* Mobile has no tab strip in view once a pane is open, so the terminal names itself
           here. A pinned checklist says more than a name, so it takes the slot instead. */}

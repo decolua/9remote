@@ -22,7 +22,7 @@ import DiffView from "@/features/fileExplorer/components/DiffView";
 // A file opened from the tree, edited without leaving the terminal. Narrow on purpose —
 // this is for a quick read or fix, not a replacement for the full editor view.
 export default function TerminalEditorPanel({
-  filePath, workspace, fileBus, width, onResize, onClose, onOpenFull, isDesktop = true,
+  filePath, workspace, fileBus, width, onResize, onClose, onOpenFull, onOpenFile, isDesktop = true,
   previewSeq = 0, artifactTitle = null
 }) {
   const { t } = useI18n();
@@ -34,6 +34,13 @@ export default function TerminalEditorPanel({
   const diff = isDiff ? parseRepoDiffPath(filePath) : null;
   const diffRepo = diff?.repoPath || workspace;
   const displayPath = isDiff ? diff.filePath : filePath;
+  // What the editor would open for this diff. git reports repo-relative paths, so a diff
+  // read from a nested repo must carry its repo along or the file is not found.
+  const diffAbsPath = diff
+    ? (diff.repoPath
+      ? `${diff.repoPath.replace(/\/$/, "")}/${diff.filePath}`
+      : diff.filePath.startsWith("/") ? diff.filePath : `${workspace?.replace(/\/$/, "") || ""}/${diff.filePath}`)
+    : "";
   const editable = !!filePath && !isDiff && !isPreviewable(filePath);
 
   const doc = useFileDocument({ filePath: editable ? filePath : "", fileBus });
@@ -154,14 +161,19 @@ export default function TerminalEditorPanel({
           </button>
         )}
 
-        {/* Mobile renders this panel full-screen already — "open full" is desktop-only */}
-        {onOpenFull && isDesktop && (
+        {/* A diff is a tab id, not a path — it opens here as the file itself, not in the
+            full editor, so reading the change and fixing it stay in one place. */}
+        {(isDiff ? !!onOpenFile : (onOpenFull && isDesktop)) && (
           <button
-            onClick={() => { vibrate(); onOpenFull(filePath); }}
-            title={t("editor.openFull")}
+            onClick={() => {
+              vibrate();
+              if (isDiff) onOpenFile(diffAbsPath);
+              else onOpenFull(filePath);
+            }}
+            title={isDiff ? t("git.openFile") : t("editor.openFull")}
             className="p-1 text-text-muted hover:text-text rounded-[3px] hover:bg-surface-2 transition-colors"
           >
-            <ExternalLink size={13} />
+            {isDiff ? <FileCode size={13} /> : <ExternalLink size={13} />}
           </button>
         )}
 

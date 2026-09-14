@@ -1,10 +1,14 @@
 "use client";
 
 import { memo, useState, useEffect } from "react";
-import { ChevronDown, ChevronRight, Copy, Check, Loader2, CheckCircle2, AlertCircle, ExternalLink } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, Copy, Check, Loader2, CheckCircle2, AlertCircle, ExternalLink, Eye } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
 import { shortenPath } from "../../lib/shortenPath";
+import { getToolCategory } from "../../registry";
+
+// Read-shaped built-ins wear an eye once done; every other tool keeps the check.
+const DONE_ICONS = { file: Eye };
 
 export const AiToolCard = memo(function AiToolCard({
   id = "",
@@ -44,6 +48,7 @@ export const AiToolCard = memo(function AiToolCard({
   // this text, so the shorter form is what keeps a real file name visible in it.
   const displayCmd = !isCommand && pathArg && rawCmd === pathArg ? shortenPath(rawCmd, workspacePath) : rawCmd;
   const filePath = input?.file_path || input?.path || input?.file || "";
+  const DoneIcon = DONE_ICONS[getToolCategory(engine, name)] || CheckCircle2;
 
   const handleCopy = (e) => {
     e.stopPropagation();
@@ -68,7 +73,7 @@ export const AiToolCard = memo(function AiToolCard({
           the message lit up every tool's actions at once. */}
       <div
         onClick={() => setExpanded(!expanded)}
-        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer select-none transition-colors group/tool"
+        className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer data-pane-control select-none transition-colors group/tool"
       >
         <div className="flex items-start gap-2 min-w-0 flex-1">
           <span className="shrink-0 mt-0.5">
@@ -77,7 +82,7 @@ export const AiToolCard = memo(function AiToolCard({
             ) : isError ? (
               <AlertCircle size={13} className="text-danger" />
             ) : (
-              <CheckCircle2 size={13} className="text-success" />
+              <DoneIcon size={13} className="text-success" />
             )}
           </span>
 
@@ -85,8 +90,9 @@ export const AiToolCard = memo(function AiToolCard({
               after the name and wraps mid-line like a sentence, instead of dropping to the
               next line as a whole block and leaving the first one half empty. Only the name
               is chipped; break-all because a command or an MCP name has no space to break
-              on. The chevron sits outside so it never lands inside the chip's background. */}
-          <div className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed">
+              on. The chevron sits outside so it never lands inside the chip's background.
+              Capped at two lines — the title attribute carries the full text. */}
+          <div className="min-w-0 flex-1 font-mono text-[11px] leading-relaxed line-clamp-2">
             {/* MCP tools are named mcp__<server>__<tool> — one unbreakable word. Never shrunk
                 or clipped: the name is the point of the row. */}
             <span className="text-[10px] font-semibold text-text uppercase tracking-wider break-all px-1 py-0.5 rounded bg-surface-2/80 [box-decoration-break:clone]" title={name}>

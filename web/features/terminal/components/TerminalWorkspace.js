@@ -627,6 +627,7 @@ function TerminalWorkspace({
               onResize={editorPanel.onResize}
               onClose={editorPanel.onClose}
               onOpenFull={editorPanel.onOpenFull}
+              onOpenFile={editorPanel.onOpen}
               isDesktop={isDesktop}
             />
           </div>

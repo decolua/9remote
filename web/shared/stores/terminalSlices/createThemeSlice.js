@@ -29,6 +29,15 @@ export const createThemeSlice = (set) => ({
   customBackgrounds: [],
   setCustomBackgrounds: (items) => set({ customBackgrounds: Array.isArray(items) ? items.filter((it) => it?.id && it?.dataUrl) : [] }),
 
+  // Per-session override of the round-robin pool; missing key = follow the pool.
+  backgroundBySession: {},
+  setSessionBackground: (sessionId, key) => set((state) => {
+    const next = { ...state.backgroundBySession };
+    if (key) next[sessionId] = key;
+    else delete next[sessionId];
+    return { backgroundBySession: next };
+  }),
+
   // Quick action buttons
   showFolderButton: true,
   showNoteButton: false,

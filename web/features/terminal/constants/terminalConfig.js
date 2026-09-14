@@ -169,6 +169,9 @@ export function effectiveFontSize(fontSizeSetting) {
 
 // Mobile terminal background presets (image behind a semi-transparent terminal)
 export const TERMINAL_BG_ALPHA = 0.8;
+// Thumbnails in the pickers use a far lighter veil than the pane: at 0.8 every tile
+// reads as a black rectangle, which is useless for telling wallpapers apart.
+export const TERMINAL_BG_PREVIEW_ALPHA = 0.25;
 // Veil + screen-lift layers painted on the PANE (canvas stays fully transparent),
 // so text padding can't create a bright un-veiled frame. RGBA triplets for CSS.
 export const TERMINAL_BG_VEIL_RGB = "16,16,20";
@@ -186,7 +189,10 @@ export const TERMINAL_BACKGROUNDS = {
   art5: { label: "Anime 5", src: "/backgrounds/bg5.jpg" },
   art7: { label: "Anime 7", src: "/backgrounds/bg7.jpg" },
   art8: { label: "Anime 8", src: "/backgrounds/bg8.jpg" },
-  art9: { label: "Anime 9", src: "/backgrounds/bg10.jpg" }
+  art9: { label: "Anime 9", src: "/backgrounds/bg10.jpg" },
+  art10: { label: "Anime 10", src: "/backgrounds/bg11.jpg" },
+  art11: { label: "Anime 11", src: "/backgrounds/bg12.jpg" },
+  art12: { label: "Anime 12", src: "/backgrounds/bg13.jpg" }
 };
 
 // When a background is active the canvas paints NOTHING (alpha 00) — the dim veil
@@ -235,6 +241,13 @@ export function resolvableBackgroundKeys(keys, customItems = []) {
     if (id) return customItems.some((it) => it?.id === id);
     return k === "none" || !!TERMINAL_BACKGROUNDS[k];
   });
+}
+
+// Pane background: a per-session pick wins over the pool. Either can be dropped when
+// its custom image is gone, so the result is always a key that actually renders.
+export function resolvePaneBackground(sessionKey, poolKeys, customItems = [], index = 0) {
+  const override = resolvableBackgroundKeys([sessionKey], customItems)[0];
+  return override || paneBackgroundKey(resolvableBackgroundKeys(poolKeys, customItems), index);
 }
 
 // Renderer config (VS Code parity)

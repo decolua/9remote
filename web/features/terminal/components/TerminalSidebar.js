@@ -561,7 +561,14 @@ function TerminalSidebar({
             <button
               onClick={() => {
                 vibrate();
-                busRef?.current?.emit("session-resume", { sessionId: ctxMenu.sessionId });
+                const id = ctxMenu.sessionId;
+                // A chat UI keeps its conversation on the host, not in a PTY: point the AI
+                // session at the id instead of typing a CLI resume line into a shell.
+                if (agentBySession[id]?.endsWith("-ui")) {
+                  busRef?.current?.emit("ai:options", { sessionId: id, options: { resume: sessionStatus[id]?.conversationId } });
+                } else {
+                  busRef?.current?.emit("session-resume", { sessionId: id });
+                }
                 setCtxMenu(null);
               }}
               className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"

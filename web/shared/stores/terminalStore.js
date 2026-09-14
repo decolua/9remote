@@ -51,6 +51,7 @@ export const useTerminalStore = create(
         terminalTheme: state.terminalTheme,
         terminalBackgrounds: state.terminalBackgrounds,
         terminalBackgroundOpacity: state.terminalBackgroundOpacity,
+        backgroundBySession: state.backgroundBySession,
         showFolderButton: state.showFolderButton,
         showNoteButton: state.showNoteButton,
         noteChips: state.noteChips,

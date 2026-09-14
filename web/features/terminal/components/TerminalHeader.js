@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -20,6 +20,7 @@ import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
+import SessionBackgroundModal from "./SessionBackgroundModal";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
@@ -89,6 +90,7 @@ function TerminalHeader({
   const activeTabRef = useRef(null);
   // Tab right-click context menu (rename/delete)
   const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
+  const [tabBgSessionId, setTabBgSessionId] = useState(null);
   const tabMenuRef = useRef(null);
   const tabMenuPos = useClampedMenu(tabMenuRef, tabMenu.x, tabMenu.y);
   const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
@@ -528,6 +530,13 @@ function TerminalHeader({
           >
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
+          {/* Per-tab background: the pool is global, this pins one for this terminal only */}
+          <button
+            onClick={() => { vibrate(); setTabBgSessionId(tabMenu.sessionId); setTabMenu({ sessionId: null, x: 0, y: 0 }); }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+          >
+            <ImageIcon size={13} className="flex-shrink-0" /> {t("menu.terminalBackground")}
+          </button>
           {/* Only a yellow terminal has something to mark read; typing/giving it a prompt
               does the same thing, this is the explicit door. */}
           {sessionStatus[tabMenu.sessionId]?.state === "done" && (
@@ -546,7 +555,14 @@ function TerminalHeader({
             <button
               onClick={() => {
                 vibrate();
-                busRef?.current?.emit("session-resume", { sessionId: tabMenu.sessionId });
+                const id = tabMenu.sessionId;
+                // A chat UI keeps its conversation on the host, not in a PTY: point the AI
+                // session at the id instead of typing a CLI resume line into a shell.
+                if (agentBySession[id]?.endsWith("-ui")) {
+                  busRef?.current?.emit("ai:options", { sessionId: id, options: { resume: sessionStatus[id]?.conversationId } });
+                } else {
+                  busRef?.current?.emit("session-resume", { sessionId: id });
+                }
                 setTabMenu({ sessionId: null, x: 0, y: 0 });
               }}
               className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
@@ -561,6 +577,15 @@ function TerminalHeader({
             <Trash2 size={13} /> {t("sessions.deleteTitle")}
           </button>
         </div>
+      )}
+
+      {/* Per-tab background picker */}
+      {tabBgSessionId && (
+        <SessionBackgroundModal
+          sessionId={tabBgSessionId}
+          title={sessions.find((s) => s.id === tabBgSessionId)?.name}
+          onClose={() => setTabBgSessionId(null)}
+        />
       )}
 
       {/* Tab rename dialog (shared prompt) */}

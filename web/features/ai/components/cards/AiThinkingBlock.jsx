@@ -16,7 +16,7 @@ export const AiThinkingBlock = memo(function AiThinkingBlock({ text = "", isLive
         onClick={() => setExpanded((v) => !v)}
         className="inline-flex items-center gap-1.5 text-[11px] text-text-muted hover:text-text py-0.5 transition-colors cursor-pointer group"
       >
-        <Sparkles size={12} className={isLive ? "animate-pulse text-brand-500" : "text-text-muted/70"} />
+        <Sparkles size={12} className={isLive ? "animate-pulse text-success" : "text-success"} />
         <span className="italic">{isLive ? "Thinking..." : "Thought process"}</span>
         <span className="text-text-muted/50 group-hover:text-text-muted">
           {expanded ? <ChevronDown size={12} /> : <ChevronRight size={12} />}
