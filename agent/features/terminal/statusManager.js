@@ -149,6 +149,8 @@ export function clearSessionAgent(sessionId) {
   lastPrompts.delete(sessionId);
   sessionStatus.delete(sessionId);
   pendingShellClear.delete(sessionId);
+  // `reaped` deliberately survives: clearing the agent means nothing is running here,
+  // which is not the same as reopening the door to a late `done`.
 }
 
 /**
@@ -283,6 +285,7 @@ export function forgetSession(sessionId) {
   clearSessionAgent(sessionId);
   sessionStatus.delete(sessionId);
   lastOutputAt.delete(sessionId);
+  reaped.delete(sessionId);
 }
 
 /** Live PTY output arrived — stamp it so the AI watchdog can tell streaming from stalled. */
@@ -322,13 +325,21 @@ export function onAgentChange(cb) {
   return () => agentChangeCallbacks.delete(cb);
 }
 
+// Sessions whose `working` entry the reaper dropped. A turn that ran past the TTL in
+// silence looks idle from here, and the `done` that follows would be refused as stray —
+// the completion badge would never appear. One-shot: cleared by the next event, whichever
+// it is, and never by forgetting the session (see clearSessionAgent).
+const reaped = new Set();
+
 export function applyEvent({ type, sessionId, tool, message } = {}) {
   if (!sessionId) return null;
   const state = TYPE_TO_STATE[type] || STATES.IDLE;
   const prev = sessionStatus.get(sessionId);
 
-  // done only makes sense after working/blocked — ignore a stray done on idle
-  if (state === STATES.DONE && (!prev || prev.state === STATES.IDLE)) return prev || null;
+  // done only makes sense after working/blocked — a stray done on idle is ignored, except
+  // for a session the reaper blanked mid-turn, where it is the completion arriving late.
+  if (state === STATES.DONE && (!prev || prev.state === STATES.IDLE) && !reaped.has(sessionId)) return prev || null;
+  reaped.delete(sessionId);
 
   // No-op transition: keep timestamp, avoid spurious broadcasts.
   if (prev && prev.state === state && prev.tool === tool) return prev;
@@ -358,17 +369,29 @@ export function touchWorking(sessionId) {
   entry.expiresAt = Date.now() + WORKING_TTL_MS;
 }
 
-// Periodically drop working entries whose TTL expired (agent crashed / hook never fired).
+// Drop working entries whose TTL expired (agent crashed / hook never fired). Returns the
+// ids it cleared so the caller can broadcast; split from the interval so the sweep is
+// reachable without waiting one out.
+export function reapExpired(now = Date.now()) {
+  const cleared = [];
+  for (const [id, entry] of sessionStatus) {
+    if (entry.state !== STATES.WORKING) continue;
+    if (entry.expiresAt != null && entry.expiresAt <= now) {
+      sessionStatus.delete(id);
+      // Remembered so a turn that was only quiet — not dead — can still report its
+      // completion; cleared by the next event, whichever it is.
+      reaped.add(id);
+      cleared.push(id);
+    }
+  }
+  return cleared;
+}
+
 // broadcast(sessionId) is invoked per cleared session so clients flip back to idle.
 export function startReaper(broadcast) {
   const timer = setInterval(() => {
-    const now = Date.now();
-    for (const [id, entry] of sessionStatus) {
-      if (entry.state !== STATES.WORKING) continue;
-      if (entry.expiresAt != null && entry.expiresAt <= now) {
-        sessionStatus.delete(id);
-        if (typeof broadcast === "function") { try { broadcast(id); } catch {} }
-      }
+    for (const id of reapExpired()) {
+      if (typeof broadcast === "function") { try { broadcast(id); } catch {} }
     }
   }, REAPER_INTERVAL_MS);
   if (timer.unref) timer.unref();

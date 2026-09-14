@@ -8,6 +8,7 @@ export const AiPermissionCard = memo(function AiPermissionCard({
   requestId = "",
   tool = "",
   input = {},
+  failed = false,
   onResolve
 }) {
   const [customMsg, setCustomMsg] = useState("");
@@ -51,6 +52,12 @@ export const AiPermissionCard = memo(function AiPermissionCard({
             className="w-full px-2.5 py-1.5 rounded bg-bg border border-border-subtle text-xs text-text placeholder-text-muted focus:outline-none focus:border-brand-500"
             autoFocus
           />
+        </div>
+      )}
+
+      {failed && (
+        <div className="mb-3 text-[11px] text-danger leading-snug">
+          Not sent — the host did not answer. Try again.
         </div>
       )}
 

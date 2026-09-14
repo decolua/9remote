@@ -2,7 +2,7 @@
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History } from "@/shared/components/ui/Icon";
-import { ENGINE_INFO } from "../constants";
+import { ENGINE_INFO, SKIP_BEHAVIOR, SKIP_MESSAGE } from "../constants";
 import { getEngineConfig } from "../registry";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
@@ -12,6 +12,7 @@ import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
+import { isMac } from "@/features/terminal/constants/shortcuts";
 import { useAttachments } from "@/features/terminal/hooks/useAttachments";
 import CommandSuggestions, { pickCommandItems } from "@/shared/components/ui/CommandSuggestions";
 import { useAiHistoryStore } from "@/shared/stores/historyStore";
@@ -27,6 +28,7 @@ export const Composer = memo(function Composer({
   onSend,
   onStop,
   onRunShell,
+  onResolvePermission,
   onSelectModel,
   onModeChange,
   onOpenModal,
@@ -39,6 +41,9 @@ export const Composer = memo(function Composer({
 }) {
   const { t, locale } = useI18n();
   const hasKeyboard = useInputMode() === "mouse";
+  // Same chord the workspace shell already listens for (useGlobalShortcuts), so this is
+  // only the label — the tab switch itself needs no handler here.
+  const tabHint = isMac() ? "Opt ←/→ · Opt 1…9 to switch tab" : "Ctrl+Shift+←/→ · 1…9 to switch tab";
   const engineConfig = getEngineConfig(engine);
   const CLAUDE_MODES = engineConfig.permissionModes;
   const SLASH_COMMANDS = engineConfig.slashCommands;
@@ -86,6 +91,7 @@ export const Composer = memo(function Composer({
   );
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [tierMenuOpen, setTierMenuOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const modelMenuRef = useRef(null);
 
@@ -143,7 +149,10 @@ export const Composer = memo(function Composer({
   // Auto-close the model popover on outside click
   useEffect(() => {
     const onClick = (e) => {
-      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) setModelMenuOpen(false);
+      if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {
+        setModelMenuOpen(false);
+        setTierMenuOpen(false);
+      }
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
@@ -294,6 +303,13 @@ export const Composer = memo(function Composer({
       return;
     }
 
+    // Typing a new message over an open gate IS the answer: the user moved on. Denied
+    // first, so the CLI does not sit waiting for a card this message is about to push
+    // out of the way — that wait is what used to end two minutes later with the
+    // watchdog killing the turn.
+    const gate = useAiStore.getState().bySession[sessionId]?.activePermission;
+    if (gate) onResolvePermission?.(gate.requestId, SKIP_BEHAVIOR, SKIP_MESSAGE);
+
     // Turn state read live, not from this render's closure — a memoized callback
     // would otherwise queue a prompt for a turn that has already ended.
     if (useAiStore.getState().bySession[sessionId]?.isTurnRunning) {
@@ -310,7 +326,7 @@ export const Composer = memo(function Composer({
     onSend?.(trimmed, {
       attachments: pending.map(({ name, type, content }) => ({ filename: name, type, content }))
     });
-  }, [text, sessionId, onSend, onRunShell, setAttachments, addCommand, resolveAlias]);
+  }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias]);
 
   // Dispatch one queued item: a shell command goes to the terminal, anything else to
   // the agent. Attachments are converted the same way a directly-sent prompt's are.
@@ -607,6 +623,19 @@ export const Composer = memo(function Composer({
     return list;
   }, [MODELS, rawModel]);
 
+  // The tiers beside the model, picked in their own popover. The engine's submenu is the
+  // one place that knows both the levels it accepts AND the option key to send them
+  // under (claude says effort, opencode says variant); failing that the host catalog
+  // lists them per model. An engine with neither shows no picker, same as no chip.
+  const tierSpec = useMemo(
+    () => (SLASH_COMMANDS || []).find((c) => c.action === "submenu" && (c.optionKey === "effort" || c.optionKey === "variant")),
+    [SLASH_COMMANDS]
+  );
+  const tierOptions = useMemo(() => {
+    if (tierSpec?.subOptions?.length) return tierSpec.subOptions;
+    return (matchedModel?.efforts || []).map((e) => ({ value: e, label: e }));
+  }, [tierSpec, matchedModel]);
+
   return (    <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">
       {/* Autocomplete Menu popup — second-level option list when a submenu is open */}
       {menuOpen && submenuCmd && (
@@ -823,7 +852,7 @@ export const Composer = memo(function Composer({
             placeholder={
               isTurnRunning
                 ? (hasKeyboard ? "Type command · Enter to queue · Esc to stop" : "Type command · Send to queue")
-                : "Type command"
+                : (hasKeyboard ? `Type command · ${tabHint}` : "Type command")
             }
             rows={1}
             className="ai-conversation ai-composer-input flex-1 min-w-0 bg-transparent resize-none text-xs text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-snug min-h-[24px]"
@@ -856,24 +885,17 @@ export const Composer = memo(function Composer({
         <div className="relative flex items-center justify-between text-xs pt-0.5 border-t border-border-subtle/30">
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             {/* Model Selector Dropdown */}
-            <div ref={modelMenuRef} className="relative min-w-0">
+            <div ref={modelMenuRef} className="relative min-w-0 flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => setModelMenuOpen((v) => !v)}
-                className="max-w-full px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
+                onClick={() => { setModelMenuOpen((v) => !v); setTierMenuOpen(false); }}
+                className="min-w-0 px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
                 title="Select model (/model)"
               >
                 <img src={agentIconUrl(`${engine}-ui`)} alt="" className={`w-3.5 h-3.5 object-contain shrink-0 ${AGENT_ICON_CLS}`} />
                 {/* dir=rtl keeps the tail visible when the id is too long, so the
                     version suffix (the part that distinguishes models) survives. */}
                 <span dir="rtl" className="truncate min-w-0"><bdi>{displayModel}</bdi></span>
-                {/* The tier sits outside the model's flex-1 span so a long model id
-                    cannot swallow it — how hard the model thinks is not a detail. */}
-                {displayTier && (
-                  <span className="shrink-0 px-1 rounded bg-surface-2/80 text-[10px] text-text-muted uppercase tracking-wide">
-                    {displayTier}
-                  </span>
-                )}
                 <ChevronUp size={11} className={`text-text-muted shrink-0 transition-transform ${modelMenuOpen ? "" : "rotate-180"}`} />
               </button>
               {modelMenuOpen && (
@@ -911,6 +933,53 @@ export const Composer = memo(function Composer({
                     );
                   })}
                 </div>
+              )}
+
+              {/* Reasoning tier — its own button, so picking a level no longer costs a
+                  trip through the model list. No background: it is a word, not a badge. */}
+              {tierOptions.length > 0 && (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => { setTierMenuOpen((v) => !v); setModelMenuOpen(false); }}
+                    className="shrink-0 px-1 py-0.5 rounded text-[10px] uppercase tracking-wide font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
+                    title={`Select ${tierSpec?.optionKey || "effort"}`}
+                  >
+                    {displayTier || "—"}
+                  </button>
+                  {tierMenuOpen && (
+                    <div className="absolute left-0 bottom-[calc(100%+6px)] min-w-[220px] max-h-56 bg-surface border border-border-subtle rounded-brand shadow-xl overflow-y-auto z-50 p-1 custom-scrollbar">
+                      <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
+                        {tierSpec?.optionKey === "variant" ? "Variant" : "Reasoning effort"}
+                      </div>
+                      {tierOptions.map((opt) => {
+                        const isSelected = displayTier === opt.value;
+                        return (
+                          <button
+                            key={opt.value}
+                            type="button"
+                            onClick={() => {
+                              vibrate();
+                              onOptionChange?.(tierSpec?.optionKey || "effort", opt.value);
+                              setTierMenuOpen(false);
+                            }}
+                            className={`w-full px-2 py-1.5 rounded text-left text-xs flex items-center justify-between gap-2 transition-colors ${
+                              isSelected
+                                ? "bg-brand-500/15 text-brand-400 font-semibold"
+                                : "text-text-muted hover:text-text hover:bg-surface-2"
+                            }`}
+                          >
+                            <span className="font-mono truncate">{opt.label}</span>
+                            {isSelected && <Check size={12} className="text-brand-400 shrink-0" />}
+                            {!isSelected && opt.desc && (
+                              <span className="text-[10px] text-text-subtle truncate max-w-[55%]">{opt.desc}</span>
+                            )}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </>
               )}
             </div>
           </div>

@@ -427,7 +427,11 @@ const ROVO_END = "  # 9remote hooks end";
 
 const TOOL_REGISTRY = {
   claude: makeNestedJsonHook("claude",
-    { UserPromptSubmit: "working", PostToolUse: "working", Stop: "done", Notification: "blocked" },
+    // PermissionRequest fires as the dialog appears; Notification:permission_prompt waits
+    // for ~6s of no typing before it does, so it is the fallback for CLIs that predate the
+    // former. Two events naming the same state is a no-op in applyEvent, not a re-render.
+    { UserPromptSubmit: "working", PreToolUse: "working", PostToolUse: "working",
+      Stop: "done", PermissionRequest: "blocked", Notification: "blocked" },
     (ms) => ms,
     { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv, sessionId: true }),
   codex: codexHook,

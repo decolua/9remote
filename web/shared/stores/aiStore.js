@@ -29,6 +29,8 @@ const INITIAL_SESSION_STATE = {
   // line. The host sends no timestamp, so a reconnect mid-turn restarts the count.
   turnStartedAt: 0,
   activePermission: null,
+  // The last answer to this gate never reached the host — the card stays up and says so.
+  gateError: false,
   // A blocked action (sandbox/permission refusal) the CLI reported. Unlike
   // activePermission this has nothing to resolve — it offers a mode escalation.
   activeBlocked: null,
@@ -339,7 +341,7 @@ export const useAiStore = create(
           return {
             bySession: {
               ...state.bySession,
-              [sessionId]: { ...curr, activePermission: permission }
+              [sessionId]: { ...curr, activePermission: permission, gateError: false }
             }
           };
         });
@@ -377,6 +379,21 @@ export const useAiStore = create(
             bySession: {
               ...state.bySession,
               [sessionId]: { ...curr, activeBlocked: null }
+            }
+          };
+        });
+      },
+
+      // A gate the CLI is holding but whose answer never reached it. Kept beside the
+      // open card so it can say so and offer another try, instead of looking answered.
+      setGateError: (sessionId, requestId, error = true) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          if (curr.activePermission?.requestId !== requestId) return state;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, gateError: error }
             }
           };
         });
@@ -436,14 +453,22 @@ export const useAiStore = create(
         });
       },
 
+      /**
+       * Rewind, shown before the host confirms it: keep everything above this prompt,
+       * keep the prompt itself with the edited text, drop what followed.
+       *
+       * `newText` is the whole point of the operation — cutting the bubble too would
+       * erase the words the user just typed and leave them watching an empty gap for
+       * the round-trip. The host echoes this text back as `user_message` a moment
+       * later, which replaces this stand-in with the real turn.
+       */
       rewindToMessage: (sessionId, messageId, newText) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
           const idx = curr.messages.findIndex((m) => m.id === messageId);
           if (idx === -1) return state;
-          // Truncate only: the host echoes the resubmitted text back as `user_message`,
-          // so adding it here too would render the same prompt twice.
-          const messages = curr.messages.slice(0, idx);
+          const messages = curr.messages.slice(0, idx + 1);
+          if (newText) messages[idx] = { ...messages[idx], content: newText };
           return {
             bySession: {
               ...state.bySession,
@@ -496,6 +521,10 @@ export const useAiStore = create(
 
       // Batch hydration: replaces the entire message history and task checklist in ONE
       // state update instead of dispatching 5000+ individual actions on join/reconnect.
+      // A gate the host did not replay is one nobody is waiting on. The caller sets it
+      // back when the replay DOES carry a pending request — dropping it there instead
+      // left the card from before a reload on screen, and its "answered" report went to
+      // a request id the CLI had already moved past.
       hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null }) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -504,6 +533,7 @@ export const useAiStore = create(
               ...state.bySession,
               [sessionId]: {
                 ...curr,
+                activePermission: null,
                 messages,
                 tasks,
                 isTurnRunning,

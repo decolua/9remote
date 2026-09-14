@@ -16,7 +16,11 @@ import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
 import { getLastOutputAt, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
+import { TURN_END_EVENTS } from "./aiStatus.js";
 import { PATHS } from "../../lib/constants.js";
+import { createLogger } from "../../lib/logger.js";
+
+const logger = createLogger("ai");
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;
@@ -103,10 +107,6 @@ function loadSessionSnapshot(sessionId, engine) {
   }
 }
 
-// Events that end a turn — the session's own flag must clear on all of them, not just
-// the happy path, or a client hydrating after a crash shows a spinner forever.
-export const TURN_END_EVENTS = new Set(["turn_complete", "stopped", "stall", "error", "exit"]);
-
 // A sub-agent's tool events, renamed on the wire so the client nests rather than
 // appends them. Only these two carry a parentToolUseId today.
 const CHILD_EVENTS = { tool_start: "tool_child", tool_result: "tool_result_child" };
@@ -185,6 +185,25 @@ function capLog(events) {
   });
 }
 
+// Is the CLI's own transcript the fuller store? "Fuller" is counted in EVENTS, never in
+// turns: the event cap sheds the HEAD of the log, and the head is where the prompts are —
+// so a chat left open keeps thousands of recent tool events and loses every
+// `user_message` it ever had (measured: 35 events left of 10,325, none of them a prompt).
+// Compared turn-for-turn that log held 0 of the transcript's 9 and passed; compared as a
+// whole it is 35 against 520. The `user_message` guard is what keeps a transcript of pure
+// tool noise from replacing a real conversation.
+//
+// ONE rule, read by all three doors that rebuild a log (the constructor's snapshot
+// top-up, recoverIfThinner on a hydrate, _fillGap after a missed stretch). Written out
+// per door it had already drifted: two counted events and one counted turns, so the same
+// log was "thin" to one door and "healthy" to another — which is how a pane came back
+// short while /resume, a different door, showed the whole chat.
+function isFullerLog(recovered, current) {
+  if (!recovered?.length) return false;
+  if (!recovered.some((e) => e.event === "user_message")) return false;
+  return recovered.length > (current?.length || 0);
+}
+
 function compactEvents(events) {
   if (!Array.isArray(events) || events.length <= 1) return events;
   const compacted = [];
@@ -249,15 +268,17 @@ export class AiSession {
     // A snapshot can be thin — a legacy file, or one written just before a crash. The
     // CLI's own transcript is the fuller store, so when it knows more turns than the
     // snapshot does, it wins. Only ever upward: a good snapshot is never replaced.
-    if (bindId && this.history.filter((e) => e.event === "user_message").length <= 1) {
+    //
+    // The count of turns is NOT what "thin" means. The event cap sheds the head of the
+    // log, and the head is where the prompts are: a chat left open long enough keeps its
+    // recent tool events (thousands of them, well past AI_MAX_EVENTS) and loses every
+    // `user_message` it ever had — measured 35 events left of 10,325, zero of them a
+    // prompt. Compared turn-for-turn, that log held 0 the transcript's 9, so it passed;
+    // compared as a whole it is 35 events against 520. So the transcript is asked
+    // whenever it would bring MORE EVENTS back, which is the loss that actually happened.
+    if (bindId) {
       const recovered = recoverFromTranscript(engine, this.cwd, bindId);
-      const snapTurns = this.history.filter((e) => e.event === "user_message").length;
-      const recoveredTurns = (recovered || []).filter((e) => e.event === "user_message").length;
-      if (recovered && recoveredTurns > snapTurns) {
-        this.history = capLog(recovered).map((ev, i) => ({
-          seq: i + 1, event: ev.event, data: ev.data, timestamp: Date.now()
-        }));
-      }
+      if (isFullerLog(recovered, this.history)) this.history = renumber(capLog(recovered));
     }
     // Where the next event's seq comes from. Seed from the log rather than the snapshot
     // field so a snapshot written before this counter existed still continues upward.
@@ -420,16 +441,13 @@ export class AiSession {
    */
   // The CLI's own store is the fuller one: the log here is capped (AI_MAX_EVENTS sheds
   // its head) and a snapshot can be short. Called before a hydrate is answered, so the
-  // window it reports covers everything the pane could ask for. It adopts only when the
-  // transcript knows MORE turns — a good log is never replaced by a shorter one.
+  // window it reports covers everything the pane could ask for. The test is isFullerLog —
+  // a good log is never replaced by a shorter one.
   // Returns whether it replaced the log.
   recoverIfThinner() {
     if (!this.cliSessionId || this.isTurnRunning) return false;
     const recovered = recoverFromTranscript(this.engine, this.cwd, this.cliSessionId);
-    if (!recovered) return false;
-    const turns = recovered.filter((e) => e.event === "user_message").length;
-    const known = this.history.filter((e) => e.event === "user_message").length;
-    if (turns <= known) return false;
+    if (!isFullerLog(recovered, this.history)) return false;
     this._adoptLog(recovered);
     return true;
   }
@@ -447,13 +465,42 @@ export class AiSession {
     return true;
   }
 
+  /**
+   * Make the CLI re-read its conversation from disk.
+   *
+   * A rewind rewrites the transcript underneath a process that is holding the old
+   * conversation in memory — the file is read once, at spawn, via `--resume`. Without
+   * this the CLI would answer from the turns the rewind just discarded and append them
+   * back, so the cut would undo itself on the next prompt.
+   *
+   * Deliberately not `setOptions({ resume })`: that only restarts when the id CHANGES,
+   * and a rewind keeps the same id — which is the point of it. A respawn under the same
+   * id is what makes the truncated file authoritative.
+   *
+   * Stop BEFORE the transcript is rewritten and start after: the old process is the only
+   * other writer, and killing it first means it cannot flush the discarded turns back
+   * over the cut on its way out.
+   */
+  async stopAdapter() {
+    if (this.options.mock || !this.adapter) return false;
+    this.isTurnRunning = false;
+    this.clearIdleWatchdog();
+    try { await this.adapter.stop(); } catch {}
+    return true;
+  }
+
+  async startAdapter() {
+    if (this.options.mock || !this.adapter) return false;
+    this.ready = this.initAdapter();
+    await this.ready;
+    return true;
+  }
+
   _adoptLog(events) {
     // Numbered from 1 on purpose: the reset tells every client this is a NEW log. The
     // counter restarts with it, or the next live event would carry a seq from the log
     // that just ended and the client would drop it as already applied.
-    const log = capLog(events).map((ev, i) => ({
-      seq: i + 1, event: ev.event, data: ev.data, timestamp: Date.now()
-    }));
+    const log = renumber(capLog(events));
     this.seqCounter = log.length;
     this.history = log;
     // One door for the reset replay, same as the hydrate ack: it steps over any event too
@@ -472,9 +519,11 @@ export class AiSession {
     const recovered = this.cliSessionId
       ? recoverFromTranscript(this.engine, this.cwd, this.cliSessionId)
       : null;
-    const turns = (recovered || []).filter((e) => e.event === "user_message").length;
-    const known = this.history.filter((e) => e.event === "user_message").length;
-    if (recovered && turns > known) {
+    // The same test as the other two doors. Counting TURNS here was the drift that made
+    // this door refuse a rebuild the others took: a capped log keeps its recent tool
+    // events and loses its prompts, so "no new turns" said healthy about a log that had
+    // lost the whole head of the conversation.
+    if (isFullerLog(recovered, this.history)) {
       this._adoptLog(recovered);
       return;
     }
@@ -524,8 +573,8 @@ export class AiSession {
     if (record) this.scheduleSaveSnapshot();
     if (this.isTurnRunning) this.armIdleWatchdog();
 
-    // Any terminal event releases the turn. Missing `error`/`exit` here left the flag
-    // stuck true after a failed spawn, and the ack hands that flag to every client —
+    // Any terminal event releases the turn. Missing `error`/`exit` from that set left the
+    // flag stuck true after a failed spawn, and the ack hands that flag to every client —
     // so the pane came back from an F5 spinning on a process that was already gone.
     if (TURN_END_EVENTS.has(event)) {
       this.isTurnRunning = false;
@@ -585,6 +634,10 @@ export class AiSession {
     this.idleTimer = setTimeout(() => {
       this.idleTimer = null;
       if (!this.isTurnRunning) return;
+      // A gate the CLI is waiting on is not a stall — it is silent because nobody has
+      // answered it, and the watchdog used to SIGINT the CLI out from under the card
+      // after two minutes of the user reading the question.
+      if (this.adapter?.pendingRequests?.size) return;
       const quietFor = Date.now() - getLastOutputAt(this.id);
       // Still printing — give the turn a fresh window rather than killing it mid-build.
       if (quietFor < OUTPUT_LIVE_WINDOW_MS) return this.armIdleWatchdog();
@@ -741,16 +794,36 @@ export class AiSession {
     return { model: this.model || "", threadId: this.threadId || "", sessionId: this.cliSessionId || "", skills: this.skills || [] };
   }
 
+  // The gate the CLI is holding right now, in the shape the client's card renders.
+  // A replay is a byte tail, so the permission_request that opened a gate can fall off
+  // its front — and without this the card never comes back while the CLI waits forever
+  // on an answer nobody can see. Null when nothing is pending (every other engine).
+  pendingPermission() {
+    // The newest entry, matching what a replay produced: reduceSessionEvents lets each
+    // permission_request overwrite the last, so the card shown was always the latest.
+    const map = this.adapter?.pendingRequests;
+    if (!map?.size) return null;
+    const requestId = [...map.keys()].at(-1);
+    const req = map.get(requestId);
+    return { requestId, tool: req.toolName || "", input: req.input || {} };
+  }
+
   resolvePermission(requestId, behavior, message) {
-    this.adapter?.resolvePermission?.(requestId, behavior, message);
+    // An engine with no gate of its own returns undefined; only an explicit false means
+    // the CLI refused the answer, and the client must keep its card for that.
+    const handled = this.adapter?.resolvePermission?.(requestId, behavior, message);
+    if (handled === false) return false;
     // Every other client watching this session must drop its permission card too —
     // otherwise a second surface keeps showing a gate nobody is waiting on.
     this.emitNormalized("permission_resolved", { requestId, behavior });
+    return true;
   }
 
   resolveQuestion(requestId, answers) {
-    this.adapter?.resolveQuestion?.(requestId, answers);
+    const handled = this.adapter?.resolveQuestion?.(requestId, answers);
+    if (handled === false) return false;
     this.emitNormalized("permission_resolved", { requestId, behavior: "allow" });
+    return true;
   }
 
   setOptions(opts) {
@@ -783,6 +856,13 @@ export class AiSession {
       // Same delivery as opening this conversation from the history list: reset + tail,
       // with the rest left to the scroll-up fetch.
       this._adoptLog(recoverFromTranscript(this.engine, this.cwd, resume) || []);
+      // TEMP DIAGNOSTIC — an empty rebuild is what a rewind to the first turn SHOULD
+      // produce, and also what a failed transcript read produces. Those two look
+      // identical from the pane (a blank conversation), so say which one happened and
+      // whether the file the read needed exists. Remove once rewind is confirmed.
+      if (!this.history.length) {
+        logger.info(`[ai] rewind left an empty log: engine=${this.engine} resume=${resume} cwd=${this.cwd}`);
+      }
     }
     // mode/model/effort/resume are all spawn-time flags, so applying one restarts the
     // CLI — which kills a turn in flight. Mid-turn the change is remembered instead and

@@ -6,6 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { getExtendedEnv, SESSION_ID_ENV } from "../features/ai/adapters/env.js";
+import { EVENT_TO_STATE, restatesOverGate } from "../features/ai/aiStatus.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const read = (p) => fs.readFileSync(path.join(root, p), "utf8");
@@ -73,6 +74,51 @@ test("a chat session's name comes from its transcript, not its opening prompt", 
   const handler = read("features/terminal/handlers/SessionHandler.js");
   // A chat records "claude-ui", which is no store's id — the title lookup is by engine.
   assert.match(handler, /engineFromAgent\(conv\.agent\)/);
+});
+
+test("every event the adapters emit is either mapped or deliberately silent", () => {
+  // A chat's status comes from this table alone. An event the adapters emit but the
+  // table does not name says nothing — which is fine for `delta`, and was NOT fine for
+  // `blocked`, which codex and opencode emit and nothing mapped.
+  const emitted = new Set();
+  for (const file of ["claudeAdapter.js", "codexAdapter.js", "opencodeAdapter.js", "antigravityAdapter.js"]) {
+    for (const m of read(`features/ai/adapters/${file}`).matchAll(/onEvent\?\.\("(\w+)"/g)) emitted.add(m[1]);
+  }
+  for (const m of read("features/ai/aiSession.js").matchAll(/emitNormalized\("(\w+)"/g)) emitted.add(m[1]);
+
+  // Only the ones with nothing to say about status. Mapped events are not repeated here:
+  // a name in both lists would prove nothing, since the filter below passes either way.
+  const noStatus = new Set(["delta", "thinking", "tool_result", "diff", "stats", "init", "ansi", "goal"]);
+  const unmapped = [...emitted].filter((e) => !Object.hasOwn(EVENT_TO_STATE, e) && !noStatus.has(e));
+  assert.deepEqual(unmapped, [], `events no one decided about: ${unmapped.join(", ")}`);
+
+  // The events that end a turn must carry a state, not merely pass as decided.
+  for (const e of ["turn_complete", "stopped", "stall", "error", "exit"]) {
+    assert.ok(EVENT_TO_STATE[e], `${e} must carry a state`);
+  }
+  // And the gate, which is the one that was silently missing.
+  assert.equal(EVENT_TO_STATE.blocked, "blocked");
+});
+
+test("a restatement clears a gate only when a card is still open", () => {
+  // Two `blocked`s look identical in the status map and come from opposite places. A card
+  // open means the CLI is waiting on US, and a typed message does not answer it — the
+  // client denies the card as it sends, so permission_resolved moves the dot itself.
+  // No card means the CLI reported a fact about itself (codex's sandbox refusal): the
+  // next turn really is running, and nothing should be filtered.
+  assert.equal(restatesOverGate("user_message", "blocked", true), true, "card open: do not clear it");
+  assert.equal(restatesOverGate("tool_start", "blocked", true), true);
+  assert.equal(restatesOverGate("user_message", "blocked", false), false, "no card: the turn is running");
+  assert.equal(restatesOverGate("tool_start", "blocked", false), false);
+
+  // Events that ARE about the gate always reach the map, card or not.
+  for (const e of ["permission_resolved", "permission_request", "turn_complete", "blocked"]) {
+    assert.equal(restatesOverGate(e, "blocked", true), false, `${e} must reach the map`);
+  }
+  // And nothing is filtered outside blocked — a gate can only be held while blocked.
+  for (const s of ["idle", "working", "done", undefined]) {
+    assert.equal(restatesOverGate("user_message", s, true), false, `filtered outside blocked: ${s}`);
+  }
 });
 
 if (!process.exitCode) console.log("\nAll tests passed\n");

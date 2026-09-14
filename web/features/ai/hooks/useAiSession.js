@@ -6,9 +6,11 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
-import { createRetryLadder } from "../lib/hydrateRetry";
+import { estimateMessageBytes } from "../lib/messageWindow";
+import { createRetryLadder, shouldApplyHydrateAck } from "../lib/hydrateRetry";
 import { termLog } from "@/shared/utils/termLog";
 import { RECOVER_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
+import { RESOLVE_ACK_TIMEOUT_MS } from "../constants";
 
 // The CLI reports skills as bare id strings; the agent-side scan reports objects.
 // Normalize both to one shape so the "/" menu and skills modal never render `undefined`.
@@ -22,6 +24,23 @@ const HYDRATE_TIMEOUT_MS = 4000;
 // calls back, and the same guard is what keeps the terminal's history fetch alive
 // (see features/terminal/lib/reconnectState.js).
 const HISTORY_TIMEOUT_MS = 4000;
+// How much rendered conversation ONE scroll-up brings back. The wire budget (32KB) is
+// spent on raw events, which serialize ~2.4x their text — a turn carrying a tool result
+// measures tens of KB of events but reduces to one small row. Sized on the wire budget
+// instead, a page bought a couple of rows while the list's own budget (128KB of rendered
+// messages) grew by four times as much, so every tap fetched again and the thread crept
+// upward a few rows at a time — measured 24 taps to reach the first message of an 8-turn
+// chat. This is the budget the fetch is spent against, in the currency the list spends.
+const OLDER_PAGE_BYTES = 128 * 1024;
+// Ceiling on the chunks one tap may buy. A turn that reduces to almost nothing (a log
+// made of tool events, no prose) would otherwise walk the whole thread in one tap —
+// the fetch is bounded, the walk is not.
+const OLDER_MAX_CHUNKS = 8;
+// Applying a rewind is not a fetch: claude's file half spawns its CLI twice, and the
+// host allows each spawn a minute (see agent/features/ai/claudeRewind.js). On the fetch
+// budget a working rewind was reported to the user as "the host did not answer", while
+// the host went on to finish it — a failure message for a success.
+const REWIND_APPLY_TIMEOUT_MS = 130000;
 // A hydrate whose ack never arrived leaves the pane without the host's tail, and with
 // it the load-older affordance. The ladder that re-asks lives in lib/hydrateRetry, and
 // the lib owns the delays — this hook only drives its timer.
@@ -237,19 +256,23 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
       case "stopped":
         turnEnded = true;
         isTurnRunning = false;
+        activePermission = null;
         break;
       case "stall":
         // The watchdog killed a silent turn. Ends the turn like `stopped`, but draws no
         // bubble: it fires on a timeout guess, so a slow build must not read as an error.
         turnEnded = true;
         isTurnRunning = false;
+        activePermission = null;
         for (const m of messages) if (m.isLive) m.isLive = false;
         break;
       case "exit":
         turnEnded = true;
         // The CLI process went away. Turn ends either way — without this the pane
         // kept spinning on a process that was already gone (only claudeAdapter emits it).
+        // The gate dies with it: a card replayed against a dead process answers nobody.
         isTurnRunning = false;
+        activePermission = null;
         break;
       case "error":
         turnEnded = true;
@@ -316,6 +339,9 @@ export function useAiSession({
   const finishTurn = useAiStore((s) => s.finishTurn);
   const setTurnRunning = useAiStore((s) => s.setTurnRunning);
   const addUserMessage = useAiStore((s) => s.addUserMessage);
+  // A boolean selector, so this re-renders on carrier changes only — not on the
+  // streamed frames the "don't read the session slice" note below is about.
+  const connected = useConnectionStore((s) => s.connected);
 
   // Host events older than the replayed tail, still unfetched. The pane pages the
   // in-RAM window first; only when it runs out does a scroll-up hit the host.
@@ -426,6 +452,12 @@ export function useAiSession({
         if (data?.stats) useAiStore.getState().setStats(sid, data.stats);
         break;
       case "stopped":
+      case "exit":
+        // The CLI process went away or was interrupted. The reducer has always ended the
+        // turn on `exit`, but the live path had no case for it — so a CLI the watchdog
+        // killed mid-gate left the pane spinning on a process that was already gone.
+        // The gate goes with it: no process is left to answer it.
+        clearPermission(sid);
         setTurnRunning(sid, false);
         break;
       case "stall":
@@ -461,6 +493,10 @@ export function useAiSession({
   // Highest host seq this client has applied. Events at or below it are already
   // folded in (replayed or live) and must not be applied twice.
   const appliedSeqRef = useRef(0);
+  // Bumped whenever the host replaces the log (conversation_reset: /clear, /resume, rewind).
+  // A round in flight when that happens holds seqs of the conversation that just ended, and
+  // a high seq from it must not be read as "newer" by the gate below.
+  const logEpochRef = useRef(0);
   // Live events that arrive between emitting ai:create and its ack. The ack
   // resets the store and replays the snapshot, so anything applied in that window
   // would be wiped — hold them and re-apply after the replay, in order. This is
@@ -539,6 +575,8 @@ export function useAiSession({
       return;
     }
     const gen = ++hydrateSeqRef.current;
+    // Which log this round asks about — see logEpochRef. Bumped by a reset while it flies.
+    const epoch = logEpochRef.current;
     hydratingRef.current = true;
     setHydrating(true);
     pendingLiveRef.current = [];
@@ -562,6 +600,7 @@ export function useAiSession({
         // longer applies to what follows it.
         if (p.event === "conversation_reset") {
           appliedSeqRef.current = 0;
+          logEpochRef.current++;
           olderSeqRef.current = p.data?.fromSeq ?? 0;
           setHasOlder(Boolean(p.data?.hasMore));
           applyEventRef.current(sessionId, p.event, p.data);
@@ -592,8 +631,15 @@ export function useAiSession({
       cwd: workspacePath,
       options: { defaultMode: getEngineConfig(engine).defaultMode }
     }, (res) => {
-      // A newer hydrate (StrictMode remount) owns the gate now — stand down.
-      if (gen !== hydrateSeqRef.current) return;
+      const isNewest = gen === hydrateSeqRef.current;
+      // The gate rule lives in the lib, beside the ladder it belongs to — see there for
+      // why a superseded ack may still apply, and for the two ways one may not.
+      if (!shouldApplyHydrateAck({
+        isNewest,
+        snapshotSeq: res?.session?.seq,
+        appliedSeq: appliedSeqRef.current,
+        sameLog: epoch === logEpochRef.current
+      })) return;
       const events = res?.session?.events;
       // TEMP DIAGNOSTIC — the ack, or the absence of one (this line never printed = the
       // callback was never called at all). `ok:false` carries the host's own error.
@@ -645,9 +691,11 @@ export function useAiSession({
             permissionMode: res.session.permissionMode || hydrated.permissionMode,
             activeBlocked: hydrated.activeBlocked
           });
-          if (hydrated.activePermission) {
-            useAiStore.getState().setPermission(sessionId, hydrated.activePermission);
-          }
+          // The host states the gate itself when the CLI is holding one, so a request
+          // that scrolled off the replay tail still comes back — a card that cannot be
+          // reopened would leave the CLI waiting on an answer no surface can give.
+          const gate = res.session.activePermission || hydrated.activePermission;
+          if (gate) useAiStore.getState().setPermission(sessionId, gate);
         } else {
           setTurnRunning(sessionId, Boolean(res.session.isTurnRunning));
           if (res.session.permissionMode) {
@@ -756,18 +804,40 @@ export function useAiSession({
   // one round-trip.
   useEffect(() => {
     if (!bus || !sessionId) return;
-    // Online is the door's own check, so a resume while offline needs no branch here:
-    // the `connect` below fires when there is someone to ask.
+    // Online is the door's own check, so a resume while offline needs no branch here —
+    // the `connected` effect below asks once there is someone to answer.
     const onVisible = () => {
       if (!document.hidden) requestHydrate();
     };
+    // Page Lifecycle `resume`: Chrome Android wakes a frozen tab without firing a
+    // visibilitychange (the same gap pmWatchers covers on the transport side). bfcache
+    // restores need nothing extra — those do fire visibilitychange.
     bus.on("connect", requestHydrate);
     document.addEventListener("visibilitychange", onVisible);
+    document.addEventListener("resume", onVisible);
     return () => {
       bus.off("connect", requestHydrate);
       document.removeEventListener("visibilitychange", onVisible);
+      document.removeEventListener("resume", onVisible);
     };
   }, [bus, sessionId, requestHydrate]);
+
+  // The carrier coming back is a trigger in its own right, not just a prelude to the
+  // bus "connect" above. That event only fires on a rejoin the PM judges worthwhile
+  // (_maybeFireRejoin), and it stays silent whenever the OTHER carrier is still ready —
+  // so the case this covers is a phone that slept through a full outage: the resume fires
+  // while both carriers are dead, requestHydrate drops that ask, and the carriers then
+  // return without ever announcing a "connect". The pane kept its pre-sleep view, and the
+  // refresh button was the only way back. Asking here is that dropped ask, remembered.
+  //
+  // The EDGE only. On mount `connected` is often already true, and re-running there would
+  // buy a second full replay 150ms after the mount's own hydrate — for nothing.
+  const wasConnectedRef = useRef(true);
+  useEffect(() => {
+    const was = wasConnectedRef.current;
+    wasConnectedRef.current = connected;
+    if (connected && !was) requestHydrate();
+  }, [connected, requestHydrate]);
 
   // 2. Subscribe to AI bus events
   useEffect(() => {
@@ -823,6 +893,7 @@ export function useAiSession({
       // it must be cleared before the replay that follows.
       if (payload.event === "conversation_reset") {
         appliedSeqRef.current = 0;
+        logEpochRef.current++;
         // The window belongs to the log that just ended. Keeping it would make the next
         // scroll-up fetch seqs the fresh log already replays — every turn rendered twice.
         // The host replays a tail only, so the reset states where that tail starts.
@@ -885,13 +956,33 @@ export function useAiSession({
 
   const resolvePermission = useCallback(
     (requestId, behavior, message = "", answers = null) => {
-      clearPermission(sessionId, requestId);
       const b = busRef.current || useConnectionStore.getState().bus;
-      if (answers) {
-        b?.emit("ai:question", { sessionId, requestId, answers });
-      } else {
-        b?.emit("ai:permission", { sessionId, requestId, behavior, message });
-      }
+      if (!b) return;
+      // Cleared only on the host's ok. Dropping the card first meant an emit that fell
+      // into a dead carrier (an F5 mid-answer) left the user with no card and no answer
+      // sent — the chat then sat on a CLI waiting for a gate nobody could reach.
+      let settled = false;
+      let timer = null;
+      const done = (res) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        // `stale` is not a failure the user must retry: the CLI has already moved past
+        // this gate (it was answered elsewhere, or the process was replaced).
+        if (res?.ok || res?.reason === "stale") {
+          clearPermission(sessionId, requestId);
+          return;
+        }
+        // The host refused, or the ack never came. The card stays, and says so — a gate
+        // the user believes they answered is the worst version of this bug.
+        termLog("ai-gate", "resolve failed", { requestId, behavior, res: res ?? "timeout" });
+        useAiStore.getState().setGateError(sessionId, requestId);
+      };
+      if (answers) b.emit("ai:question", { sessionId, requestId, answers }, done);
+      else b.emit("ai:permission", { sessionId, requestId, behavior, message }, done);
+      // An emit into a dead carrier never reaches the ack timer at all — nothing calls
+      // back and nothing errors, so the card must time out on its own.
+      timer = setTimeout(() => done(null), RESOLVE_ACK_TIMEOUT_MS);
     },
     [sessionId, clearPermission]
   );
@@ -909,8 +1000,13 @@ export function useAiSession({
     [sendPrompt]
   );
 
-  // Ask the host what this conversation can rewind to. Returns null when the engine
-  // cannot — the caller hides the control rather than offering a button that no-ops.
+  // Ask the host what this conversation can rewind to.
+  //
+  // Four different answers, and the pane needs them apart: the engine cannot rewind
+  // (stop asking, hide the control), the engine can but its conversation is not readable
+  // yet (keep asking — the CLI publishes that a turn later), a list of turns (stop), and
+  // a host that did not answer (retry). A plain null would collapse the middle two into
+  // "unsupported", which is how the control went missing for good on a fresh chat.
   const listRewindPoints = useCallback(async () => {
     const b = busRef.current || useConnectionStore.getState().bus;
     if (!b) return null;
@@ -920,8 +1016,10 @@ export function useAiSession({
       const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
       b.emit("ai:rewind", { sessionId, action: "list" }, done);
     });
-    if (!res?.ok) return null;
-    return { points: res.points || [], support: res.support };
+    if (!res) return null;
+    if (!res.support?.conversation) return { supported: false, ok: false, points: [], support: res.support };
+    if (!res.ok) return { supported: true, ok: false, points: [], support: res.support };
+    return { supported: true, ok: true, points: res.points || [], support: res.support };
   }, [sessionId]);
 
   /**
@@ -930,17 +1028,26 @@ export function useAiSession({
    * The host does the work and broadcasts a conversation_reset, so this returns once
    * the host has acted — the store is rebuilt from that broadcast, not from here. A
    * local truncate would be a lie the next hydrate would undo.
+   *
+   * `index` is a turn counted from the END of the thread, for callers that hold only
+   * their own display ids. `messageId` is the CLI's own id, which the rewind modal has
+   * because it listed the turns from the host.
    */
   const rewindToMessage = useCallback(
-    async (messageId, newText, { files = true, preview = false } = {}) => {
+    async (messageId, newText, { files = true, preview = false, index = null } = {}) => {
       const b = busRef.current || useConnectionStore.getState().bus;
       if (!b) return { ok: false, error: "Not connected to the host." };
       const res = await new Promise((resolve) => {
         let settled = false;
         const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
-        const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
-        b.emit("ai:rewind", { sessionId, action: preview ? "preview" : "apply", messageId, files }, done);
+        const timer = setTimeout(() => done(null), preview ? HISTORY_TIMEOUT_MS : REWIND_APPLY_TIMEOUT_MS);
+        b.emit("ai:rewind", { sessionId, action: preview ? "preview" : "apply", messageId, index, files }, done);
       });
+      // A failed apply has to put back what the pane dropped on the press. The host's
+      // own log is the only honest source — the local slice cannot know what the CLI
+      // actually kept. Without this, a refusal left a pane that had already lost the
+      // turns it was told were still there.
+      if (!preview && (!res || !res.ok)) retryNow();
       if (!res) return { ok: false, error: "The host did not answer in time." };
       if (!res.ok) return res;
       // Re-submit the edited text as the first prompt of the rewound conversation.
@@ -949,12 +1056,12 @@ export function useAiSession({
       }
       return res;
     },
-    [sessionId, workspacePath]
+    [sessionId, workspacePath, retryNow]
   );
 
   /** What a rewind to this message would change, without changing anything. */
   const previewRewind = useCallback(
-    (messageId, { files = true } = {}) => rewindToMessage(messageId, null, { files, preview: true }),
+    (messageId, { files = true, index = null } = {}) => rewindToMessage(messageId, null, { files, preview: true, index }),
     [rewindToMessage]
   );
 
@@ -987,34 +1094,64 @@ export function useAiSession({
     // older events of a conversation that is no longer shown, so its ack stands down
     // instead of prepending one log's turns onto another's.
     const logSeq = olderSeqRef.current;
+    const fetchChunk = (before) => new Promise((resolve) => {
+      let settled = false;
+      const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
+      const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
+      b.emit("aiHistory", { sessionId, before }, done);
+    });
     try {
       const t0 = Date.now();
-      const res = await new Promise((resolve) => {
-        let settled = false;
-        const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
-        const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
-        b.emit("aiHistory", { sessionId, before: logSeq }, done);
-      });
+      // One tap buys a PAGE, not a frame: chunks are fetched until the rendered
+      // messages they reduced to fill the list's own budget, the host runs out, or the
+      // chunk ceiling is reached. Each chunk is still one bounded wire frame.
+      let before = logSeq;
+      let older = [];
+      let bytes = 0;
+      let hasMore = true;
+      let chunks = 0;
+      let answered = false;
+      while (chunks < OLDER_MAX_CHUNKS) {
+        const res = await fetchChunk(before);
+        chunks++;
+        // A timed-out ack is not an answer — keep the door open so the next scroll
+        // retries. Only the host saying "no such session" closes it.
+        if (res == null) break;
+        if (!res.success) { hasMore = false; break; }
+        if (!res.events?.length) { hasMore = false; break; }
+        answered = true;
+        // Ids continue past everything already held — this tap's own pages included,
+        // or the second chunk would re-mint the ids the first one just used.
+        const curr = useAiStore.getState().bySession[sessionId];
+        const page = reduceSessionEvents(res.events, engine, (curr?.messages?.length || 0) + older.length + 1);
+        // A chunk that reduces to nothing is a hole in the fetch, not progress: the
+        // next ask would carry the same `before` and buy the same empty page forever.
+        if (!page.messages.length) { hasMore = false; break; }
+        // Kept BEFORE the budget is judged, so the mark never runs ahead of what was
+        // actually delivered — a chunk dropped after `before` moved past it could never
+        // be asked for again.
+        older = [...page.messages, ...older];
+        bytes += page.messages.reduce((n, m) => n + estimateMessageBytes(m), 0);
+        before = res.events[0].seq;
+        hasMore = Boolean(res.hasMore);
+        if (!hasMore || bytes >= OLDER_PAGE_BYTES) break;
+      }
       // TEMP DIAGNOSTIC — the host side of the scroll-up fetch. A null ack means nobody
       // answered (carrier or route), success:false means the host had nothing to give.
       // Remove once paging is confirmed end to end.
       termLog("ai-page", "loadOlder", {
         sessionId, before: logSeq, ms: Date.now() - t0, transport: b.transport || b.carrier || "?",
-        res: res == null ? "TIMEOUT/no-ack" : { success: res.success, events: res.events?.length, hasMore: res.hasMore, error: res.error }
+        chunks, messages: older.length, bytes: Math.round(bytes / 1024) + "KB", hasMore
       });
+      // The log changed under this fetch. Its turns belong to a conversation that is no
+      // longer shown — dropping them here also keeps the marks below untouched, or the
+      // fetch would report progress it never made and stall the paging for good.
       if (olderSeqRef.current !== logSeq) return false;
-      // A timed-out ack is not an answer — keep the door open so the next scroll retries.
-      // Only the host saying "no such session" closes it.
-      if (res == null) return false;
-      if (!res.success || !res.events?.length) {
-        setHasOlder(false);
-        return false;
-      }
-      olderSeqRef.current = res.events[0].seq ?? olderSeqRef.current;
-      setHasOlder(Boolean(res.hasMore));
-      const curr = useAiStore.getState().bySession[sessionId];
-      const older = reduceSessionEvents(res.events, engine, (curr?.messages?.length || 0) + 1);
-      useAiStore.getState().prependMessages(sessionId, older.messages);
+      if (!answered) return false;
+      olderSeqRef.current = before;
+      setHasOlder(hasMore);
+      if (!older.length) return false;
+      useAiStore.getState().prependMessages(sessionId, older);
       return true;
     } finally {
       loadingOlderRef.current = false;

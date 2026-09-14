@@ -31,6 +31,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
+import { makePanePointerHandlers } from "@/shared/utils/paneActivation";
 import PaneStripButtons from "@/features/terminal/components/PaneStripButtons";
 import NotePanel from "@/features/terminal/components/NotePanel";
 import { OVERLAY_BTN_CLS, OVERLAY_ICON_SM } from "@/features/terminal/components/TerminalPane";
@@ -38,8 +39,7 @@ import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount
 import { vibrate } from "@/shared/utils/vibration";
 import {
   backgroundSrc,
-  paneBackgroundKey,
-  resolvableBackgroundKeys,
+  resolvePaneBackground,
   effectiveFontSize,
   MAX_CHANGED_BADGE,
   DESKTOP_BREAKPOINT,
@@ -95,6 +95,7 @@ export const AiPaneView = memo(function AiPaneView({
   }, [reload]);
 
   const activePermission = useAiStore((s) => s.bySession[sessionId]?.activePermission);
+  const gateError = useAiStore((s) => s.bySession[sessionId]?.gateError);
   const activeBlocked = useAiStore((s) => s.bySession[sessionId]?.activeBlocked);
   const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata) || DEFAULT_METADATA;
   const tasks = useAiStore((s) => s.bySession[sessionId]?.tasks) || EMPTY_TASKS;
@@ -106,6 +107,7 @@ export const AiPaneView = memo(function AiPaneView({
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
+  const sessionBgKey = useTerminalStore((s) => s.backgroundBySession[sessionId]);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const fontSize = useTerminalStore((s) => s.fontSize);
   const showFolderButton = useTerminalStore((s) => s.showFolderButton);
@@ -131,7 +133,7 @@ export const AiPaneView = memo(function AiPaneView({
   const bgStyle = useMemo(() => {
     const { alpha, size } = AI_DOT_GRID;
     const dotGrid = `radial-gradient(color-mix(in srgb, ${palette.foreground} ${alpha}%, transparent) 1px, transparent 1px) 0 0 / ${size}px ${size}px`;
-    const paneBgKey = paneBackgroundKey(resolvableBackgroundKeys(terminalBackgrounds, customBackgrounds), bgIndex);
+    const paneBgKey = resolvePaneBackground(sessionBgKey, terminalBackgrounds, customBackgrounds, bgIndex);
     const bgSrc = theme === "dark" ? backgroundSrc(paneBgKey, customBackgrounds) : null;
     if (bgSrc) {
       const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
@@ -142,7 +144,7 @@ export const AiPaneView = memo(function AiPaneView({
       };
     }
     return { background: `${dotGrid}, ${palette.background}` };
-  }, [terminalBackgrounds, customBackgrounds, terminalBackgroundOpacity, palette, theme, bgIndex]);
+  }, [terminalBackgrounds, sessionBgKey, customBackgrounds, terminalBackgroundOpacity, palette, theme, bgIndex]);
 
   const skills = metadata.skills || [];
   const mcpServers = metadata.mcpServers || [];
@@ -202,6 +204,18 @@ export const AiPaneView = memo(function AiPaneView({
     emitOptions({ mode });
   }, [emitOptions, sessionId, setPermissionMode]);
 
+  // Drop the turns below the edited prompt the moment Rewind is pressed, instead of
+  // leaving the old conversation on screen for the whole round-trip — the host spawns a
+  // CLI for the file half, so that is seconds. The host's conversation_reset replaces
+  // this with the real conversation a moment later.
+  //
+  // Stable, and defined here rather than inline: MessageBubble is memoized, and it
+  // cannot compare a callback it is not given — an inline one would leave every bubble
+  // holding a closure over whatever the session id was when it first rendered.
+  const handleCutLocal = useCallback((messageId, newText) => {
+    useAiStore.getState().rewindToMessage(sessionId, messageId, newText);
+  }, [sessionId]);
+
   // Container-level fallback for Shift+Tab when focused outside composer
   const handleKeyDown = useCallback((e) => {
     if (activeModal) return;
@@ -217,9 +231,15 @@ export const AiPaneView = memo(function AiPaneView({
     }
   }, [sessionId, engineConfig, handleModeChange, activeModal]);
 
+  // A control inside the pane handles its own pointer; only empty space activates.
+  const panePointer = makePanePointerHandlers({
+    isFocused,
+    onActivate: () => onActivate?.()
+  });
+
   return (
     <div
-      onMouseDown={() => { if (!isFocused) onActivate?.(); }}
+      {...panePointer}
       onKeyDown={handleKeyDown}
       className="ai-pane w-full h-full flex flex-col bg-bg overflow-hidden relative select-text"
       style={{
@@ -233,7 +253,7 @@ export const AiPaneView = memo(function AiPaneView({
           strip naming the session and carrying Remote/Mobile/Sites, and a phone does not. */}
       <div
         style={{ height: STATUS_BAR_HEIGHT }}
-        className="sm:hidden flex items-center gap-2 px-2 border-b border-border-subtle bg-surface text-[11px] select-none shrink-0 relative z-10"
+        className="sm:hidden flex items-center gap-2 px-2 border-b border-border-subtle bg-surface/70 backdrop-blur-sm text-[11px] select-none shrink-0 relative z-10"
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
         <span className="flex-1 min-w-0 truncate text-text">{sessionName || ENGINE_INFO[engine]?.label || engine}</span>
@@ -325,6 +345,7 @@ export const AiPaneView = memo(function AiPaneView({
         onRewind={rewindToMessage}
         onPreviewRewind={previewRewind}
         onListRewindPoints={listRewindPoints}
+        onCutLocal={handleCutLocal}
         hasOlder={hasOlder}
         onLoadOlder={loadOlder}
         onOpenResume={handleOpenResume}
@@ -354,6 +375,7 @@ export const AiPaneView = memo(function AiPaneView({
             <AiQuestionCard
               requestId={activePermission.requestId}
               questions={activePermission.input?.questions || []}
+              failed={gateError}
               // behavior is the card's to choose: an answer is "allow", Skip is "deny"
               onResolve={resolvePermission}
             />
@@ -362,6 +384,7 @@ export const AiPaneView = memo(function AiPaneView({
               requestId={activePermission.requestId}
               tool={activePermission.tool}
               input={activePermission.input}
+              failed={gateError}
               onResolve={resolvePermission}
             />
           )}
@@ -375,6 +398,7 @@ export const AiPaneView = memo(function AiPaneView({
         onSend={sendPrompt}
         onStop={stop}
         onRunShell={runShell}
+        onResolvePermission={resolvePermission}
         onSelectModel={handleSelectModel}
         onModeChange={handleModeChange}
         onOpenModal={setActiveModal}

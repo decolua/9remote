@@ -7,14 +7,15 @@ import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
 import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
-import { runEngineDoctor, TURN_END_EVENTS } from "./aiSession.js";
+import { runEngineDoctor } from "./aiSession.js";
+import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus } from "../terminal/terminalSocket.js";
-import { getConversation, getSessionAgent, setConversationId } from "../terminal/statusManager.js";
+import { getConversation, getSessionAgent, setConversationId, getStatus } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
 import { replayWindow } from "./aiEventSlice.js";
-import { AI_REPLAY_BYTES, AI_ENGINES } from "./constants.js";
-import { rewindSupport, unsupportedReason } from "./rewind.js";
+import { AI_REPLAY_BYTES, AI_ENGINES, AI_MODEL_CACHE_TTL_MS } from "./constants.js";
+import { rewindSupport, unsupportedReason, resolveRewindTarget } from "./rewind.js";
 import { listRewindPoints, rewindable, previewRewind, applyRewind } from "./opencodeRewind.js";
 import * as claudeRewind from "./claudeRewind.js";
 
@@ -30,11 +31,13 @@ const creating = new Map();
 // hook to feed it — this is the only writer of its state. Every event the session
 // emits passes through here, so a turn that is refused or dies mid-flight still
 // lands on a state instead of leaving the dot spinning until the reaper clears it.
-function mirrorAiStatus(sessionId, event, data, engine) {
-  if (event === "permission_request") broadcastAiStatus?.(sessionId, "blocked", engine, data);
-  else if (event === "turn_complete") broadcastAiStatus?.(sessionId, "done", engine, data);
-  else if (TURN_END_EVENTS.has(event)) broadcastAiStatus?.(sessionId, "idle", engine, data);
-  else if (event === "user_message") broadcastAiStatus?.(sessionId, "working", engine, data);
+// The table owns which event means what; an event it does not name says nothing.
+function mirrorAiStatus(manager, sessionId, event, data, engine) {
+  const state = EVENT_TO_STATE[event];
+  if (!state) return;
+  const gateHeld = manager.getSession(sessionId)?.pendingPermission?.();
+  if (restatesOverGate(event, getStatus(sessionId)?.state, gateHeld)) return;
+  broadcastAiStatus?.(sessionId, state, engine, data);
 }
 
 // Model ids the host's own CLI offers, per engine. Null means the engine's registry
@@ -42,7 +45,27 @@ function mirrorAiStatus(sessionId, event, data, engine) {
 // What a hydrating client gets: the tail of the log, not the whole thing. A real chat
 // measured 6.9 MB of events, and shipping that on every mount is what stalls a phone.
 // `hasMore` is what arms the client's scroll-up fetch, so it must travel with the tail.
-function publicSession(session, extra = {}) {
+//
+// What every hydrate ack is made of, in the ONE order that works. Three doors answer a
+// create (a live session, a create already in flight, a fresh spawn) and all three built
+// their reply by spreading emitConnectMetadata and calling publicSession side by side —
+// two expressions whose evaluation order is invisible at the call site, which is how the
+// two got swapped.
+//
+//   1. rebuild first: a log thinner than the CLI's own transcript is replaced, and a
+//      window measured before that hides the restored turns from scroll-up for good
+//      (the ack's `fromSeq` is where the client's paging begins);
+//   2. then the connect metadata, appended into the log that survived step 1. Reversed,
+//      a fresh `init` lands in the log the rebuild replaces, and the ack goes out with no
+//      model catalog and no skills on a chat that was just restored.
+function doorSession(session, engine = session.engine) {
+  session.recoverIfThinner();
+  return { ...emitConnectMetadata(session, engine), session: publicSession(session) };
+}
+
+// The session's replay window and the state a client cannot rebuild from it. Call it
+// through doorSession, not on its own — the rebuild above has to have happened already.
+function publicSession(session) {
   const { events, hasMore } = replayWindow(session.history, AI_REPLAY_BYTES);
   return {
     events,
@@ -52,6 +75,9 @@ function publicSession(session, extra = {}) {
     // so length stops equalling the highest seq and the client would swallow an event.
     seq: session.history.at(-1)?.seq ?? 0,
     permissionMode: session.permissionMode,
+    // The gate the CLI is holding, outside the replay window's reach — see
+    // aiSession.pendingPermission for why the tail cannot be trusted to carry it.
+    activePermission: session.pendingPermission?.() || null,
     model: session.model,
     // The session's own pick, snapshot-restored. Empty means "the CLI's config decides",
     // which the init event states — this only overrides it once the user has chosen.
@@ -59,8 +85,7 @@ function publicSession(session, extra = {}) {
     // Usage the replay cannot reconstruct: the adapter's counters are what the status
     // bar reads, and a log holds only the events, not the running totals. Without this
     // a fresh load showed an empty context row while the CLI held tens of thousands.
-    stats: session.adapter?.stats || null,
-    ...extra
+    stats: session.adapter?.stats || null
   };
 }
 
@@ -69,6 +94,19 @@ function listModelOptionsFor(engine) {
   if (engine === "codex") return listCodexModelOptions();
   if (engine === "opencode") return listOpencodeModelOptions();
   return null;
+}
+
+// Connect metadata is rebuilt on every create; the catalog is not. Two of the three
+// engines answer by spawning a CLI, so re-reading it per F5 costs seconds of the ack.
+const modelCache = new Map();
+
+function cachedModelOptionsFor(engine) {
+  const hit = modelCache.get(engine);
+  const now = Date.now();
+  if (hit && now - hit.at < AI_MODEL_CACHE_TTL_MS) return hit.options;
+  const options = listModelOptionsFor(engine);
+  modelCache.set(engine, { at: now, options });
+  return options;
 }
 
 // The model a fresh chat runs with, so the picker shows the CLI's own default before
@@ -82,6 +120,30 @@ function defaultModelFor(engine) {
 // like defaultModelFor: forcing it into argv would override a project-level setting.
 function defaultEffortFor(engine) {
   return resolveDefaultEffort(engine) || "";
+}
+
+// Connect-time metadata: skills, MCP servers, the host's own model catalog, and the
+// model/effort the CLI would run with. Every create answers with it — a LIVE session
+// included, since its replay log holds only the CLI's own init, which carries no
+// modelOptions: the pane would fall back to the registry's canned list on every F5.
+function emitConnectMetadata(session, engine) {
+  const skills = listSkills(engine, session.cwd);
+  const mcpServers = listMcpServers(engine);
+  // Kept on the session so a Clear can re-seed the log with the same metadata
+  session.skills = skills;
+  // Already-hydrated sessions skip the append: this runs on every connect (F5, extra
+  // tab), and a log that grew an `init` per connect would never stop growing. The event
+  // is still broadcast so the joining client sees the current metadata.
+  session.emitNormalized("init", {
+    skills,
+    mcpServers,
+    modelOptions: cachedModelOptionsFor(engine),
+    model: session.model || defaultModelFor(engine),
+    // The session's own pick wins; otherwise the CLI's config is what it will run
+    // with, and that is what the composer must show beside the model.
+    effort: session.effort || defaultEffortFor(engine)
+  }, !session.hasRecordedInit());
+  return { skills, mcpServers };
 }
 
 // A chat UI session runs its CLI without the PTY's session env, so no hook ever
@@ -104,7 +166,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       logger.debug(`[ai] event: ${event} session: ${sessionId}`);
       broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data });
       const engine = manager.getSession(sessionId)?.engine || "claude";
-      mirrorAiStatus(sessionId, event, data, engine);
+      mirrorAiStatus(manager, sessionId, event, data, engine);
       mirrorAiConversation(sessionId, event, data, engine);
     });
   }
@@ -138,10 +200,11 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         return cb?.({
           ok: true,
           sessionId,
-          engine,
+          engine: existing.engine,
           cwd: existing.cwd,
-          skills: existing.skills,
-          session: publicSession(existing)
+          // The session's own engine, not the request's: the two disagree only when a
+          // client asks wrong, and the skills/catalog must describe what is running.
+          ...doorSession(existing, existing.engine)
         });
       }
       // A create already on its way for this session: the caller waits for THAT one and
@@ -154,10 +217,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         return cb?.({
           ok: true,
           sessionId,
-          engine,
+          engine: session.engine,
           cwd: session.cwd,
-          skills: session.skills,
-          session: publicSession(session)
+          ...doorSession(session)
         });
       }
       logger.info(`[ai] create session: ${sessionId} engine: ${engine} cwd: ${cwd}`);
@@ -185,40 +247,13 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         creating.delete(sessionId);
         releaseCreate();
       }
-      const skills = listSkills(engine, cwd);
-      const mcpServers = listMcpServers(engine);
-      const modelOptions = listModelOptionsFor(engine);
-      // A re-attach that finds the log thinner than the CLI's own transcript rebuilds it
-      // BEFORE the ack snapshots a window over it. Without this the pane is answered from
-      // the agent's log — which the event cap and a legacy snapshot can leave short — and
-      // the missing turns are not merely unshown: the ack's `fromSeq` tells the client
-      // where its window begins, so its scroll-up never asks for them.
-      session.recoverIfThinner();
-      // Kept on the session so a Clear can re-seed the log with the same metadata
-      session.skills = skills;
-      // Already-hydrated sessions skip the append: this runs on every connect (F5,
-      // extra tab), and a log that grew an `init` per connect would never stop growing.
-      // The event is still broadcast so the joining client sees the current metadata.
-      session.emitNormalized("init", {
-        skills,
-        mcpServers,
-        modelOptions,
-        model: session.model || defaultModelFor(engine),
-        // The session's own pick wins; otherwise the CLI's config is what it will run
-        // with, and that is what the composer must show beside the model.
-        effort: session.effort || defaultEffortFor(engine)
-      }, !session.hasRecordedInit());
+      // Rebuild, then connect metadata, then the window — one order, one place (doorSession).
       cb?.({
         ok: true,
         sessionId: session.id,
         engine: session.engine,
         cwd: session.cwd,
-        skills,
-        mcpServers,
-        // The mode travels too: a new session has an empty log, so the replay carries
-        // nothing to derive it from — without it the client shows the picker's first
-        // entry while the CLI runs something else.
-        session: publicSession(session)
+        ...doorSession(session)
       });
     } catch (err) {
       // TEMP DIAGNOSTIC — the host DID answer, with a failure. Without this line the
@@ -254,7 +289,6 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       if (String(message).trim() === "/clear" && session.isTurnRunning) session.stop();
       // User message is emitted via session.sendPrompt -> emitNormalized -> broadcast
       session.sendPrompt(message, attachments);
-      broadcastAiStatus?.(sessionId, "working", session.engine);
       cb?.({ ok: true });
     } catch (err) {
       logger.error(`[ai] prompt failed: ${err.message}`);
@@ -266,7 +300,11 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     try {
       const session = manager.getSession(sessionId);
       if (!session) throw new Error(`AI session not found: ${sessionId}`);
-      session.resolvePermission(requestId, behavior, message);
+      if (!session.resolvePermission(requestId, behavior, message)) {
+        // The CLI is not waiting for this id any more. Saying so beats the old silent
+        // ok: the client would drop its card over an answer that reached nobody.
+        return cb?.({ ok: false, reason: "stale" });
+      }
       cb?.({ ok: true });
     } catch (err) {
       logger.error(`[ai] permission failed: ${err.message}`);
@@ -278,7 +316,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     try {
       const session = manager.getSession(sessionId);
       if (!session) throw new Error(`AI session not found: ${sessionId}`);
-      session.resolveQuestion(requestId, answers);
+      if (!session.resolveQuestion(requestId, answers)) {
+        return cb?.({ ok: false, reason: "stale" });
+      }
       cb?.({ ok: true });
     } catch (err) {
       logger.error(`[ai] question failed: ${err.message}`);
@@ -291,6 +331,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       const session = manager.getSession(sessionId);
       if (session) {
         session.stop();
+        // The session emits `stopped`, which the table already calls idle — this is only
+        // here for a stop that never reaches an event.
         broadcastAiStatus?.(sessionId, "idle", session.engine);
       }
       cb?.({ ok: true });
@@ -349,7 +391,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   });
 
   // What can this session rewind to, and can it rewind at all?
-  socket.on(AI_SOCKET_EVENTS.REWIND, async ({ sessionId, action = "list", messageId, files = true }, cb) => {
+  socket.on(AI_SOCKET_EVENTS.REWIND, async ({ sessionId, action = "list", messageId, index, files = true }, cb) => {
     try {
       const session = manager.getSession(sessionId);
       const engine = session?.engine || "claude";
@@ -365,16 +407,57 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         ? (claudeRewind.findTranscript(session?.cliSessionId) ? session.cliSessionId : null)
         : rewindable(engine, session?.cliSessionId);
       if (!convId) {
-        return cb?.({ ok: false, error: `This conversation is not one ${engine} can rewind.`, support });
+        // The engine can rewind, but this conversation is not readable yet: a chat that
+        // has run no turn has bound no id, and claude publishes its transcript only once
+        // the turn starts. `support` still travels — that is what tells the client the
+        // difference between "wait" and "never", and it asks again.
+        return cb?.({
+          ok: false,
+          error: `This conversation is not one ${engine} can rewind.`,
+          support,
+          points: []
+        });
       }
       const list = isClaude ? claudeRewind.listRewindPoints : listRewindPoints;
       const preview = isClaude ? claudeRewind.previewRewind : previewRewind;
       if (action === "list") {
-        return cb?.({ ok: true, support, points: list(convId) });
+        const points = list(convId);
+        // `ok` is what the pane shows the control on, so it has to mean "there is a turn
+        // to go back to" — not merely "the request was understood". A conversation whose
+        // first turn has not reached the CLI's own store yet has nothing to rewind to,
+        // and answering ok there put an edit button on a bubble that could only fail.
+        return cb?.({
+          ok: points.length > 0,
+          support,
+          points,
+          ...(points.length > 0 ? {} : { error: "This conversation has no turn to rewind to yet." })
+        });
       }
-      if (!messageId) return cb?.({ ok: false, error: "Missing messageId", support });
+      // The edit button on a bubble knows the turn's position, not its CLI id: the ids
+      // the client renders are minted in its own store. Resolved against a fresh read
+      // rather than a cached list, so a turn that arrived since is counted too.
+      const targets = list(convId);
+      const target = messageId || resolveRewindTarget(targets, index);
+      // TEMP DIAGNOSTIC — a rewind that lands on the wrong turn produces a conversation
+      // that looks brand new, and nothing in the UI says which turn the two sides
+      // agreed on. Log the count, the requested offset and what it resolved to. Remove
+      // once the edit-then-Enter path is confirmed on a real device.
+      logger.info(
+        `[ai] rewind ${action}: ${engine} points=${targets.length} index=${index ?? "-"} ` +
+        `messageId=${messageId || "-"} → ${target || "UNRESOLVED"} (conv ${convId}, kept)`
+      );
+      if (!target) {
+        // The count the client holds and the CLI's own store disagree — its log was
+        // rebuilt, or the turn sits outside what the CLI kept. Saying "missing message
+        // id" described our protocol to the user; name what they can do about it.
+        return cb?.({
+          ok: false,
+          error: "That turn is no longer in this conversation. Reload the chat and try again.",
+          support
+        });
+      }
       if (action === "preview") {
-        return cb?.({ ok: true, support, ...(await preview(convId, messageId, { files })) });
+        return cb?.({ ok: true, support, ...(await preview(convId, target, { files })) });
       }
       if (action === "apply") {
         // A rewind rewrites the conversation the CLI is holding. The running turn is
@@ -382,18 +465,36 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         if (session.isTurnRunning) {
           return cb?.({ ok: false, error: "Stop the running turn before rewinding.", support });
         }
+        // TEMP DIAGNOSTIC — the confirm dialog stays open until this answers, so each
+        // await here is time the user spends watching a frozen pane. Measured once per
+        // stage; remove once the slow one is known and dealt with.
+        const t0 = Date.now();
+        // A rewind cuts Claude's transcript in place, under the id it already has. The
+        // running CLI is the only other writer of that file AND holds the discarded
+        // turns in memory, so it is stood down before the rewrite and brought back
+        // after — otherwise the old process could flush them back over the cut, and the
+        // new one would answer from a conversation that no longer exists on disk.
+        if (isClaude) await session.stopAdapter?.();
+        const tStop = Date.now();
         // Claude's file half is a one-shot CLI run that needs the session's cwd.
         const result = isClaude
-          ? await claudeRewind.applyRewind(convId, messageId, { files, cwd: session.cwd })
-          : await applyRewind(convId, messageId, { files });
+          ? await claudeRewind.applyRewind(convId, target, { files, cwd: session.cwd })
+          : await applyRewind(convId, target, { files });
+        const tCut = Date.now();
+        // Bring it back whatever the outcome — a failed rewind must not leave the chat
+        // with no process behind it, which is how "the rewind failed" would turn into
+        // "the conversation is dead".
+        if (isClaude) await session.startAdapter?.();
+        const tStart = Date.now();
         if (!result.ok) return cb?.({ ok: false, error: result.error, support });
-        // Claude cut the thread into a NEW session id. Rebind to it, or the pane would
-        // show the rewound conversation while the CLI keeps appending to the old one.
-        if (result.newSessionId) session.setOptions({ resume: result.newSessionId });
-        // The CLI's own store is now the shortened conversation. Rebuild the host's log
-        // from it and broadcast a reset, or every client keeps rendering the turns the
-        // rewind just discarded.
+        // The CLI's store is now the shortened conversation. Rebuild the host's log from
+        // it and broadcast a reset, or every client keeps rendering the turns the rewind
+        // just discarded.
         session.reloadFromStore?.();
+        logger.info(
+          `[ai] rewind timing: stop=${tStop - t0}ms cut+files=${tCut - tStop}ms ` +
+          `restart=${tStart - tCut}ms total=${Date.now() - t0}ms`
+        );
         return cb?.({ ok: true, support, ...result });
       }
       cb?.({ ok: false, error: `Unknown rewind action: ${action}`, support });

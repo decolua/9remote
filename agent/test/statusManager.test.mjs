@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import {
   STATES, TYPE_TO_STATE, applyEvent, getStatus, getStatuses,
   clearStatus, setStatus, onClearStatus, getNotifications,
-  onProcessChange, confirmShellClear, getSessionAgent,
+  onProcessChange, confirmShellClear, getSessionAgent, reapExpired, clearSessionAgent, forgetSession,
 } from "../features/terminal/statusManager.js";
 
 let pass = 0, fail = 0;
@@ -71,6 +71,66 @@ await test("same-state no-op keeps entry, avoids spurious change", () => {
   const a = applyEvent({ type: "working", sessionId: "s1", tool: "claude" });
   const b = applyEvent({ type: "working", sessionId: "s1", tool: "claude" });
   assert.equal(a.since, b.since);
+});
+
+// Two feeders write the status map — a CLI's hooks and, for a chat session, the adapter
+// running in this process. These pin the rules that decide between them, and the one
+// place the reaper used to swallow a completion.
+await test("a reaped session still reports the completion that follows", () => {
+  reset();
+  applyEvent({ type: "working", sessionId: "s4", tool: "claude" });
+  assert.deepEqual(reapExpired(Date.now() + 120000), ["s4"], "the quiet turn is dropped");
+  const e = applyEvent({ type: "done", sessionId: "s4", tool: "claude" });
+  assert.equal(e?.state, STATES.DONE, "the badge must survive a quiet stretch");
+});
+
+await test("a cleared agent still reports its completion", () => {
+  // clearSessionAgent is the TUI exiting, not the terminal going away: a turn that was
+  // reaped mid-flight and then exits must still show the badge on its way out.
+  reset();
+  applyEvent({ type: "working", sessionId: "s5", tool: "claude" });
+  reapExpired(Date.now() + 120000);
+  clearSessionAgent("s5");
+  const e = applyEvent({ type: "done", sessionId: "s5", tool: "claude" });
+  assert.equal(e?.state, STATES.DONE);
+});
+
+await test("forgetting a session does not reopen the door to a late done", () => {
+  // forgetSession is the teardown. The id is minted from a timestamp and gets inherited
+  // by whichever session lands on the same value next, so the marker must go with it —
+  // otherwise that new session's first stray `done` paints a badge it never earned.
+  reset();
+  applyEvent({ type: "working", sessionId: "s5b", tool: "claude" });
+  reapExpired(Date.now() + 120000);
+  forgetSession("s5b");
+  const e = applyEvent({ type: "done", sessionId: "s5b", tool: "claude" });
+  assert.equal(e, null, "the next tenant of this id starts clean");
+});
+
+// The adapter cannot see that the CLI is sitting on an approval prompt, so its
+// restatements of "the turn is moving" say nothing about the gate. They are filtered in
+// aiSocket (see aiStatus.restatesOverGate); this pins the state machine they land on.
+await test("a prompt sent while blocked is the ordering the filter exists for", () => {
+  reset();
+  applyEvent({ type: "blocked", sessionId: "s6", tool: "claude" });
+  assert.equal(getStatus("s6").state, STATES.BLOCKED);
+});
+
+await test("resolve still clears the gate", () => {
+  reset();
+  applyEvent({ type: "blocked", sessionId: "s7", tool: "claude" });
+  const e = applyEvent({ type: "working", sessionId: "s7", tool: "claude" });
+  assert.equal(e.state, STATES.WORKING);
+});
+
+await test("a turn ending after a blocked one still reports done", () => {
+  // A status left behind by a previous turn must never outrank the next one: a chat that
+  // was blocked or finished has to be able to go back to working when a prompt arrives.
+  reset();
+  applyEvent({ type: "blocked", sessionId: "s8", tool: "claude" });
+  applyEvent({ type: "done", sessionId: "s8", tool: "claude" });
+  const e = applyEvent({ type: "working", sessionId: "s8", tool: "claude" });
+  assert.equal(e.state, STATES.WORKING, "a new turn must be able to leave done behind");
 });
 
 await test("clearStatus removes DONE entry + fires callback", () => {

@@ -28,3 +28,15 @@ export const STARTER_PROMPTS = Object.freeze([
   "What changed recently in this repo?",
   "! git status"
 ]);
+
+// Skipping a gate is a denial, not a made-up answer: the CLI tells the model the user
+// declined and the turn carries on. Typing a new message while a card is open is the
+// same signal — the user moved on, and leaving the CLI waiting for an answer nobody
+// will give is what used to wedge the chat until the watchdog killed it.
+export const SKIP_BEHAVIOR = "deny";
+export const SKIP_MESSAGE = "User skipped this request";
+
+// How long an answer waits for the host's ok before the card admits it did not arrive.
+// A carrier can take the emit and still lose the bytes (a zombie RTC data channel), and
+// an answer nobody was told about is the same stuck chat as one never sent.
+export const RESOLVE_ACK_TIMEOUT_MS = 5000;

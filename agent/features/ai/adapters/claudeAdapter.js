@@ -188,6 +188,9 @@ export class ClaudeAdapter {
 
   _handleExit({ code, error } = {}) {
     this.isTurnRunning = false;
+    // A dead CLI cannot be waiting on anything; leaving the entries would keep the idle
+    // watchdog stood down for a gate no process is holding.
+    this.pendingRequests.clear();
     // An engine that dies before it ever initialized may have refused the resume id
     // (verified: a bad --resume exits non-zero with "No conversation found"). The CLI
     // emits no init until the first prompt, so a clean pre-init exit proves nothing
@@ -360,6 +363,10 @@ export class ClaudeAdapter {
   resolvePermission(requestId, behavior, message = "") {
     const pending = this.pendingRequests.get(requestId);
     this.pendingRequests.delete(requestId);
+    // The CLI is no longer waiting for this id (it was restarted, or another surface
+    // answered it). Writing the response anyway put a stray control_response on the
+    // pipe and reported success for an answer nobody received.
+    if (!pending) return false;
 
     this.proc.write(JSON.stringify({
       type: "control_response",
@@ -367,15 +374,17 @@ export class ClaudeAdapter {
         subtype: "success",
         request_id: requestId,
         response: behavior === "allow"
-          ? { behavior: "allow", updatedInput: pending?.input || {} }
+          ? { behavior: "allow", updatedInput: pending.input || {} }
           : { behavior: "deny", message: message || "Permission denied." },
       },
     }) + "\n");
+    return true;
   }
 
   resolveQuestion(requestId, answers = {}) {
     const pending = this.pendingRequests.get(requestId);
     this.pendingRequests.delete(requestId);
+    if (!pending) return false;
 
     this.proc.write(JSON.stringify({
       type: "control_response",
@@ -385,12 +394,13 @@ export class ClaudeAdapter {
         response: {
           behavior: "allow",
           updatedInput: {
-            questions: pending?.input?.questions || [],
+            questions: pending.input?.questions || [],
             answers: answers || {},
           },
         },
       },
     }) + "\n");
+    return true;
   }
 
   /**
