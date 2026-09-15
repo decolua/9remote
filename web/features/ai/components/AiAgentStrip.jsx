@@ -5,11 +5,12 @@ import { Users, Terminal } from "@/shared/components/ui/Icon";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { vibrate } from "@/shared/utils/vibration";
 import { runningAsync } from "../lib/toolTree";
+import { anchorId } from "./PaneScope";
 
 const EMPTY = [];
 
 // Each kind keeps the anchor its own card already carries, so a tap lands on the detail.
-const ANCHOR = { agent: (id) => `agent-${id}`, shell: (id) => `shell-${id}` };
+const ANCHOR = { agent: "agent", shell: "shell" };
 
 /**
  * Work handed off and still running, pinned above the chat.
@@ -38,6 +39,7 @@ export const AiAgentStrip = memo(function AiAgentStrip({ sessionId = "" }) {
           tag="AGENTS"
           count={agents.length}
           items={agents}
+          sessionId={sessionId}
         />
       )}
       {shells.length > 0 && (
@@ -46,13 +48,14 @@ export const AiAgentStrip = memo(function AiAgentStrip({ sessionId = "" }) {
           tag="SHELLS"
           count={shells.length}
           items={shells}
+          sessionId={sessionId}
         />
       )}
     </div>
   );
 });
 
-function Row({ icon, tag, count, items }) {
+function Row({ icon, tag, count, items, sessionId }) {
   const names = items.map((r) => r.label);
   const shown = names.slice(0, 3).join(", ");
   const extra = names.length - 3;
@@ -72,8 +75,12 @@ function Row({ icon, tag, count, items }) {
           // Only a MOUNTED card can be scrolled to. A long run of steps keeps its
           // earlier rows behind the "N more" bar, so the newest row may have no
           // element yet — take the first one that does.
-          const anchor = items.find((r) => document.getElementById(ANCHOR[r.kind](r.id)));
-          document.getElementById(ANCHOR[anchor?.kind]?.(anchor?.id))
+          //
+          // Looked up within THIS pane: tool ids belong to the host, and nothing keeps two
+          // chats' ids apart — a bare document-wide lookup scrolled to whichever pane
+          // rendered first.
+          const anchor = items.find((r) => document.getElementById(anchorId(sessionId, ANCHOR[r.kind], r.id)));
+          document.getElementById(anchorId(sessionId, ANCHOR[anchor?.kind], anchor?.id))
             ?.scrollIntoView({ block: "center", behavior: "smooth" });
         }}
         className="text-[11px] text-text-muted truncate min-w-0 text-left hover:text-text transition-colors"

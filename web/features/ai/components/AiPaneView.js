@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useCallback, useMemo } from "react";
+import { memo, useState, useCallback, useMemo, useRef, useEffect } from "react";
 import { useAiSession } from "../hooks/useAiSession";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -25,6 +25,7 @@ import { AiBlockedCard } from "./cards/AiBlockedCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiTaskCard } from "./cards/AiTaskCard";
 import { AiAgentStrip } from "./AiAgentStrip";
+import { AiPaneScope } from "./PaneScope";
 import { getEngineConfig } from "../registry";
 import { AI_FONT_SIZE_BOOST, AI_DOT_GRID, ENGINE_INFO } from "../constants";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
@@ -242,7 +243,22 @@ export const AiPaneView = memo(function AiPaneView({
     onActivate: () => onActivate?.()
   });
 
+  // Everything below reads this rather than a document-wide lookup: panes stay mounted
+  // side by side, so a card's own id and the keys that answer a gate must be this pane's.
+  // `activate` rides along because `panePointerHandler` SWALLOWS pointer-down on a control
+  // (it must not pull focus out of the box being typed in) — so the wrapper that focuses a
+  // background pane never sees a tap on a question card's button. Deliberately touching a
+  // card in another chat is choosing that chat, which is what activation means.
+  //
+  // Behind a ref so the scope object keeps its identity: the caller passes an inline arrow,
+  // and a scope rebuilt every workspace render would re-render every card in every pane.
+  const onActivateRef = useRef(onActivate);
+  useEffect(() => { onActivateRef.current = onActivate; });
+  const activate = useCallback(() => onActivateRef.current?.(), []);
+  const paneScope = useMemo(() => ({ sessionId, isFocused, activate }), [sessionId, isFocused, activate]);
+
   return (
+    <AiPaneScope.Provider value={paneScope}>
     <div
       {...panePointer}
       onKeyDown={handleKeyDown}
@@ -522,6 +538,7 @@ export const AiPaneView = memo(function AiPaneView({
         />
       )}
     </div>
+    </AiPaneScope.Provider>
   );
 });
 

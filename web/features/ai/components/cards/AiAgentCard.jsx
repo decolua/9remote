@@ -6,6 +6,7 @@ import { AiToolCard } from "./AiToolCard";
 import { StepWindow } from "../StepWindow";
 import { renderToolCard } from "./toolCards";
 import { LAUNCH_TOOLS, agentLabel } from "../../lib/toolTree";
+import { useAiPaneScope, anchorId } from "../PaneScope";
 
 /** First line of the prompt — enough to tell one sub-agent from another. */
 function firstLine(text) {
@@ -31,6 +32,7 @@ export const AiAgentCard = memo(function AiAgentCard({
   engine = "claude",
   workspacePath = ""
 }) {
+  const { sessionId: paneSessionId } = useAiPaneScope();
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
   const runningChildren = children.filter((c) => c.status === "running").length;
@@ -50,7 +52,7 @@ export const AiAgentCard = memo(function AiAgentCard({
     : firstLine(input?.message ?? input?.prompt ?? input?.query);
 
   return (
-    <div className="my-1 text-xs" id={id ? `agent-${id}` : undefined}>
+    <div className="my-1 text-xs" id={anchorId(paneSessionId, "agent", id)}>
       <div
         onClick={() => setExpanded(!expanded)}
         className="flex items-center justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer data-pane-control select-none transition-colors group/tool"

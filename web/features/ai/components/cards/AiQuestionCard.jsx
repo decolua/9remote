@@ -5,6 +5,7 @@ import { HelpCircle, Check, ChevronLeft, ChevronRight, CornerDownLeft } from "@/
 import { vibrate } from "@/shared/utils/vibration";
 import { parseAnswered } from "../../lib/parseAnswered";
 import { SKIP_BEHAVIOR, SKIP_MESSAGE } from "../../constants";
+import { useAiPaneScope } from "../PaneScope";
 
 export const AiQuestionCard = memo(function AiQuestionCard({
   requestId = "",
@@ -14,6 +15,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   failed = false, // the last answer never reached the host — the card stays, and says so
   onResolve // (requestId, behavior, message, answers) — the host's permission signature
 }) {
+  const { isFocused, activate } = useAiPaneScope();
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [otherText, setOtherText] = useState({});
   const [submitted, setSubmitted] = useState(false);
@@ -85,7 +87,19 @@ export const AiQuestionCard = memo(function AiQuestionCard({
 
   // Keyboard: 1-9 pick an option on the question in view; Enter advances (or submits
   // on the last one). Both act on the visible question, never on questions[0].
+  //
+  // Scoped to the focused pane. The listener is on `window` — a gate is answered from
+  // anywhere on the page — but every pane stays mounted, so two panes holding a gate
+  // answered the same keypress and the reply landed on a chat the user was not looking
+  // at. Tapping the card activates its pane first: `panePointerHandler` swallows
+  // pointer-down on a control, and this card is made of them, so the wrapper upstairs
+  // would otherwise never see the tap and the keys would arm nowhere.
+  const armPane = useCallback(() => {
+    if (!isFocused) activate?.();
+  }, [isFocused, activate]);
+
   useEffect(() => {
+    if (!isFocused) return;
     if (submitted || skipped || answers || !current) return;
     const handleKeyDown = (e) => {
       // Don't intercept if user is typing in an input
@@ -99,7 +113,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [current, selectedAnswers, submitted, skipped, answers, handleNext, handleSelect]);
+  }, [current, selectedAnswers, submitted, skipped, answers, handleNext, handleSelect, isFocused]);
 
   const handleOther = (qText, val) => {
     setOtherText((prev) => ({ ...prev, [qText]: val }));
@@ -155,7 +169,14 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   return (
     // Same tint as the answered view below, so the card reads the same before and after
     // the tap instead of changing colour under the user's finger.
-    <div className="my-2 p-3 rounded-brand-lg shadow-sm text-[13px] select-none border border-success/30 bg-success/10">
+    //
+    // onPointerDown, not onClick: it lands before the option button's own click, so the pane
+    // is active by the time the choice is applied — and it fires for a tap anywhere on the
+    // card, including the empty strip between controls.
+    <div
+      onPointerDown={armPane}
+      className="my-2 p-3 rounded-brand-lg shadow-sm text-[13px] select-none border border-success/30 bg-success/10"
+    >
       {/* Same header grammar as AiPermissionCard/AiBlockedCard: icon, what this card is,
           and the tool's own badge. Without it the card opened on a bare sentence and read
           as another paragraph of the transcript rather than something waiting on a tap. */}

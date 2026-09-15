@@ -4,6 +4,7 @@ import { memo, useState, useEffect } from "react";
 import { Terminal, ChevronDown, ChevronRight, Copy, Check, AlertCircle, Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { shellIdFromResult } from "../../lib/shellId";
+import { useAiPaneScope, anchorId } from "../PaneScope";
 
 export const AiBashCard = memo(function AiBashCard({
   id = "",
@@ -14,6 +15,7 @@ export const AiBashCard = memo(function AiBashCard({
   status = "done",
   deferred = false
 }) {
+  const { sessionId: paneSessionId } = useAiPaneScope();
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
   // History opens collapsed: an error row is auto-opened because it matters, but a
@@ -59,7 +61,7 @@ export const AiBashCard = memo(function AiBashCard({
   };
 
   return (
-    <div className="my-1 text-xs" id={id ? `shell-${id}` : undefined}>
+    <div className="my-1 text-xs" id={anchorId(paneSessionId, "shell", id)}>
       {/* $ command, capped at two lines. Named group — see AiToolCard: a bare `group`
           nested in the message's own made every tool's actions appear on message hover. */}
       <div
