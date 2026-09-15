@@ -116,4 +116,23 @@ const send = (ws, obj) => ws.send(JSON.stringify(obj));
   console.log("  ✓ peerId addressing unchanged");
 }
 
-console.log("\n4 passed");
+// 5. Presence probe — what /api/connect asks before it refuses a login for a
+//    missing tunnel. Only the agent role counts; a room full of clients is not
+//    a room anyone can reach.
+{
+  const empty = fakeCtx();
+  const noAgent = await new FakeDO(empty).fetch({ url: "https://x/presence" });
+  assert.equal((await noAgent.json()).agentPresent, false, "empty room reports no agent");
+
+  const ctx = fakeCtx();
+  ctx.sockets.push(fakeWs("client", "c1"));
+  const clientsOnly = await new FakeDO(ctx).fetch({ url: "https://x/presence" });
+  assert.equal((await clientsOnly.json()).agentPresent, false, "clients alone do not answer for the agent");
+
+  ctx.sockets.push(fakeWs("agent", "a1"));
+  const withAgent = await new FakeDO(ctx).fetch({ url: "https://x/presence" });
+  assert.equal((await withAgent.json()).agentPresent, true, "agent join is visible to the probe");
+  console.log("  ✓ presence probe reports the agent role only");
+}
+
+console.log("\n5 passed");

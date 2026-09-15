@@ -177,9 +177,12 @@ export function useAuth() {
       }
 
       // Save auth data to session storage (include tempKey and localIp if provided)
+      // tunnelUrl may be null: the Worker answers a login it can serve over the
+      // DO relay instead. The transport then starts RTC and holds WS until a
+      // tunnel URL appears, so there is nothing to special-case here.
       setAuth({
         apiKey,
-        tunnelUrl: data.tunnelUrl,
+        tunnelUrl: data.tunnelUrl || null,
         mode: "remote",
         tempKey: credentials.tempKey ? credentials.tempKey.toUpperCase() : null,
         localIp: data.localIp || null

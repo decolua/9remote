@@ -69,6 +69,19 @@ async function sessionExists(apiKey, env) {
 // Auth mirrors /api/connect: a live session row for this apiKey must exist.
 export async function handleSignaling(request, env) {
   const url = new URL(request.url);
+
+  // Presence probe: is an agent on this room's relay? /api/connect asks before
+  // refusing a login for a missing tunnel — RTC can serve the client with no
+  // tunnel at all. Only the DO knows, and the answer is a boolean about the room,
+  // not about the caller — but the route is public, so it carries the same
+  // session gate as the upgrade rather than trusting whoever called it.
+  const presence = url.pathname.match(/^\/signaling\/presence\/([^/]+)$/);
+  if (presence) {
+    const roomId = decodeURIComponent(presence[1]).replace(/^(sk-[a-z0-9]{8}-[a-np-z1-9]{8})-[a-np-z1-9]{8}$/, "$1");
+    if (!(await sessionExists(roomId, env))) return new Response("Unauthorized", { status: 401 });
+    return env.SIGNALING_DO.get(env.SIGNALING_DO.idFromName(roomId)).fetch(new Request(new URL("/presence", url)));
+  }
+
   const match = url.pathname.match(/^\/signaling\/ws\/([^/]+)$/);
   if (!match) return new Response("Not found", { status: 404 });
 
@@ -111,6 +124,10 @@ export class SignalingDO extends DurableObject {
 
   async fetch(request) {
     const url = new URL(request.url);
+    if (url.pathname === "/presence") {
+      const live = this.ctx.getWebSockets().some((p) => p.deserializeAttachment()?.role === "agent");
+      return Response.json({ agentPresent: live });
+    }
     const role = url.searchParams.get("role");
     // peerId identifies a specific client (deviceId:tab). Multiple clients share
     // a room (room = apiKey), so role alone can't address them.

@@ -9,6 +9,35 @@ import { jsonOk, jsonError, jsonRateLimited, optionsResponse } from "@/shared/ut
 // D1 write (every connect/reconnect) with at most 60s skew for stats.
 const LAST_ACCESS_THROTTLE_SEC = 60;
 const SCOPE = "connect";
+// Bounded: this sits on the login path, and a DO that never answers must cost
+// the user a retryable error, not a spinner. Fails closed — the client falls
+// back to the 503 it would have got anyway.
+const RELAY_PROBE_TIMEOUT_MS = 3000;
+
+// The host keys ride along so a client that never established RTC — and so never
+// pinned anything — can still seal its tail. They arrive from the Worker, which is
+// not a trusted source: the client compares fp2 over the pair against the two
+// characters read off the agent's screen before believing them.
+const hostKeysOf = (row) => ({
+  hostKeys: row.hostPublicKey ? { ed: row.hostPublicKey, x: row.hostX25519Key || null } : null
+});
+
+/** Is an agent joined to this key's signaling room? The DO knows; nobody else does.
+ *  Addressed straight to the room's DO, not through the public /signaling gate —
+ *  this route has already resolved the session row, so the gate's sessionExists
+ *  would only repeat a lookup. The DO's fetch matches the bare /presence path,
+ *  which is what the public gate rewrites to as well. */
+async function agentOnRelay(apiKey, env) {
+  try {
+    const res = await env.SIGNALING_DO.get(env.SIGNALING_DO.idFromName(apiKey))
+      .fetch(new Request("https://do/presence", { signal: AbortSignal.timeout(RELAY_PROBE_TIMEOUT_MS) }));
+    const { agentPresent } = await res.json();
+    return agentPresent === true;
+  } catch (e) {
+    console.warn(`[connect] relay probe failed: ${e?.message || e}`);
+    return false;
+  }
+}
 
 export function OPTIONS() {
   return optionsResponse();
@@ -90,26 +119,28 @@ export async function POST(request) {
       // Both failure modes return null so neither is cached: a session row and a
       // tunnelUrl can both appear seconds later, and a cached miss would hide them.
       if (!row) { sessionMissing = true; return null; }
-      if (!row.tunnelUrl) return null;
+      // The host keys are carried even with no tunnel. RTC-first means the very
+      // first connection can have no tunnel at all, and that is exactly the one
+      // where the tail most needs sealing — dropping the keys here would send a
+      // pairing secret in the clear on the connection that most needs it sealed.
+      if (!row.tunnelUrl) return { tunnelUrl: null, ...hostKeysOf(row) };
 
       if (row.lastAccessStale) {
         await withD1Retry(() => env.DB.prepare(`UPDATE sessions SET lastAccessAt = datetime('now') WHERE apiKey = ?`)
           .bind(apiKey).run());
       }
-      // The host keys ride along so a client that never established RTC — and so
-      // never pinned anything — can still seal its tail. They arrive from the
-      // Worker, which is not a trusted source: the client compares fp2 over the
-      // pair against the two characters read off the agent's screen before
-      // believing them.
-      return {
-        tunnelUrl: row.tunnelUrl,
-        localIp: row.localIp || null,
-        hostKeys: row.hostPublicKey ? { ed: row.hostPublicKey, x: row.hostX25519Key || null } : null
-      };
+      return { tunnelUrl: row.tunnelUrl, localIp: row.localIp || null, ...hostKeysOf(row) };
     });
 
     if (sessionMissing) return jsonError("Session not found or expired", 404);
-    if (!cached) return jsonError("Server not ready. Please wait...", 503);
+    // No tunnel is not the same as no carrier: the DO relay serves clients over
+    // RTC, with no cloudflared involved. Ask the room whether an agent is on it
+    // before refusing a login the client could have completed.
+    // An agent sitting on the relay also outranks the heartbeat below: the DO
+    // socket is live proof, agentSeenAt only says the last HTTP beat succeeded —
+    // and a beat that fails while signaling still works must not read as offline.
+    const onRelay = !cached && await agentOnRelay(apiKey, env);
+    if (!cached && !onRelay) return jsonError("Server not ready. Please wait...", 503);
 
     // Liveness gate: an agent that heartbeats keeps agentSeenAt fresh, and its
     // shutdown sets agentOnline=0. Stale or said-goodbye means the machine is
@@ -125,18 +156,25 @@ export async function POST(request) {
           agentSeenAt IS NOT NULL AND agentSeenAt < datetime('now', '-${OFFLINE_GRACE_SEC} seconds') AS stale
         FROM sessions WHERE apiKey = ?
       `).bind(apiKey).first());
-      if (liveness && (liveness.saidGoodbye || liveness.stale)) {
+      // saidGoodbye is explicit — a shutdown, and the relay would be empty anyway
+      // if it had taken effect. Only the stale beat is overruled by live presence.
+      if (liveness?.saidGoodbye || (liveness?.stale && !onRelay)) {
         return jsonError("agent-offline", 503);
       }
     } catch (e) {
       console.warn(`[connect] liveness check skipped: ${e?.message || e}`);
     }
 
-    console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${cached.tunnelUrl} localIp=${cached.localIp || "none"}` +
-      // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
-      ` [seal] hostKeys=${cached.hostKeys ? (cached.hostKeys.x ? "ed+x" : "ed only (agent has not registered a sealing key)") : "none"}`);
+    // A cached tunnel URL wins: if the tunnel is up, WS is the better carrier and
+    // the client should try it first. Without one, RTC over the relay is the only
+    // remaining carrier, so the answer the client gets is a login with no URL.
+    const tunnelUrl = cached?.tunnelUrl || null;
 
-    return jsonOk({ tunnelUrl: cached.tunnelUrl, apiKey, tempKey, localIp: cached.localIp, hostKeys: cached.hostKeys || null });
+    console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${tunnelUrl || "none (rtc)"} localIp=${cached?.localIp || "none"}` +
+      // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
+      ` [seal] hostKeys=${cached?.hostKeys ? (cached.hostKeys.x ? "ed+x" : "ed only (agent has not registered a sealing key)") : "none"}`);
+
+    return jsonOk({ tunnelUrl, apiKey, tempKey, localIp: cached?.localIp || null, hostKeys: cached?.hostKeys || null });
   } catch (e) {
     return jsonError(e?.message || String(e), 500);
   }
