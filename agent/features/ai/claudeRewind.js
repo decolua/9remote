@@ -122,8 +122,10 @@ function checkpointIndex(records) {
   return byMessage;
 }
 
-// A tracked entry names a backup file, not a path on disk — resolve it for display.
-const backupsOf = (tracked) => Object.values(tracked || {}).map((e) => e?.backupFileName).filter(Boolean);
+// The MAP KEY is the file's own path; the entry's `backupFileName` is the CLI's internal
+// name for its backup (`aaaa1111@v2`), which means nothing to a reader. Same shape as
+// opencode's preview entries, so both engines render through one client path.
+const backupsOf = (tracked) => Object.keys(tracked || {}).map((file) => ({ file }));
 
 /**
  * Files a rewind to `messageId` would put back.

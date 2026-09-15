@@ -116,7 +116,8 @@ try {
 
   await test("a rewind to a later turn names the files its snapshot tracked", () => {
     const second = listRewindPoints(SESSION_ID).find((p) => p.messageId === "u2");
-    assert.deepEqual(second.files, ["aaaa1111@v2", "bbbb2222@v1"]);
+    // The path, not the CLI's internal backup name — that is what the confirm dialog prints.
+    assert.deepEqual(second.files, [{ file: "src/a.js" }, { file: "src/b.js" }]);
   });
 
   await test("an unknown session id yields no points rather than throwing", () => {
@@ -131,7 +132,7 @@ try {
   await test("preview names the files and warns about untracked writes", async () => {
     const p = await previewRewind(SESSION_ID, "u2", { files: true });
     assert.equal(p.ok, true);
-    assert.deepEqual(p.files, ["aaaa1111@v2", "bbbb2222@v1"]);
+    assert.deepEqual(p.files, [{ file: "src/a.js" }, { file: "src/b.js" }]);
     assert.equal(p.filesUnknown, false);
     assert.match(p.note, /shell command/i);
   });

@@ -69,9 +69,17 @@ export const MessageBubble = memo(function MessageBubble({
       // words just typed and leave an empty gap to stare at. So this component is still
       // mounted when the host answers, and the state below still runs.
       onCutLocal?.(id, text);
-      await onRewind?.(null, text, { index: rewindIndex });
+      const res = await onRewind?.(null, text, { index: rewindIndex });
       setBusy(false);
       setPhase(null);
+      // The host refused (a turn still running, the cut failed). The local cut above has
+      // to be undone and the reason shown — swallowing this left a pane that looked like
+      // the rewind had run and then quietly reverted itself. The hook re-fetches the
+      // host's own log on a failed apply, so this only has to say why.
+      if (res && !res.ok) {
+        setConfirm({ error: res.error || "The rewind did not go through.", text });
+        return;
+      }
       setEditing(false);
     };
 
