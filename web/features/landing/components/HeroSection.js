@@ -3,7 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { MacbookClaudeCode, IPhoneChat } from "./DeviceShowcase";
-import { THEME } from "../constants/landingConfig";
+import { THEME, DOWNLOADS, MOBILE } from "../constants/landingConfig";
 
 const SUPERPOWERS = [
   {
@@ -99,34 +99,40 @@ export default function HeroSection() {
               Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and remote vibe coding with 30+ AI agents on PC, Web, iPad, or phone.
             </p>
 
-            <div className="flex flex-row gap-2.5 sm:gap-3 justify-center lg:justify-start items-center mb-8 animate-fade-in-delay-4 flex-wrap">
-              <Link
-                href="/login"
-                className="btn-cta group px-5 sm:px-6 py-3 rounded-lg font-bold text-sm sm:text-base transition-transform duration-300 hover:scale-[1.03]"
-                style={{ background: THEME.accent, color: "#FFF" }}
-              >
-                <span className="flex items-center justify-center gap-2">
-                  <span>Get Remote</span>
-                  <svg className="w-4 h-4 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
-                  </svg>
-                </span>
-              </Link>
+            <div className="flex flex-row gap-2.5 sm:gap-3 justify-center lg:justify-start items-center mb-4 animate-fade-in-delay-4 flex-wrap">
+              {DOWNLOADS.map((d) => (
+                <Link
+                  key={d.label}
+                  href={d.href}
+                  target={d.href.startsWith("http") ? "_blank" : undefined}
+                  rel={d.href.startsWith("http") ? "noopener noreferrer" : undefined}
+                  className={`group px-5 sm:px-6 py-3 rounded-lg font-bold text-sm sm:text-base transition-transform duration-300 hover:scale-[1.03] border ${d.primary ? "btn-cta" : ""}`}
+                  style={
+                    d.primary
+                      ? { background: THEME.accent, color: "#FFF", borderColor: "transparent" }
+                      : { background: THEME.bgPanel, borderColor: THEME.border, color: THEME.text }
+                  }
+                >
+                  <span className="flex items-center justify-center gap-2">
+                    {d.icon && (
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.9} d={d.icon} />
+                      </svg>
+                    )}
+                    <span>{d.label}</span>
+                  </span>
+                </Link>
+              ))}
+            </div>
 
-              <Link
-                href="https://docs.9remote.cc/"
-                target="_blank"
-                rel="noopener noreferrer"
-                className="group px-5 sm:px-6 py-3 rounded-lg font-bold text-sm sm:text-base transition-all duration-300 hover:scale-[1.03] border"
-                style={{ background: THEME.bgPanel, borderColor: THEME.border, color: THEME.text }}
-              >
-                <span className="flex items-center justify-center gap-2">
-                  <span>Docs</span>
-                  <svg className="w-3.5 h-3.5 group-hover:translate-x-1 transition-transform" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                  </svg>
-                </span>
-              </Link>
+            <div
+              className="flex items-center justify-center lg:justify-start gap-2 mb-8 text-xs font-mono animate-fade-in-delay-4"
+              style={{ color: THEME.textDim }}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z" />
+              </svg>
+              <span>Mobile app for {MOBILE.label} — {MOBILE.note}</span>
             </div>
 
             {/* Quick 1-line command */}

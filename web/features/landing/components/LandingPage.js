@@ -3,9 +3,9 @@
 import AnimatedBackground from "./AnimatedBackground";
 import Navbar from "./Navbar";
 import HeroSection from "./HeroSection";
+import AgentClientSection from "./AgentClientSection";
 import FeaturesSection from "./FeaturesSection";
 import SecuritySection from "./SecuritySection";
-import GetStartedSection from "./GetStartedSection";
 import CTASection from "./CTASection";
 import Footer from "./Footer";
 import { THEME } from "../constants/landingConfig";
@@ -18,9 +18,9 @@ export default function LandingPage() {
       <Navbar />
       <main className="relative z-10">
         <HeroSection />
+        <AgentClientSection />
         <FeaturesSection />
         <SecuritySection />
-        <GetStartedSection />
         <CTASection />
       </main>
       <Footer />

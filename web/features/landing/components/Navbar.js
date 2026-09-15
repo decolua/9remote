@@ -9,7 +9,7 @@ import { useGithubStars } from "@/shared/hooks/useGithubStars";
 const LINKS = [
   { href: "#features", label: "Features" },
   { href: "#security", label: "Security" },
-  { href: "#get-started", label: "Quick Start" },
+  { href: "#how-it-works", label: "How It Works" },
   { href: "https://docs.9remote.cc/", label: "Docs", external: true },
   { href: "https://github.com/decolua/9remote", label: "GitHub", external: true }
 ];
