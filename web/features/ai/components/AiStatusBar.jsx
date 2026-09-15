@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useRef, useState } from "react";
-import Icon, { Target, Trash2, ChevronUp, Check } from "@/shared/components/ui/Icon";
+import Icon, { Target, SquarePen, ChevronUp, Check } from "@/shared/components/ui/Icon";
 import { getEngineConfig } from "../registry";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { vibrate } from "@/shared/utils/vibration";
@@ -26,7 +26,7 @@ export const AiStatusBar = memo(function AiStatusBar({
   isTurnRunning: propTurnRunning = false,
   isDesktop = true,
   onModeChange,
-  onClear
+  onNewChat
 }) {
   const storeTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata);
@@ -129,17 +129,17 @@ export const AiStatusBar = memo(function AiStatusBar({
         )}
       </div>
 
-      {/* Right: branch (mobile, non-default only), Clear */}
+      {/* Right: branch (mobile, non-default only), New chat */}
       <div className="flex items-center gap-2.5 shrink-0">
         {!isDesktop && branch && !isDefaultBranch(branch) && <BranchBadge branch={branch} dirty={dirty} size={11} />}
 
         <button
           type="button"
-          onClick={() => { vibrate(); onClear?.(); }}
-          className="hover:text-danger flex items-center transition-colors p-0.5 rounded hover:bg-surface-2"
-          title="Clear chat history"
+          onClick={() => { vibrate(); onNewChat?.(); }}
+          className="hover:text-text flex items-center transition-colors p-0.5 rounded hover:bg-surface-2"
+          title="New chat"
         >
-          <Trash2 size={12} />
+          <SquarePen size={12} />
         </button>
 
         {/* Cost readout hidden on request — stats still tracked in the store, re-enable

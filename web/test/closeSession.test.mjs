@@ -108,5 +108,27 @@ test("invalidating with no history held is not an error", () => {
   assert.deepEqual(store().agentHistory, {});
 });
 
+// Swapping a chat pane's session must keep the pane count and its slot: the pane row
+// re-measures its widths (and re-centers) whenever the count changes, which is what
+// made "+" flash and scroll.
+test("replacing a session swaps it in place, keeping the row's slot", () => {
+  store().clearOpenedSessions();
+  store().addOpenedSession("a");
+  store().addOpenedSession("old");
+  store().addOpenedSession("b");
+  store().touchLivePane(["a", "old", "b"]);
+  store().replaceOpenedSession("old", "new");
+  assert.deepEqual(store().openedSessions, ["a", "new", "b"]);
+  assert.deepEqual(store().livePanes, ["a", "new", "b"]);
+});
+
+test("a replacement whose slot already closed still opens its pane", () => {
+  store().clearOpenedSessions();
+  store().addOpenedSession("a");
+  store().touchLivePane(["a"]);
+  store().replaceOpenedSession("old", "new");
+  assert.deepEqual(store().openedSessions, ["a", "new"]);
+});
+
 console.log(`\n${fail ? "❌" : "✅"} ${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

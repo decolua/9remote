@@ -150,6 +150,16 @@ function TerminalWorkspace({
   const handleSelectTab = useCallback((sessionId) => {
     nav.handleSelectSession(sessionId);
   }, [nav]);
+  // The chat pane's "+" opens a fresh chat of the same engine and closes the one it
+  // replaced — the tab strip must not grow an entry per chat.
+  const handleNewChat = useCallback((aiUi, sessionId) => {
+    // The replaced terminal is still in the list, and it is leaving — counting it would
+    // step the number up on every press.
+    const index = sessions.filter((s) =>
+      s.id !== sessionId && sessionWorkspaceId(s) === (activeWorkspaceId ?? null)
+    ).length + 1;
+    nav.handleReplaceSession(sessionId, `${aiUi.short || aiUi.label} ${index}`, aiUi, true);
+  }, [nav, sessions, activeWorkspaceId]);
   const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
   // The right panel is memoized — these four would hand it a fresh closure per render.
   const handleRightPanelTabChange = useCallback(
@@ -349,6 +359,7 @@ function TerminalWorkspace({
             isDesktop={isDesktop}
             bgIndex={bgIndex}
             onActivate={() => nav.handleSelectSession(sessionId)}
+            onNewChat={() => handleNewChat(aiUi, sessionId)}
             onOpenRemote={onOpenRemote}
             onOpenMobile={onOpenMobile}
             onOpenArtifact={onOpenArtifact}

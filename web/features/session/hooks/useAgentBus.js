@@ -313,6 +313,9 @@ export function useAgentBus() {
       useTerminalStore.getState().invalidateAgentHistory();
     });
 
+    // A terminal opened on another device; force, or the freshness guard eats it.
+    bus.on("sessionsChanged", () => fetchLists(bus, true));
+
     // Workspaces changed elsewhere — refresh both lists
     bus.on("workspacesChanged", () => fetchLists(bus));
 
@@ -395,7 +398,7 @@ export function useAgentBus() {
   // inherited from the last session in the workspace.
   // `nameIsAuto` marks a name the UI filled in rather than the user typing it —
   // the agent keeps renaming such a terminal after the conversation it runs.
-  const createSession = useCallback((name, shellId, workspaceId, cwd, callback, nameIsAuto = false, agent = null) => {
+  const createSession = useCallback((name, shellId, workspaceId, cwd, callback, nameIsAuto = false, agent = null, replaces = null) => {
     if (!busRef.current) return;
     // Backward compat: createSession(name, callback) / createSession(name, shellId, callback)
     if (typeof shellId === "function") { callback = shellId; shellId = null; workspaceId = null; cwd = null; }
@@ -403,13 +406,15 @@ export function useAgentBus() {
     else if (typeof cwd === "function") { callback = cwd; cwd = null; }
 
     const agentId = typeof agent === "string" ? agent : agent?.id || null;
-    busRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto, agent: agentId }, (result) => {
+    busRef.current.emit("createSession", { name, shellId, workspaceId, cwd, nameIsAuto, agent: agentId, replaces }, (result) => {
       if (result?.success) {
         if (result.sessionId) {
           if (agentId) useTerminalStore.getState().setSessionAgent(result.sessionId, agentId);
           const wsPath = workspaces.find((w) => w.id === workspaceId)?.path || null;
           setSessions((prev) => [
-            ...prev.filter((s) => s.id !== result.sessionId),
+            // The terminal this one replaced goes in the same update, so the list (and
+            // the pane row built from it) never holds both.
+            ...prev.filter((s) => s.id !== result.sessionId && s.id !== result.replaced),
             {
               id: result.sessionId,
               name: result.name || name || "Terminal",

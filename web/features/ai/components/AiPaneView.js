@@ -19,7 +19,6 @@ import { ModeModal } from "./modals/ModeModal";
 import { DoctorModal } from "./modals/DoctorModal";
 import { TasksModal } from "./modals/TasksModal";
 import { RewindModal } from "./modals/RewindModal";
-import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { AiPermissionCard } from "./cards/AiPermissionCard";
 import { AiBlockedCard } from "./cards/AiBlockedCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
@@ -67,14 +66,12 @@ export const AiPaneView = memo(function AiPaneView({
   onActivate = null,
   onOpenRemote = null,
   onOpenMobile = null,
-  onOpenArtifact = null
+  onOpenArtifact = null,
+  onNewChat = null
 }) {
   const [activeModal, setActiveModal] = useState(null); // 'skills' | 'mcp' | 'model'
   const [refreshing, setRefreshing] = useState(false);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
-  // The trash sits one tap from the composer and wipes the whole log on the host, so it
-  // asks first — deleting a single file already does.
-  const [clearConfirmOpen, setClearConfirmOpen] = useState(false);
   const { t } = useI18n();
 
   const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced, hydrateFailed } = useAiSession({
@@ -100,8 +97,6 @@ export const AiPaneView = memo(function AiPaneView({
   const activeBlocked = useAiStore((s) => s.bySession[sessionId]?.activeBlocked);
   const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata) || DEFAULT_METADATA;
   const tasks = useAiStore((s) => s.bySession[sessionId]?.tasks) || EMPTY_TASKS;
-  const clearMessages = useAiStore((s) => s.clearMessages);
-  const setTurnRunning = useAiStore((s) => s.setTurnRunning);
   const setPermissionMode = useAiStore((s) => s.setPermissionMode);
 
   const sessionState = useNotificationStore((s) => (sessionId ? s.sessionStatus[sessionId]?.state : null)) || "idle";
@@ -150,17 +145,6 @@ export const AiPaneView = memo(function AiPaneView({
 
   const skills = metadata.skills || [];
   const mcpServers = metadata.mcpServers || [];
-
-  const handleClear = useCallback(() => {
-    vibrate();
-    clearMessages(sessionId);
-    // clearMessages leaves the turn alone (a reset from the host arrives the same way and
-    // must not end one), so the local reset says it here — the conversation that turn
-    // belonged to is gone.
-    setTurnRunning(sessionId, false);
-    // Force: /clear resets on the host and must work while a turn is streaming.
-    sendPrompt("/clear", { force: true });
-  }, [clearMessages, setTurnRunning, sessionId, sendPrompt]);
 
   const handleSelectSkill = useCallback((skillName) => {
     sendPrompt(`/${skillName}`);
@@ -439,18 +423,11 @@ export const AiPaneView = memo(function AiPaneView({
         workspacePath={workspacePath}
         isDesktop={isDesktop}
         onModeChange={handleModeChange}
-        onClear={() => setClearConfirmOpen(true)}
+        onNewChat={onNewChat}
       />
 
       {/* Modals. Skills/MCP lost their status-bar buttons but keep the slash entries
           (/skills, /mcp), so the panes stay mounted. */}
-      <ConfirmDialog
-        isOpen={clearConfirmOpen}
-        onClose={() => setClearConfirmOpen(false)}
-        onConfirm={handleClear}
-        title="Clear chat history?"
-        message="This erases the conversation on the host. It cannot be undone."
-      />
       {activeModal === "skills" && (
         <SkillsModal
           skills={skills}

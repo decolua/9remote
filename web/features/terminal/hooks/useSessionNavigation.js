@@ -6,6 +6,7 @@ import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { agentLaunchCommand, applySkipPermissions } from "@/features/terminal/constants/agentCli";
+import { OPEN_SESSION_EVENT } from "@/features/terminal/constants/terminalConfig";
 
 // Session/workspace navigation: select, create, delete, rename, and the workspace-aware
 // tab cycling used by the PC input bar.
@@ -104,6 +105,16 @@ export function useSessionNavigation({
       window.removeEventListener("9remote:dock-click", onDockClick);
     };
   }, [handleSelectSession, sessions, activeWorkspaceId]);
+
+  // A past-conversation row that a terminal is already running focuses that terminal
+  // instead of resuming a second copy. Same door as the dock click above.
+  useEffect(() => {
+    const onOpen = (e) => {
+      if (e.detail?.sessionId) handleSelectSession(e.detail.sessionId);
+    };
+    window.addEventListener(OPEN_SESSION_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SESSION_EVENT, onOpen);
+  }, [handleSelectSession]);
 
   // Tab/Shift+Tab in the PC input bar cycles sessions within the active workspace (wrap-round)
   const switchSession = useCallback((direction) => {
@@ -207,6 +218,28 @@ export function useSessionNavigation({
     }, nameIsAuto, agent);
   }, [createSession, activeWorkspaceId, addOpenedSession, touchLivePane, alertCreateFailed, replaceTopWithSession, pushView, currentView, requestFocus]);
 
+  // The chat pane's "+": a fresh chat of the same engine, and the host closes the one it
+  // replaced in the same transaction. The slot is handed over here rather than
+  // added-then-removed — same pane count, so the row neither re-measures its widths nor
+  // scrolls, and a create the host refuses leaves the chat on screen instead of losing both.
+  const handleReplaceSession = useCallback((sessionId, name, agent = null, nameIsAuto = false) => {
+    createSession(name, null, activeWorkspaceId, null, (result) => {
+      if (!result?.success) return alertCreateFailed(result?.error);
+      if (!result.sessionId) return;
+      const replaced = result.replaced || sessionId;
+      if (agent?.id) useTerminalStore.getState().setSessionAgent(result.sessionId, agent.id);
+      if (replaced) useTerminalStore.getState().replaceOpenedSession(replaced, result.sessionId);
+      else addOpenedSession(result.sessionId);
+      touchLivePane(result.sessionId);
+      if (currentView.type === "terminal") {
+        replaceTopWithSession(result.sessionId);
+      } else {
+        pushView({ type: "terminal", sessionId: result.sessionId });
+      }
+      requestFocus?.(result.sessionId);
+    }, nameIsAuto, agent, sessionId);
+  }, [createSession, activeWorkspaceId, alertCreateFailed, addOpenedSession, touchLivePane, replaceTopWithSession, pushView, currentView, requestFocus]);
+
   // Create from the FileExplorer bottom panel — stay in the current view
   const handleCreateSessionInline = useCallback((onCreated) => {
     createSession(null, (result) => {
@@ -260,6 +293,7 @@ export function useSessionNavigation({
     handleSelectWorkspace,
     handleCreateSession,
     handleQuickCreateSession,
+    handleReplaceSession,
     handleResumeAgentSession,
     handleCreateSessionInline,
     handleDeleteSession,
@@ -267,6 +301,6 @@ export function useSessionNavigation({
     switchSession,
     switchToIndex
   }), [handleSelectSession, handleSelectWorkspace, handleCreateSession, handleQuickCreateSession,
-    handleResumeAgentSession, handleCreateSessionInline, handleDeleteSession, handleRenameSession,
+    handleReplaceSession, handleResumeAgentSession, handleCreateSessionInline, handleDeleteSession, handleRenameSession,
     switchSession, switchToIndex]);
 }

@@ -170,6 +170,32 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     broadcast(io, "groupsChanged");
   };
 
+  // Tear a terminal down on both persistence paths, so a caller can own the
+  // broadcast: a replacement closes the old terminal and announces both changes
+  // in one breath.
+  const destroySession = async (sessionId) => {
+    const session = sessions.get(sessionId);
+    if (!session) return false;
+    globalAiManager.destroySession(sessionId);
+    if (session.daemon && daemonClient.isConnected()) {
+      try {
+        await daemonClient.deleteSession(sessionId);
+      } catch (e) {
+        return false;
+      }
+    } else if (session.pty) {
+      session.pty.kill();
+      deleteSessionBuffer(sessionId);
+    }
+    sessions.delete(sessionId);
+    clearSession(sessionId); // drop seq counter + gap ring
+    forgetSession(sessionId);
+    if (sessionWorkspaces[sessionId]) { delete sessionWorkspaces[sessionId]; persist(); }
+    deleteSessionNote(sessionId);
+    saveSessionMetadata(sessions);
+    return true;
+  };
+
   socket.on("getSessions", async (callback) => {
     capsLogger.info("[diag] getSessions arrived (socket ready to answer)"); // TEMP DIAGNOSTIC — stuck-loading bug
     try {
@@ -395,7 +421,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     }
   });
 
-  socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd, nameIsAuto, agent }, callback) => {
+  socket.on("createSession", async ({ name, shellId, workspaceId, groupId, cwd, nameIsAuto, agent, replaces }, callback) => {
     const sessionId = `session-${Date.now()}`;
     const wsId = workspaceId ?? groupId;
     const workspace = wsId ? workspaces.get(wsId) : null;
@@ -425,6 +451,16 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       const autoNamed = !name || nameIsAuto === true;
       const autoName = name || `Term ${sessions.size + 1}`;
 
+      // A replacement is one transaction: the new terminal exists before the old one
+      // is announced as gone, so no client ever sees a list (or a pane row) without it.
+      // The retired id travels on the ack so the caller can hand its slot over.
+      const retire = async (result) => {
+        const retired = replaces && replaces !== result.sessionId && await destroySession(replaces);
+        broadcast(io, "sessionsChanged");
+        callback({ ...result, replaced: retired ? replaces : null });
+        if (retired) broadcast(io, "sessionClosed", replaces);
+      };
+
       // Daemon mode
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
         const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, resolvedCwd);
@@ -433,7 +469,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
           sessions.set(result.sessionId, { daemon: true, name: autoName, autoNamed, createdAt: Date.now(), cwd: result.cwd, workspacePath, shellId: result.shellId, shellLabel: result.shellLabel, agent: agentId });
           if (workspace) { sessionWorkspaces[result.sessionId] = workspace.id; persist(); }
           saveSessionMetadata(sessions);
-          callback({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
+          // Other devices hold this list in memory — tell them a terminal appeared.
+          await retire({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
         } else {
           callback({ success: false, error: result.error });
         }
@@ -448,7 +485,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions);
       sessions.set(sessionId, sessionData);
       if (workspace) { sessionWorkspaces[sessionId] = workspace.id; persist(); }
-      callback({ success: true, sessionId, shellLabel: shellConfig.label });
+      await retire({ success: true, sessionId, shellLabel: shellConfig.label });
     } catch (error) {
       console.error("Failed to create session:", error);
       callback({ success: false, error: error.message });
@@ -624,38 +661,12 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   });
 
   socket.on("deleteSession", async (sessionId, callback) => {
-    const session = sessions.get(sessionId);
-    if (!session) return callback({ success: false, error: "Session not found" });
-
-    // Clean up any active AI session process for this sessionId
-    globalAiManager.destroySession(sessionId);
-
-    if (session.daemon && daemonClient.isConnected()) {
-      try {
-        // destroySession above already stopped the chat CLI and dropped its snapshot.
-        await daemonClient.deleteSession(sessionId);
-        sessions.delete(sessionId);
-        clearSession(sessionId); // drop seq counter + gap ring
-        forgetSession(sessionId);
-        if (sessionWorkspaces[sessionId]) { delete sessionWorkspaces[sessionId]; persist(); }
-        deleteSessionNote(sessionId);
-        saveSessionMetadata(sessions);
-        callback({ success: true });
-      } catch (e) {
-        callback({ success: false, error: e.message });
-      }
-      return;
-    }
-
-    if (session.pty) session.pty.kill();
-    sessions.delete(sessionId);
-    clearSession(sessionId); // drop seq counter + gap ring
-    forgetSession(sessionId);
-    if (sessionWorkspaces[sessionId]) { delete sessionWorkspaces[sessionId]; persist(); }
-    deleteSessionBuffer(sessionId);
-    deleteSessionNote(sessionId);
+    if (!sessions.has(sessionId)) return callback({ success: false, error: "Session not found" });
+    // The AI process and its snapshot go with the terminal: destroySession stops the
+    // chat CLI first, so nothing is left running with no terminal behind it.
+    const ok = await destroySession(sessionId);
+    if (!ok) return callback({ success: false, error: "Could not close session" });
     broadcast(io, "sessionClosed", sessionId);
-    saveSessionMetadata(sessions);
     callback({ success: true });
   });
 

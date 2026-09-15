@@ -97,6 +97,23 @@ export const createNavigationSlice = (set, get) => ({
     };
   }),
 
+  // A chat pane's "+" swaps one session id for another IN PLACE: the pane keeps its
+  // slot in the row, so the pane count never changes and nothing re-measures the
+  // pane width or re-centers the row — add-then-remove flashed and scrolled instead.
+  replaceOpenedSession: (oldId, newId) => set((state) => {
+    if (!newId || oldId === newId) return state;
+    const swap = (id) => (id === oldId ? newId : id);
+    // The close of the old terminal can beat the create's ack, in which case its slot
+    // is already gone — the new pane must still open rather than have no row at all.
+    const opened = !oldId || state.openedSessions.includes(oldId)
+      ? state.openedSessions.map(swap)
+      : (state.openedSessions.includes(newId) ? state.openedSessions : [...state.openedSessions, newId]);
+    return {
+      openedSessions: opened,
+      livePanes: state.livePanes.map(swap)
+    };
+  }),
+
   clearOpenedSessions: () => set({ openedSessions: [], livePanes: [] }),
 
   reorderOpenedSessions: (orderedIds) => set((state) => {
