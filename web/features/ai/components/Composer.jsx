@@ -377,8 +377,9 @@ export const Composer = memo(function Composer({
     const [kind, arg] = action.split(":");
 
     if (kind === "modal") {
+      // End any in-flight composition here, not in the modal's own autoFocus target.
+      textareaRef.current?.blur();
       onOpenModal?.(arg);
-      setText("");
       return;
     }
     if (kind === "clear") {
@@ -418,13 +419,14 @@ export const Composer = memo(function Composer({
     const token = lastWordMatch[1];
     const prefix = text.slice(0, text.length - token.length);
     // A modal command is an action, not text: writing the token into the box first
-    // would flash it and leave it behind when the modal closes.
+    // would flash it and leave it behind when the modal closes. Only the token goes —
+    // anything typed before it is the user's draft and stays.
     const opensModal = menuType === "/" && item.action?.startsWith("modal:");
     const replacement = menuType === "@" ? `@${item.name} ` : `${item.name} `;
     // A submenu keeps its token in the box: the effect above holds the submenu open
     // only while the text still ends in that command, so clearing it would close the
     // list the user just opened. The text is cleared when an option is picked.
-    setText(opensModal ? "" : `${prefix}${replacement}`);
+    setText(opensModal ? prefix : `${prefix}${replacement}`);
     setMenuOpen(false);
 
     if (menuType !== "/") {
@@ -468,6 +470,10 @@ export const Composer = memo(function Composer({
     // A modal above owns the keyboard: the composer keeps focus underneath, so an
     // unguarded Escape would stop the turn and Enter would send a prompt.
     if (modalOpen) return;
+    // Mid-composition keys belong to the IME. On a phone Enter is also the key that
+    // commits the word being typed, so acting on it opens a modal with the composition
+    // still open — and the word lands in whatever the modal focuses (its search box).
+    if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
 
     // Shift+Tab: cycle permission modes (matching Claude Code CLI)
     if (e.shiftKey && e.key === "Tab") {
@@ -597,7 +603,6 @@ export const Composer = memo(function Composer({
       return;
     }
     if (e.key === "Enter" && !e.shiftKey && hasKeyboard) {
-      if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
       e.preventDefault();
       executeSend();
     }
