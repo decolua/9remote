@@ -67,8 +67,10 @@ export const Composer = memo(function Composer({
   // Messages sent while a turn is running. A list, not a single slot: sending a second
   // one used to overwrite the first with no sign anything was lost.
   const [queue, setQueue] = useState(EMPTY_ARRAY);
-  const [history, setHistory] = useState([]);
   const [historyIdx, setHistoryIdx] = useState(-1);
+  // Whatever was in the box before the first ArrowUp — ArrowDown past the newest entry
+  // gives it back instead of wiping the box.
+  const draftRef = useRef("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuType, setMenuType] = useState(null); // "/" or "@"
   const [menuFilter, setMenuFilter] = useState("");
@@ -290,7 +292,6 @@ export const Composer = memo(function Composer({
 
     vibrate();
     if (trimmed) {
-      setHistory((prev) => [...prev.filter((h) => h !== trimmed), trimmed].slice(-50));
       // Suggested prompts only, never a shell command the user ran with "!".
       if (!trimmed.startsWith("!")) addCommand(trimmed);
     }
@@ -573,23 +574,33 @@ export const Composer = memo(function Composer({
       }
     }
 
-    // History traversal on empty or unchanged input
-    if (e.key === "ArrowUp" && !text && history.length > 0) {
+    // History traversal, newest-first (index 0 is the most recent prompt). Arrow keys
+    // only reach history from the box's edge — inside a multi-line draft they still
+    // move the caret, which is what every shell does.
+    const el = textareaRef.current;
+    const caret = el?.selectionStart ?? 0;
+    const value = el?.value ?? "";
+    const atFirstLine = value.lastIndexOf("\n", caret - 1) === -1;
+    const atLastLine = value.indexOf("\n", caret) === -1;
+
+    if (e.key === "ArrowUp" && !submenuCmd && !menuOpen && atFirstLine && promptHistory.length > 0) {
       e.preventDefault();
-      const nextIdx = historyIdx === -1 ? history.length - 1 : Math.max(0, historyIdx - 1);
+      if (historyIdx === -1) draftRef.current = text;
+      const nextIdx = Math.min(historyIdx + 1, promptHistory.length - 1);
+      if (nextIdx === historyIdx) return;
       setHistoryIdx(nextIdx);
-      setText(history[nextIdx]);
+      setText(promptHistory[nextIdx]);
       return;
     }
-    if (e.key === "ArrowDown" && historyIdx !== -1) {
+    if (e.key === "ArrowDown" && !submenuCmd && !menuOpen && atLastLine && historyIdx !== -1) {
       e.preventDefault();
-      const nextIdx = historyIdx + 1;
-      if (nextIdx >= history.length) {
+      const nextIdx = historyIdx - 1;
+      if (nextIdx < 0) {
         setHistoryIdx(-1);
-        setText("");
+        setText(draftRef.current);
       } else {
         setHistoryIdx(nextIdx);
-        setText(history[nextIdx]);
+        setText(promptHistory[nextIdx]);
       }
       return;
     }
