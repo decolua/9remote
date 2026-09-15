@@ -118,8 +118,10 @@ for (const f of logs) {
     const { reached, why, top, messages } = walkUp(full);
     assert.ok(reached, `${f}: ${why}`);
     assert.equal(top.index, 0, `${f}: stopped at index ${top.index}`);
-    // The floor: the oldest event the log still holds is the first thing mounted.
-    assert.ok(messages.length > 0, `${f}: nothing mounted`);
+    // A log of pure metadata (an `init` and nothing else) mounts nothing, and that is
+    // correct — there is no turn in it to show. Anything with a turn must mount one.
+    const hasTurn = full.some((e) => e.event === "user_message" || e.event === "delta" || e.event === "tool_start");
+    if (hasTurn) assert.ok(messages.length > 0, `${f}: a log with turns mounted nothing`);
     pass++;
   } catch (err) {
     fail++;

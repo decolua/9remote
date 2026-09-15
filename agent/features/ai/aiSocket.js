@@ -52,14 +52,15 @@ function mirrorAiStatus(manager, sessionId, event, data, engine) {
 // two expressions whose evaluation order is invisible at the call site, which is how the
 // two got swapped.
 //
-//   1. rebuild first: a log thinner than the CLI's own transcript is replaced, and a
-//      window measured before that hides the restored turns from scroll-up for good
-//      (the ack's `fromSeq` is where the client's paging begins);
+//   1. rebuild first, from the CLI's own transcript — it is the authority on what the
+//      conversation is, and this session's log is a cache of it that loses content. A
+//      window measured before the rebuild hides the restored turns from scroll-up for
+//      good (the ack's `fromSeq` is where the client's paging begins);
 //   2. then the connect metadata, appended into the log that survived step 1. Reversed,
 //      a fresh `init` lands in the log the rebuild replaces, and the ack goes out with no
 //      model catalog and no skills on a chat that was just restored.
 function doorSession(session, engine = session.engine) {
-  session.recoverIfThinner();
+  session.refreshFromStore();
   return { ...emitConnectMetadata(session, engine), session: publicSession(session) };
 }
 
@@ -163,7 +164,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   if (io && !broadcastAttached) {
     broadcastAttached = true;
     manager.onEvent((sessionId, event, data) => {
-      logger.debug(`[ai] event: ${event} session: ${sessionId}`);
+      // Streaming events fire per chunk — logging them drowns the file.
+      if (event !== "delta" && event !== "thinking") logger.debug(`[ai] event: ${event} session: ${sessionId}`);
       broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data });
       const engine = manager.getSession(sessionId)?.engine || "claude";
       mirrorAiStatus(manager, sessionId, event, data, engine);

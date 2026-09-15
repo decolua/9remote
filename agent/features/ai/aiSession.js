@@ -185,25 +185,17 @@ function capLog(events) {
   });
 }
 
-// Is the CLI's own transcript the fuller store? "Fuller" is counted in EVENTS, never in
-// turns: the event cap sheds the HEAD of the log, and the head is where the prompts are —
-// so a chat left open keeps thousands of recent tool events and loses every
-// `user_message` it ever had (measured: 35 events left of 10,325, none of them a prompt).
-// Compared turn-for-turn that log held 0 of the transcript's 9 and passed; compared as a
-// whole it is 35 against 520. The `user_message` guard is what keeps a transcript of pure
-// tool noise from replacing a real conversation.
+// The CLI's transcript is the authority on what this conversation IS; the log here is a
+// cache of what the agent happened to see. They disagree in one direction only — the log
+// loses: AI_MAX_EVENTS sheds its head (and the head is where the prompts are), and
+// compactEvents folds deltas. Measured on one live chat: 65 events here, 0 prompts;
+// 151 in the transcript, 1 prompt.
 //
-// ONE rule, read by all three doors that rebuild a log (the constructor's snapshot
-// top-up, recoverIfThinner on a hydrate, _fillGap after a missed stretch). Written out
-// per door it had already drifted: two counted events and one counted turns, so the same
-// log was "thin" to one door and "healthy" to another — which is how a pane came back
-// short while /resume, a different door, showed the whole chat.
-function isFullerLog(recovered, current) {
-  if (!recovered?.length) return false;
-  if (!recovered.some((e) => e.event === "user_message")) return false;
-  return recovered.length > (current?.length || 0);
-}
-
+// So a hydrate rebuilds, always, instead of asking a rule whether the log looks thin.
+// Every "thin enough to replace?" test written for this drifted from the others — two
+// counted events while one counted turns — and each drift showed up as a pane that came
+// back short on one door while /resume, which never asked that question, showed the whole
+// chat. The transcript is read on a hydrate; when it has nothing, the log stands.
 function compactEvents(events) {
   if (!Array.isArray(events) || events.length <= 1) return events;
   const compacted = [];
@@ -263,23 +255,13 @@ export class AiSession {
     this.cliSessionId = engine === AI_ENGINES.CODEX ? null : bindId;
     // No snapshot of its own yet (a chat opened from the history list, or an agent
     // restarted): replay the conversation from the CLI's own store, so the pane shows
-    // it instead of an empty log. A snapshot wins — it is this session's own state.
+    // it instead of an empty log.
     this.history = snap ? capLog(renumber(compactEvents(snap.events))) : [];
-    // A snapshot can be thin — a legacy file, or one written just before a crash. The
-    // CLI's own transcript is the fuller store, so when it knows more turns than the
-    // snapshot does, it wins. Only ever upward: a good snapshot is never replaced.
-    //
-    // The count of turns is NOT what "thin" means. The event cap sheds the head of the
-    // log, and the head is where the prompts are: a chat left open long enough keeps its
-    // recent tool events (thousands of them, well past AI_MAX_EVENTS) and loses every
-    // `user_message` it ever had — measured 35 events left of 10,325, zero of them a
-    // prompt. Compared turn-for-turn, that log held 0 the transcript's 9, so it passed;
-    // compared as a whole it is 35 events against 520. So the transcript is asked
-    // whenever it would bring MORE EVENTS back, which is the loss that actually happened.
-    if (bindId) {
-      const recovered = recoverFromTranscript(engine, this.cwd, bindId);
-      if (isFullerLog(recovered, this.history)) this.history = renumber(capLog(recovered));
-    }
+    // The transcript is the authority, and the snapshot only a cache of it — so it is
+    // read here too, not only on a hydrate. See adoptLog: every "is the log thin?" test
+    // written for this drifted from the others, and the drift is what a short reopen
+    // looked like. When the transcript has nothing, the snapshot stands.
+    if (bindId) this.history = this._rebuildFromStore(bindId) || this.history;
     // Where the next event's seq comes from. Seed from the log rather than the snapshot
     // field so a snapshot written before this counter existed still continues upward.
     this.seqCounter = this.history.at(-1)?.seq || 0;
@@ -434,34 +416,46 @@ export class AiSession {
   }
 
   /**
-   * Adopt a rebuilt log, exactly the way a hydrate delivers one: reset the client's
-   * view, then ship only the tail and say where that window begins. Shipping a whole
-   * conversation down the live bus is what made `/resume` slow — the rest belongs to
-   * the scroll-up fetch, which needs `fromSeq` to know what it is missing.
+   * Read the CLI's own store and return the log it describes, or null when there is
+   * nothing to read. The one place a transcript becomes a log — a chat opened from the
+   * history list, a hydrate, /resume, a rewind and a gap all land here.
+   *
+   * The transcript is the authority on what the conversation IS; this session's log is a
+   * cache of what the agent happened to see, and it loses content: the event cap sheds
+   * its head (where the prompts live) and compaction folds deltas. So callers do not ask
+   * whether the log looks thin — they ask the store, and keep what they have when it
+   * answers nothing. Every "thin enough?" test written for this drifted from the others
+   * (two counted events, one counted turns), and each drift showed as a pane that came
+   * back short on one door while /resume showed the whole chat.
    */
-  // The CLI's own store is the fuller one: the log here is capped (AI_MAX_EVENTS sheds
-  // its head) and a snapshot can be short. Called before a hydrate is answered, so the
-  // window it reports covers everything the pane could ask for. The test is isFullerLog —
-  // a good log is never replaced by a shorter one.
-  // Returns whether it replaced the log.
-  recoverIfThinner() {
-    if (!this.cliSessionId || this.isTurnRunning) return false;
-    const recovered = recoverFromTranscript(this.engine, this.cwd, this.cliSessionId);
-    if (!isFullerLog(recovered, this.history)) return false;
-    this._adoptLog(recovered);
+  _rebuildFromStore(sessionId) {
+    // The id reaches the CLI as argv and the filesystem as a path segment; each reader
+    // validates it itself, and a client-supplied resume id is checked before it is
+    // stored (see RESUME_ID_RE).
+    const recovered = recoverFromTranscript(this.engine, this.cwd, sessionId);
+    return recovered?.length ? renumber(capLog(recovered)) : null;
+  }
+
+  // Rebuild this session's log from the CLI's own store and tell every client to reset.
+  // Runs before a hydrate is answered, so the window that ack reports covers everything
+  // the pane could ask for. Returns whether it replaced the log.
+  refreshFromStore() {
+    if (!this.cliSessionId) return false;
+    const log = this._rebuildFromStore(this.cliSessionId);
+    if (!log) return false;
+    this._adoptLog(log);
     return true;
   }
 
   // A rewind changed the conversation under us: the CLI's own store is now shorter than
   // the log this host has been accumulating. Rebuild from that store and broadcast a
   // reset, or every client keeps rendering the turns the rewind just discarded.
-  // Returns false when the engine keeps no transcript to rebuild from — the caller
-  // decides what to say rather than showing a conversation that no longer exists.
+  // Returns false when the engine keeps no transcript to rebuild from.
   reloadFromStore() {
     if (!this.cliSessionId) return false;
-    const recovered = recoverFromTranscript(this.engine, this.cwd, this.cliSessionId);
-    if (!recovered) return false;
-    this._adoptLog(recovered);
+    const log = this._rebuildFromStore(this.cliSessionId);
+    if (!log) return false;
+    this._adoptLog(log);
     return true;
   }
 
@@ -516,17 +510,7 @@ export class AiSession {
   // bounded by the daemon's buffer. Rebuilding from it gives back the whole
   // conversation; only when there is no transcript does the hole have to be shown.
   _fillGap(missed) {
-    const recovered = this.cliSessionId
-      ? recoverFromTranscript(this.engine, this.cwd, this.cliSessionId)
-      : null;
-    // The same test as the other two doors. Counting TURNS here was the drift that made
-    // this door refuse a rebuild the others took: a capped log keeps its recent tool
-    // events and loses its prompts, so "no new turns" said healthy about a log that had
-    // lost the whole head of the conversation.
-    if (isFullerLog(recovered, this.history)) {
-      this._adoptLog(recovered);
-      return;
-    }
+    if (this.cliSessionId && this.refreshFromStore()) return;
     // Nothing to rebuild from. Say so in the log: a visible gap beats a conversation
     // that quietly skips a step.
     this.emitNormalized("ansi", {
@@ -851,11 +835,9 @@ export class AiSession {
       // but the pane replays nothing.
       else if (this.engine === AI_ENGINES.ANTIGRAVITY) this.cliSessionId = resume;
       // Replace the replay log with the resumed conversation's tail, or the pane would
-      // show one conversation while the CLI continues another. The readers pull from
-      // each CLI's own store (codex rollouts, opencode db).
-      // Same delivery as opening this conversation from the history list: reset + tail,
-      // with the rest left to the scroll-up fetch.
-      this._adoptLog(recoverFromTranscript(this.engine, this.cwd, resume) || []);
+      // show one conversation while the CLI continues another. Same one door as every
+      // other rebuild — a hydrate, the constructor, a gap and a rewind all come here.
+      this._adoptLog(this._rebuildFromStore(resume) || []);
       // TEMP DIAGNOSTIC — an empty rebuild is what a rewind to the first turn SHOULD
       // produce, and also what a failed transcript read produces. Those two look
       // identical from the pane (a blank conversation), so say which one happened and

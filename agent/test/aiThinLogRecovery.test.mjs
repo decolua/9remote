@@ -49,24 +49,25 @@ const open = () => new AiSession({ id: "thin", engine: "claude", cwd, options: {
 
 test("a snapshot thinner than the transcript is rebuilt from it", () => {
   const s = open();
-  // Opening is already the first door: the constructor rebuilds, so a chat whose log was
-  // shed by the event cap comes back holding its prompts without anyone asking.
+  // Opening is the first door: the constructor reads the CLI's store, so a chat whose log
+  // was shed by the event cap comes back holding its prompts without anyone asking.
   assert.equal(s.history.filter((e) => e.event === "user_message").length, TURNS, "every turn is back");
-  assert.equal(s.recoverIfThinner(), false, "and the second door finds nothing left to do");
+  // The store was just read, so a hydrate right after has nothing new to add — but it
+  // still reads it and still adopts the answer (no "is it thinner?" gate to disagree with).
+  assert.equal(s.refreshFromStore(), true, "a reopen rebuilds from the store, always");
 });
 
 test("a rebuilt log is renumbered from 1, and the counter follows it", () => {
   const s = open();
-  s.recoverIfThinner();
   assert.ok(s.history.every((e, i) => e.seq === i + 1), "seqs are 1..N so scroll-up can walk them");
   assert.equal(s.seqCounter, s.history.length);
 });
 
 // The event cap sheds the HEAD of the log, and the head is where the prompts are — the
 // log left behind is a tail of tool events with no `user_message` in it at all
-// (measured: 35 events left of 10,325, none of them a prompt). Reopening must rebuild
-// from the transcript, or the pane shows a column of cards with no bubbles above them
-// and nothing to scroll to: the prompts are not in the log.
+// (measured: 65 events left of a live chat, none of them a prompt). Reopening must
+// rebuild from the transcript, or the pane shows a column of cards with no bubbles above
+// them and nothing to scroll to: the prompts are not in the log.
 test("a log whose prompts were shed by the event cap is rebuilt from the transcript", () => {
   fs.writeFileSync(path.join(home, "ai-sessions", "claude-capped.json"), JSON.stringify({
     engine: "claude", cwd, threadId: null, cliSessionId: cliId,
@@ -77,23 +78,16 @@ test("a log whose prompts were shed by the event cap is rebuilt from the transcr
   assert.ok(s.history.length > 20, "the transcript's log replaced the shed one");
 });
 
-test("a log that already holds every turn is left alone", () => {
-  const s = open();
-  s.recoverIfThinner();
-  const before = s.history;
-  assert.equal(s.recoverIfThinner(), false);
-  assert.equal(s.history, before, "the same array — no reset broadcast to clients");
-});
-
-test("mid-turn, the log is never swapped under the user", () => {
-  const s = open();
-  s.isTurnRunning = true;
-  assert.equal(s.recoverIfThinner(), false);
-});
-
-test("an engine with no transcript store is left as it is", () => {
-  const s = new AiSession({ id: "thin-codex", engine: "codex", cwd, options: { mock: true }, onEvent() {} });
-  assert.equal(s.recoverIfThinner(), false);
+test("an engine with no transcript store keeps the log it has", () => {
+  // codex/opencode/antigravity have their own readers; with nothing in the store the
+  // session keeps the snapshot rather than being blanked.
+  fs.writeFileSync(path.join(home, "ai-sessions", "codex-none.json"), JSON.stringify({
+    engine: "codex", cwd, threadId: "t-1", cliSessionId: null,
+    events: [{ seq: 1, event: "user_message", data: { text: "kept" } }]
+  }));
+  const s = new AiSession({ id: "none", engine: "codex", cwd, options: { mock: true }, onEvent() {} });
+  assert.equal(s.history.length, 1, "the snapshot stands when the store has nothing");
+  assert.equal(s.history[0].data.text, "kept");
 });
 
 fs.rmSync(transcriptPath, { force: true });

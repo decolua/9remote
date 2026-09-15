@@ -135,12 +135,12 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   assert.match(SESSION, /const \{ events: replay, hasMore, fromSeq \} = replayWindow\(log, AI_REPLAY_BYTES\)/);
   assert.match(SESSION, /this\.onEvent\?\.\(this\.id, "conversation_reset", \{ hasMore, fromSeq \}\)/);
   assert.match(SESSION, /for \(const ev of replay\) this.onEvent\?\.\(this\.id, ev\.event, ev\.data, ev\.seq\)/);
-  // Every path that replaces the log with real content goes through it: /resume, the
-  // gap rebuild, a rewind that finds the CLI's store shorter, and the re-attach that
-  // finds this log thinner than the CLI's transcript.
-  // /clear is the fifth reset but ships an empty window directly — nothing to page.
+  // Every path that replaces the log with real content goes through it: the hydrate
+  // rebuild (refreshFromStore), a rewind that finds the CLI's store shorter, and
+  // /resume. A gap reaches it through refreshFromStore.
+  // /clear is the reset that ships an empty window directly — nothing to page.
   const callers = (SESSION.match(/this\._adoptLog\(/g) || []).length;
-  assert.equal(callers, 4, `resume, gap, rewind and thin-recovery must share the one delivery, saw ${callers}`);
+  assert.equal(callers, 3, `hydrate, rewind and resume must share the one delivery, saw ${callers}`);
   // ...and /clear still states the empty window rather than sending no payload at all.
   assert.match(SESSION, /conversation_reset", \{ hasMore: false, fromSeq: 0 \}/);
 });
@@ -159,26 +159,24 @@ test("a hydrate ack ships a tail and says there is more — that is what arms sc
   assert.equal((SOCKET.match(/\.\.\.doorSession\(/g) || []).length, 3);
 });
 
-test("one rule says what a thin log is, and all three doors read it", () => {
+test("one door reads the CLI's store, and nothing asks whether the log looks thin", () => {
   // A legacy snapshot, or one written just before a crash, holds a turn or two while the
-  // CLI's transcript holds the conversation. Without the top-up the pane reopens on a stub.
+  // CLI's transcript holds the conversation. Without the rebuild the pane reopens on a stub.
   //
-  // "Fuller" is counted in EVENTS, not turns: the event cap sheds the head of the log, and
-  // that is where the prompts are — a shed log can hold thousands of tool events and not
-  // one `user_message`, so a turn-for-turn test called it healthy and the pane reopened
-  // with nothing to scroll to.
-  //
-  // The rule had been written out three times (the constructor's top-up, recoverIfThinner,
-  // _fillGap) and had already drifted — two counted events, one counted turns. That is how
-  // a pane came back short from one door while another door showed the whole chat.
+  // The rebuild used to be guarded by a "is this log thin?" rule, written out three times
+  // (the constructor's top-up, a hydrate, a gap) and drifted: two counted events while one
+  // counted turns. Every drift showed as a pane that came back short on one door while
+  // /resume — which never asked that question — showed the whole chat. The rule is gone.
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
-  assert.match(SESSION, /function isFullerLog\(recovered, current\)/);
-  assert.match(SESSION, /return recovered\.length > \(current\?\.length \|\| 0\)/);
-  assert.match(SESSION, /recovered\.some\(\(e\) => e\.event === "user_message"\)/);
-  // One definition, three callers — no door may carry its own copy of the test.
-  assert.equal((SESSION.match(/isFullerLog\(/g) || []).length, 4, "one definition, three callers");
+  assert.match(SESSION, /_rebuildFromStore\(sessionId\) \{/);
+  assert.match(SESSION, /return recovered\?\.length \? renumber\(capLog\(recovered\)\) : null;/);
+  // No surviving "is it thinner?" comparison, in any of its drifted forms.
+  assert.ok(!SESSION.includes("isFullerLog"), "the thin-log rule must be gone, not renamed");
   assert.doesNotMatch(SESSION, /recoveredTurns > snapTurns/);
   assert.doesNotMatch(SESSION, /turns > known/);
+  assert.doesNotMatch(SESSION, /recovered\.length > this\.history\.length/);
+  // One reader, four callers: the constructor, a hydrate, a gap and /resume.
+  assert.equal((SESSION.match(/_rebuildFromStore\(/g) || []).length, 5, "one definition, four callers");
 });
 
 test("an ack is rebuilt, then described — in that order, from one place", () => {
@@ -197,7 +195,7 @@ test("an ack is rebuilt, then described — in that order, from one place", () =
   const door = SOCKET.slice(SOCKET.indexOf("function doorSession("));
   const body = door.slice(0, door.indexOf("\n}"));
   assert.ok(
-    body.indexOf("session.recoverIfThinner()") < body.indexOf("emitConnectMetadata("),
+    body.indexOf("session.refreshFromStore()") < body.indexOf("emitConnectMetadata("),
     "the rebuild must precede the metadata it would otherwise throw away"
   );
   // No door may assemble its own pair again — the order is only safe in one place.
