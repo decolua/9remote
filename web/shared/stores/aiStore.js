@@ -22,12 +22,21 @@ const aiStorage = jsonStorage && {
   }
 };
 
+// Message ids are minted here, and a user prompt plus its assistant placeholder used to
+// take the same `Date.now()` — two rows, one key, which React reports as a duplicate
+// child and may then drop. A monotonic counter makes every id unique within a ms.
+let msgSeq = 0;
+const nextId = (prefix) => `${prefix}-${Date.now()}-${++msgSeq}`;
+
 const INITIAL_SESSION_STATE = {
   messages: [],
   isTurnRunning: false,
-  // Client clock at the moment the turn started — drives the AI pane's turn status
-  // line. The host sends no timestamp, so a reconnect mid-turn restarts the count.
+  // Host clock at the moment the current turn started. Client-side only: the live line
+  // measures against this same clock, so no skew is involved.
   turnStartedAt: 0,
+  // How long the LAST turn took, measured by the host. A pane that loads after the turn
+  // ended prints its span from here — its own clock saw neither edge (see AiTurnStatus).
+  lastTurnMs: 0,
   activePermission: null,
   // The last answer to this gate never reached the host — the card stays up and says so.
   gateError: false,
@@ -113,12 +122,21 @@ export const useAiStore = create(
         });
       },
 
-      addUserMessage: (sessionId, text, attachments = null) => {
+      /**
+       * A prompt, echoed by the host so every surface shows the same bubble.
+       *
+       * `replay: true` means the log is being re-sent (a hydrate rebuilt it, a rewind, a
+       * /resume) and this prompt already happened. Such an event must NOT start a turn
+       * here: it would move the mark the live line counts from, and the `turn_complete`
+       * that follows it in the same batch would then measure ~0ms and overwrite the span
+       * the host had just stated — the "Worked for 0s" on a chat that ran for minutes.
+       */
+      addUserMessage: (sessionId, text, attachments = null, replay = false) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          const userMsg = { id: `u-${Date.now()}`, role: "user", content: text, attachments: attachments || [] };
+          const userMsg = { id: nextId("u"), role: "user", content: text, attachments: attachments || [] };
           const assistantPlaceholder = {
-            id: `a-${Date.now()}`,
+            id: nextId("a"),
             role: "assistant",
             content: "",
             thinking: "",
@@ -131,15 +149,19 @@ export const useAiStore = create(
               ...state.bySession,
               [sessionId]: {
                 ...curr,
-                isTurnRunning: true,
-                turnStartedAt: Date.now(),
-                // The counter on screen is this turn's own usage, so it starts at zero
-                // every prompt: remember where the session total stood.
-                turnBaseline: {
-                  inputTokens: curr.stats.inputTokens || 0,
-                  outputTokens: curr.stats.outputTokens || 0
-                },
-                activeBlocked: null,
+                ...(replay ? null : {
+                  isTurnRunning: true,
+                  turnStartedAt: Date.now(),
+                  // The turn this line will summarize has not ended yet.
+                  lastTurnMs: 0,
+                  // The counter on screen is this turn's own usage, so it starts at zero
+                  // every prompt: remember where the session total stood.
+                  turnBaseline: {
+                    inputTokens: curr.stats.inputTokens || 0,
+                    outputTokens: curr.stats.outputTokens || 0
+                  },
+                  activeBlocked: null
+                }),
                 messages: [...curr.messages, userMsg, assistantPlaceholder]
               }
             }
@@ -153,7 +175,7 @@ export const useAiStore = create(
           const list = [...curr.messages];
           const last = list[list.length - 1];
           if (!last || last.role !== "assistant" || !last.isLive) {
-            list.push({ id: `msg-${Date.now()}`, role: "assistant", content: text || "", isLive: true, diffs: [], tools: [] });
+            list.push({ id: nextId("msg"), role: "assistant", content: text || "", isLive: true, diffs: [], tools: [] });
           } else {
             // New object identity — memoized bubbles must see the change to re-render
             list[list.length - 1] = { ...last, content: (last.content || "") + (text || "") };
@@ -173,7 +195,7 @@ export const useAiStore = create(
           const list = [...curr.messages];
           const last = list[list.length - 1];
           if (!last || last.role !== "assistant" || !last.isLive) {
-            list.push({ id: `msg-${Date.now()}`, role: "assistant", content: "", thinking: text || "", isLive: true, diffs: [], tools: [] });
+            list.push({ id: nextId("msg"), role: "assistant", content: "", thinking: text || "", isLive: true, diffs: [], tools: [] });
           } else {
             list[list.length - 1] = { ...last, thinking: (last.thinking || "") + (text || "") };
           }
@@ -192,7 +214,7 @@ export const useAiStore = create(
           const list = [...curr.messages];
           let last = list[list.length - 1];
           if (!last || last.role !== "assistant") {
-            last = { id: `msg-${Date.now()}`, role: "assistant", content: "", isLive: true, diffs: [], tools: [] };
+            last = { id: nextId("msg"), role: "assistant", content: "", isLive: true, diffs: [], tools: [] };
             list.push(last);
           } else {
             last = { ...last };
@@ -225,7 +247,7 @@ export const useAiStore = create(
           if (last && last.role === "assistant" && last.isLive && ((last.content || last.thinking || "").length > 0)) {
             list[list.length - 1] = { ...last, isLive: false };
             list.push({
-              id: `msg-${Date.now()}`,
+              id: nextId("msg"),
               role: "assistant",
               content: "",
               isLive: true,
@@ -234,7 +256,7 @@ export const useAiStore = create(
             });
           } else if (!last || last.role !== "assistant") {
             list.push({
-              id: `msg-${Date.now()}`,
+              id: nextId("msg"),
               role: "assistant",
               content: "",
               isLive: true,
@@ -399,7 +421,14 @@ export const useAiStore = create(
         });
       },
 
-      finishTurn: (sessionId, stats) => {
+      // The host states the span (turnMs) when the event carries one: measured on its own
+      // clock, over the whole turn, where this pane may only have watched the tail.
+      //
+      // `replay: true` is an ending out of the log being re-sent, not news. It still closes
+      // the messages it owns (a live spinner must not survive a reload) but it may NOT
+      // touch the turn: the mark it would measure from belongs to a later turn, so the
+      // span it produced was a sliver — "Worked for 0s" over a chat that ran for minutes.
+      finishTurn: (sessionId, stats, turnMs = 0, replay = false) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
           // Nothing is still running once the turn is over, whatever the log says —
@@ -416,11 +445,14 @@ export const useAiStore = create(
               ...state.bySession,
               [sessionId]: {
                 ...curr,
-                isTurnRunning: false,
-                // turnStartedAt is kept: the pane's summary line needs the start mark
-                // to print the span. A new turn overwrites it.
-                activePermission: null,
-                stats: stats ? { ...curr.stats, ...stats } : curr.stats,
+                ...(replay ? { activePermission: null } : {
+                  isTurnRunning: false,
+                  // turnStartedAt is kept: the pane's summary line needs the start mark
+                  // to print the span. A new turn overwrites it.
+                  lastTurnMs: turnMs || (curr.turnStartedAt ? Date.now() - curr.turnStartedAt : curr.lastTurnMs),
+                  activePermission: null,
+                  stats: stats ? { ...curr.stats, ...stats } : curr.stats
+                }),
                 messages
               }
             }
@@ -431,6 +463,11 @@ export const useAiStore = create(
       // Full reset for a session whose view is rebuilt from the host's event log.
       // tasks goes too: the checklist is re-derived from the replayed TaskCreate /
       // TaskUpdate events, so keeping the old list would double every entry.
+      //
+      // The turn is NOT part of the log, so nothing here touches it. A reset arrives with
+      // every hydrate — including a reload taken mid-turn — and clearing the flag there
+      // reported a streaming turn as finished, which also took the stop control with it.
+      // What the log does own is the span: it describes the turns that just went.
       clearMessages: (sessionId) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -441,8 +478,8 @@ export const useAiStore = create(
                 ...curr,
                 messages: [],
                 tasks: [],
-                isTurnRunning: false,
                 turnStartedAt: 0,
+                lastTurnMs: 0,
                 activePermission: null,
                 activeBlocked: null,
                 stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 },
@@ -477,6 +514,7 @@ export const useAiStore = create(
                 messages,
                 isTurnRunning: false,
                 turnStartedAt: 0,
+                lastTurnMs: 0,
                 activePermission: null
               }
             }
@@ -525,7 +563,7 @@ export const useAiStore = create(
       // back when the replay DOES carry a pending request — dropping it there instead
       // left the card from before a reload on screen, and its "answered" report went to
       // a request id the CLI had already moved past.
-      hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null }) => {
+      hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null, elapsedMs = 0, lastTurnMs = 0 }) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
           return {
@@ -537,8 +575,14 @@ export const useAiStore = create(
                 messages,
                 tasks,
                 isTurnRunning,
-                // Replay has no start time — a turn rejoined mid-flight counts from now.
-                turnStartedAt: isTurnRunning ? Date.now() : 0,
+                // The host's own duration anchors the mark, so a turn rejoined mid-flight
+                // shows the whole turn rather than counting from this page load. A host
+                // that states none (an older agent) still gets a usable clock.
+                turnStartedAt: isTurnRunning ? Date.now() - (elapsedMs || 0) : 0,
+                // A turn that ended while this pane was away: the summary line reads its
+                // span from here (see AiTurnStatus). 0 while one is running — the pane
+                // freezes its own span on the falling edge.
+                lastTurnMs: isTurnRunning ? 0 : (lastTurnMs || 0),
                 // No baseline from the replay either: a mid-turn rejoin shows the session
                 // total rather than pretending to know where this turn began.
                 turnBaseline: isTurnRunning
@@ -567,6 +611,45 @@ export const useAiStore = create(
             bySession: {
               ...state.bySession,
               [sessionId]: { ...curr, messages: [...older, ...curr.messages] }
+            }
+          };
+        });
+      },
+
+      /**
+       * Put back what the log carries, right after a reset cleared it.
+       *
+       * A reset says "this is a new log", and the host broadcasts one with every hydrate —
+       * including the one answering an F5, whose ack stated the same two values a moment
+       * earlier. They must agree: the span alone, restored while the reset had just said
+       * `isTurnRunning = false`, printed "Worked for …" over a turn still streaming.
+       * A reset from a host that states nothing (a /clear, an older agent) leaves the
+       * cleared values alone.
+       */
+      restoreTurnState: (sessionId, data = {}) => {
+        // A reset that states no turn state says nothing about the turn — it is a /clear, an
+        // older agent, or any host that only knows where the window starts. Restoring the
+        // span it happens to carry would paint "Worked for …" over a turn that is streaming,
+        // which is worse than showing no summary at all: the ack already put the real state
+        // in place.
+        if (data.isTurnRunning === undefined) return;
+        const { isTurnRunning, lastTurnMs = 0, elapsedMs = 0 } = data;
+        if (!isTurnRunning && !lastTurnMs) return;
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: {
+                ...curr,
+                isTurnRunning,
+                lastTurnMs,
+                // Anchor the mark so the live line reads `elapsedMs` — a duration the host
+                // measured — instead of restarting at zero. Only a RUNNING turn gets one:
+                // for a finished turn the replayed turn_complete would follow within the
+                // same batch, measure ~0ms from a fresh mark, and overwrite the real span.
+                turnStartedAt: isTurnRunning ? Date.now() - (elapsedMs || 0) : 0
+              }
             }
           };
         });

@@ -96,6 +96,7 @@ const AiLoadingState = memo(function AiLoadingState({ engine = "claude", failed 
 const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrating = false }) {
   const isTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const turnStartedAt = useAiStore((s) => s.bySession[sessionId]?.turnStartedAt);
+  const lastTurnMs = useAiStore((s) => s.bySession[sessionId]?.lastTurnMs);
   const stats = useAiStore((s) => s.bySession[sessionId]?.stats);
   const turnBaseline = useAiStore((s) => s.bySession[sessionId]?.turnBaseline);
   const connected = useConnectionStore((s) => s.connected);
@@ -125,9 +126,10 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
   const prevRunningRef = useRef(isTurnRunning);
   useEffect(() => {
     if (prevRunningRef.current && !isTurnRunning && turnStartedAt) {
-      const end = Date.now();
+      // The host measured the span when it ended the turn, and it watched from the real
+      // start — this pane may have joined mid-turn, where its own clock reports a sliver.
       setFinished({
-        ms: end - turnStartedAt,
+        ms: lastTurnMs || Date.now() - turnStartedAt,
         outputTokens: turnOutput,
         changes: countTurnChanges(turnMessages)
       });
@@ -136,9 +138,31 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
     prevRunningRef.current = isTurnRunning;
     // turnMessages is read only on the falling edge; the guard above keeps the stream's
     // own re-renders from re-freezing the summary.
-  }, [isTurnRunning, turnStartedAt, turnOutput, turnMessages]);
+  }, [isTurnRunning, turnStartedAt, lastTurnMs, turnOutput, turnMessages]);
 
-  if (!isTurnRunning && !finished) return null;
+  // A pane that loaded after the turn ended never saw the falling edge above, so its own
+  // clock has nothing to measure — the host's span is the only record of it. Changes come
+  // from the replay; the turn's tokens do not survive it, so that readout is left off.
+  const reopened = useMemo(
+    () => (!finished && !isTurnRunning && lastTurnMs
+      ? { ms: lastTurnMs, outputTokens: 0, changes: countTurnChanges(turnMessages) }
+      : null),
+    [finished, isTurnRunning, lastTurnMs, turnMessages]
+  );
+  const summary = finished || reopened;
+
+  // TEMP DIAGNOSTIC — why the tail line is what it is. This is the decision the bug lives
+  // at: "running" with no line means the live branch was not reached at all, "worked" while
+  // a turn streams means the store said the turn was over. Remove once F5 mid-turn is
+  // confirmed on a real reload.
+  useEffect(() => {
+    termLog("ai-status", "render", {
+      sessionId, isTurnRunning, hasFinished: !!finished, hasReopened: !!reopened,
+      lastTurnMs, turnStartedAt, msgs: turnMessages.length, hydrating
+    });
+  }, [sessionId, isTurnRunning, finished, reopened, lastTurnMs, turnStartedAt, turnMessages.length, hydrating]);
+
+  if (!isTurnRunning && !summary) return null;
 
   if (!isTurnRunning) {
     return (
@@ -148,11 +172,11 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
             which is exactly where the changed-line and token readouts are. */}
         <span className="flex items-center min-w-0 font-mono text-[11px]">
           <span className="truncate">
-            Worked for <span className="text-text">{formatDuration(finished.ms)}</span>
+            Worked for <span className="text-text">{formatDuration(summary.ms)}</span>
           </span>
           <span className="shrink-0">
-            {changeReadout(finished.changes)}
-            {tokenReadout(finished.outputTokens)}
+            {changeReadout(summary.changes)}
+            {tokenReadout(summary.outputTokens)}
           </span>
         </span>
       </div>

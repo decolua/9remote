@@ -100,6 +100,7 @@ export const AiPaneView = memo(function AiPaneView({
   const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata) || DEFAULT_METADATA;
   const tasks = useAiStore((s) => s.bySession[sessionId]?.tasks) || EMPTY_TASKS;
   const clearMessages = useAiStore((s) => s.clearMessages);
+  const setTurnRunning = useAiStore((s) => s.setTurnRunning);
   const setPermissionMode = useAiStore((s) => s.setPermissionMode);
 
   const sessionState = useNotificationStore((s) => (sessionId ? s.sessionStatus[sessionId]?.state : null)) || "idle";
@@ -152,9 +153,13 @@ export const AiPaneView = memo(function AiPaneView({
   const handleClear = useCallback(() => {
     vibrate();
     clearMessages(sessionId);
+    // clearMessages leaves the turn alone (a reset from the host arrives the same way and
+    // must not end one), so the local reset says it here — the conversation that turn
+    // belonged to is gone.
+    setTurnRunning(sessionId, false);
     // Force: /clear resets on the host and must work while a turn is streaming.
     sendPrompt("/clear", { force: true });
-  }, [clearMessages, sessionId, sendPrompt]);
+  }, [clearMessages, setTurnRunning, sessionId, sendPrompt]);
 
   const handleSelectSkill = useCallback((skillName) => {
     sendPrompt(`/${skillName}`);

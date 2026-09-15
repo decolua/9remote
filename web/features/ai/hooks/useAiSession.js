@@ -371,7 +371,9 @@ export function useAiSession({
   const applyEvent = useCallback((sid, event, data) => {
     switch (event) {
       case "user_message":
-        addUserMessage(sid, data.text, data.attachments || null);
+        // `replay` marks a log being re-sent (a hydrate rebuilt it, a rewind, a /resume):
+        // the prompt already happened, so it opens no turn here — see aiStore.addUserMessage.
+        addUserMessage(sid, data.text, data.attachments || null, Boolean(data?.replay));
         break;
       case "init": {
         // The agent-side scan (with descriptions) and the CLI's init both land here.
@@ -444,8 +446,10 @@ export function useAiSession({
         if (data?.permissionMode) useAiStore.getState().setPermissionMode(sid, data.permissionMode);
         if (data?.model) setMetadata(sid, { model: data.model });
         break;
+      // A client that joined mid-turn measures from its own join, so the host's span —
+      // which rides with the event that ends the turn — is the honest number.
       case "turn_complete":
-        finishTurn(sid, data.stats);
+        finishTurn(sid, data.stats, data.turnMs, Boolean(data?.replay));
         break;
       case "stats":
         // codex/opencode report token usage mid-turn; claude folds it into turn_complete
@@ -458,21 +462,33 @@ export function useAiSession({
         // killed mid-gate left the pane spinning on a process that was already gone.
         // The gate goes with it: no process is left to answer it.
         clearPermission(sid);
-        setTurnRunning(sid, false);
+        // The span of the turn this event just ended, when the host measured one.
+        useAiStore.getState().finishTurn(sid, null, data?.turnMs);
         break;
       case "stall":
         // Same release as `stopped`, deliberately without the text `error` appends.
         setTurnRunning(sid, false);
-        finishTurn(sid);
+        finishTurn(sid, null, data?.turnMs);
         break;
       case "error":
         // Spawn/CLI failure never produces a turn_complete — surface it as text
         // and release the turn, or the pane spins on a process that is gone.
         appendDelta(sid, `\n\n**Error:** ${data?.message || "AI process failed"}`);
-        finishTurn(sid);
+        finishTurn(sid, null, data?.turnMs);
         break;
       case "conversation_reset":
+        // The reset arrives after the ack that hydrated this same log (the host broadcasts
+        // it alongside the replay), so it restates that log's turn state with it — the span
+        // of the turn it ends on, and, when that turn is still streaming, the fact that it
+        // is. Restoring only the span would print "Worked for …" over a running turn.
+        // TEMP DIAGNOSTIC — the reset's own view of the turn, and the order it landed in
+        // relative to the ack. Remove with the rest of the ai-status logging.
+        termLog("ai-status", "reset", {
+          sessionId: sid, isTurnRunning: data?.isTurnRunning, elapsedMs: data?.elapsedMs,
+          lastTurnMs: data?.lastTurnMs, fromSeq: data?.fromSeq
+        });
         useAiStore.getState().clearMessages(sid);
+        useAiStore.getState().restoreTurnState(sid, data);
         break;
       default:
         break;
@@ -660,6 +676,12 @@ export function useAiSession({
           return;
         }
         const snapshotSeq = res.session.seq || 0;
+        // TEMP DIAGNOSTIC — what the host said about the turn on this ack, which is the
+        // value everything downstream reads. Remove with the rest of the ai-status logging.
+        termLog("ai-status", "hydrate ack", {
+          sessionId, isTurnRunning: res.session.isTurnRunning, elapsedMs: res.session.elapsedMs,
+          lastTurnMs: res.session.lastTurnMs, events: events.length, hasMore: res.session.hasMore
+        });
         // The host replays only the tail of a long log; the rest is fetched on scroll-up.
         olderSeqRef.current = events[0]?.seq ?? 0;
         setHasOlder(Boolean(res.session.hasMore) && events.length > 0);
@@ -688,6 +710,10 @@ export function useAiSession({
             // adapter's running usage, so a reload would otherwise blank the context row.
             stats: { ...hydrated.stats, ...(res.session.stats || {}) },
             isTurnRunning: res.session.isTurnRunning !== undefined ? Boolean(res.session.isTurnRunning) : hydrated.isTurnRunning,
+            // How long that turn has been running, on the host's clock — the pane anchors
+            // its own to it, so a reload mid-turn counts the whole turn, not from the F5.
+            elapsedMs: res.session.elapsedMs || 0,
+            lastTurnMs: res.session.lastTurnMs || 0,
             permissionMode: res.session.permissionMode || hydrated.permissionMode,
             activeBlocked: hydrated.activeBlocked
           });
@@ -713,6 +739,25 @@ export function useAiSession({
         // Always drains — a failed ack must not discard events that really arrived.
         clearTimeout(releaseTimer);
         if (gen === hydrateSeqRef.current) releaseHeld();
+        // The drained events are HISTORY, and the log they came from ends wherever it ends
+        // — a rebuild lands on a turn_complete, and a chat replayed mid-turn carries the
+        // prompt that started it. Either way they set the turn flag as a side effect, so
+        // this restates what the host says the turn is doing RIGHT NOW: without it a live
+        // turn came back from an F5 looking finished (no stop control), and a finished one
+        // came back looking live (spinning until the next real event).
+        if (res?.ok && res.session.isTurnRunning !== undefined) {
+          useAiStore.getState().restoreTurnState(sessionId, {
+            isTurnRunning: Boolean(res.session.isTurnRunning),
+            elapsedMs: res.session.elapsedMs || 0,
+            lastTurnMs: res.session.isTurnRunning ? 0 : (res.session.lastTurnMs || 0)
+          });
+          // TEMP DIAGNOSTIC — the last word on the turn after the replay is in. If this
+          // says one thing and the render line says another, the replay is not the writer.
+          termLog("ai-status", "restate", {
+            sessionId, isTurnRunning: Boolean(res.session.isTurnRunning),
+            elapsedMs: res.session.elapsedMs || 0, lastTurnMs: res.session.lastTurnMs || 0
+          });
+        }
         // Only a real answer stands the ladder down. A rejected ack (`rtc-closed` is how
         // the carrier reports a dead RTC) means the host was never reached, so the rung
         // armed while this round was in flight keeps its timer — and one that was never
@@ -882,12 +927,11 @@ export function useAiSession({
         return;
       }
       // Text held for this frame goes in first: anything below either changes what the
-      // pane may do, or restarts the log the text belongs to.
-      if (payload.event === "delta" || payload.event === "thinking") {
-        bufferStream(payload.event, payload.data?.text);
-        return;
-      }
-      flushStreamed();
+      // pane may do, or restarts the log the text belongs to. A delta that turns out to be
+      // one we already replayed must still flush what came before it, or that text would
+      // land after the events that followed it.
+      const isStream = payload.event === "delta" || payload.event === "thinking";
+      if (!isStream) flushStreamed();
       // A reset means the host is starting a NEW log whose seqs begin again at 1.
       // The old watermark would drop every replayed event as "already applied", so
       // it must be cleared before the replay that follows.
@@ -904,9 +948,16 @@ export function useAiSession({
       }
       // Already covered by a replay this client hydrated from — applying it again
       // would duplicate the message. Unstamped (legacy in-agent) events pass.
+      // Ahead of the stream branch, not behind it: a delta replayed by the same hydrate
+      // that just reset the store appended its text a second time, so the answer grew a
+      // duplicate tail while the prompt bubble (a non-stream event) was already covered.
       if (payload.seq != null) {
         if (payload.seq <= appliedSeqRef.current) return;
         appliedSeqRef.current = payload.seq;
+      }
+      if (isStream) {
+        bufferStream(payload.event, payload.data?.text);
+        return;
       }
       applyEvent(sessionId, payload.event, payload.data);
     };
