@@ -117,5 +117,6 @@ export function broadcast(_io, event, data) {
     if (new Set(peers).size !== peers.length) warnDuplicate(peers, targets);
     return;
   }
-  logger.debug(`bc ${event} → ${targets.length} target(s)`);
+  // ai:event rides the per-chunk stream — one line per chunk buries everything else.
+  if (event !== "ai:event") logger.debug(`bc ${event} → ${targets.length} target(s)`);
 }

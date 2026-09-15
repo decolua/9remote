@@ -602,7 +602,6 @@ export class ProtocolManager {
 
   _sendAck(ackId, resp) {
     const adapter = this._adapters.get("rtc");
-    logger.debug(`[diag] _sendAck id=${ackId} via=${adapter?.ready ? "rtc" : "ws?"}`);
     if (adapter?.ready && adapter.send(CHANNELS.control, { event: "__ack", args: resp, ackId })) return;
     // RTC dead/unavailable → ack rides WS so the client request doesn't hang.
     const ws = this._adapters.get("ws");

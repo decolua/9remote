@@ -77,7 +77,6 @@ export function termLog(category, ...args) {
   lastEntry = entry;
   buffer.push(entry);
   if (buffer.length > MAX) buffer.shift();
-  console.log(`[termLog:${category}]`, ...args);
   // Listeners are notified on a microtask, never synchronously: termLog can be
   // called from a render-phase state update (a legal React pattern in its own
   // component), and a synchronous notify made a log-panel component setState
