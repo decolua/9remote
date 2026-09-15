@@ -7,6 +7,7 @@
 import { getExtendedEnv } from "./env.js";
 import { stageAttachment } from "../aiAttachment.js";
 import { LocalProc } from "../proc/localProc.js";
+import { decodeLine } from "../proc/daemonProc.js";
 import { claudeBin } from "../constants.js";
 
 // Images ride as content blocks; other files are staged to disk and named in the
@@ -109,7 +110,32 @@ export class ClaudeAdapter {
    */
   async adopt(from = 0, epoch = null) {
     this._reset(this.currentMode);
-    return await this.proc.attach(from, epoch);
+    const fetch = await this.proc.attach(from, epoch);
+    // A live process is NOT a running turn: this CLI holds ONE process for the whole
+    // conversation and sits idle between turns, so `alive` would leave the flag stuck
+    // true for the rest of the chat's life — a rewind then refuses with "stop the
+    // running turn" while nothing is running.
+    if (fetch.alive) this.isTurnRunning = this._midTurn(fetch);
+    return fetch;
+  }
+
+  /**
+   * Is the adopted process in the middle of a turn?
+   *
+   * Read from the last line it printed: every turn ends with a `result` record, and
+   * anything the CLI emits afterwards (stream deltas, a control_request gate) is the
+   * next turn already in flight. No lines at all means nothing to judge by, so the
+   * answer falls back to the old rule — a process that just answered has none pending.
+   */
+  _midTurn(fetch) {
+    const last = fetch?.lines?.[fetch.lines.length - 1];
+    if (!last) return false;
+    try {
+      const record = JSON.parse(decodeLine(last));
+      return record.type !== "result";
+    } catch {
+      return false;
+    }
   }
 
   _reset(mode) {
@@ -226,9 +252,16 @@ export class ClaudeAdapter {
       const event = data.event;
       if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
         const text = event.delta.text || "";
+        // Output only ever comes from a turn, so this is what marks one running. An
+        // adopted process has no `sendPrompt` of its own to set the flag — and an agent
+        // that restarts mid-turn would otherwise think the CLI is idle and let a
+        // spawn-time option (a mode/model/effort pick) restart it, killing the answer
+        // the user was watching.
+        this.isTurnRunning = true;
         this.turnStreamedText += text;
         this.onEvent?.("delta", { text });
       } else if (event?.type === "content_block_delta" && event.delta?.type === "thinking_delta") {
+        this.isTurnRunning = true;
         this.onEvent?.("thinking", { text: event.delta.thinking });
       } else if (event?.usage?.input_tokens) {
         // Per-step usage: each API step resends the whole conversation, so THIS reading
@@ -246,6 +279,9 @@ export class ClaudeAdapter {
       const { request_id, request = {} } = data;
       const toolName = request.tool_name || "";
       const toolInput = request.input || request.tool_input || {};
+      // A gate is only ever held mid-turn, so this proves one is running even when the
+      // turn was adopted and never saw a `sendPrompt` (see the delta case above).
+      this.isTurnRunning = true;
       this.pendingRequests.set(request_id, { toolName, input: toolInput });
 
       this.onEvent?.("permission_request", {
