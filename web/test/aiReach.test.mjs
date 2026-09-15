@@ -15,7 +15,7 @@ import {
 } from "../../agent/features/ai/aiEventSlice.js";
 import { AI_REPLAY_BYTES } from "../../agent/features/ai/constants.js";
 import {
-  PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, windowTop, opensMidTurn
+  PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn
 } from "../features/ai/lib/messageWindow.js";
 
 let pass = 0, fail = 0;
@@ -169,6 +169,32 @@ test("a log the cap already shed still pages to its oldest event", () => {
   const { reached, top } = walkUp(full);
   assert.ok(reached, "the oldest event in the log must be reachable");
   assert.equal(top.index, 0);
+});
+
+test("a fresh chat's first prompt is within the open-time fetch's reach", () => {
+  // A chat that has just started has no prompts in its log at all — the events between
+  // prompts are a run of tool calls, and each chunk of them reduces to ONE message. So a
+  // page buys one card, and reaching the first prompt takes as many pages as there were
+  // tool runs. Measured on three real fresh chats: 7 and 9 pages.
+  //
+  // The cap was 6, chosen from logs that had already accumulated their prompts — so on a
+  // chat that had not, the pane stopped one screen of cards short with nothing to scroll.
+  assert.ok(MAX_AUTO_PAGES >= 12, `the cap (${MAX_AUTO_PAGES}) must clear a fresh chat's first prompt`);
+
+  // And the loop it guards really is self-terminating, which is what makes a large cap
+  // safe: this walk is driven by hasMore, not by a page count.
+  const full = log(14, 6);
+  const { reached } = walkUp(full);
+  assert.ok(reached, "the guard must never be what stops the walk");
+});
+
+test("the open-time fetch is bounded by the host running out, not by the cap", () => {
+  // A log whose turns all sit behind one window still terminates: the walk ends when
+  // `hasMore` goes false, so no cap is load-bearing for correctness.
+  const full = turn(1, 300).map((e, i) => ({ ...e, seq: i + 1 }));
+  const { reached, history } = walkUp(full);
+  assert.ok(reached, "a single enormous turn must still settle");
+  assert.ok(history.length < 200, `walked ${history.length} rounds — is it terminating?`);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

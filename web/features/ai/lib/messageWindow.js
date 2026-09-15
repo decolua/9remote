@@ -75,6 +75,18 @@ export function windowTop(prevTopId, messages, pageBytes, ceilingBytes) {
 // an agentic chat (measured: 23 of 46 real ones, one turn running 194 steps), so the
 // pane fetches until it opens on a bubble; lib/aiReach proves scroll-up reaches the top
 // of the worst of them either way.
+//
+// Runaway guard for that fetch, not a budget. The loop already has its own stop condition
+// — it pages until the window opens on a prompt or the host runs out — so this only has
+// to be larger than any real chat needs.
+//
+// It was 6, chosen from logs that had already accumulated their prompts. On a chat that
+// has just started, each chunk reduces to ONE tool card (the events between prompts are a
+// run of tool calls), so a page buys one message: fresh chats measured 7 and 9 pages to
+// reach their first prompt, and the cap stopped them at 6 — a pane holding one screen of
+// cards with nothing to scroll, which is exactly how that bug read.
+export const MAX_AUTO_PAGES = 40;
+
 export function opensMidTurn(messages, hiddenCount, hasOlder) {
   if (!hasOlder || !messages?.length) return false;
   // The first message the window mounts is what the reader sees at the top. A prompt

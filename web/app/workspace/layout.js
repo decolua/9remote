@@ -622,7 +622,9 @@ export default function WorkspaceLayout({ children }) {
     onResizeStart: handleMobileResizeStart
   }), [mobileOpen, mobileMode, mobilePanelWidth, protocolRef, handleMobileResizeStart]);
 
-  const isInitializing = !hydrated || (!bus && !auth?.tunnelUrl);
+  // A missing tunnelUrl is not a missing connection — the DO relay carries RTC,
+  // and the transport reports connected when that opens. Only the bus is a gate.
+  const isInitializing = !hydrated || !bus;
 
   if (isInitializing) {
     return <ReconnectScreen label={t("workspace.loading")} />;

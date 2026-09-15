@@ -13,17 +13,12 @@ import { termLog } from "@/shared/utils/termLog";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
-import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, windowTop, opensMidTurn } from "../lib/messageWindow";
+import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn } from "../lib/messageWindow";
 
 const EMPTY_MESSAGES = [];
 // How many past conversations the empty state offers before deferring to /resume.
 const RECENT_SESSIONS = 8;
 const LOAD_MORE_THRESHOLD_PX = 120;
-// How many pages the open-time fetch may pull to get a prompt into view. Measured on 46
-// real chats: 23 already open on one, and of the 23 that open mid-turn, 4 need one more
-// page, 5 need two, and the rest up to seven. Six cures 20 of those 23; the cap is what
-// keeps a log whose turns all sit behind the same window from fetching itself to death.
-const MAX_AUTO_PAGES = 6;
 // How many times the pane re-asks whether this conversation is rewindable while waiting
 // for the engine to make it so. Enough to cover a slow first turn, few enough that a
 // host which will never say yes does not get polled.

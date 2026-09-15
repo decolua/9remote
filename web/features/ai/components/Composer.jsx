@@ -235,7 +235,13 @@ export const Composer = memo(function Composer({
         isSkill: true
       }));
       const allCommands = [...SLASH_COMMANDS, ...skillCmds];
-      const filtered = allCommands.filter((cmd) => cmd.name.toLowerCase().includes(filter));
+      const seen = new Set();
+      // A skill can share a builtin's name (/simplify, /init): first one wins, no dup keys.
+      const filtered = allCommands.filter((cmd) => {
+        if (seen.has(cmd.name) || !cmd.name.toLowerCase().includes(filter)) return false;
+        seen.add(cmd.name);
+        return true;
+      });
       setMenuItems(filtered);
       setMenuOpen(filtered.length > 0);
     } else if (trigger === "@") {
