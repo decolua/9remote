@@ -36,9 +36,13 @@ const USER_QUERY_RE = /<user_query>([\s\S]*?)<\/user_query>/;
 // ahead of the opening prompt. The real question is the turn after one of these.
 const INJECTED_TURN_RES = [
   /^<(local-)?command-[a-z]+>/,
-  /^# [A-Za-z0-9._-]+\.md instructions\b/
+  /^# [A-Za-z0-9._-]+\.md instructions\b/,
+  // The note left where a turn was interrupted. It carries no turn_complete after it, so
+  // a log rebuilt with it ends on a user turn — which every reader takes to mean a turn
+  // is still running. Both shapes appear; the shorter one is older.
+  /^\s*\[Request interrupted by user\b/
 ];
-const isInjectedTurn = (text) => INJECTED_TURN_RES.some((re) => re.test(text));
+export const isInjectedTurn = (text) => INJECTED_TURN_RES.some((re) => re.test(text));
 
 // One transcript line's text, minus the harness wrapping, collapsed to one line.
 export function cleanTitle(text) {

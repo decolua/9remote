@@ -54,6 +54,16 @@ const RECORDS = [
     message: { role: "user", content: "second question" } }),
   // Sidechain (sub-agent) turns are not turns the user asked for.
   line({ type: "user", uuid: "sc1", isSidechain: true, message: { role: "user", content: "sub agent prompt" } }),
+  // The CLI writes its own messages into the transcript under the user role: a skill's
+  // body, a slash command's output, a background task reporting back. They are not turns,
+  // and the CLI refuses to rewind to one ("No file checkpoint found for this message"),
+  // which fails the whole rewind — so they must not be counted.
+  line({ type: "user", uuid: "sk1", isMeta: true, turnCompanion: true,
+    message: { role: "user", content: [{ type: "text", text: "# Workflow authoring reference\n\nA workflow structures work" }] } }),
+  line({ type: "user", uuid: "cn1", isMeta: true, turnCompanion: true,
+    message: { role: "user", content: "<command-name>/rewind</command-name>\n<command-message>rewind</command-message>" } }),
+  line({ type: "user", uuid: "tn1", origin: { kind: "task-notification" },
+    message: { role: "user", content: "<task-notification>\n<task-id>abc</task-id>\n<status>completed</status>" } }),
 ];
 
 fs.mkdirSync(root, { recursive: true });
@@ -81,6 +91,22 @@ try {
   await test("a sub-agent turn is not offered either", () => {
     const ids = listRewindPoints(SESSION_ID).map((p) => p.messageId);
     assert.ok(!ids.includes("sc1"));
+  });
+
+  // Verified against the CLI: `--rewind-files <one of these>` answers "No file checkpoint
+  // found for this message" and restores nothing, and applyRewind returns that failure
+  // BEFORE cutting — so the pane looked like it did nothing at all.
+  await test("a record the CLI wrote itself is not a turn to rewind to", () => {
+    const ids = listRewindPoints(SESSION_ID).map((p) => p.messageId);
+    for (const injected of ["sk1", "cn1", "tn1"]) assert.ok(!ids.includes(injected), injected);
+  });
+
+  // The pane counts turns from the end of what it renders, so an injected record counted
+  // as a turn would aim every index below it one turn too far down.
+  await test("an injected record does not shift the turn count", () => {
+    const points = listRewindPoints(SESSION_ID);
+    assert.deepEqual(points.map((p) => p.messageId), ["u1", "u2"]);
+    assert.equal(resolveRewindTarget(points, 0), "u2");
   });
 
   await test("a rewrite to the first turn restores nothing — no snapshot precedes it", () => {

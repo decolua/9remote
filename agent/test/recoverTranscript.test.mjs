@@ -34,5 +34,23 @@ assert.equal(recover(elsewhere, "../../../etc/passwd"), null);
 assert.equal(recover(elsewhere, "-flag-shaped"), null);
 assert.equal(recover(elsewhere, "no/slashes"), null);
 
+// A turn the CLI wrote itself — the note left where a turn was interrupted — must not
+// come back as something the user typed. It carries no turn_complete after it, so a
+// replayed log ending on one reads as "a turn is still running" to every client, and the
+// chat stops sending. Both shapes were seen in the wild; the shorter one is older.
+const HARNESS_ID = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+fs.writeFileSync(path.join(dir, `${HARNESS_ID}.jsonl`), [
+  JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "real question" }] } }),
+  JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "an answer" }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "[Request interrupted by user for tool use]" }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "[Request interrupted by user]" }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "[Image #1]" }] } })
+].join("\n"));
+
+const harness = recover(elsewhere, HARNESS_ID);
+const texts = harness.filter((e) => e.event === "user_message").map((e) => e.data.text);
+assert.deepEqual(texts, ["real question", "[Image #1]"],
+  `interrupt notes must not replay as prompts, got: ${JSON.stringify(texts)}`);
+
 fs.rmSync(home, { recursive: true, force: true });
 console.log("recoverTranscript: ok");

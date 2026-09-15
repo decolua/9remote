@@ -20,7 +20,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { claudeBin } from "./constants.js";
-import { CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
+import { CLAUDE_SESSION_ID_RE, isClaudeInjectedTurn } from "./claudeTranscript.js";
 import { getExtendedEnv } from "./adapters/env.js";
 
 // The CLI can take a few seconds to boot before it prints its one line of output.
@@ -68,12 +68,18 @@ const userText = (record) => {
   return "";
 };
 
+/**
+ * A record the user typed: not a sub-agent's turn, not a tool result, and not one of the
+ * messages the CLI writes into the transcript under the user's role (see
+ * isClaudeInjectedTurn — they are what the rewind list and the cut boundary both mean
+ * by a turn, so the two must agree on it).
+ */
+const isUserTurn = (record) =>
+  record?.type === "user" && !record.isSidechain && Boolean(userText(record)) && !isClaudeInjectedTurn(record);
+
 /** A turn the user typed — the only kind a rewind point or a cut boundary is. */
 const isTurn = (line) => {
-  try {
-    const record = JSON.parse(line);
-    return record.type === "user" && !record.isSidechain && Boolean(userText(record));
-  } catch { return false; }
+  try { return isUserTurn(JSON.parse(line)); } catch { return false; }
 };
 
 /**
@@ -92,10 +98,9 @@ export function listRewindPoints(cliSessionId) {
   const checkpoints = checkpointIndex(records);
   const points = [];
   for (const record of records) {
-    if (record.type !== "user" || record.isSidechain) continue;
+    if (!isUserTurn(record)) continue;
     if (!record.uuid) continue;
     const text = userText(record);
-    if (!text) continue;
     points.push({
       messageId: record.uuid,
       text: text.slice(0, 200),
