@@ -16,6 +16,13 @@ const test = (name, fn) => {
   catch (err) { fail++; console.error(`  ✗ ${name}\n    ${err.message}`); }
 };
 
+// Chat snapshots live under a shared root, and a session rebuilt with an id this file
+// also uses reads back whatever is there. A live agent writes one for its own sessions —
+// and `resume-opencode` is not a name only this test invents — so the assertions below
+// were reading another process's log (`deepEqual(s.history, [])` failed against its two
+// `stopped` events). Relocated before AiSession is imported: it resolves the path once.
+process.env.NREMOTE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-resume-home-"));
+
 const { recoverFromTranscript, readCodexFileChanges } = await import("../features/ai/transcript.js");
 const { AiManager } = await import("../features/ai/aiManager.js");
 
