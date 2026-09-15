@@ -17,18 +17,29 @@ export const LAUNCH_TOOLS = new Set([
 export const agentLabel = (t) =>
   t?.input?.subagent_type || t?.input?.agent || t?.input?.description || "agent";
 
+/** A shell card's display name: the command it runs, not the word "Bash". */
+const shellLabel = (t) => t?.input?.description || t?.input?.command || "shell";
+
 /**
- * Every sub-agent still running, off one message list, deepest-last.
+ * Everything launched asynchronously that is still going, off one message list,
+ * deepest-last — the pinned strip's read model.
  *
- * Walks the whole tree because a sub-agent can spawn one of its own. Scans messages
- * from the end and stops at the first that yields anything: the running one is the
- * work in flight, so an older turn's agent cannot be live.
+ * Two shapes, because the CLIs hand off two different kinds of work:
+ *   - a sub-agent (LAUNCH_TOOLS), which the tree nests and which has no end signal
+ *   - a background shell (`async` on a Bash row), which returns at once and is still
+ *     running when it does
+ *
+ * Kept from the shared scan below so both the strip and the "is anything running"
+ * question read one traversal, not two.
  */
-export function runningAgents(messages = []) {
+export function runningAsync(messages = []) {
   const out = [];
   const walk = (tools) => {
     for (const t of tools || []) {
-      if (LAUNCH_TOOLS.has(t?.name) && t.status === "running") out.push({ id: t.id, label: agentLabel(t) });
+      if (t?.status === "running") {
+        if (LAUNCH_TOOLS.has(t?.name)) out.push({ kind: "agent", id: t.id, label: agentLabel(t) });
+        else if (t?.async) out.push({ kind: "shell", id: t.id, label: shellLabel(t) });
+      }
       if (t?.children?.length) walk(t.children);
     }
   };
@@ -40,15 +51,26 @@ export function runningAgents(messages = []) {
   return out;
 }
 
+/** Every sub-agent still running, off one message list, deepest-last. */
+export function runningAgents(messages = []) {
+  return runningAsync(messages)
+    .filter((r) => r.kind === "agent")
+    .map(({ id, label }) => ({ id, label }));
+}
+
 // A turn ended, so nothing this tool had to say is still coming. A row left spinning
 // past its turn is wrong in every case; `done` is the least-wrong claim for the ones
 // whose result never arrived (codex emits an item.started with no matching
 // item.completed when a spawn fails and is retried).
+//
+// `async` rows are the exception: a sub-agent or background shell was handed off ON
+// PURPOSE and goes on working after the turn that launched it ends. The host owns their
+// clock instead (AiSession.armAsyncWatchdog) and settles them there.
 export function settleRunningTools(tools) {
   return (tools || []).map((t) => {
     const children = t.children ? settleRunningTools(t.children) : null;
-    if (t.status !== "running" && !children) return t;
-    return { ...t, ...(t.status === "running" ? { status: "done" } : null), ...(children ? { children } : null) };
+    if (t.status !== "running" || t.async) return children ? { ...t, children } : t;
+    return { ...t, status: "done", ...(children ? { children } : null) };
   });
 }
 

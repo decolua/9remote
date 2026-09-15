@@ -59,7 +59,7 @@ export const AiBashCard = memo(function AiBashCard({
   };
 
   return (
-    <div className="my-1 text-xs">
+    <div className="my-1 text-xs" id={id ? `shell-${id}` : undefined}>
       {/* $ command, capped at two lines. Named group — see AiToolCard: a bare `group`
           nested in the message's own made every tool's actions appear on message hover. */}
       <div

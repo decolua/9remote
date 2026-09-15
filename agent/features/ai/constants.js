@@ -34,6 +34,16 @@ export const AI_SOCKET_EVENTS = {
 // reply and no error. Claude is excluded: its PTY daemon owns that lifecycle instead.
 export const AI_TURN_IDLE_TIMEOUT_MS = 120000;
 
+// How long a sub-agent or background shell may go without a sign of life before its row
+// is settled. Same window as a turn, deliberately: the two are the same question — "is
+// this still going" — asked one level down.
+//
+// Neither has an end signal to listen for. A background shell's `tool_result` is the
+// CLI's launch ack, and a sub-agent has no handle at all (it is a thread inside the CLI
+// process, verified: no child process appears while one runs). So both rows stay live on
+// this window, and a later tool call naming the same id ends them early.
+export const AI_ASYNC_IDLE_TIMEOUT_MS = AI_TURN_IDLE_TIMEOUT_MS;
+
 // Chat snapshots are written on a debounce while a turn streams, not only when it
 // ends. A turn that is killed mid-flight (SIGKILL, power loss) otherwise leaves
 // nothing on disk at all — the pane comes back empty after a restart, which is

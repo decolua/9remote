@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT } from "./constants.js";
+import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
 import { readThreadGoal } from "./goal.js";
@@ -220,6 +220,8 @@ export class AiSession {
     this.onEvent = onEvent;
     this.createdAt = Date.now();
     this.isTurnRunning = false;
+    // Async work still in flight, by the tool id that launched it — see armAsyncWatchdog.
+    this.asyncTimers = new Map();
     // How long the last turn took, measured by the host's own clock — the pane prints
     // "Worked for …" from this after an F5, since a client that rejoins saw neither edge.
     // A span, not two timestamps: the client's clock is a different clock, and subtracting
@@ -263,11 +265,18 @@ export class AiSession {
     // restarted): replay the conversation from the CLI's own store, so the pane shows
     // it instead of an empty log.
     this.history = snap ? capLog(renumber(compactEvents(snap.events))) : [];
+    // A restored row marked `async` says work was handed off before this process existed,
+    // and the process that held its watchdog is gone. Settle it here, or the row spins
+    // forever: the client deliberately keeps `async` rows live past their turn.
+    this._settleRestoredAsync();
     // The transcript is the authority, and the snapshot only a cache of it — so it is
     // read here too, not only on a hydrate. See adoptLog: every "is the log thin?" test
     // written for this drifted from the others, and the drift is what a short reopen
     // looked like. When the transcript has nothing, the snapshot stands.
-    if (bindId) this.history = this._rebuildFromStore(bindId) || this.history;
+    if (bindId) {
+      this.history = this._rebuildFromStore(bindId) || this.history;
+      this._settleRestoredAsync();
+    }
     // Where the next event's seq comes from. Seed from the log rather than the snapshot
     // field so a snapshot written before this counter existed still continues upward.
     this.seqCounter = this.history.at(-1)?.seq || 0;
@@ -493,6 +502,9 @@ export class AiSession {
     if (this.options.mock || !this.adapter) return false;
     this.isTurnRunning = false;
     this.clearIdleWatchdog();
+    // The CLI is going away, so nothing it launched is still running — and no result is
+    // coming to settle those rows.
+    this.clearAllAsyncWatchdogs();
     try { await this.adapter.stop(); } catch {}
     return true;
   }
@@ -617,6 +629,15 @@ export class AiSession {
     if (record) this.scheduleSaveSnapshot();
     if (this.isTurnRunning) this.armIdleWatchdog();
 
+    // Work that outlives the turn it was launched in: arm on a launch ack, disarm when a
+    // real result finally lands on that row. Keyed on `handle`, not on `async` alone —
+    // this watchdog's OWN settle event carries `async` too, and arming on that would
+    // restart the clock every time it fired.
+    if (event === "tool_result") {
+      if (data?.async && data?.handle) this.armAsyncWatchdog(data.id, data.parentToolUseId);
+      else if (data?.id) this.clearAsyncWatchdog(data.id);
+    }
+
     // Any terminal event releases the turn. Missing `error`/`exit` from that set left the
     // flag stuck true after a failed spawn, and the ack hands that flag to every client —
     // so the pane came back from an F5 spinning on a process that was already gone.
@@ -701,6 +722,62 @@ export class AiSession {
     if (!this.idleTimer) return;
     clearTimeout(this.idleTimer);
     this.idleTimer = null;
+  }
+
+  /**
+   * The turn's own watchdog does not cover work that outlives it. A sub-agent or a
+   * background shell keeps running after `turn_complete`, and nothing in the CLI ever
+   * reports its end — so without a clock of its own the row would spin until the chat was
+   * reloaded. Same window and the same shape as `armIdleWatchdog`, one level down.
+   *
+   * The event that ends a turn does NOT settle these rows: the launch ack already said
+   * the work is out of the turn's hands. Keyed by tool id, not by handle, because the
+   * client nests a sub-agent's rows under its own id.
+   */
+  armAsyncWatchdog(toolId, parentToolUseId) {
+    if (!toolId) return;
+    this.clearAsyncWatchdog(toolId);
+    this.asyncTimers.set(toolId, setTimeout(() => {
+      this.asyncTimers.delete(toolId);
+      // Recorded, not transient: a client that joins after the work ended must still see
+      // the row settled, or a reload leaves it spinning forever.
+      this.emitNormalized("tool_result", {
+        id: toolId,
+        status: "done",
+        async: true,
+        ...(parentToolUseId ? { parentToolUseId } : {})
+      });
+    }, AI_ASYNC_IDLE_TIMEOUT_MS));
+  }
+
+  clearAsyncWatchdog(toolId) {
+    const timer = this.asyncTimers.get(toolId);
+    if (!timer) return;
+    clearTimeout(timer);
+    this.asyncTimers.delete(toolId);
+  }
+
+  clearAllAsyncWatchdogs() {
+    for (const timer of this.asyncTimers.values()) clearTimeout(timer);
+    this.asyncTimers.clear();
+  }
+
+  /**
+   * Settle every `async` row a restored log left open.
+   *
+   * Called on both log sources, and after the transcript overwrite — `_rebuildFromStore`
+   * replaces this.history wholesale, so a pass over the snapshot alone would miss exactly
+   * the chats that have a transcript to rebuild from.
+   *
+   * The turn that launched this work is long over, and nothing survived that could report
+   * on it. A row is only ever closed once, so a second pass over an unchanged log is a
+   * no-op.
+   */
+  _settleRestoredAsync() {
+    for (const ev of this.history || []) {
+      if (ev.event !== "tool_result" || !ev.data?.async || ev.data.status !== "running") continue;
+      ev.data = { ...ev.data, status: "done" };
+    }
   }
 
   /**
@@ -963,6 +1040,7 @@ export class AiSession {
 
   destroy() {
     this.clearIdleWatchdog();
+    this.clearAllAsyncWatchdogs();
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
     // The stop is async under the daemon, so the unlink below has to wait for it —
     // otherwise the stop's own 'exit' event schedules a debounced write that puts the

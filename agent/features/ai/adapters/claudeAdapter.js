@@ -9,6 +9,7 @@ import { stageAttachment } from "../aiAttachment.js";
 import { LocalProc } from "../proc/localProc.js";
 import { decodeLine } from "../proc/daemonProc.js";
 import { claudeBin } from "../constants.js";
+import { asyncHandle } from "../toolEvent.js";
 
 // Images ride as content blocks; other files are staged to disk and named in the
 // text. Same shape the terminal path writes, so both read identically to the CLI.
@@ -365,17 +366,24 @@ export class ClaudeAdapter {
         if (item.type === "tool_result") {
           const isError = Boolean(item.is_error);
           const output = typeof item.content === "string" ? item.content : JSON.stringify(item.content);
+          // A launch ack is not a result: the CLI returns the instant a sub-agent or a
+          // background shell is handed off, naming the handle it will report on later.
+          // Reporting it as `done` is what left the agent strip permanently empty — the
+          // row was finished two events after it started, while the work ran on.
+          const async = isError ? null : asyncHandle(output, this.toolCalls.get(item.tool_use_id)?.name || "");
+          const call = this.toolCalls.get(item.tool_use_id);
           this.onEvent?.("tool_result", {
             id: item.tool_use_id,
+            name: call?.name || "",
             error: isError ? output : "",
             output: !isError ? output : "",
-            status: isError ? "error" : "done",
+            status: isError ? "error" : async ? "running" : "done",
+            ...(async ? { async: true, handle: async.id } : null),
             parentToolUseId
           });
           // The diff comes from the RESULT, not the call: an edit the user denied never
           // reaches here, so a rejected change cannot paint itself as one that landed.
           // (Codex is gated the same way — it emits on `file_change`.)
-          const call = this.toolCalls.get(item.tool_use_id);
           this.toolCalls.delete(item.tool_use_id);
           if (call && !isError && DIFF_TOOLS.has(call.name)) {
             const diff = buildEditDiff(call.name, call.input);
