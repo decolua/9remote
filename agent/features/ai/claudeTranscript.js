@@ -5,6 +5,8 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { isInjectedTurn } from "../terminal/agentHistory.js";
+import { buildEditDiff, DIFF_TOOL_NAMES } from "./adapters/claudeAdapter.js";
+import { toolStart, toolResult } from "./toolEvent.js";
 
 // `cliSessionId` can originate from a client (a /resume choice), so it is untrusted:
 // only a plain id is accepted — the first character may not be "-" (argv would read it
@@ -57,6 +59,16 @@ function findTranscript(cwd, cliSessionId) {
   return fs.existsSync(resolved) ? resolved : null;
 }
 
+// A tool the user refused at the gate. The transcript keeps no "denied" flag, so the
+// refusal is only visible in the result's text — and without this an edit that never
+// landed would replay as a diff card, which the live path never draws.
+const DENIED_RESULT_RE = /doesn't want to proceed|Request interrupted by user for tool use/i;
+
+// Claude keeps the edit as old/new strings on the CALL, so the same builder the live
+// adapter uses turns it back into the patch the card parses. Keyed by tool_use id, like
+// the adapter's `toolCalls` — a result carries the id and nothing else.
+const DIFF_TOOL_SET = new Set(DIFF_TOOL_NAMES);
+
 export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
   if (!cwd || !cliSessionId) return null;
   if (!CLAUDE_SESSION_ID_RE.test(cliSessionId)) return null;
@@ -66,6 +78,8 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
   try {
     const lines = fs.readFileSync(resolved, "utf8").trim().split("\n");
     const events = [];
+    // Tool calls awaiting their result, by tool_use id — see DIFF_TOOL_SET.
+    const toolCalls = new Map();
     let seq = startSeq;
 
     for (const line of lines) {
@@ -85,21 +99,38 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
           }
           const toolResults = (d.message.content || []).filter((c) => c.type === "tool_result");
           for (const tr of toolResults) {
+            const output = typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content);
+            const isError = Boolean(tr.is_error) || DENIED_RESULT_RE.test(output);
+            const call = toolCalls.get(tr.tool_use_id);
+            toolCalls.delete(tr.tool_use_id);
             events.push({
               seq: seq++,
-              event: "tool_result",
-              data: {
+              ...toolResult({
                 id: tr.tool_use_id,
-                output: typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content)
-              }
+                // The result carries only the id, so the name comes from the call it
+                // answers. Without it a replayed task row was never parsed: the client's
+                // task reader is keyed on the tool name.
+                name: call?.name || "",
+                output,
+                error: isError ? output : ""
+              })
             });
+            // Same rule as the live path: a rejected edit never reached the disk, so it
+            // paints no diff — and the tool row stays, which is what says it was refused.
+            if (call && !isError && DIFF_TOOL_SET.has(call.name)) {
+              const diff = buildEditDiff(call.name, call.input);
+              if (diff) events.push({ seq: seq++, event: "diff", data: diff });
+            }
           }
         } else if (d.type === "assistant" && d.message) {
           for (const item of d.message.content || []) {
             if (item.type === "thinking" && item.thinking) {
               events.push({ seq: seq++, event: "thinking", data: { text: item.thinking } });
             } else if (item.type === "tool_use") {
-              events.push({ seq: seq++, event: "tool_start", data: { id: item.id, name: item.name, input: item.input } });
+              // Held until its result arrives, the way the live adapter holds it: the
+              // diff is built from this call's input, and the result carries only the id.
+              toolCalls.set(item.id, { name: item.name, input: item.input });
+              events.push({ seq: seq++, ...toolStart({ id: item.id, name: item.name, input: item.input }) });
             } else if (item.type === "text" && item.text) {
               events.push({ seq: seq++, event: "delta", data: { text: item.text } });
             }
