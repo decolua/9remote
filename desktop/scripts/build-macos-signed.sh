@@ -43,7 +43,9 @@ echo "[Desktop] Team ID: $APPLE_TEAM_ID"
 
 # Auto-load Tauri updater signing key if present and not set
 if [ -f ".sign.key" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
-  export TAURI_SIGNING_PRIVATE_KEY_PATH="$(pwd)/.sign.key"
+  export TAURI_SIGNING_PRIVATE_KEY="$(cat .sign.key)"
+  # Tauri prompts on the terminal unless the password var exists; empty = key has no password
+  export TAURI_SIGNING_PRIVATE_KEY_PASSWORD="${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}"
   echo "[Desktop] Loaded Tauri updater signing key from .sign.key"
 fi
 
