@@ -134,11 +134,22 @@ export const RewindModal = memo(function RewindModal({
                 {preview?.files?.length > 0 ? (
                   <>
                     <span className="text-text">{preview.files.length}</span> file{preview.files.length === 1 ? "" : "s"} will be restored.
-                    {preview.note && <span className="block text-text-subtle">{preview.note}</span>}
+                    {/* Named, not just counted: this overwrites the working tree, and the
+                        paths are the only part the user can check before pressing it. */}
+                    <ul className="mt-1 flex flex-col gap-0.5">
+                      {preview.files.slice(0, 8).map((f) => (
+                        <li key={f.file} className="truncate font-mono text-[10px]" title={f.file}>
+                          · {f.file}
+                          {f.status ? ` (${f.status})` : ""}
+                        </li>
+                      ))}
+                      {preview.files.length > 8 && (
+                        <li className="text-[10px]">… and {preview.files.length - 8} more</li>
+                      )}
+                    </ul>
+                    {preview.note && <span className="block mt-1 text-text-subtle">{preview.note}</span>}
                   </>
                 ) : preview ? (
-                  // An empty list is not "nothing changes" — the CLI leaves the mapping
-                  // blank on an untouched session while its backups sit on disk.
                   <span className="block text-text-subtle">{preview.note}</span>
                 ) : (
                   <span className="flex items-center gap-1.5">

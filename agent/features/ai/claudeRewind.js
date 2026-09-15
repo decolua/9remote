@@ -91,11 +91,11 @@ const isTurn = (line) => {
 export function listRewindPoints(cliSessionId) {
   const file = findTranscript(cliSessionId);
   if (!file) return [];
-  // Parsed once and indexed by checkpoint: resolving each point's files on its own would
+  // Parsed once and indexed by turn: resolving each point's files on its own would
   // re-read and re-parse the whole transcript per turn, which is quadratic on a long
   // conversation (a 200-turn chat parsed the file 200 times).
   const records = parseLines(file);
-  const checkpoints = checkpointIndex(records);
+  const filesOf = filesByTurn(records);
   const points = [];
   for (const record of records) {
     if (!isUserTurn(record)) continue;
@@ -105,39 +105,61 @@ export function listRewindPoints(cliSessionId) {
       messageId: record.uuid,
       text: text.slice(0, 200),
       createdAt: record.timestamp || null,
-      files: backupsOf(checkpoints.get(record.uuid))
+      files: [...(filesOf.get(record.uuid) || [])].map((file) => ({ file }))
     });
   }
   return points;
 }
 
-/** Snapshots by the message id they belong to — the CLI's own key for a checkpoint. */
-function checkpointIndex(records) {
-  const byMessage = new Map();
-  for (const record of records) {
-    if (record.type !== "file-history-snapshot" || !record.messageId) continue;
-    const tracked = record.snapshot?.trackedFileBackups;
-    if (tracked && Object.keys(tracked).length > 0) byMessage.set(record.messageId, tracked);
+/**
+ * The files a rewind to each user turn would change, by that turn's uuid.
+ *
+ * What `--rewind-files` restores is the whole tree as it stood at that turn — a file a
+ * LATER turn created is deleted, not left alone (measured: two turns writing one file each,
+ * rewinding to the first leaves neither). So a turn's list is everything written from that
+ * turn onwards.
+ *
+ * Two transcript formats name those writes, and they are read in that order of trust:
+ *   - `file-history-delta`, which the CLI writes under the SDK entrypoint. One record per
+ *     write, carrying the path and the uuid of the turn that made it.
+ *   - a snapshot's `trackedFileBackups`, which is the state BEFORE its turn and carries a
+ *     backup version per file — the format older transcripts have, with no deltas at all.
+ *     There, a file is changed by a rewind when its entry differs from the newest snapshot.
+ */
+function filesByTurn(records) {
+  const turns = records.filter((r) => isUserTurn(r) && r.uuid).map((r) => r.uuid);
+  const position = new Map(turns.map((uuid, i) => [uuid, i]));
+  const writes = records.filter((r) => r.type === "file-history-delta" && r.trackingPath && position.has(r.snapshotMessageId));
+
+  if (writes.length > 0) {
+    return new Map(turns.map((uuid, i) => [
+      uuid,
+      new Set(writes.filter((w) => position.get(w.snapshotMessageId) >= i).map((w) => w.trackingPath))
+    ]));
   }
-  return byMessage;
+
+  const snapshots = records.filter((r) => r.type === "file-history-snapshot" && r.messageId);
+  const newest = snapshots.length ? snapshots[snapshots.length - 1].snapshot?.trackedFileBackups || {} : {};
+  const stateAt = (uuid) => snapshots.find((s) => s.messageId === uuid)?.snapshot?.trackedFileBackups || {};
+  return new Map(turns.map((uuid) => {
+    const then = stateAt(uuid);
+    // Missing from `then` means the file was created after this turn, so it changes too.
+    return [uuid, new Set(Object.entries(newest)
+      .filter(([file, entry]) => then[file]?.backupFileName !== entry?.backupFileName)
+      .map(([file]) => file))];
+  }));
 }
 
-// The MAP KEY is the file's own path; the entry's `backupFileName` is the CLI's internal
-// name for its backup (`aaaa1111@v2`), which means nothing to a reader. Same shape as
-// opencode's preview entries, so both engines render through one client path.
-const backupsOf = (tracked) => Object.keys(tracked || {}).map((file) => ({ file }));
-
 /**
- * Files a rewind to `messageId` would put back.
+ * Files a rewind to `messageId` would change.
  *
- * Read from a session whose transcript has them populated. The catch: the ORIGINAL
- * session's snapshots carry an empty `trackedFileBackups` even when the CLI wrote
- * backups to disk — only a session that was loaded and re-saved (a fork) gets the
- * mapping filled in. So this is exact for a forked session and empty for an untouched
- * one; callers must not read an empty list as "no files will change" (see previewRewind).
+ * Empty is a real answer — nothing was written from this turn on, or it was written
+ * through a shell command, which is never checkpointed — but it is also what a transcript
+ * with no file-history records at all returns, so callers must not read it as a promise
+ * (see previewRewind's note).
  */
 function filesAt(file, messageId) {
-  return backupsOf(checkpointIndex(parseLines(file)).get(messageId));
+  return [...(filesByTurn(parseLines(file)).get(messageId) || [])].map((file) => ({ file }));
 }
 
 /** Run the CLI once with extra args and return everything it printed. */
@@ -264,19 +286,24 @@ export function rewindTarget(sessionId, messageId) {
 
 /** Stage without applying: what a rewind to this turn would change. */
 export async function previewRewind(sessionId, messageId, { files = true } = {}) {
-  const known = files ? filesForCheckpoint(sessionId, messageId) : [];
+  const file = findTranscript(sessionId);
+  const known = files ? filesAt(file || "", messageId) : [];
+  // An empty list has two meanings and they read very differently to someone about to
+  // press Rewind: the CLI logged no file history for this conversation at all, or it did
+  // and nothing has been written since this turn. Saying the first when the second is true
+  // is what made a working rewind read as broken.
+  const tracked = Boolean(file) && parseLines(file).some((r) => String(r.type).startsWith("file-history"));
   return {
     ok: true,
     messageId,
     files: known,
     snapshot: null,
-    // An empty list is NOT "nothing will change": the CLI fills the file mapping only
-    // once a session has been loaded and re-saved, so an untouched session reports
-    // nothing while its backups sit on disk. Say so instead of implying safety.
-    filesUnknown: files && known.length === 0,
+    filesUnknown: files && known.length === 0 && !tracked,
     note: known.length > 0
-      ? "These files will be restored. Files changed by a shell command are not tracked and stay as they are."
-      : "Claude Code does not report which files a rewind will restore for this session. Files it wrote with Edit/Write are restored; files changed by a shell command are not."
+      ? "These files go back to how they were at this prompt, and any file written after it is deleted. Files changed by a shell command are not tracked and stay as they are."
+      : tracked
+        ? "No file changes: nothing has been written since this prompt. The conversation is what gets rewound."
+        : "Claude Code does not report which files a rewind will restore for this session. Files it wrote with Edit/Write are restored; files changed by a shell command are not."
   };
 }
 
@@ -285,7 +312,8 @@ export async function previewRewind(sessionId, messageId, { files = true } = {})
  *
  * Snapshot records keep the ORIGINAL message id even in a forked session, while its user
  * turns get new uuids — so this reads the snapshots directly rather than going through
- * `listRewindPoints`. Empty is "the CLI did not report it", not "nothing changes".
+ * `listRewindPoints`. Empty is "the CLI did not report it" or "nothing to put back", not
+ * a claim either way (see previewRewind).
  */
 export function filesForCheckpoint(sessionId, messageId) {
   const file = findTranscript(sessionId);

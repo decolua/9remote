@@ -43,15 +43,22 @@ const RECORDS = [
   // A tool result is stored as a user record — it must NOT become a rewind point.
   line({ type: "user", uuid: "tr1", isSidechain: false,
     message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] } }),
-  // The CLI labels a checkpoint with the turn it PRECEDES, so this one belongs to u2.
-  line({ type: "file-history-snapshot", messageId: "u2",
-    snapshot: { messageId: "u2", timestamp: "2026-09-13T10:01:00Z",
-      trackedFileBackups: {
-        "src/a.js": { backupFileName: "aaaa1111@v2", version: 2, realParentDir: "/tmp/rw-test/src" },
-        "src/b.js": { backupFileName: "bbbb2222@v1", version: 1, realParentDir: "/tmp/rw-test/src" }
-      } } }),
+  line({ type: "assistant", uuid: "a2", message: { role: "assistant", content: [{ type: "text", text: "wrote them" }] } }),
+  // Order and shape as the CLI writes them under the SDK entrypoint: a `file-history-delta`
+  // per write, naming the turn that made it. u1 wrote a.js, u2 wrote b.js.
+  line({ type: "file-history-delta", messageId: "d1", snapshotMessageId: "u1", trackingPath: "src/a.js",
+    backup: { backupFileName: "aaaa1111@v2", version: 2, realParentDir: "/tmp/rw-test/src" },
+    timestamp: "2026-09-13T10:01:30Z" }),
   line({ type: "user", uuid: "u2", isSidechain: false, timestamp: "2026-09-13T10:02:00Z",
     message: { role: "user", content: "second question" } }),
+  line({ type: "file-history-snapshot", messageId: "u2",
+    snapshot: { messageId: "u2", timestamp: "2026-09-13T10:02:01Z",
+      trackedFileBackups: {
+        "src/a.js": { backupFileName: "aaaa1111@v2", version: 2, realParentDir: "/tmp/rw-test/src" }
+      } } }),
+  line({ type: "file-history-delta", messageId: "d2", snapshotMessageId: "u2", trackingPath: "src/b.js",
+    backup: { backupFileName: "bbbb2222@v1", version: 1, realParentDir: "/tmp/rw-test/src" },
+    timestamp: "2026-09-13T10:02:02Z" }),
   // Sidechain (sub-agent) turns are not turns the user asked for.
   line({ type: "user", uuid: "sc1", isSidechain: true, message: { role: "user", content: "sub agent prompt" } }),
   // The CLI writes its own messages into the transcript under the user role: a skill's
@@ -109,15 +116,17 @@ try {
     assert.equal(resolveRewindTarget(points, 0), "u2");
   });
 
-  await test("a rewrite to the first turn restores nothing — no snapshot precedes it", () => {
+  await test("a rewind to the first turn names every file written since", () => {
     const [first] = listRewindPoints(SESSION_ID);
-    assert.deepEqual(first.files, []);
+    // What --rewind-files restores is the whole tree at that turn, so a file a LATER turn
+    // wrote is deleted — measured against the CLI, which left neither file behind.
+    assert.deepEqual(first.files, [{ file: "src/a.js" }, { file: "src/b.js" }]);
   });
 
-  await test("a rewind to a later turn names the files its snapshot tracked", () => {
+  await test("a rewind to a later turn drops what was written before it", () => {
     const second = listRewindPoints(SESSION_ID).find((p) => p.messageId === "u2");
     // The path, not the CLI's internal backup name — that is what the confirm dialog prints.
-    assert.deepEqual(second.files, [{ file: "src/a.js" }, { file: "src/b.js" }]);
+    assert.deepEqual(second.files, [{ file: "src/b.js" }]);
   });
 
   await test("an unknown session id yields no points rather than throwing", () => {
@@ -132,7 +141,7 @@ try {
   await test("preview names the files and warns about untracked writes", async () => {
     const p = await previewRewind(SESSION_ID, "u2", { files: true });
     assert.equal(p.ok, true);
-    assert.deepEqual(p.files, [{ file: "src/a.js" }, { file: "src/b.js" }]);
+    assert.deepEqual(p.files, [{ file: "src/b.js" }]);
     assert.equal(p.filesUnknown, false);
     assert.match(p.note, /shell command/i);
   });
@@ -142,14 +151,52 @@ try {
     assert.deepEqual(p.files, []);
   });
 
-  // An empty list must not read as "nothing will change": the CLI leaves the mapping
-  // blank on a session it has not re-saved, while the backups are still on disk.
-  await test("a preview that cannot name the files says so", async () => {
-    const p = await previewRewind(SESSION_ID, "u1", { files: true });
+  // The two empty answers are not the same thing and the pane says different words for
+  // them: a transcript with no file-history record at all is "the CLI did not report it",
+  // while one that logs file history and has nothing for this turn is a plain "nothing to
+  // put back". The first is a session the CLI never checkpointed.
+  await test("a conversation with no file history at all is called unknown", async () => {
+    fs.writeFileSync(transcript, [
+      line({ type: "user", uuid: "v1", isSidechain: false, message: { role: "user", content: "no history here" } })
+    ].join("\n") + "\n");
+    const p = await previewRewind(SESSION_ID, "v1", { files: true });
     assert.deepEqual(p.files, []);
     assert.equal(p.filesUnknown, true);
     assert.match(p.note, /does not report which files/i);
+    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
   });
+
+  await test("a turn with nothing to put back is not called unknown", async () => {
+    // The newest turn wrote nothing, so nothing is left to change — while the conversation
+    // DOES log file history. This is the case that made a working rewind read as broken.
+    fs.writeFileSync(transcript, [
+      ...RECORDS,
+      line({ type: "user", uuid: "u3", isSidechain: false, message: { role: "user", content: "nothing written here" } })
+    ].join("\n") + "\n");
+    const p = await previewRewind(SESSION_ID, "u3", { files: true });
+    assert.deepEqual(p.files, []);
+    assert.equal(p.filesUnknown, false);
+    assert.match(p.note, /No file changes/i);
+    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
+  });
+  // The case a fresh conversation hits, and the one that reported nothing at all: under
+  // the SDK entrypoint the CLI logs each write as its own `file-history-delta`, keyed to
+  // the turn's checkpoint, while the snapshot's own map stays empty.
+  await test("a file the CLI logged as a delta belongs to the turn it names", async () => {
+    fs.writeFileSync(transcript, [
+      line({ type: "user", uuid: "w1", isSidechain: false, message: { role: "user", content: "write a file" } }),
+      line({ type: "file-history-snapshot", messageId: "w1", snapshot: { messageId: "w1", trackedFileBackups: {} } }),
+      line({ type: "file-history-delta", messageId: "d1", snapshotMessageId: "w1", trackingPath: "src/c.js",
+        backup: { backupFileName: "cccc3333@v1", version: 1 }, timestamp: "2026-09-13T10:04:00Z" }),
+      line({ type: "user", uuid: "w2", isSidechain: false, message: { role: "user", content: "and nothing else" } }),
+      line({ type: "file-history-snapshot", messageId: "w2", snapshot: { messageId: "w2", trackedFileBackups: {} } })
+    ].join("\n") + "\n");
+    const points = listRewindPoints(SESSION_ID);
+    assert.deepEqual(points.find((p) => p.messageId === "w1").files, [{ file: "src/c.js" }]);
+    assert.deepEqual(points.find((p) => p.messageId === "w2").files, []);
+    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
+  });
+
   // The CLI KEEPS the turn named by --resume-session-at and drops what follows, so a
   // rewind to a prompt has to keep the turn BEFORE it — passing the prompt's own uuid
   // would leave that prompt in the conversation.

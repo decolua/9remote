@@ -457,14 +457,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       // rather than a cached list, so a turn that arrived since is counted too.
       const targets = list(convId);
       const target = messageId || resolveRewindTarget(targets, index);
-      // TEMP DIAGNOSTIC — a rewind that lands on the wrong turn produces a conversation
-      // that looks brand new, and nothing in the UI says which turn the two sides
-      // agreed on. Log the count, the requested offset and what it resolved to. Remove
-      // once the edit-then-Enter path is confirmed on a real device.
-      logger.info(
-        `[ai] rewind ${action}: ${engine} points=${targets.length} index=${index ?? "-"} ` +
-        `messageId=${messageId || "-"} → ${target || "UNRESOLVED"} (conv ${convId}, kept)`
-      );
+      logger.debug(`[ai] rewind ${action}: ${engine} points=${targets.length} index=${index ?? "-"} → ${target || "UNRESOLVED"}`);
       if (!target) {
         // The count the client holds and the CLI's own store disagree — its log was
         // rebuilt, or the turn sits outside what the CLI kept. Saying "missing message
@@ -485,8 +478,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
           return cb?.({ ok: false, error: "Stop the running turn before rewinding.", support });
         }
         // TEMP DIAGNOSTIC — the confirm dialog stays open until this answers, so each
-        // await here is time the user spends watching a frozen pane. Measured once per
-        // stage; remove once the slow one is known and dealt with.
+        // await here is time the user spends watching a frozen pane. Remove with the
+        // rest of the rewind logging once the slow stage is known and dealt with.
         const t0 = Date.now();
         // A rewind cuts Claude's transcript in place, under the id it already has. The
         // running CLI is the only other writer of that file AND holds the discarded
@@ -514,10 +507,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         // turns the user just discarded. Same reason as the resume path in aiSession.
         session.turnStartedAt = 0;
         session.lastTurnMs = 0;
-        logger.info(
-          `[ai] rewind timing: stop=${tStop - t0}ms cut+files=${tCut - tStop}ms ` +
-          `restart=${tStart - tCut}ms total=${Date.now() - t0}ms`
-        );
+        logger.debug(`[ai] rewind timing: stop=${tStop - t0} cut+files=${tCut - tStop} restart=${tStart - tCut}`);
         return cb?.({ ok: true, support, ...result });
       }
       cb?.({ ok: false, error: `Unknown rewind action: ${action}`, support });
