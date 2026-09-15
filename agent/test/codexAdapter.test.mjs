@@ -1,7 +1,10 @@
 // Tests for the Codex adapter's argv construction and mode mapping.
 // Run: node agent/test/codexAdapter.test.mjs
 import assert from "node:assert/strict";
-import { CodexAdapter, fileChangeDiffs, changePaths } from "../features/ai/adapters/codexAdapter.js";
+import { CodexAdapter } from "../features/ai/adapters/codexAdapter.js";
+// The file_change helpers live beside the item mapping that uses them (codexItems.js), so
+// the adapter and the rollout reader cannot drift apart on how a patch is read.
+import { changePaths, fileChangeDiffs } from "../features/ai/codexItems.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {

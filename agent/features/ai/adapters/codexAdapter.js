@@ -3,6 +3,7 @@ import { getExtendedEnv } from "./env.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 import { AgentProc } from "../proc/agentProc.js";
 import { readCodexFileChanges } from "../transcript.js";
+import { codexItemEvents, isCodexFileChange, isCodexToolItem } from "../codexItems.js";
 
 // Codex reports a refusal as plain assistant text ("I can't create X because this
 // workspace is read-only"), not a structured event. Matching that text is the only
@@ -12,42 +13,6 @@ import { readCodexFileChanges } from "../transcript.js";
 // signal available, so the pattern requires a refusal verb next to the reason —
 // a bare "read-only" would also match an ordinary sentence describing a file.
 const BLOCKED_TEXT_RE = /(?:can(?:not|'t|not)\s+(?:create|write|edit|modify|delete)|unable to\s+(?:create|write|edit|modify)|permission denied|operation not permitted|not permitted to|(?:workspace|sandbox)\s+is\s+read-?only|outside the (?:workspace|sandbox))/i;
-
-// Every path the item touched. Codex reports a file_change as {changes:[{path}]}, as a
-// bare path/paths field, or (in the rollout) as `changes` keyed by path. One item can
-// carry several files, and the client needs them all to hide the row for each file it
-// shows a diff card for.
-export function changePaths(item) {
-  if (Array.isArray(item?.changes)) return item.changes.map((c) => c.path).filter(Boolean);
-  if (item?.changes) return Object.keys(item.changes);
-  if (Array.isArray(item?.paths)) return item.paths;
-  return item?.path ? [item.path] : [];
-}
-
-// The exec stream's item names the changed files but carries no patch, so the text comes
-// from the rollout the CLI wrote beside it (`recorded`, keyed by path). Only the changed
-// files are returned: a card with nothing in it would still hide the tool row that could
-// have said something, and an ephemeral run has no rollout to read at all.
-export function fileChangeDiffs(item, recorded) {
-  const changes = Array.isArray(item?.changes)
-    ? item.changes
-    : Object.entries(item?.changes || {}).map(([path, change]) => ({ path, ...change }));
-  const out = [];
-  for (const change of changes) {
-    const file = change.path || "";
-    if (!file) continue;
-    const rec = recorded?.[file] || {};
-    const kind = change.kind || change.type || "";
-    const raw = change.unified_diff || change.diff || change.patch || rec.patch || "";
-    // An add or a delete has no patch, only the whole file — and `content` is the file in
-    // BOTH cases: the new text for an add, the removed text for a delete. Which way it
-    // reads is the kind, so a delete is signed here rather than shown as an addition.
-    const body = raw ? "" : (change.content || rec.content || "");
-    const patch = body ? body.replace(/\n$/, "").split("\n").map((l) => `${kind === "delete" ? "-" : "+"}${l}`).join("\n") : raw;
-    if (patch) out.push({ file, patch, content: "" });
-  }
-  return out;
-}
 
 // Composer permission mode → codex sandbox policy. The CLI has no single "mode" flag:
 // what a mode means is decided by how much the sandbox allows. These mirror the TUI's
@@ -330,114 +295,48 @@ export class CodexAdapter {
       return;
     }
 
-    if (type === "item.started") {
+    // A tool item is announced while it runs and completed later, carrying the same id —
+    // so ONE mapping opens the card and, once the item is done, closes it with its output.
+    // That mapping is codexItems.js, shared with the rollout reader: a replayed card and
+    // a live one are the same object, which is what keeps the two doors honest.
+    if (type === "item.started" || type === "item.completed") {
       const item = event.item;
-      // Announce the tool now; item.completed later fills in the output for the
-      // same id. Without this the result has nothing to attach to and is dropped.
-      if (item.type === "command_execution") {
-        this.onEvent?.("tool_start", {
-          id: item.id,
-          name: "command",
-          input: { command: item.command },
-          status: "running"
-        });
-      } else if (item.type === "file_change") {
-        // A row is opened only when there is a path to name it by; the patch itself only
-        // arrives with item.completed.
-        const paths = changePaths(item);
-        if (paths.length) {
-          this.onEvent?.("tool_start", {
-            id: item.id,
-            name: "file_change",
-            input: { file_path: paths[0], path: paths[0], paths },
-            status: "running"
-          });
-        }
-      } else if (item.type === "mcp_tool_call") {
-        this.onEvent?.("tool_start", {
-          id: item.id,
-          name: item.tool || item.name || "mcp_tool_call",
-          input: item.arguments || item.input || {},
-          status: "running"
-        });
-      } else if (item.type === "todo_list") {
-        this.onEvent?.("tool_start", {
-          id: item.id,
-          name: "todo_list",
-          input: { todos: item.items || [] },
-          status: "running"
-        });
-      } else if (item.type === "collab_tool_call") {
-        // Codex's sub-agents. `spawn_agent` starts one; the other calls steer agents
-        // that already exist. Only `spawn_agent` carries a brief worth showing.
-        this.onEvent?.("tool_start", {
-          id: item.id,
-          name: item.tool || "collab_tool_call",
-          input: item.prompt ? { subagent_type: item.tool, prompt: item.prompt } : {},
-          status: "running"
-        });
-      }
-      return;
-    }
-
-    if (type === "item.completed") {
-      const item = event.item;
-      if (item.type === "reasoning") {
-        this.onEvent?.("thinking", { text: item.text || "" });
-      } else if (item.type === "agent_message") {
-        this.onEvent?.("delta", { text: item.text || "" });
-        // A refusal under a narrow sandbox arrives only as prose. Surface it as a
-        // card that offers the mode that would allow the action.
-        if (item.text && BLOCKED_TEXT_RE.test(item.text)) {
-          const next = nextModeUp(this.permissionMode);
-          if (next) {
-            this.onEvent?.("blocked", {
-              engine: "codex",
-              message: item.text,
-              escalate: { mode: next, label: MODE_LABELS[next] }
-            });
+      if (!isCodexToolItem(item?.type)) {
+        if (type !== "item.completed") return;
+        if (item?.type === "reasoning") this.onEvent?.("thinking", { text: item.text || "" });
+        else if (item?.type === "agent_message") {
+          this.onEvent?.("delta", { text: item.text || "" });
+          // A refusal under a narrow sandbox arrives only as prose. Surface it as a
+          // card that offers the mode that would allow the action.
+          if (item.text && BLOCKED_TEXT_RE.test(item.text)) {
+            const next = nextModeUp(this.permissionMode);
+            if (next) {
+              this.onEvent?.("blocked", {
+                engine: "codex",
+                message: item.text,
+                escalate: { mode: next, label: MODE_LABELS[next] }
+              });
+            }
           }
+        } else if (item?.type === "web_search") {
+          this.onEvent?.("tool_result", { id: item.id, name: "web_search", output: item.query || "", status: "done" });
         }
-      } else if (item.type === "command_execution") {
-        const output = item.aggregated_output ?? item.output ?? "";
-        // Exit code rides along in the output — the card only shows error when set
-        if (item.exit_code) {
-          this.onEvent?.("tool_result", {
-            id: item.id,
-            name: "command",
-            error: `${output}\n(exit ${item.exit_code})`.trim(),
-            status: "error"
-          });
-        } else {
-          this.onEvent?.("tool_result", { id: item.id, name: "command", output, status: "done" });
-        }
-      } else if (item.type === "file_change") {
-        // The rollout holds the patch; read it once per change, not once per file.
-        const recorded = readCodexFileChanges(this.cwd, this.activeThreadId);
-        for (const d of fileChangeDiffs(item, recorded)) this.onEvent?.("diff", d);
-        this.onEvent?.("tool_result", { id: item.id, name: "file_change", output: "", status: "done" });
-      } else if (item.type === "todo_list") {
-        this.onEvent?.("tool_result", { id: item.id, name: "todo_list", output: "", status: "done" });
-      } else if (item.type === "mcp_tool_call") {
-        this.onEvent?.("tool_result", { id: item.id, name: item.tool || "mcp_tool_call", output: item.result || "", status: "done" });
-      } else if (item.type === "web_search") {
-        this.onEvent?.("tool_result", { id: item.id, name: "web_search", output: item.query || "", status: "done" });
-      } else if (item.type === "collab_tool_call") {
-        // A spawned agent's tool calls run in its own thread and never appear on this
-        // stream, so there are no children to nest — the card shows the agent and the
-        // brief. `agents_states` is the CLI's own read on how it went: an errored one
-        // (no credentials, say) is a failure the summary row would otherwise hide.
-        const states = Object.values(item.agents_states || {});
-        const errored = states.find((s) => s?.status === "errored");
-        const failed = item.status === "failed" || Boolean(errored);
-        this.onEvent?.("tool_result", {
-          id: item.id,
-          name: item.tool || "collab_tool_call",
-          ...(failed
-            ? { error: errored?.message || `Codex reported ${item.tool} as ${item.status}`, status: "error" }
-            : { output: "", status: "done" })
-        });
+        return;
       }
+      // A file_change takes its patch from the rollout, which holds it and is on disk
+      // before the CLI prints the matching item. Read once per change, not per file.
+      // Gated on the ROLE, not on a spelling: the live stream names it `file_change` and
+      // the rollout `FileChange`, and testing one literal left the live card with no patch
+      // — an empty row reading "Running or no output returned…".
+      const recorded =
+        type === "item.completed" && isCodexFileChange(item)
+          ? readCodexFileChanges(this.cwd, this.activeThreadId)
+          : null;
+      // The envelope IS the status here: the live stream spells it as two event types and
+      // puts no status on the item, while the rollout has only the completed one. Handed
+      // over so the shared mapper reads one field either way.
+      const status = type === "item.completed" ? "completed" : "started";
+      for (const ev of codexItemEvents({ item, status }, recorded)) this.onEvent?.(ev.event, ev.data);
       return;
     }
 

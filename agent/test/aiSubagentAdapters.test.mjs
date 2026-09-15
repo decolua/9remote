@@ -64,7 +64,9 @@ test("codex: a healthy agent completes with no error", () => {
     })
   ]);
   assert.equal(of("tool_result")[0][1].status, "done");
-  assert.equal(of("tool_result")[0][1].error, undefined);
+  // Both keys always, empty on the other side — the ONE wire shape every door now sends
+  // (see toolEvent.js), so a card reads the same whichever engine or path wrote it.
+  assert.equal(of("tool_result")[0][1].error, "");
 });
 
 test("codex: control calls with no brief still announce an id", () => {
@@ -74,6 +76,48 @@ test("codex: control calls with no brief still announce an id", () => {
   ]);
   assert.equal(of("tool_start")[0][1].name, "close_agent");
   assert.deepEqual(of("tool_start")[0][1].input, {});
+});
+
+// The live stream says "this call is done" with the ENVELOPE, not with a field on the
+// item — `item.started` then `item.completed`, the item carrying no status of its own.
+// The rollout has only the completed record and says it on the item. One shared mapper
+// reads both, so the envelope has to be handed over as the status it stands for; without
+// that, a replayed item and a live one disagreed and file_change dropped its diff.
+test("codex: the live envelope is the status, on every tool type", () => {
+  const { of } = replay(CodexAdapter, [
+    codexItem("item.started", { id: "t1", type: "command_execution", command: "ls" }),
+    codexItem("item.completed", { id: "t1", type: "command_execution", command: "ls", aggregated_output: "a\n" }),
+    codexItem("item.started", { id: "t2", type: "file_change", changes: [{ path: "/w/x.txt" }] }),
+    codexItem("item.completed", { id: "t2", type: "file_change", changes: { "/w/x.txt": { type: "add", content: "hi\n" } } })
+  ]);
+  assert.deepEqual(of("tool_start").map(([, d]) => d.id), ["t1", "t1", "t2", "t2"]);
+  assert.equal(of("tool_result")[0][1].output, "a\n");
+  // The patch only exists on the completed record, and no path means no diff card.
+  assert.equal(of("diff")[0][1].patch, "+hi");
+  assert.equal(of("tool_result")[1][1].status, "done");
+});
+
+// The live stream names a changed file `file_change`; the rollout names it `FileChange`.
+// A gate written on one literal matched the rollout and missed the live stream, so the
+// adapter read no patch and the card came out empty — the pane showed "Running or no
+// output returned…" where a diff used to be. The role decides, so both spellings must
+// reach the same end: a patch card and a done row.
+test("codex: a live file_change draws its diff in either spelling", () => {
+  for (const spelling of ["file_change", "FileChange"]) {
+    const out = [];
+    const adapter = new CodexAdapter({ cwd: "/tmp", onEvent: (e, d) => out.push([e, d]) });
+    // No rollout on disk for this cwd, so the patch has to come from the item itself —
+    // which is the case that regressed.
+    adapter.handleEvent({
+      type: "item.completed",
+      item: { id: "i1", type: spelling, changes: { "/w/a.txt": { type: "update", unified_diff: "@@ -1 +1 @@\n-old\n+new\n" } } }
+    });
+    const diff = out.find(([e]) => e === "diff");
+    assert.ok(diff, `${spelling}: expected a diff card, got ${JSON.stringify(out.map(([e]) => e))}`);
+    assert.equal(diff[1].file, "/w/a.txt");
+    assert.equal(diff[1].patch, "@@ -1 +1 @@\n-old\n+new\n");
+    assert.equal(out.find(([e]) => e === "tool_result")?.[1].status, "done");
+  }
 });
 
 // ── opencode ──

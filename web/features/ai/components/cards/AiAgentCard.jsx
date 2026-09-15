@@ -3,9 +3,8 @@
 import { memo, useState, useEffect } from "react";
 import { ChevronDown, ChevronRight, CheckCircle2, AlertCircle, Loader2 } from "@/shared/components/ui/Icon";
 import { AiToolCard } from "./AiToolCard";
-import { AiBashCard } from "./AiBashCard";
 import { StepWindow } from "../StepWindow";
-import { getToolCategory } from "../../registry";
+import { renderToolCard } from "./toolCards";
 import { LAUNCH_TOOLS, agentLabel } from "../../lib/toolTree";
 
 /** First line of the prompt — enough to tell one sub-agent from another. */
@@ -101,16 +100,11 @@ export const AiAgentCard = memo(function AiAgentCard({
             // that grandchild gets this same card, or its calls would have nowhere to go.
             <StepWindow total={children.length}>
               {(hidden) =>
-                (hidden > 0 ? children.slice(hidden) : children).map((c) => {
-                  switch (getToolCategory(engine, c.name)) {
-                    case "agent":
-                      return <AiAgentCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />;
-                    case "bash":
-                      return <AiBashCard key={c.id} {...c} />;
-                    default:
-                      return <AiToolCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />;
-                  }
-                })
+                (hidden > 0 ? children.slice(hidden) : children).map((c) =>
+                  renderToolCard(engine, c, { workspacePath }) || (
+                    <AiToolCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />
+                  )
+                )
               }
             </StepWindow>
           ) : (

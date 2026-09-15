@@ -3,13 +3,10 @@
 import { memo, useMemo } from "react";
 import { AiToolCard } from "./cards/AiToolCard";
 import { StepWindow, WINDOW_STEPS } from "./StepWindow";
-import { AiBashCard } from "./cards/AiBashCard";
-import { AiAgentCard } from "./cards/AiAgentCard";
 import { AiDiffCard } from "./cards/AiDiffCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
-import { AiPlanModeCard } from "./cards/AiPlanModeCard";
 import { AiThinkingBlock } from "./cards/AiThinkingBlock";
-import { getToolCategory } from "../registry";
+import { renderToolCard } from "./cards/toolCards";
 import { buildTurnRows, splitTurnBlocks } from "../lib/turnRows";
 import MarkdownBody from "@/shared/components/ui/MarkdownBody";
 
@@ -33,21 +30,12 @@ function StepCard({ row, engine, workspacePath, deferred }) {
   }
 
   const t = row.tool;
-  const cat = getToolCategory(engine, t.name);
-  switch (cat) {
-    case "plan":
-      return <AiPlanModeCard toolName={t.name} input={t.input} />;
-    case "bash":
-      return <AiBashCard {...t} deferred={deferred} />;
-    // A sub-agent owns the tool calls it made — they render nested inside it.
-    case "agent":
-      return <AiAgentCard {...t} engine={engine} workspacePath={workspacePath} />;
-    // Answered question — the host's tool output is the only record of the choice.
-    case "question":
-      return <AiQuestionCard questions={t.input?.questions || []} answers={t.output || t.error || ""} />;
-    default:
-      return <AiToolCard {...t} engine={engine} workspacePath={workspacePath} deferred={deferred} />;
-  }
+  // A tool family with its own card renders it; everything else is the generic row, which
+  // reads any call from its name, input and output.
+  return (
+    renderToolCard(engine, t, { workspacePath, deferred }) ||
+    <AiToolCard {...t} engine={engine} workspacePath={workspacePath} deferred={deferred} />
+  );
 }
 
 function ProseRow({ content, isLive }) {

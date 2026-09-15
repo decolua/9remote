@@ -2,6 +2,7 @@
 import { getExtendedEnv } from "./env.js";
 import { AgentProc } from "../proc/agentProc.js";
 import { stageAttachment } from "../aiAttachment.js";
+import { opencodePartEvents } from "../opencodePart.js";
 
 // eslint-disable-next-line no-control-regex
 const ANSI_RE = /\[[0-9;]*m/g;
@@ -203,32 +204,10 @@ export class OpenCodeAdapter {
       this.onEvent?.("thinking", { text: data.part?.text || data.text || "" });
     } else if (type === "tool_use" || type === "tool_call") {
       // Real shape is `{type:"tool_use", part:{tool, callID, state:{status,input,output}}}`.
-      // `state.status` moves running → completed, so one branch covers start and result.
-      const part = data.part || {};
-      const state = part.state || {};
-      const id = part.callID || data.callID || part.id || data.id;
-      const name = part.tool || data.tool || data.name;
-      const input = state.input || data.input || data.args || {};
-      // The CLI reports a tool only once it has finished, so announce it first — the
-      // client drops a tool_result whose id it has never seen.
-      this.onEvent?.("tool_start", { id, name, input });
-      // A `task` call runs its sub-agent in a separate session (state.metadata.sessionId):
-      // those tool calls stream under that id and never reach this one, so the card shows
-      // the brief instead of a child count that could only ever read zero.
-      if (state.status === "completed" || state.status === "error") {
-        const output = state.output ?? data.output ?? data.result ?? "";
-        // A failing shell command still reports status "completed" — the exit code is
-        // what says it failed, so a non-zero one must surface as an error card.
-        const exit = state.metadata?.exit;
-        const failed = state.status === "error" || (typeof exit === "number" && exit !== 0);
-        this.onEvent?.("tool_result", {
-          id,
-          name,
-          ...(failed
-            ? { error: `${output}\n(exit ${exit})`.trim(), status: "error" }
-            : { output: String(output), status: "done" })
-        });
-      }
+      // The part inline in the envelope is the same object, so the mapper is handed
+      // whichever is there — and that part is ALSO the row the transcript reader loads out
+      // of the CLI's own database, which is why a reopened chat shows the calls again.
+      for (const ev of opencodePartEvents(data.part || data)) this.onEvent?.(ev.event, ev.data);
     } else if (type === "tool_result") {
       this.onEvent?.("tool_result", {
         id: data.callID || data.id,
