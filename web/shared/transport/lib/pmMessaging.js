@@ -1,5 +1,4 @@
-import { CHANNELS, CONTROL_RTC_MAX_BYTES, ADAPTER_STATE, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
-import { controlBytes } from "./controlRouting";
+import { CHANNELS, ADAPTER_STATE, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { probeRtcLiveness } from "./pmWatchers";
@@ -15,20 +14,17 @@ import { probeRtcLiveness } from "./pmWatchers";
 export function sendControl(pm, event, args) {
   const last = args[args.length - 1];
   const cb = typeof last === "function" ? args.pop() : null;
-  let adapter = pm._pickAdapter(CHANNELS.control);
+  const adapter = pm._pickAdapter(CHANNELS.control);
   if (!adapter) {
     debugLog("transport", `[pm] buffer event=${event} (no adapter ready)`);
     termLog("switch", `buffer "${event}" (no adapter)`);
     pm._buffer.push({ event, args, cb });
     return;
   }
-  // Preemptive size-routing: SCTP DC rejects oversize control payloads (> CONTROL_RTC_MAX_BYTES)
-  // with a throw/false, corrupting the channel into a zombie state. Route oversize payloads
-  // to WS (no SCTP limit) before attempting RTC.
-  if (adapter.constructor.id === "rtc" && controlBytes(args) > CONTROL_RTC_MAX_BYTES) {
-    const ws = pm._adapters.get("ws");
-    if (ws?.ready) adapter = ws;
-  }
+  // One carrier per message, chosen by the adapters' state — never per payload.
+  // RTC is a real carrier, not a fast path for small messages: an envelope too big
+  // for one SCTP message is sliced by the adapter that owns the DC, so it still
+  // rides the carrier that is up.
   debugLog("transport", `[pm] send control event=${event} via=${adapter.constructor.id}`);
   if (adapter.constructor.id === "rtc") {
     let ackId = null;
@@ -39,15 +35,15 @@ export function sendControl(pm, event, args) {
       // On expiry the timer retries a safe read over WS, else escalates a restart.
       pm._scheduleAckTimeout(ackId, { event, args });
     }
-    const ok = adapter.send(CHANNELS.control, { event, args, ackId });
-    // RTC DC silently dropped (dead SCTP / oversize slipped through) → fallback WS so
-    // the request doesn't hang. Mirrors agent _sendControl fallback.
-    if (!ok) {
-      const ws = pm._adapters.get("ws");
-      if (ws?.ready) {
-        if (cb) ws.send(CHANNELS.control, { event, args, cb });
-        else ws.send(CHANNELS.control, { event, args });
-      }
+    // A refusal means the DC is gone before the adapter's state caught up. Ask the
+    // picker once more (it may already know about a carrier switch); otherwise the
+    // message waits in the buffer — same contract as "no adapter ready" — and is
+    // flushed onto whatever carrier is live then.
+    if (!adapter.send(CHANNELS.control, { event, args, ackId })) {
+      const retry = pm._pickAdapter(CHANNELS.control);
+      if (retry && retry !== adapter && retry.send(CHANNELS.control, cb ? { event, args, ackId, cb } : { event, args, ackId })) return;
+      debugLog("transport", `[pm] rtc refused event=${event} → buffered`);
+      pm._buffer.push({ event, args, cb });
     }
   } else {
     // WS path — pass through to socket.io native (multi-arg + ack supported)
@@ -59,11 +55,12 @@ export function flushBuffer(pm) {
   if (!pm._buffer.length) return;
   const adapter = pm._pickAdapter(CHANNELS.control);
   if (!adapter) return;
-  debugLog("transport", `[pm] flush ${pm._buffer.length} buffered via=${adapter.constructor.id}`);
-  while (pm._buffer.length) {
-    const { event, args, cb } = pm._buffer.shift();
-    const argsWithCb = cb ? [...args, cb] : args;
-    pm._sendControl(event, argsWithCb);
+  // Taken out in one go: a message the carrier refuses goes back on the buffer, and
+  // a loop that re-read the live array would spin on it forever.
+  const queued = pm._buffer.splice(0);
+  debugLog("transport", `[pm] flush ${queued.length} buffered via=${adapter.constructor.id}`);
+  for (const { event, args, cb } of queued) {
+    pm._sendControl(event, cb ? [...args, cb] : args);
   }
 }
 

@@ -1,7 +1,7 @@
 import { WsProtocol } from "./WsProtocol.js";
 import { WebRtcProtocol } from "./WebRtcProtocol.js";
 import { registerProtocol, getProtocol } from "./registry.js";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, CONTROL_RTC_MAX_BYTES, RTC_DEAD_GRACE_MS, SIGNALING_ERRORS } from "../lib/transportConstants.js";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, RTC_DEAD_GRACE_MS, SIGNALING_ERRORS } from "../lib/transportConstants.js";
 import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
 import { isDeviceRejected } from "../lib/deviceApproval.js";
 import { onSignalingMessage, onSignalingReady, sendSignaling as sendGlobalSignaling, isSignalingReady } from "../lib/signalingGlobal.js";
@@ -459,22 +459,16 @@ export class ProtocolManager {
   }
 
   _sendControl(event, args, ackId) {
-    let adapter = this._pickAdapter(CHANNELS.control);
+    const adapter = this._pickAdapter(CHANNELS.control);
     if (!adapter) {
       this._buffer.push({ event, args, ackId });
       // Bound buffer — drop oldest when no adapter ready for too long
       if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
       return;
     }
-    // Preemptive size-routing: SCTP DC rejects oversize control payloads (> CONTROL_RTC_MAX_BYTES)
-    // with a throw/false, which can corrupt the channel into a zombie state. Route oversize
-    // payloads to WS (no SCTP limit) before attempting RTC.
-    if (adapter.constructor.id === "rtc" && _controlBytes(args) > CONTROL_RTC_MAX_BYTES) {
-      const ws = this._adapters.get("ws");
-      if (ws?.ready) adapter = ws;
-    }
-    // One conversion, before the carrier is even chosen — the payload is the same
-    // envelope whichever adapter carries it.
+    // Carrier first, payload never: an envelope too big for one SCTP message is
+    // sliced by the adapter that owns the DC, so it rides whatever carrier is up.
+    // One conversion, before the send — the payload is the same envelope either way.
     this._legacyB64Down(event, args);
     if (event === "output") {
       const st = this._stats;
@@ -488,12 +482,11 @@ export class ProtocolManager {
     }
     if (adapter.constructor.id === "rtc") {
       this._stats.sentRtc++;
-      const ok = adapter.send(CHANNELS.control, { event, args, ackId });
-      // RTC DC may silently drop (dead SCTP during ice transient) → fallback WS so the
-      // client (likely already on WS) still receives server control like "output".
-      if (ok) return;
-      const ws = this._adapters.get("ws");
-      if (ws?.ready && ws.send(CHANNELS.control, { event, args })) return;
+      // A refusal means the DC is gone before the adapter's state caught up — ask
+      // again rather than switching carriers for one message.
+      if (adapter.send(CHANNELS.control, { event, args, ackId })) return;
+      const retry = this._pickAdapter(CHANNELS.control);
+      if (retry && retry !== adapter && retry.send(CHANNELS.control, { event, args, ackId })) return;
     } else {
       this._stats.sentWs++;
       if (adapter.send(CHANNELS.control, { event, args })) return;
@@ -535,10 +528,10 @@ export class ProtocolManager {
     if (!this._buffer.length) return;
     const adapter = this._pickAdapter(CHANNELS.control);
     if (!adapter) return;
-    while (this._buffer.length) {
-      const { event, args, ackId } = this._buffer.shift();
-      this._sendControl(event, args, ackId);
-    }
+    // Taken out in one go: a message the carrier refuses goes back on the buffer, and
+    // a loop that re-read the live array would spin on it forever.
+    const queued = this._buffer.splice(0);
+    for (const { event, args, ackId } of queued) this._sendControl(event, args, ackId);
   }
 
   /**
@@ -629,32 +622,4 @@ export class ProtocolManager {
     this._sigBuffer = [];
     for (const msg of queued) this._sendSignaling(msg);
   }
-}
-
-// Approximate serialized size of control args — cheap upper bound for SCTP limit check.
-function _controlBytes(args) {
-  let bytes = 0;
-  for (const a of args) bytes += _valueBytes(a);
-  return bytes;
-}
-
-// Buffers must be measured by their byte length, not by JSON.stringify: a Buffer
-// serializes to {"type":"Buffer","data":[171,171,…]} — roughly 10x its real size,
-// which would push every binary output payload over the SCTP cap and off RTC.
-// On the wire a Buffer costs its own length (v2 frame part / socket.io attachment).
-function _valueBytes(v) {
-  if (v == null) return 4;
-  if (typeof v === "string") return v.length;
-  if (Buffer.isBuffer(v) || ArrayBuffer.isView(v)) return v.byteLength ?? v.length;
-  if (Array.isArray(v)) {
-    let n = 2;
-    for (const x of v) n += _valueBytes(x) + 1;
-    return n;
-  }
-  if (typeof v === "object") {
-    let n = 2;
-    for (const k of Object.keys(v)) n += k.length + 3 + _valueBytes(v[k]);
-    return n;
-  }
-  return JSON.stringify(v)?.length ?? 8;
 }

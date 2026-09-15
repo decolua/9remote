@@ -118,14 +118,23 @@ test("control: no adapter → buffered with its callback, flushed on the next ad
   assert.equal(ws.sent[0][1].cb, cb);
 });
 
-test("control: oversize payload is routed to WS before RTC can corrupt its DC", () => {
+test("control: an oversize payload still rides RTC — slicing is the adapter's job", () => {
   const rtc = adapter("rtc");
   const ws = adapter("ws");
   const pm = makePm({ pick: rtc, adapters: { rtc, ws } });
   const big = "x".repeat(CONTROL_RTC_MAX_BYTES + 1);
   sendControl(pm, "paste", [big]);
-  assert.equal(rtc.sent.length, 0, "SCTP limit → never attempt RTC");
-  assert.equal(ws.sent.length, 1);
+  assert.equal(rtc.sent.length, 1, "the carrier is chosen from adapter state, not payload size");
+  assert.equal(ws.sent.length, 0);
+});
+
+test("control: an RTC refusal is retried once, then dropped — never re-routed by hand", () => {
+  const rtc = adapter("rtc", { sendOk: false });
+  const ws = adapter("ws");
+  const pm = makePm({ pick: rtc, adapters: { rtc, ws } });
+  sendControl(pm, "input", ["hi"]);
+  assert.equal(ws.sent.length, 0, "a refusal must not silently move the message to the other carrier");
+  assert.equal(pm._buffer.length, 1, "undeliverable → buffered for the next ready window");
 });
 
 test("control: undersize payload stays on RTC and registers an ack timeout", () => {
@@ -141,22 +150,27 @@ test("control: undersize payload stays on RTC and registers an ack timeout", () 
   assert.deepEqual(pm.trace, [["ackTimeout", ackId]]);
 });
 
-test("control: RTC send returning false falls back to WS (request must not hang)", () => {
+test("control: an RTC refusal is buffered, not re-routed — the flush uses the live carrier", () => {
   const rtc = adapter("rtc", { sendOk: false });
   const ws = adapter("ws");
   const pm = makePm({ pick: rtc, adapters: { rtc, ws } });
   const cb = () => {};
   sendControl(pm, "input", ["hi", cb]);
-  assert.equal(ws.sent.length, 1, "dead SCTP → WS fallback");
-  assert.equal(ws.sent[0][1].cb, cb);
+  assert.equal(ws.sent.length, 0, "a refusal must not silently move one message to the other carrier");
+  assert.equal(pm._buffer.length, 1);
+
+  pm._pickAdapter = () => ws; // the adapter state caught up: RTC is closed
+  flushBuffer(pm);
+  assert.equal(ws.sent.length, 1);
+  assert.equal(ws.sent[0][1].cb, cb, "the ack survives the buffering");
 });
 
-test("control: RTC fallback is skipped when WS is not ready", () => {
+test("flush: a message the carrier refuses goes back to the buffer, and the flush ends", () => {
   const rtc = adapter("rtc", { sendOk: false });
-  const ws = adapter("ws", { ready: false });
-  const pm = makePm({ pick: rtc, adapters: { rtc, ws } });
-  sendControl(pm, "input", ["hi"]);
-  assert.equal(ws.sent.length, 0);
+  const pm = makePm({ pick: rtc, adapters: { rtc } });
+  pm._buffer.push({ event: "input", args: ["hi"], cb: null });
+  flushBuffer(pm); // must terminate: a re-read loop would spin on the refused message
+  assert.equal(pm._buffer.length, 1, "still undelivered — kept for the next ready window");
 });
 
 test("dispatch: __ack resolves the pending callback and clears its timer", () => {
