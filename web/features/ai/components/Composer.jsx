@@ -605,10 +605,19 @@ export const Composer = memo(function Composer({
 
   // The raw id is what the CLI reports and what `--model` must receive — `[1m]` picks
   // the 1M-context variant, so it is never stripped from the value that goes back.
-  const matchedModel = useMemo(
-    () => (rawModel ? (MODELS || []).find((m) => m.id === rawModel) : null),
-    [rawModel, MODELS]
-  );
+  // Matching is looser than equality on purpose: the host catalog lists bare slugs
+  // (`gpt-5.6-luna`) while the config may run a gateway id for the same model
+  // (`cx/gpt-5.6-luna`), and an exact compare left the tier picker with nothing to show.
+  const modelKey = (id) => String(id || "").toLowerCase().replace(/\[[^\]]*\]$/, "");
+  const matchedModel = useMemo(() => {
+    if (!rawModel) return null;
+    const list = MODELS || [];
+    const key = modelKey(rawModel);
+    return list.find((m) => m.id === rawModel)
+      || list.find((m) => modelKey(m.id) === key)
+      || list.find((m) => modelKey(m.id).split("/").pop() === key.split("/").pop())
+      || null;
+  }, [rawModel, MODELS]);
 
   // `short` is the real id for host slot models; the alias label is the no-custom fallback.
   const displayModel = matchedModel?.short || matchedModel?.label || rawModel || "Model";
@@ -629,17 +638,18 @@ export const Composer = memo(function Composer({
     return list;
   }, [MODELS, rawModel]);
 
-  // The tiers beside the model, picked in their own popover. The engine's submenu is the
-  // one place that knows both the levels it accepts AND the option key to send them
-  // under (claude says effort, opencode says variant); failing that the host catalog
-  // lists them per model. An engine with neither shows no picker, same as no chip.
+  // The tiers beside the model, picked in their own popover. The engine's submenu names
+  // the option key to send them under (claude/codex say effort, opencode says variant)
+  // and carries a fallback ladder. The running model's OWN tiers win when the host
+  // catalog has them: they differ per model (luna takes `max`, 5.5 stops at `xhigh`),
+  // and offering a level the model rejects fails the next turn.
   const tierSpec = useMemo(
     () => (SLASH_COMMANDS || []).find((c) => c.action === "submenu" && (c.optionKey === "effort" || c.optionKey === "variant")),
     [SLASH_COMMANDS]
   );
   const tierOptions = useMemo(() => {
-    if (tierSpec?.subOptions?.length) return tierSpec.subOptions;
-    return (matchedModel?.efforts || []).map((e) => ({ value: e, label: e }));
+    const own = (matchedModel?.efforts || []).map((e) => ({ value: e, label: e }));
+    return own.length > 0 ? own : tierSpec?.subOptions || [];
   }, [tierSpec, matchedModel]);
 
   return (    <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">

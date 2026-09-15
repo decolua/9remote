@@ -90,6 +90,27 @@ export const PERSONALITY_OPTIONS = Object.freeze([
   { value: "none", label: "None", desc: "No personality instructions" },
 ]);
 
+// Codex's own levels (`model_reasoning_effort`), as its binary defines them. The
+// per-model list comes from `codex debug models`; this is the ladder for a model the
+// catalog does not know — a gateway id, which codex accepts verbatim and only the
+// provider rejects.
+const CODEX_EFFORT_OPTIONS = Object.freeze([
+  { value: "low", label: "low", desc: "Fastest, least reasoning" },
+  { value: "medium", label: "medium", desc: "Balanced default" },
+  { value: "high", label: "high", desc: "Greater reasoning depth" },
+  { value: "xhigh", label: "xhigh", desc: "Extra-high reasoning" },
+  { value: "max", label: "max", desc: "Maximum reasoning" },
+  { value: "ultra", label: "ultra", desc: "Max reasoning + automatic task delegation" },
+]);
+
+// Antigravity's `--effort`. Only models WITHOUT a tier suffix in their id take it —
+// `agy` rejects `--effort` beside a model like gemini-3.8-flash-high.
+const ANTIGRAVITY_EFFORT_OPTIONS = Object.freeze([
+  { value: "low", label: "low", desc: "Fastest, least reasoning" },
+  { value: "medium", label: "medium", desc: "Balanced default" },
+  { value: "high", label: "high", desc: "Deeper reasoning for hard tasks" },
+]);
+
 // Codex's persistent goal (its state DB, read back over the app-server).
 
 // Claude's --effort accepts three levels beyond the shared three, and `ultracode` sits
@@ -349,6 +370,10 @@ export class CodexEngine extends AiEngine {
         features: { thinking: true, planMode: true, tasks: true, skills: true, mcp: true, rewind: true },
         slashCommands: [
           { name: "/model", description: "Choose the Codex model and reasoning effort", action: "modal:model" },
+          // Codex has no /effort of its own (its TUI binds two keys to the same knob),
+          // so this entry is the composer's tier picker: it names the option key and the
+          // fallback ladder, and picking a level sends it as `-c model_reasoning_effort`.
+          { name: "/effort", description: "Reasoning effort (model_reasoning_effort)", action: "submenu", optionKey: "effort", subOptions: CODEX_EFFORT_OPTIONS },
           { name: "/plan", description: "Switch the session into plan mode", action: "setMode", mode: "plan" },
           { name: "/permissions", description: "Set what Codex may do without asking", action: "modal:mode" },
           { name: "/personality", description: "Assistant communication style", action: "submenu", optionKey: "personality", subOptions: PERSONALITY_OPTIONS },
@@ -432,7 +457,7 @@ export class OpenCodeEngine extends AiEngine {
   }
 }
 
-/** Antigravity CLI (`agy`) — stream-json steps, no separate effort flag. */
+/** Antigravity CLI (`agy`) — stream-json steps, `--effort` only on tierless models. */
 export class AntigravityEngine extends AiEngine {
   constructor() {
     super({
@@ -505,8 +530,8 @@ export class AntigravityEngine extends AiEngine {
           send_message: "generic",
           finish: "generic",
         },
-        // The model id already carries its reasoning tier (gemini-3.8-flash-low), so
-        // there is no separate effort flag — the CLI rejects the combination.
+        // The id may carry its own tier (gemini-3.8-flash-low); the CLI rejects that
+        // beside `--effort`, so the adapter drops the suffix when a level is picked.
         models: [
           { id: "gemini-3.8-flash-high", label: "Gemini 3.8 Flash (High)", short: "3.8 Flash H" },
           { id: "gemini-3.8-flash-medium", label: "Gemini 3.8 Flash (Medium)", short: "3.8 Flash M" },
@@ -533,6 +558,7 @@ export class AntigravityEngine extends AiEngine {
         features: { thinking: true, planMode: true, tasks: false, skills: false, mcp: false, rewind: false },
         slashCommands: [
           { name: "/model", description: "Choose the Antigravity model", action: "modal:model" },
+          { name: "/effort", description: "Reasoning effort (--effort)", action: "submenu", optionKey: "effort", subOptions: ANTIGRAVITY_EFFORT_OPTIONS },
           { name: "/resume", description: "Resume a previous Antigravity conversation", action: "modal:sessions" },
           { name: "/clear", description: "Start a fresh Antigravity conversation", action: "clear" },
           { name: "/doctor", description: "Check the Antigravity CLI installation", action: "modal:doctor" },

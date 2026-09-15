@@ -95,18 +95,54 @@ export function listCodexModelOptions() {
     }));
 }
 
-/** `opencode models` prints one `provider/model` id per line. */
+/**
+ * `opencode models --verbose` prints an id, then that model's JSON on the following
+ * lines — its `variants` are the reasoning levels `--variant` accepts. The plain form
+ * lists ids only, which is why the picker used to offer levels a model rejects.
+ */
 export function listOpencodeModelOptions() {
-  let ids = [];
+  let out = "";
   try {
-    const res = spawnSync("opencode", ["models"], { encoding: "utf8", timeout: OPENCODE_CATALOG_TIMEOUT_MS });
-    if (!res.error && res.status === 0) {
-      ids = (res.stdout || "").split("\n").map((l) => l.trim()).filter(Boolean);
-    }
+    const res = spawnSync("opencode", ["models", "--verbose"], { encoding: "utf8", timeout: OPENCODE_CATALOG_TIMEOUT_MS });
+    if (!res.error && res.status === 0) out = res.stdout || "";
   } catch {
     return [];
   }
-  return ids.map((id) => ({ id, label: id, short: id }));
+
+  const options = [];
+  const lines = out.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const id = lines[i].trim();
+    if (!/^[\w.-]+\/[\w.-]+$/.test(id) || lines[i + 1]?.trim() !== "{") continue;
+    // Collect the pretty-printed object that follows the id.
+    let json = "", depth = 0;
+    for (let j = i + 1; j < lines.length; j++) {
+      json += lines[j];
+      for (const ch of lines[j]) {
+        if (ch === "{") depth++;
+        else if (ch === "}") depth--;
+      }
+      if (depth === 0) { i = j; break; }
+    }
+    let model = null;
+    try {
+      model = JSON.parse(json);
+    } catch {
+      // A model whose block failed to parse still belongs in the list.
+    }
+    const raw = model?.variants || {};
+    options.push({
+      id,
+      label: id,
+      short: id,
+      // The variant names are what `--variant` takes; the value is always reasoningEffort.
+      efforts: Object.keys(raw),
+      // opencode stores its pick as "default" — a marker for the model's own default,
+      // not a level, so it is never the fallback.
+      defaultEffort: raw.medium ? "medium" : Object.keys(raw).find((k) => k !== "default") || ""
+    });
+  }
+  return options;
 }
 
 /**

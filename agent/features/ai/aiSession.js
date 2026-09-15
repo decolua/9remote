@@ -351,8 +351,11 @@ export class AiSession {
           hostSessionId: this.id
         });
         this.adapter = mine;
-        if (this.permissionMode || this.options.model || this.options.flags) {
-          mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
+        // The restored effort goes through setOptions, not straight onto the field: it
+        // is what publishes `effort` on the init event the composer's chip reads, and
+        // it is where a model id carrying its own tier gets its suffix dropped.
+        if (this.permissionMode || this.options.model || this.options.flags || this.effort) {
+          mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
         }
         return this._startManaged(mine, mode);
       default:

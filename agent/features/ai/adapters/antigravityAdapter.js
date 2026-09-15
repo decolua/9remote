@@ -19,6 +19,12 @@ const MODE_LABELS = { plan: "Plan", "accept-edits": "Accept Edits" };
 // `agy` reports a denied tool as a plain error string inside tool_info.error.
 const DENIED_RE = /(?:user denied permission|permission check failed|auto-denied)/i;
 
+// Some model ids end in their own tier (gemini-3.8-flash-low). `agy` rejects
+// `--effort` beside one of those ("--model ... conflicts with --effort=high"), so a
+// picked level drops the suffix and the two never ride together.
+const TIER_SUFFIX_RE = /-(?:low|medium|high)$/i;
+const EFFORT_LEVELS = ["low", "medium", "high"];
+
 // `agy` names each tool's parameters itself, in PascalCase — CommandLine for
 // run_command, AbsolutePath for view_file, TargetFile for write_to_file,
 // DirectoryPath/SearchPath for the directory tools (all verified against 1.2.1).
@@ -52,9 +58,10 @@ export class AntigravityAdapter {
     this.proc = proc || new AgentProc({ procId: "" });
     this.activeConversationId = conversationId || null;
     this.isTurnRunning = false;
-    // The CLI's model ids already carry their tier (gemini-3.8-flash-low), so a
-    // separate effort flag is not sent — the two conflict (verified against 1.2.1).
+    // The model id may carry its own tier (gemini-3.8-flash-low); `--effort` is the
+    // separate knob, and the CLI rejects the two together. Empty means "the id decides".
     this.currentModel = model || "";
+    this.effort = "";
     this.permissionMode = "accept-edits";
     // Runtime flags chosen in the Config modal, appended to every turn.
     this.flags = [];
@@ -65,15 +72,30 @@ export class AntigravityAdapter {
     this.metadata = {
       model: this.currentModel,
       sessionId: this.activeConversationId || "",
-      permissionMode: this.permissionMode
+      permissionMode: this.permissionMode,
+      effort: ""
     };
   }
 
-  setOptions({ model, mode, resume, flags }) {
+  setOptions({ model, mode, resume, effort, flags }) {
     if (model) {
       this.currentModel = model;
       this.metadata.model = model;
+      // A model that names its own tier cannot also take --effort — the CLI refuses
+      // the pair, so the pick is dropped the moment such a model is chosen.
+      if (TIER_SUFFIX_RE.test(model)) this.effort = "";
     }
+    // Any of the three levels. An unknown value is ignored rather than sent: `agy`
+    // answers an unknown --effort with an error that kills the whole turn.
+    if (EFFORT_LEVELS.includes(effort)) {
+      this.effort = effort;
+      // The id's own tier would now conflict, so it is dropped for the run.
+      this.currentModel = this.currentModel.replace(TIER_SUFFIX_RE, "");
+      this.metadata.model = this.currentModel;
+    }
+    // Published unconditionally: a model that names its own tier clears the level, and
+    // the composer's chip has to hear about that too.
+    this.metadata.effort = this.effort;
     if (mode && MODE_TO_ARGS[mode]) {
       this.permissionMode = mode;
       this.metadata.permissionMode = mode;
@@ -141,6 +163,7 @@ export class AntigravityAdapter {
     // ride along as a second copy and the CLI would reject the turn.
     const extra = (this.flags || []).filter((f) => f !== "--output-format");
     if (this.currentModel) args.push("--model", this.currentModel);
+    if (this.effort) args.push("--effort", this.effort);
     if (this.activeConversationId) args.push("--conversation", this.activeConversationId);
     for (const a of MODE_TO_ARGS[this.permissionMode] || []) args.push(a);
     args.push(...extra);

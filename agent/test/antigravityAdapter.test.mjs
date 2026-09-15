@@ -51,10 +51,23 @@ await test("defaults to accept-edits, and plan mode replaces the bypass flag", (
   assert.ok(!args.includes("--dangerously-skip-permissions"));
 });
 
-await test("never sends --effort: the model id already carries its tier", () => {
+await test("a model carrying its own tier never rides with --effort — agy refuses the pair", () => {
   const { adapter } = replay([]);
   adapter.setOptions({ model: "gemini-3.8-flash-low", mode: "accept-edits" });
   assert.ok(!adapter.buildArgs("x").some((a) => a === "--effort" || a.startsWith("--effort=")));
+
+  // Picking a level drops the suffix instead, and the two go out as model + effort.
+  adapter.setOptions({ effort: "high" });
+  const args = adapter.buildArgs("x");
+  assert.deepEqual(args.slice(args.indexOf("--model"), args.indexOf("--model") + 2), ["--model", "gemini-3.8-flash"]);
+  assert.deepEqual(args.slice(args.indexOf("--effort"), args.indexOf("--effort") + 2), ["--effort", "high"]);
+
+  // A tierless model keeps both; a level `agy` does not know is ignored, not sent.
+  adapter.setOptions({ model: "gemini-3.1-pro", effort: "medium" });
+  assert.ok(adapter.buildArgs("x").includes("--effort"));
+  adapter.setOptions({ effort: "bogus" });
+  const kept = adapter.buildArgs("x");
+  assert.deepEqual(kept.slice(kept.indexOf("--effort"), kept.indexOf("--effort") + 2), ["--effort", "medium"]);
 });
 
 await test("adopts the conversation id so the next turn can resume", () => {
