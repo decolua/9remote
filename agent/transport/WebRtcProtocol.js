@@ -1,7 +1,7 @@
 import { loadNative } from "./nativeSelfHeal.js";
 import { BaseProtocol } from "./BaseProtocol.js";
-import { encode, decode, encodeFrame, decodeFrame } from "./codec.js";
-import { ADAPTER_STATE, CHANNELS, FILE_TRANSFER, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "../lib/transportConstants.js";
+import { encode, decode, decodeFrame, encodeFragments, createReassembler } from "./codec.js";
+import { ADAPTER_STATE, CHANNELS, CONTROL_RTC_MAX_BYTES, FILE_TRANSFER, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
 import { createLogger } from "../lib/logger.js";
@@ -116,7 +116,10 @@ export class WebRtcProtocol extends BaseProtocol {
     this._hbLastPong = 0;
     this._peerHb = false;   // peer announced caps.hb — only then may we ping it
     this._peerEnv2 = false; // peer announced caps.env2 — send the binary frame form
+    this._peerFragCtl = false; // peer announced caps.fragCtl — it reassembles slices
     this._v2RxSeen = false; // first decoded v2 frame (one-shot diagnostic)
+    this._fragSeq = 0;      // ids for sliced control messages
+    this._reassemble = createReassembler();
     this._closed = false;
     this.typeDetail = "dc-stun";
     this._turnPromise = null;
@@ -162,20 +165,23 @@ export class WebRtcProtocol extends BaseProtocol {
   send(channel, payload) {
     if (channel === CHANNELS.control) {
       if (!this._dcControl) return false;
+      const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
+      // v2 binary frame once the peer announced it — buffers ride raw instead of
+      // base64 inside JSON. Legacy peers keep the text form, and with it the
+      // whole-frame limit: slicing is only readable by a peer that knows the form.
+      if (this._peerEnv2) {
+        if (!this._sendFramed(env)) return false;
+        if (!this._v2Announced) {
+          this._v2Announced = true;
+          logger.info("[env2] agent→client control now SENT as v2 binary frames");
+        }
+        return true;
+      }
       try {
-        const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
-        // v2 binary frame once the peer announced it — buffers ride raw instead of
-        // base64 inside JSON. Legacy peers keep the text form.
-        if (this._peerEnv2) {
-          if (!this._v2Announced) {
-            this._v2Announced = true;
-            logger.info("[env2] agent→client control now SENT as v2 binary frames");
-          }
-          this._dcControl.sendMessageBinary(encodeFrame(env));
-        } else this._dcControl.sendMessage(encode(env));
+        this._dcControl.sendMessage(encode(env));
         return true;
       } catch (err) {
-        // Oversize/dead-channel errors are expected — ProtocolManager falls back to WS.
+        // Oversize/dead-channel — the PM's carrier choice handles it, not this log.
         return false;
       }
     }
@@ -317,16 +323,21 @@ export class WebRtcProtocol extends BaseProtocol {
         // The DC itself tells the two wire forms apart: a string is v1 JSON, a
         // binary message is a v2 frame. No sniffing, no ambiguity.
         try {
-          if (typeof data === "string") parsed = decode(data);
+          let decoded;
+          if (typeof data === "string") decoded = decode(data);
           else {
-            parsed = decodeFrame(data);
+            decoded = decodeFrame(data);
             if (!this._v2RxSeen) {
               this._v2RxSeen = true;
               logger.info("[env2] first v2 binary frame DECODED from client (mutual upgrade confirmed)");
             }
           }
+          // A sliced message is only whole once its last part lands; until then
+          // this yields null and the slices wait here.
+          parsed = this._reassemble.push(decoded);
         }
         catch (err) { logger.error(`control parse: ${err.message}`); return; }
+        if (!parsed) return;
         if (parsed.event === "__pong") { this._hbLastPong = Date.now(); return; }
         if (parsed.event === "rtc:linkType") {
           this.typeDetail = parsed.args?.[0] || "dc-stun";
@@ -413,6 +424,9 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._dcFile = null;
     this.typeDetail = "dc-stun";
+    // Half-arrived slices belong to the peer being torn down — a fragment id of
+    // the next peer must not complete a message with this one's bytes.
+    this._reassemble = createReassembler();
   }
 
   /** PM forwards the peer's caps announcement. Heartbeat pings only peers that
@@ -422,7 +436,36 @@ export class WebRtcProtocol extends BaseProtocol {
   setPeerCaps(caps) {
     this._peerHb = !!caps?.hb;
     this._peerEnv2 = !!caps?.env2;
+    this._peerFragCtl = !!caps?.fragCtl;
     if (this._peerHb && this._dcControl && !this._hbTimer) this._startHeartbeat(this._dcControl);
+  }
+
+  /** Largest control message the control DC takes — libdatachannel reports what
+   *  SCTP negotiated. Falls back to the constant when the DC cannot be asked. */
+  get maxControlBytes() {
+    try { return this._dcControl?.maxMessageSize() || CONTROL_RTC_MAX_BYTES; }
+    catch { return CONTROL_RTC_MAX_BYTES; }
+  }
+
+  /** v2 frames, sliced when the envelope is too big for one SCTP message. All or
+   *  nothing: a payload that dies mid-slice must not arrive as half a message.
+   *  A peer that cannot reassemble gets the whole frame — the DC refuses it if it
+   *  is too big, and the PM then decides which carrier carries it. */
+  _sendFramed(env) {
+    const max = this._peerFragCtl ? this.maxControlBytes : Infinity;
+    const frames = encodeFragments(env, max, ++this._fragSeq);
+    if (!frames) return false;
+    try {
+      for (const frame of frames) {
+        // sendMessageBinary returns false on an oversize/negotiated-max violation —
+        // stopping here keeps the peer from holding a message that never completes.
+        if (!this._dcControl.sendMessageBinary(frame)) return false;
+      }
+      return true;
+    } catch (err) {
+      logger.debug(`control send refused: ${err.message}`);
+      return false;
+    }
   }
 
   /** Control-DC liveness (ttyd pattern): ping every interval, tear the peer down

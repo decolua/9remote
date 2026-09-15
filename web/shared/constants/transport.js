@@ -7,8 +7,10 @@ export const CHANNELS = {
   file: "file"
 };
 
-// SCTP DC max control payload — oversize messages throw / corrupt the channel.
-// Route control payloads larger than this over WS (no SCTP limit).
+// Control payload ceiling, used only when the engine does not report the SCTP
+// limit itself (the browser's DC exposes maxMessageSize). Oversize envelopes are
+// sliced by the adapter, not re-routed: the carrier is chosen from adapter state,
+// never from the payload.
 export const CONTROL_RTC_MAX_BYTES = 65536;
 
 // RTC zombie recovery — ack timeout (detect dead-but-open DC) + restart backoff.

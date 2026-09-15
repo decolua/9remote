@@ -1,7 +1,7 @@
 import { BaseProtocol } from "./BaseProtocol";
-import { encode, decode, encodeFrame, decodeFrame } from "./codec";
+import { encode, decode, decodeFrame, encodeFragments, createReassembler } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
-import { ADAPTER_STATE, CHANNELS, DEAD_PATH_POLL_MS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, CONTROL_RTC_MAX_BYTES, DEAD_PATH_POLL_MS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { getTrust, setTrust, getPendingFp2, takePendingFp2, hostFingerprint, verifySdpSignature } from "./lib/deviceTrust";
@@ -148,8 +148,11 @@ export class WebRtcProtocol extends BaseProtocol {
     // carrier is up first, which is usually WS (RTC is still gathering ICE), so it
     // must not be read off this adapter's own channel.
     this._peerEnv2 = false;
+    this._peerFragCtl = false; // agent reassembles sliced control frames
     this._v2Announced = false; // one-shot: first v2 frame we SEND
     this._v2RxSeen = false;    // one-shot: first v2 frame we DECODE
+    this._fragSeq = 0;         // ids for sliced control messages
+    this._reassemble = createReassembler();
     this._lastInboundAt = 0;
 
     this._signalingHandlers = {};
@@ -312,16 +315,21 @@ export class WebRtcProtocol extends BaseProtocol {
       // The DC itself tells the two wire forms apart: a string is v1 JSON, an
       // ArrayBuffer is a v2 frame (binaryType is "arraybuffer"). No sniffing.
       try {
-        if (typeof data === "string") parsed = decode(data);
+        let decoded;
+        if (typeof data === "string") decoded = decode(data);
         else {
-          parsed = decodeFrame(data);
+          decoded = decodeFrame(data);
           if (!this._v2RxSeen) {
             this._v2RxSeen = true;
             termLog("switch", "env2: first v2 binary frame DECODED from agent (mutual upgrade confirmed)");
           }
         }
+        // A sliced message is only whole once its last part lands; until then this
+        // yields null and the slices wait here.
+        parsed = this._reassemble.push(decoded);
       }
       catch (err) { console.error("[rtc] control parse error:", err.message); return; }
+      if (!parsed) return;
       if (parsed.event === "__ping") {
         // Lazy-arm on the first ping: an old agent never pings, and a watch armed
         // at DC-open would kill its healthy RTC after one timeout of silence.
@@ -402,20 +410,25 @@ export class WebRtcProtocol extends BaseProtocol {
   send(channel, payload) {
     if (channel === CHANNELS.control) {
       if (this._dcControl?.readyState !== "open") return false;
+      const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
+      // An old agent reads a fragmented frame as a message of its own, so slicing is
+      // gated on the same v2 announcement the binary form is. An oversize payload to
+      // such a peer stays whole and is refused here — the PM's carrier choice, never
+      // this adapter's, decides where it goes next.
+      if (this._peerEnv2) {
+        const sent = this._sendFramed(env);
+        if (!sent) return false;
+        if (!this._v2Announced) {
+          this._v2Announced = true;
+          termLog("switch", "env2: client→agent control now SENT as v2 binary frames");
+        }
+        return true;
+      }
       try {
-        const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
-        // v2 binary frame once the agent announced it — buffers ride raw instead
-        // of base64 inside JSON. Old agents keep the text form.
-        if (this._peerEnv2) {
-          if (!this._v2Announced) {
-            this._v2Announced = true;
-            termLog("switch", "env2: client→agent control now SENT as v2 binary frames");
-          }
-          this._dcControl.send(encodeFrame(env));
-        } else this._dcControl.send(encode(env));
+        this._dcControl.send(encode(env));
         return true;
       } catch (err) {
-        console.error("[rtc] send control error:", err.message);
+        // Oversize or dead channel — expected, and the PM handles it. Not an error log.
         return false;
       }
     }
@@ -459,9 +472,37 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 
   /** PM forwards the agent's srvCaps announcement (it may arrive on either
-   *  carrier). env2 flips this adapter's sender to the v2 binary frame. */
+   *  carrier). env2 flips this adapter's sender to the v2 binary frame; fragCtl
+   *  says the agent reassembles slices — an agent without it reads a fragment as a
+   *  message of its own, so slicing waits for the announcement. */
   setPeerCaps(caps) {
     this._peerEnv2 = !!caps?.env2;
+    this._peerFragCtl = !!caps?.fragCtl;
+  }
+
+  /** Largest control message this peer takes. The limit is the peer's to declare
+   *  (RFC 8841 max-message-size) and the browser computes it onto the SCTP
+   *  transport — 0 means "any size", which reads the same as "not reported yet":
+   *  both keep the constant. */
+  get maxControlBytes() {
+    return this._pc?.sctp?.maxMessageSize || CONTROL_RTC_MAX_BYTES;
+  }
+
+  /** v2 frames, sliced when the envelope is too big for one SCTP message. All or
+   *  nothing: a payload that dies mid-slice must not arrive as half a message.
+   *  A peer that cannot reassemble gets the whole frame — the DC refuses it if it
+   *  is too big, and the PM then decides which carrier carries it. */
+  _sendFramed(env) {
+    const max = this._peerFragCtl ? this.maxControlBytes : Infinity;
+    const frames = encodeFragments(env, max, ++this._fragSeq);
+    if (!frames) return false;
+    try {
+      for (const frame of frames) this._dcControl.send(frame);
+      return true;
+    } catch (err) {
+      debugLog("transport", `[rtc] control send refused: ${err.message}`);
+      return false;
+    }
   }
 
   /** Ping-staleness watch — armed lazily on the first __ping (see onmessage).
@@ -741,6 +782,9 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pendingEmit = null;
     if (this._flushTimer) { clearTimeout(this._flushTimer); this._flushTimer = null; }
     this._latestTileTs.clear();
+    // Half-arrived slices belong to the peer being torn down — a fragment id of
+    // the next peer must not complete a message with this one's bytes.
+    this._reassemble = createReassembler();
   }
 
   _receiveTile(buffer) {

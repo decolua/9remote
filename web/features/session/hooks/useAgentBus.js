@@ -172,7 +172,9 @@ export function useAgentBus() {
   // What this client understands. Sent once on first bind and again on every
   // carrier rejoin — the agent gates __ping (hb), binary output (binOut),
   // fragmented prefixes (fragOut) and its v2 sender (env2) on this announcement.
-  const CAPS = { fragOut: true, binOut: true, hb: 1, env2: 1 };
+  // fragCtl is this side of the same bargain: the agent may slice an oversize
+  // control envelope at us only because we reassemble it.
+  const CAPS = { fragOut: true, binOut: true, hb: 1, env2: 1, fragCtl: 1 };
   const announceCaps = (bus) => {
     termLog("switch", `caps → ${JSON.stringify(CAPS)} announced`);
     bus.emit("caps", CAPS);

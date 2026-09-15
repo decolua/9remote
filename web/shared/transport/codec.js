@@ -73,8 +73,9 @@ function drop(value, parts) {
   return value;
 }
 
-/** Serialize an envelope to the v2 binary frame. Returns a Uint8Array. */
-export function encodeFrame(envelope) {
+/** Serialize an envelope to the v2 binary frame. Returns a Uint8Array.
+ *  `frag` = {id, part, parts} marks this frame as one slice of a larger envelope. */
+export function encodeFrame(envelope, frag = null) {
   const parts = [];
   const header = {
     event: envelope.event,
@@ -83,6 +84,7 @@ export function encodeFrame(envelope) {
     // Part byte lengths, so the reader can slice without a per-part header.
     lens: parts.map((p) => p.length)
   };
+  if (frag) { header.frag = frag.id; header.part = frag.part; header.parts = frag.parts; }
   const headerBuf = new TextEncoder().encode(JSON.stringify(header));
   const total = HEADER_LEN_BYTES + headerBuf.length + parts.reduce((n, p) => n + p.length, 0);
   const out = new Uint8Array(total);
@@ -116,5 +118,79 @@ export function decodeFrame(wire) {
     parts.push(buf.subarray(off, off + n));
     off += n;
   }
-  return { event: header.event, args: drop(header.args || [], parts), ackId: header.ackId ?? null };
+  return { event: header.event, args: drop(header.args || [], parts), ackId: header.ackId ?? null, frag: header.frag, part: header.part, parts: header.parts };
+}
+
+// Ceiling on how many slices one envelope may be cut into — a peer announcing a
+// huge count could otherwise make us allocate for a message that never arrives.
+const MAX_FRAG_PARTS = 4096;
+
+/** Cut a serialized frame into slices that each fit `maxBytes`, each slice still
+ *  a valid frame once a fragment header is added. Returns [frame] when it already
+ *  fits, or null when slicing cannot help — the payload does not fit even split,
+ *  or the slice cap is exceeded. The caller then keeps the whole frame, which is
+ *  the pre-fragment behaviour (and the peer's own limit decides what happens). */
+export function sliceFrame(frame, maxBytes) {
+  if (frame.byteLength <= maxBytes) return [frame];
+  // Overhead of the fragment header: the length prefix, the JSON envelope skeleton
+  // and the three markers. Reserved rather than measured — a few bytes of slack
+  // cost nothing, an under-estimate costs the message.
+  const FRAG_HEADER_RESERVE = 192;
+  const slice = maxBytes - FRAG_HEADER_RESERVE;
+  if (slice <= 0) return null;
+  const count = Math.ceil(frame.byteLength / slice);
+  if (count > MAX_FRAG_PARTS) return null;
+  const out = [];
+  for (let part = 0; part < count; part++) {
+    out.push(frame.subarray(part * slice, Math.min((part + 1) * slice, frame.byteLength)));
+  }
+  return out;
+}
+
+/** Wire frames for one envelope: a single frame when it fits `maxBytes`, else as
+ *  many fragment frames as it takes. Returns null when the message cannot be sent
+ *  on this carrier at all (see sliceFrame). */
+export function encodeFragments(envelope, maxBytes, fragId) {
+  const wire = encodeFrame(envelope);
+  const slices = sliceFrame(wire, maxBytes);
+  if (!slices) return null;
+  if (slices.length === 1) return [wire];
+  return slices.map((slice, part) => encodeFrame({ event: envelope.event, args: [slice] }, { id: fragId, part, parts: slices.length }));
+}
+
+// Reassembled frames hold the original envelope bytes until every slice lands, so
+// the buffer is bounded: at most this many messages in flight, oldest dropped.
+const MAX_INFLIGHT_FRAMES = 4;
+
+/** Collects sliced frames back into whole envelopes (control channel). One per
+ *  receiving peer: slices of different messages interleave on the wire, so parts
+ *  are grouped by id. Yields an envelope-shaped object per completed message —
+ *  the same shape decodeFrame returns, so callers treat it identically. */
+export function createReassembler() {
+  const pending = new Map();
+  return {
+    /** decoded: a decodeFrame result, or null to skip. Returns an envelope, or
+     *  null while the message is still incomplete. */
+    push(decoded) {
+      const { frag, part, parts } = decoded;
+      if (frag == null) return decoded;
+      if (!Number.isInteger(part) || !Number.isInteger(parts) || part < 0 || parts < 1 || part >= parts || parts > MAX_FRAG_PARTS) return null;
+      let entry = pending.get(frag);
+      if (!entry) {
+        if (pending.size >= MAX_INFLIGHT_FRAMES) pending.delete(pending.keys().next().value);
+        entry = { slices: new Array(parts), got: 0 };
+        pending.set(frag, entry);
+      }
+      const slice = decoded.args?.[0];
+      if (slice == null) return null;
+      if (!entry.slices[part]) { entry.slices[part] = slice; entry.got++; }
+      if (entry.got < parts) return null;
+      pending.delete(frag);
+      const total = entry.slices.reduce((n, s) => n + s.byteLength, 0);
+      const joined = new Uint8Array(total);
+      let off = 0;
+      for (const s of entry.slices) { joined.set(s, off); off += s.byteLength; }
+      return decodeFrame(joined);
+    }
+  };
 }
