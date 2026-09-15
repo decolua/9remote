@@ -163,10 +163,12 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   // 1. Forward events from AiManager to clients exactly ONCE via global broadcast
   if (io && !broadcastAttached) {
     broadcastAttached = true;
-    manager.onEvent((sessionId, event, data) => {
+    manager.onEvent((sessionId, event, data, seq) => {
       // Streaming events fire per chunk — logging them drowns the file.
       if (event !== "delta" && event !== "thinking") logger.debug(`[ai] event: ${event} session: ${sessionId}`);
-      broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data });
+      // `seq` rides along so the client can tell an event it already replayed from a new
+      // one — the same prompt arrives twice without it (live copy + replayed copy).
+      broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq });
       const engine = manager.getSession(sessionId)?.engine || "claude";
       mirrorAiStatus(manager, sessionId, event, data, engine);
       mirrorAiConversation(sessionId, event, data, engine);
@@ -175,9 +177,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   // Fallback for tests or direct socket mocking
   if (!io || typeof io.emit !== "function") {
-    const unsubscribe = manager.onEvent((sessionId, event, data) => {
+    const unsubscribe = manager.onEvent((sessionId, event, data, seq) => {
       try {
-        socket.emit(AI_SOCKET_EVENTS.EVENT, { sessionId, event, data });
+        socket.emit(AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq });
       } catch {}
     });
     socket.on("disconnect", () => {

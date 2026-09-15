@@ -126,6 +126,37 @@ await test("session events are broadcasted via bus with ai:event", async () => {
   assert.equal(deltaEvent.data.data.text, "processing...");
 });
 
+
+// Without the seq the client cannot tell an event it already replayed from a new one, and
+// renders the same prompt twice — the live copy plus the one the hydrate replayed.
+await test("a recorded event carries its log seq to the client", () => {
+  const socket = new MockSocket();
+  const bus = new MockBus();
+  const manager = new AiManager();
+  setupAiHandlers(socket, bus, manager);
+  const session = manager.createSession("seq-s1", AI_ENGINES.CLAUDE, "/tmp", { mock: true });
+
+  session.emitNormalized("delta", { text: "one" });
+  session.emitNormalized("delta", { text: "two" });
+  const seqs = socket.emitted.map((e) => e.data?.seq);
+  assert.deepEqual(seqs, [1, 2]);
+  assert.equal(session.history.at(-1).seq, seqs.at(-1));
+});
+
+// An unrecorded event is not in the log the client watermark is compared against —
+// stamping it would leave the watermark past the snapshot, and the next hydrate would
+// swallow every event up to that number.
+await test("an event kept out of the log carries no seq", () => {
+  const socket = new MockSocket();
+  const bus = new MockBus();
+  const manager = new AiManager();
+  setupAiHandlers(socket, bus, manager);
+  const session = manager.createSession("seq-s2", AI_ENGINES.CLAUDE, "/tmp", { mock: true });
+
+  session.emitNormalized("init", { model: "m" }, false);
+  assert.equal(socket.emitted.at(-1).data.seq, undefined);
+});
+
 if (fail > 0) {
   console.error(`\nTests failed: ${fail}/${pass + fail}`);
   process.exit(1);

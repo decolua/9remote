@@ -556,7 +556,11 @@ export class AiSession {
       this.history.push({ seq, event: wire.event, data, timestamp: Date.now() });
       if (this.history.length > AI_MAX_EVENTS) this.history.shift();
     }
-    this.onEvent?.(this.id, wire.event, data, seq);
+    // Only a RECORDED event carries its seq onto the wire. The client drops anything at
+    // or below its watermark, and an unrecorded event's number is not in the log the
+    // watermark is compared against — a live event stamped past the snapshot would be
+    // swallowed on the next hydrate.
+    this.onEvent?.(this.id, wire.event, data, record ? seq : undefined);
     if (record) this.scheduleSaveSnapshot();
     if (this.isTurnRunning) this.armIdleWatchdog();
 
