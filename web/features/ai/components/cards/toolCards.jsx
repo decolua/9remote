@@ -31,8 +31,15 @@ const CARDS = {
   ),
   plan: (tool) => <AiPlanModeCard key={tool.id} toolName={tool.name} input={tool.input} />,
   // Answered question — the host's tool output is the only record of the choice.
+  // A rejected call carries no output, only a refusal message; feeding that in as
+  // `answers` painted the green "Answered" view over a question nobody answered.
   question: (tool) => (
-    <AiQuestionCard key={tool.id} questions={tool.input?.questions || []} answers={tool.output || tool.error || ""} />
+    <AiQuestionCard
+      key={tool.id}
+      questions={tool.input?.questions || []}
+      answers={tool.error ? null : tool.output || ""}
+      declined={Boolean(tool.error) || tool.status === "error"}
+    />
   )
 };
 

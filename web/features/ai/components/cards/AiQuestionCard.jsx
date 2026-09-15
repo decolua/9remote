@@ -10,6 +10,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   requestId = "",
   questions = [],
   answers = null, // past answer: raw host text, or {question: answer}
+  declined = false, // the CLI refused the question (Esc, or a stopped turn) — never an answer
   failed = false, // the last answer never reached the host — the card stays, and says so
   onResolve // (requestId, behavior, message, answers) — the host's permission signature
 }) {
@@ -108,7 +109,9 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   // Answered view: this client's own submit, or an answer replayed from the host.
   const past = answers ? (typeof answers === "string" ? parseAnswered(answers) : answers) : null;
 
-  if (skipped) {
+  // A refusal replayed from the host lands on the same outcome — the CLI's own record
+  // of a gate the user walked away from, which is exactly what "Skipped" says.
+  if (skipped || declined) {
     return (
       <div className="my-2 p-3 rounded-brand-lg bg-surface text-[13px] flex flex-col gap-1">
         <span className="text-text-muted font-medium">Skipped</span>
