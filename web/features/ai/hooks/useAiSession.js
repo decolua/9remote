@@ -8,6 +8,7 @@ import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "..
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
 import { estimateMessageBytes } from "../lib/messageWindow";
 import { createRetryLadder, shouldApplyHydrateAck } from "../lib/hydrateRetry";
+import { isAlreadyApplied } from "../lib/seqDedupe";
 import { termLog } from "@/shared/utils/termLog";
 import { RECOVER_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
 import { RESOLVE_ACK_TIMEOUT_MS } from "../constants";
@@ -947,14 +948,12 @@ export function useAiSession({
         return;
       }
       // Already covered by a replay this client hydrated from — applying it again
-      // would duplicate the message. Unstamped (legacy in-agent) events pass.
+      // would duplicate the message. The rule itself is pinned in lib/seqDedupe.
       // Ahead of the stream branch, not behind it: a delta replayed by the same hydrate
       // that just reset the store appended its text a second time, so the answer grew a
       // duplicate tail while the prompt bubble (a non-stream event) was already covered.
-      if (payload.seq != null) {
-        if (payload.seq <= appliedSeqRef.current) return;
-        appliedSeqRef.current = payload.seq;
-      }
+      if (isAlreadyApplied(payload.seq, appliedSeqRef.current)) return;
+      if (payload.seq != null) appliedSeqRef.current = payload.seq;
       if (isStream) {
         bufferStream(payload.event, payload.data?.text);
         return;

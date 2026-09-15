@@ -214,9 +214,12 @@ test("an ack is rebuilt, then described — in that order, from one place", () =
 
 test("live events are gated by the client's applied-seq watermark", () => {
   assert.match(HOOK, /appliedSeqRef/);
-  assert.match(HOOK, /payload\.seq <= appliedSeqRef\.current/);
-  // Unstamped (legacy in-agent) events must still pass through
-  assert.match(HOOK, /if \(payload\.seq != null\) \{/);
+  // The rule lives in its own module now, pinned there against every case (a delta, a
+  // zero watermark, an unstamped event) instead of against the hook's exact spelling.
+  const RULE = fs.readFileSync(path.join(root, "web/features/ai/lib/seqDedupe.js"), "utf8");
+  assert.match(RULE, /seq <= \(appliedSeq \|\| 0\)/);
+  assert.match(RULE, /if \(seq == null\) return false/);
+  assert.match(HOOK, /if \(isAlreadyApplied\(payload\.seq, appliedSeqRef\.current\)\) return;/);
 });
 
 // ── Permission / question correlation ──
