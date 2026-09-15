@@ -10,7 +10,7 @@ import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, reso
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus } from "../terminal/terminalSocket.js";
-import { getConversation, getSessionAgent, setConversationId, getStatus } from "../terminal/statusManager.js";
+import { getConversation, getSessionAgent, setConversationId, getStatus, touchWorking } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
 import { replayWindow } from "./aiEventSlice.js";
@@ -33,6 +33,16 @@ const creating = new Map();
 // lands on a state instead of leaving the dot spinning until the reaper clears it.
 // The table owns which event means what; an event it does not name says nothing.
 function mirrorAiStatus(manager, sessionId, event, data, engine) {
+  // A chat session has no PTY, so nothing else pushes the working TTL out — and
+  // `done`/`blocked` are not the only things a turn says. Every event that arrives
+  // while the CLI is alive is a sign of life, including the ones that name no state
+  // (delta, tool_result, stats). Without this the reaper blanks a turn still running.
+  // A replayed event is that sign too — history proves the CLI got this far.
+  touchWorking(sessionId);
+  // The dot says what the session is doing NOW. A log being re-sent is full of old
+  // endings, and a rebuilt one always ends on a turn_complete: mirrored, that painted a
+  // live turn as finished on every F5, until the next live event moved it back.
+  if (data?.replay) return;
   const state = EVENT_TO_STATE[event];
   if (!state) return;
   const gateHeld = manager.getSession(sessionId)?.pendingPermission?.();
@@ -66,12 +76,17 @@ function doorSession(session, engine = session.engine) {
 
 // The session's replay window and the state a client cannot rebuild from it. Call it
 // through doorSession, not on its own — the rebuild above has to have happened already.
-function publicSession(session) {
+export function publicSession(session) {
   const { events, hasMore } = replayWindow(session.history, AI_REPLAY_BYTES);
   return {
     events,
     hasMore,
     isTurnRunning: session.isTurnRunning,
+    // How long the live turn has been going, and how long the last one took — both
+    // durations on the host's clock, so a pane that loads mid-turn counts from the real
+    // start instead of its own join, and prints a finished turn's span after an F5.
+    elapsedMs: session.turnState().elapsedMs,
+    lastTurnMs: session.lastTurnMs || null,
     // The newest seq, NOT the array length: past AI_MAX_EVENTS the log sheds its head,
     // so length stops equalling the highest seq and the client would swallow an event.
     seq: session.history.at(-1)?.seq ?? 0,
@@ -495,6 +510,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         // it and broadcast a reset, or every client keeps rendering the turns the rewind
         // just discarded.
         session.reloadFromStore?.();
+        // The conversation was cut, so the span of the turn that produced it describes
+        // turns the user just discarded. Same reason as the resume path in aiSession.
+        session.turnStartedAt = 0;
+        session.lastTurnMs = 0;
         logger.info(
           `[ai] rewind timing: stop=${tStop - t0}ms cut+files=${tCut - tStop}ms ` +
           `restart=${tStart - tCut}ms total=${Date.now() - t0}ms`

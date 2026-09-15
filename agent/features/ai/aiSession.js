@@ -220,6 +220,12 @@ export class AiSession {
     this.onEvent = onEvent;
     this.createdAt = Date.now();
     this.isTurnRunning = false;
+    // How long the last turn took, measured by the host's own clock — the pane prints
+    // "Worked for …" from this after an F5, since a client that rejoins saw neither edge.
+    // A span, not two timestamps: the client's clock is a different clock, and subtracting
+    // across them would print the skew. 0 means "no turn this host witnessed".
+    this.turnStartedAt = 0;
+    this.lastTurnMs = 0;
     this.lastPrompt = "";
     this.adapter = null;
     // Codex goal tracking: the read in flight (so concurrent inits share it) and the
@@ -378,6 +384,11 @@ export class AiSession {
       const attached = await adapter.adopt(this.consumedLines, this.consumedEpoch);
       if (attached.alive || attached.lines?.length) {
         this.adopted = true;
+        // The adopted CLI may be mid-turn — the adapter sets its own flag from the
+        // process being alive, and the session's copy is what gates a spawn-time option
+        // (a mode/model/effort pick) from restarting the CLI out from under the answer
+        // on screen.
+        if (adapter.isTurnRunning) this.isTurnRunning = true;
         this._replay(attached);
         return attached;
       }
@@ -503,8 +514,23 @@ export class AiSession {
     // One door for the reset replay, same as the hydrate ack: it steps over any event too
     // wide for a single frame, or the carrier refuses the whole reset.
     const { events: replay, hasMore, fromSeq } = replayWindow(log, AI_REPLAY_BYTES);
-    this.onEvent?.(this.id, "conversation_reset", { hasMore, fromSeq });
-    for (const ev of replay) this.onEvent?.(this.id, ev.event, ev.data, ev.seq);
+    // The turn state rides with the log it belongs to. This reset and the ack that answers
+    // the same hydrate state the same values, so the client lands on them whichever order
+    // the two arrive in — and a live turn stays live, which is what keeps its stop control.
+    this.onEvent?.(this.id, "conversation_reset", {
+      hasMore, fromSeq,
+      lastTurnMs: this.lastTurnMs,
+      ...this.turnState()
+    });
+    for (const ev of replay) {
+      // `replay: true` marks history rather than news: this log is being RE-SENT (a
+      // hydrate rebuilt it from the transcript, a rewind, a /resume), so its events
+      // already happened. The status mirror reads it and stands down — a rebuilt log ends
+      // on a turn_complete, and replaying that turned the tab's dot amber while the turn
+      // was still streaming. The pane still consumes every one: it has no other way to
+      // learn what the conversation was.
+      this.onEvent?.(this.id, ev.event, { ...ev.data, replay: true }, ev.seq);
+    }
     this.flushSaveSnapshot();
     return log;
   }
@@ -519,6 +545,20 @@ export class AiSession {
     this.emitNormalized("ansi", {
       chunk: `\r\n[9remote] ${missed} dòng output đã mất trong lúc agent khởi động lại.\r\n`
     });
+  }
+
+  // What a client cannot rebuild from the log: whether a turn is live, how long the last
+  // one took, and how long the live one has been going. Every door that states turn state
+  // answers with this, so an ack and the reset beside it can never disagree.
+  //
+  // `elapsedMs` is a DURATION, not a mark: the two machines sit on different clocks, and
+  // a client subtracting the host's mark from its own would print the skew. Anchored to
+  // the duration, a pane that joins mid-turn picks the clock up where the host left it.
+  turnState() {
+    return {
+      isTurnRunning: this.isTurnRunning,
+      elapsedMs: this.isTurnRunning && this.turnStartedAt ? Date.now() - this.turnStartedAt : 0
+    };
   }
 
   emitNormalized(event, data, record = true) {
@@ -541,6 +581,19 @@ export class AiSession {
     // whose child events still say tool_start simply drops them rather than floating
     // a sub-agent's internals loose on the timeline.
     data = capEvent(event, data);
+    // Stamped on the way out, so every writer that ends a turn (/clear, /resume, a rewind)
+    // is covered without repeating the bookkeeping in each of them.
+    const now = Date.now();
+    if (event === "user_message") {
+      this.turnStartedAt = now;
+      this.lastTurnMs = 0;
+    } else if (TURN_END_EVENTS.has(event)) {
+      if (this.turnStartedAt) this.lastTurnMs = now - this.turnStartedAt;
+      // Rides with the event that ends the turn, so a client that joined mid-turn prints
+      // the host's span rather than the sliver it watched from its own clock. Copied, not
+      // mutated: capEvent hands back the adapter's own object when it has nothing to trim.
+      data = { ...data, turnMs: this.lastTurnMs };
+    }
     const childEvent = CHILD_EVENTS[event];
     const wire = data?.parentToolUseId && childEvent ? { event: childEvent, data } : { event, data };
 
@@ -748,6 +801,10 @@ export class AiSession {
       this.consumedLines = 0;
       this.consumedEpoch = null;
       this.isTurnRunning = false;
+      // The turn whose span the pane was printing belongs to the conversation this
+      // clears, so the summary goes with it.
+      this.turnStartedAt = 0;
+      this.lastTurnMs = 0;
       this.clearIdleWatchdog();
       this.flushSaveSnapshot();
       if (!this.options.mock && !this.managed) {
@@ -760,7 +817,10 @@ export class AiSession {
       }
       const init = this.metadata();
       this.history.push({ seq: ++this.seqCounter, event: "init", data: init, timestamp: Date.now() });
-      this.onEvent?.(this.id, "conversation_reset", { hasMore: false, fromSeq: 0 });
+      this.onEvent?.(this.id, "conversation_reset", {
+        hasMore: false, fromSeq: 0,
+        lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0
+      });
       this.onEvent?.(this.id, "init", init);
       this.flushSaveSnapshot();
       return;
@@ -845,6 +905,10 @@ export class AiSession {
       // show one conversation while the CLI continues another. Same one door as every
       // other rebuild — a hydrate, the constructor, a gap and a rewind all come here.
       this._adoptLog(this._rebuildFromStore(resume) || []);
+      // A different conversation: the span of the turn this session ran belongs to the
+      // log that just went, and would print under the resumed chat as its own summary.
+      this.turnStartedAt = 0;
+      this.lastTurnMs = 0;
       // TEMP DIAGNOSTIC — an empty rebuild is what a rewind to the first turn SHOULD
       // produce, and also what a failed transcript read produces. Those two look
       // identical from the pane (a blank conversation), so say which one happened and

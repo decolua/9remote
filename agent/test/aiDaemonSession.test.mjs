@@ -133,8 +133,14 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
   assert.match(SESSION, /_adoptLog\(events\) \{/);
   assert.match(SESSION, /const \{ events: replay, hasMore, fromSeq \} = replayWindow\(log, AI_REPLAY_BYTES\)/);
-  assert.match(SESSION, /this\.onEvent\?\.\(this\.id, "conversation_reset", \{ hasMore, fromSeq \}\)/);
-  assert.match(SESSION, /for \(const ev of replay\) this.onEvent\?\.\(this\.id, ev\.event, ev\.data, ev\.seq\)/);
+  // The reset restates the turn state of the log it opens. The client applies it after the
+  // ack that hydrated the same log, so a reset carrying only the window would leave a live
+  // turn looking finished — the pane printing "Worked for …" over an answer still streaming.
+  assert.match(SESSION, /"conversation_reset", \{\s*hasMore, fromSeq,\s*lastTurnMs: this\.lastTurnMs,\s*\.\.\.this\.turnState\(\)\s*\}\)/);
+  // Replayed events reach the pane tagged as history: the status mirror reads that tag
+  // and stands down, or a rebuilt log ending on turn_complete painted a live turn dot
+  // as finished on every F5.
+  assert.match(SESSION, /this\.onEvent\?\.\(this\.id, ev\.event, \{ \.\.\.ev\.data, replay: true \}, ev\.seq\)/);
   // Every path that replaces the log with real content goes through it: the hydrate
   // rebuild (refreshFromStore), a rewind that finds the CLI's store shorter, and
   // /resume. A gap reaches it through refreshFromStore.
@@ -142,7 +148,7 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   const callers = (SESSION.match(/this\._adoptLog\(/g) || []).length;
   assert.equal(callers, 3, `hydrate, rewind and resume must share the one delivery, saw ${callers}`);
   // ...and /clear still states the empty window rather than sending no payload at all.
-  assert.match(SESSION, /conversation_reset", \{ hasMore: false, fromSeq: 0 \}/);
+  assert.match(SESSION, /conversation_reset", \{\s*hasMore: false, fromSeq: 0,\s*lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0\s*\}\)/);
 });
 
 test("a hydrate ack ships a tail and says there is more — that is what arms scroll-up", () => {
