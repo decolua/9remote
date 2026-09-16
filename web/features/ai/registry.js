@@ -287,7 +287,11 @@ export class ClaudeEngine extends AiEngine {
     if (toolName === "TaskCreate" && input?.subject) {
       return {
         id: toolCallId,
-        taskId: String(currentTasks.length + 1),
+        // No number yet: the CLI assigns it and says so in the result ("Task #N created").
+        // Guessing "how many are listed + 1" collides the moment two creates are in flight
+        // — both guess the same number, and the second one renames the first. Until the
+        // result lands the row is matched by its tool call id, which is already unique.
+        taskId: "",
         subject: String(input.subject).trim(),
         activeForm: input.activeForm || "",
         status: "pending",
@@ -331,13 +335,25 @@ export class CodexEngine extends AiEngine {
         // Codex adapter normalizes JSON item types to these names
         tools: {
           command_execution: "bash",
+          // The name codex actually puts on the wire (`ITEM_CATEGORY`'s value), which the
+          // item type above only reaches through the adapter. Without it every command row
+          // fell to the generic card and printed a repeated "COMMAND" chip.
+          command: "bash",
           file_change: "diff",
           shell: "bash",
           patch: "diff",
           apply: "diff",
           read_file: "file",
+          // Codex runs its own reads and listings through the shell; the names below are
+          // what its `parsed_cmd` tag becomes on the wire (see codexItems.js), so a read
+          // row shows a path and a search row a pattern instead of a raw command line.
+          read: "file",
+          list_files: "file",
           todo_list: "task",
           web_search: "search",
+          // `search` is a codex tool name on the wire (from parsed_cmd) AND a category;
+          // mapping it keeps those rows off the generic card too.
+          search: "search",
           // Codex's sub-agents (collab_tool_call). `wait` is antigravity's own tool name
           // too, so it is scoped here rather than in the shared defaults.
           spawn_agent: "agent",
