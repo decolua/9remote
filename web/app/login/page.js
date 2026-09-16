@@ -96,7 +96,9 @@ function LoginContent() {
   // The v2 pairing code rides the #fragment (never sent to the server); the
   // ?k= query stays supported for legacy-agent QRs. Parsed once — the value is
   // stashed in sessionStorage because StrictMode remounts re-run the
-  // initializer after the URL has already been scrubbed.
+  // initializer after the URL has already been scrubbed. The URL scrub itself
+  // happens in the effect below: calling history.replaceState during render
+  // makes Next's Router setState mid-render.
   const token = useMemo(() => searchParams.get("t"), [searchParams]);
   const [tempKey] = useState(() => {
     if (typeof window === "undefined") return null;
@@ -105,10 +107,9 @@ function LoginContent() {
       if (stashed) return stashed;
       const parsed = parsePairingInput(window.location.hash) || parsePairingInput(window.location.search);
       if (parsed?.tempKey) {
-        // Stash the whole code, TAIL included: the URL is scrubbed on the next
-        // line, and the TAIL is the half that proves this device to the agent.
+        // Stash the whole code, TAIL included: the URL is scrubbed right after
+        // render, and the TAIL is the half that proves this device to the agent.
         sessionStorage.setItem("9remote_url_pairing", parsed.tempKey + (parsed.tail || ""));
-        window.history.replaceState(null, "", window.location.pathname);
         return parsed.tempKey + (parsed.tail || "");
       }
     } catch {}
@@ -118,6 +119,11 @@ function LoginContent() {
 
   // Load saved data after hydration (client-side only)
   useEffect(() => {
+    // Drop the pairing code from the address bar (it was stashed during render).
+    if (window.location.hash || window.location.search) {
+      const parsed = parsePairingInput(window.location.hash) || parsePairingInput(window.location.search);
+      if (parsed?.tempKey) window.history.replaceState(null, "", window.location.pathname);
+    }
     const savedPreference = localStorage.getItem("9remote_remember_key_preference");
     setRememberKey(savedPreference !== "false");
     setSavedKeys(loadKeys());
