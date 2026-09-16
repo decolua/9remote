@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -26,6 +26,15 @@ import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL } from "@/shared/constants/github";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
+
+// Engines a terminal can be swapped into the chat UI. Only Claude: the host moves the
+// conversation between surfaces through its daemon, which speaks Claude's stream
+// protocol alone. ponytail: add codex/opencode here once their streams move there too.
+const UI_SWITCHABLE_ENGINES = new Set(["claude"]);
+const isChatEngine = (agentId) => !!agentId && UI_SWITCHABLE_ENGINES.has(agentId.endsWith("-ui") ? agentId.slice(0, -3) : agentId);
+// A turn in flight owns the conversation: the host would have to move it out from under
+// a running CLI. Only a settled terminal (idle, or a finished turn) may switch.
+const SWITCHABLE_STATES = new Set(["idle", "done"]);
 
 function TerminalHeader({
   sessions = [],
@@ -89,6 +98,13 @@ function TerminalHeader({
   const [tabBgSessionId, setTabBgSessionId] = useState(null);
   const tabMenuRef = useRef(null);
   const tabMenuPos = useClampedMenu(tabMenuRef, tabMenu.x, tabMenu.y);
+  // The tab menu's switch door: which surface this tab is on, and whether the host may be
+  // asked to move it right now. The conversation is the host's precondition — a claude tab
+  // that has not started one yet has nothing to move — and status only carries a state
+  // while a turn is running or just finished, so a missing entry reads as idle.
+  const tabAsUi = agentBySession[tabMenu.sessionId]?.endsWith("-ui");
+  const tabSwitchable = isChatEngine(agentBySession[tabMenu.sessionId]) && !!sessionStatus[tabMenu.sessionId]?.conversationId;
+  const tabSwitchReady = tabSwitchable && SWITCHABLE_STATES.has(sessionStatus[tabMenu.sessionId]?.state || "idle");
   const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
   // Tab rename prompt (shared modal; inline input lost the iOS gesture window for focus)
   const [renameDialog, setRenameDialog] = useState({ sessionId: null, name: "", value: "" });
@@ -546,6 +562,31 @@ function TerminalHeader({
               className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
             >
               <RotateCw size={13} /> {t("sessions.resumeSession")}
+            </button>
+          )}
+          {/* Swap this terminal between the chat UI and the agent CLI in it. The host owns
+              the switch — it holds the conversation and the resume line — so the door is
+              only lit on a settled terminal, never mid-turn. */}
+          {tabSwitchable && (
+            <button
+              disabled={!tabSwitchReady}
+              onClick={() => {
+                vibrate();
+                const id = tabMenu.sessionId;
+                busRef?.current?.emit(
+                  "setSessionMode",
+                  { sessionId: id, mode: tabAsUi ? "terminal" : "ui" },
+                  (res) => { if (!res?.success) alert(res?.error || t("sessions.modeSwitchFailed")); }
+                );
+                setTabMenu({ sessionId: null, x: 0, y: 0 });
+              }}
+              className={`w-full text-left px-2.5 py-1.5 text-xs rounded-[6px] flex items-center gap-2 ${
+                tabSwitchReady
+                  ? "text-text hover:bg-surface-2/80"
+                  : "text-text-subtle cursor-not-allowed"
+              }`}
+            >
+              <Sparkles size={13} /> {tabAsUi ? t("sessions.openAsTerminal") : t("sessions.openAsUi")}
             </button>
           )}
           <button

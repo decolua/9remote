@@ -1,29 +1,45 @@
 "use client";
 
+import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { X, ImageOff } from "@/shared/components/ui/Icon";
-import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, TERMINAL_BG_PREVIEW_ALPHA } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, TERMINAL_BG_PREVIEW_ALPHA, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
 
 const NONE_KEY = "none";
 
 // Per-session background picker: grid of wallpapers, plus a first tile that drops the
 // override so the pane follows the global pool again. Tiles carry a light veil only —
 // the pane's real veil is nearly opaque, which would make every thumbnail read as black.
+// "Apply to all" flips the grid into the pool multi-select the settings sheet uses,
+// so one terminal can push its wallpaper to every pane in the workspace.
 export default function SessionBackgroundModal({ sessionId, title, onClose }) {
   const { t } = useI18n();
   const current = useTerminalStore((s) => s.backgroundBySession[sessionId]);
   const setSessionBackground = useTerminalStore((s) => s.setSessionBackground);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
+  const pool = useTerminalStore((s) => s.terminalBackgrounds);
+  const setPool = useTerminalStore((s) => s.setTerminalBackgrounds);
   const setTerminalBackgroundOpacity = useTerminalStore((s) => s.setTerminalBackgroundOpacity);
   const opacity = useTerminalStore((s) => s.terminalBackgroundOpacity) ?? TERMINAL_BG_ALPHA;
+  const [applyAll, setApplyAll] = useState(false);
 
   if (typeof document === "undefined") return null;
 
+  // Pool pruned of dead custom keys — badges follow what actually renders
+  const poolKeys = resolvableBackgroundKeys(pool, customBackgrounds);
+
+  // Single-pick mode pins the wallpaper to this terminal and closes; pool mode toggles
+  // the shared list and keeps the modal open so several can be picked in a row.
   const pick = (key) => {
-    setSessionBackground(sessionId, key);
-    onClose?.();
+    if (!applyAll) {
+      setSessionBackground(sessionId, key);
+      onClose?.();
+      return;
+    }
+    if (key === NONE_KEY) { setPool([]); return; }
+    setPool(poolKeys.includes(key) ? poolKeys.filter((k) => k !== key) : [...poolKeys, key]);
   };
 
   const selected = current ?? null;
@@ -33,8 +49,9 @@ export default function SessionBackgroundModal({ sessionId, title, onClose }) {
   ];
 
   const renderTile = ({ key, label, src }) => {
-    const isSelected = selected === key;
     const isNone = key === NONE_KEY;
+    const order = isNone ? -1 : poolKeys.indexOf(key);
+    const isSelected = applyAll ? (isNone ? poolKeys.length === 0 : order !== -1) : selected === key;
     return (
       <button
         key={key ?? "global"}
@@ -68,6 +85,13 @@ export default function SessionBackgroundModal({ sessionId, title, onClose }) {
         <span className={`pointer-events-none absolute inset-0 rounded-2xl ${
           isSelected ? "ring-1 ring-inset ring-brand-500" : "ring-1 ring-inset ring-white/15"
         }`} />
+
+        {/* Pool turn — the panes round-robin in this order */}
+        {applyAll && isSelected && !isNone && (
+          <span className="absolute top-1.5 right-1.5 flex items-center justify-center w-5 h-5 rounded-full bg-brand-500 text-white text-[11px] font-semibold shadow-lg">
+            {order + 1}
+          </span>
+        )}
       </button>
     );
   };
@@ -117,6 +141,16 @@ export default function SessionBackgroundModal({ sessionId, title, onClose }) {
           />
           <span className="text-xs text-text-muted tabular-nums flex-shrink-0">{Math.round(opacity * 100)}%</span>
         </div>
+
+        <label className="flex-shrink-0 border-t border-border-subtle px-4 py-3 flex items-center gap-2.5 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={applyAll}
+            onChange={(e) => setApplyAll(e.target.checked)}
+            className="accent-brand-500 w-3.5 h-3.5 flex-shrink-0"
+          />
+          <span className="text-xs text-text">{t("menu.bgApplyAll")}</span>
+        </label>
       </div>
     </div>,
     document.body
