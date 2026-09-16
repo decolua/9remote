@@ -8,7 +8,7 @@
 // Run: cd web && node --import ./test/loader-alias.mjs test/aiHarnessTasks.test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { applyTaskRecord, runningTasks } from "../features/ai/lib/harnessTasks.js";
+import { applyTaskRecord, foldTaskRecords, runningTasks } from "../features/ai/lib/harnessTasks.js";
 import { reduceSessionEvents } from "../features/ai/hooks/useAiSession.js";
 import { useAiStore } from "../shared/stores/aiStore.js";
 import { runningAsync } from "../features/ai/lib/toolTree.js";
@@ -203,7 +203,9 @@ test("a task the CLI says is running is what the strip shows", () => {
     { taskId: "shell-1", toolUseId: "c1", status: "running", background: true, description: "build" },
     { taskId: "agent-1", toolUseId: "c2", status: "completed", background: false, description: "look" }
   ]);
-  assert.deepEqual(rows, [{ kind: "shell", id: "c1", label: "build" }],
+  // `taskId` rides along beside the row's own key: it is the name a stop must address,
+  // and on a harness row the two ids differ (tool call vs the id the CLI minted).
+  assert.deepEqual(rows, [{ kind: "shell", id: "c1", taskId: "shell-1", label: "build" }],
     "the CLI's status decides, not a row that was handed off");
 });
 
@@ -314,6 +316,118 @@ test("a paused task carries no end stamp either", () => {
   t = applyTaskRecord(t, "system", "task_updated", { task_id: "t-1", patch: { status: "paused" } });
   assert.equal(t[0].status, "paused");
   assert.equal("endedAt" in t[0], false);
+});
+
+// ── an ended task settles the row that launched it ──
+//
+// A background shell's tool_result is only the LAUNCH ack ("Command running in background
+// with ID: …"), and that string stays in the output forever — so a card reading it as
+// "live" spun until the host's 120s watchdog, and a restart brought it back spinning. The
+// record that ends the task is what has to end the row.
+
+const rowLog = [
+  { seq: 1, event: "tool_start", data: { id: "c1", name: "Bash", input: { run_in_background: true } } },
+  { seq: 2, event: "tool_result", data: { id: "c1", name: "Bash", output: "Command running in background with ID: b1", status: "running", async: true, handle: "b1" } }
+];
+
+test("a task the CLI ended settles its row, so the card stops spinning", () => {
+  useAiStore.getState().initSession("settle");
+  const { messages } = reduceSessionEvents(rowLog, "claude");
+  useAiStore.getState().hydrateSession("settle", { messages });
+  assert.equal(useAiStore.getState().bySession["settle"].messages[0].tools[0].status, "running", "live work stays live");
+
+  useAiStore.getState().applyTaskRecords("settle", [
+    ["system", "task_started", { task_id: "t-1", tool_use_id: "c1", is_backgrounded: true }],
+    ["system", "task_notification", { task_id: "t-1", tool_use_id: "c1", status: "stopped" }]
+  ]);
+  assert.equal(useAiStore.getState().bySession["settle"].messages[0].tools[0].status, "done");
+});
+
+test("a failed task settles as an error, not a success", () => {
+  useAiStore.getState().initSession("failed");
+  useAiStore.getState().hydrateSession("failed", { messages: reduceSessionEvents(rowLog, "claude").messages });
+  useAiStore.getState().applyTaskRecords("failed", [
+    ["system", "task_started", { task_id: "t-1", tool_use_id: "c1", is_backgrounded: true }],
+    ["system", "task_notification", { task_id: "t-1", tool_use_id: "c1", status: "failed" }]
+  ]);
+  assert.equal(useAiStore.getState().bySession["failed"].messages[0].tools[0].status, "error");
+});
+
+test("a task still running leaves its row alone", () => {
+  useAiStore.getState().initSession("live");
+  useAiStore.getState().hydrateSession("live", { messages: reduceSessionEvents(rowLog, "claude").messages });
+  useAiStore.getState().applyTaskRecords("live", [
+    ["system", "task_started", { task_id: "t-1", tool_use_id: "c1", is_backgrounded: true }]
+  ]);
+  assert.equal(useAiStore.getState().bySession["live"].messages[0].tools[0].status, "running");
+});
+
+test("a replayed log settles the rows whose tasks are already over", () => {
+  // The F5 case: the log is a page of the past, so its `running` rows are whatever they
+  // were when written — and a task that ended before this pane existed must not come
+  // back mid-spin.
+  const out = reduceSessionEvents(rowLog, "claude");
+  useAiStore.getState().initSession("replay");
+  useAiStore.getState().hydrateSession("replay", {
+    messages: out.messages,
+    harnessTasks: [{ taskId: "t-1", toolUseId: "c1", status: "completed", background: true }]
+  });
+  assert.equal(useAiStore.getState().bySession["replay"].messages[0].tools[0].status, "done");
+});
+
+test("an engine with no task model leaves every row as its adapter set it", () => {
+  useAiStore.getState().initSession("codex");
+  useAiStore.getState().hydrateSession("codex", { messages: reduceSessionEvents(rowLog, "codex").messages });
+  useAiStore.getState().applyTaskRecords("codex", [["system", "task_notification", { task_id: "t-1", tool_use_id: "c1", status: "completed" }]]);
+  assert.equal(useAiStore.getState().bySession["codex"].messages[0].tools[0].status, "running");
+});
+
+// ── the host states the task set beside the log (the F5 case) ──
+
+
+test("task records the replay tail never reached still arrive, from the host", () => {
+  // The bug this exists for: a task is announced at the top of a long turn, the turn runs
+  // past a 32KB replay window, and an F5 comes back with an empty strip while the work is
+  // still going. The host states its own records beside the log, so the window is no
+  // longer the only door.
+  const host = [
+    { type: "system", subtype: "task_started", record: { task_id: "t-1", tool_use_id: "c1", status: "running", is_backgrounded: true, description: "build" } }
+  ];
+  const tasks = foldTaskRecords(host, []);
+  assert.deepEqual(tasks.map((t) => [t.taskId, t.status, t.background]), [["t-1", "running", true]]);
+});
+
+test("the replayed window wins where both doors carry the same task", () => {
+  // The window is the newer reading of the events the two share — it saw the end.
+  const host = [{ type: "system", subtype: "task_started", record: { task_id: "t-1", tool_use_id: "c1", status: "running", is_backgrounded: true } }];
+  const window = [{ taskId: "t-1", toolUseId: "c1", status: "completed", background: true }];
+  assert.deepEqual(foldTaskRecords(host, window).map((t) => t.status), ["completed"]);
+});
+
+test("a host that states no records leaves the window's own list alone", () => {
+  const window = [{ taskId: "t-1", status: "running", background: true }];
+  assert.deepEqual(foldTaskRecords(null, window).map((t) => t.taskId), ["t-1"]);
+});
+
+test("a /clear empties the task list, which is a statement and not a silence", () => {
+  // The reset states `taskRecords: []` for a /clear. Skipping an empty array left the
+  // pane drawing tasks from the conversation that was just thrown away.
+  useAiStore.getState().initSession("cleared");
+  useAiStore.getState().setTaskRecords("cleared", [
+    { type: "system", subtype: "task_started", record: { task_id: "t-1", status: "running", is_backgrounded: true } }
+  ]);
+  assert.equal(useAiStore.getState().bySession["cleared"].harnessTasks.length, 1);
+  useAiStore.getState().setTaskRecords("cleared", []);
+  assert.equal(useAiStore.getState().bySession["cleared"].harnessTasks.length, 0);
+});
+
+test("a reset that states nothing (an older host) does not wipe the list", () => {
+  useAiStore.getState().initSession("older");
+  useAiStore.getState().setTaskRecords("older", [
+    { type: "system", subtype: "task_started", record: { task_id: "t-1", status: "running", is_backgrounded: true } }
+  ]);
+  useAiStore.getState().setTaskRecords("older", undefined);
+  assert.equal(useAiStore.getState().bySession["older"].harnessTasks.length, 1);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

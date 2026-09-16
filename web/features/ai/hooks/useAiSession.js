@@ -6,7 +6,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
-import { applyTaskRecord, noticeFrom } from "../lib/harnessTasks";
+import { applyTaskRecord, foldTaskRecords, noticeFrom, lastIndexOfCompacting } from "../lib/harnessTasks";
 import { upsertTask } from "../lib/taskList";
 import { estimateMessageBytes } from "../lib/messageWindow";
 import { collectOlderPage } from "../lib/olderPaging";
@@ -39,8 +39,7 @@ const REWIND_APPLY_TIMEOUT_MS = 130000;
 
 // Pure reducer that transforms an event log into a complete session snapshot in RAM
 // in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
-export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) {
-  const messages = [];
+export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) {  const messages = [];
   let tasks = [];
   // The CLI's own records, in order, for whatever the pane learns to read next. The task
   // model is folded out of them at the end rather than inside the switch: the rules live
@@ -292,6 +291,27 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         // noticeFrom.
         const notice = noticeFrom(type, record);
         if (!notice) break;
+        // A settled compaction REPLACES the "Compacting…" row it ends — one happening, and
+        // the CLI states its start and its end as two frames. With an error to show it takes
+        // the row's place; a skipped one has nothing to say, so dropping the row IS the
+        // update. Same rule as the live store door (see addNotice).
+        // `compactSettled` is a wire between those two doors, not part of the row: the
+        // reducer has already used it here, and nothing downstream reads it.
+        const { compactSettled, ...row } = notice;
+        // Found by scanning back, not by looking at the last row: the CLI can put another
+        // readable record between the start and the end of a compaction (`api_error` does
+        // exactly that when the summarization call fails), and a rule that only checked its
+        // immediate neighbour then left the spinner running under the finished row.
+        const runningAt = compactSettled ? lastIndexOfCompacting(messages) : -1;
+        if (runningAt !== -1) {
+          if (row.content?.trim()) messages[runningAt] = { id: `n-${++msgSeq}`, role: "notice", ...row };
+          else messages.splice(runningAt, 1);
+          break;
+        }
+        // Nothing left to draw — a settled compaction that had no row to close, and every
+        // other reader already refuses empty text. Carrying it would put a blank row in the
+        // timeline that the pane then declines to paint.
+        if (!row.content?.trim()) break;
         // The placeholder `user_message` opened is for the answer, and the answer has not
         // started. Dropping it here is what stops the pane drawing a bare turn (a bubble
         // with nothing in it) ahead of a line that arrived first; the next `delta` opens
@@ -300,7 +320,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         if (last && last.role === "assistant" && !last.content && !last.thinking && !(last.tools || []).length) {
           messages.pop();
         }
-        messages.push({ id: `n-${++msgSeq}`, role: "notice", ...notice });
+        messages.push({ id: `n-${++msgSeq}`, role: "notice", ...row });
         break;
       }
       default:
@@ -502,6 +522,11 @@ export function useAiSession({
           lastTurnMs: data?.lastTurnMs, fromSeq: data?.fromSeq
         });
         useAiStore.getState().clearMessages(sid);
+        // The host's task set, restated with the log it belongs to — the replayed window
+        // below carries only what fitted in its tail, so a task from the top of a long
+        // turn would come back missing. Applied BEFORE the replay, so the window's own
+        // records fold on top of it.
+        useAiStore.getState().setTaskRecords(sid, data?.taskRecords);
         useAiStore.getState().restoreTurnState(sid, data);
         break;
       // Every CLI record the pane has no card for goes to the store as-is; the fold into
@@ -744,7 +769,13 @@ export function useAiSession({
             // What the replay's own records rebuilt. Without this the strip came back
             // empty after an F5 while a shell was still running: the log said so, and
             // nobody carried the answer into the store.
-            harnessTasks: hydrated.harnessTasks
+            //
+            // The host's own task records go FIRST and the window's on top: a task
+            // announced at the top of a long turn falls outside the replay tail, so the
+            // window alone is not the whole set — the host states it beside the log, the
+            // way it states the turn. Same reader folds both, so this is one list, not
+            // two that could disagree.
+            harnessTasks: foldTaskRecords(res.session.taskRecords, hydrated.harnessTasks)
           });
           // The host states the gate itself when the CLI is holding one, so a request
           // that scrolled off the replay tail still comes back — a card that cannot be
@@ -753,6 +784,10 @@ export function useAiSession({
           if (gate) useAiStore.getState().setPermission(sessionId, gate);
         } else {
           setTurnRunning(sessionId, Boolean(res.session.isTurnRunning));
+          // An empty window is not an absent task set: a session whose log the host holds
+          // but cannot replay (every event over a frame, say) still has its tasks stated
+          // beside the log. Skipping this left the strip empty on a session that has one.
+          useAiStore.getState().setTaskRecords(sessionId, res.session.taskRecords);
           if (res.session.permissionMode) {
             useAiStore.getState().setPermissionMode(sessionId, res.session.permissionMode);
           }
@@ -1071,6 +1106,18 @@ export function useAiSession({
     setTurnRunning(sessionId, false);
   }, [sessionId, setTurnRunning]);
 
+  // Stop ONE background task. Fire and forget like the host side: the CLI reports the
+  // stop as a `task_notification`, which is what settles the row — an optimistic local
+  // update would claim an end that may not have happened.
+  const stopTask = useCallback(
+    (taskId) => {
+      if (!taskId) return;
+      const b = busRef.current || useConnectionStore.getState().bus;
+      b?.emit("ai:stopTask", { sessionId, taskId });
+    },
+    [sessionId]
+  );
+
   const runShell = useCallback(
     (command) => {
       sendPrompt(`! ${command}`);
@@ -1229,6 +1276,7 @@ export function useAiSession({
     sendPrompt,
     resolvePermission,
     stop,
+    stopTask,
     runShell,
     rewindToMessage,
     previewRewind,

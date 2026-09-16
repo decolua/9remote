@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { updateToolTree, settleRunningTools } from "@/features/ai/lib/toolTree";
-import { applyTaskRecord } from "@/features/ai/lib/harnessTasks";
+import { applyTaskRecord, foldTaskRecords, TASK_ENDED, lastIndexOfCompacting } from "@/features/ai/lib/harnessTasks";
 import { upsertTask } from "@/features/ai/lib/taskList";
 
 // Zustand's persist writes on EVERY set, and a streamed answer sets the store once per
@@ -64,6 +64,37 @@ const INITIAL_SESSION_STATE = {
 // missing every other field. Actions always read through the defaults.
 const sessionOf = (state, sessionId) => ({ ...INITIAL_SESSION_STATE, ...state.bySession[sessionId] });
 
+/**
+ * Settle the tool rows whose task the CLI has ended.
+ *
+ * Read off the whole task list, not the delta: after a restart the pane hydrates with
+ * tasks that ended before it existed, and their rows are still `running` in the log.
+ * Idempotent — a row already settled matches nothing and the array comes back as it was.
+ *
+ * Only sub-agents and background shells have a task, and only claude reports one; an
+ * engine with no task model leaves every row exactly as its adapter set it.
+ */
+function settleTasks(tasks, messages) {
+  if (!messages?.length) return null;
+  const ended = tasks.filter((t) => t.toolUseId && TASK_ENDED.has(t.status));
+  if (!ended.length) return null;
+  let next = messages;
+  for (const task of ended) {
+    const status = task.status === "failed" ? "error" : "done";
+    const settled = next.map((m) => {
+      if (!m.tools) return m;
+      const tools = updateToolTree(
+        m.tools,
+        (t) => t.id === task.toolUseId && t.status === "running",
+        (t) => ({ ...t, status })
+      );
+      return tools ? { ...m, tools } : m;
+    });
+    if (settled.some((m, i) => m !== next[i])) next = settled;
+  }
+  return next === messages ? null : next;
+}
+
 export const useAiStore = create(
   persist(
     (set, get) => ({
@@ -83,14 +114,52 @@ export const useAiStore = create(
       // Kept as a single action rather than four cases in the reducer's switch: the live
       // path and the replay path must land the same list, and two copies of the rules is
       // how they drift.
+      /**
+       * Replace the task list with what the HOST states, for a reset that rebuilt the log.
+       *
+       * Not the fold above: a reset says the conversation this pane held is gone (a /clear,
+       * a /resume, a rewind), so the tasks it was showing go with it. The host states its
+       * own set beside the log — the window cannot carry all of it, since a task announced
+       * at the top of a long turn falls outside a 32KB tail.
+       */
+      setTaskRecords: (sessionId, records) => {
+        // An EMPTY array is meaningful here — a /clear ends the conversation the tasks
+        // belonged to, and a client left holding them draws work that is over. Only an
+        // absent field (an older host) leaves the list alone.
+        if (!sessionId || !Array.isArray(records)) return;
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          const next = foldTaskRecords(records, []);
+          const messages = settleTasks(next, curr.messages);
+          if (next === curr.harnessTasks && !messages) return state;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, harnessTasks: next, ...(messages ? { messages } : null) }
+            }
+          };
+        });
+      },
+
       applyTaskRecords: (sessionId, records) => {
         if (!sessionId || !records?.length) return;
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          let next = curr.harnessTasks || [];
+          const before = curr.harnessTasks || [];
+          let next = before;
           for (const [type, subtype, record] of records) next = applyTaskRecord(next, type, subtype, record);
-          if (next === curr.harnessTasks) return state;
-          return { bySession: { ...state.bySession, [sessionId]: { ...curr, harnessTasks: next } } };
+          // A task the CLI has ended settles the tool row that launched it. Without this
+          // the row spins until the host's own watchdog (120s), because a background
+          // shell's result is only the LAUNCH ack — "Command running in background with
+          // ID: …" sits in the output forever, so the card read it as running for good.
+          const messages = settleTasks(next, curr.messages);
+          if (next === before && !messages) return state;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, harnessTasks: next, ...(messages ? { messages } : null) }
+            }
+          };
         });
       },
 
@@ -104,9 +173,34 @@ export const useAiStore = create(
        */
       addNotice: (sessionId, notice) => {
         const content = typeof notice?.content === "string" ? notice.content.trim() : "";
-        if (!sessionId || !content) return;
+        if (!sessionId) return;
+        // A settled compaction with nothing to say (it was skipped, or a re-run cleared a
+        // status nothing was running behind) still has to CLOSE the row a start opened.
+        // Refusing it on empty text left that row spinning over a compaction that was over.
+        // Every other empty notice is bookkeeping, as before.
+        if (!content && !notice?.compactSettled) return;
         set((state) => {
           const curr = sessionOf(state, sessionId);
+          // Found by scanning back, not by reading the last row: the CLI can put another
+          // readable record between a compaction's start and its end (`api_error`, when the
+          // summarization call itself fails), and checking only the neighbour left the
+          // spinner running under the finished row.
+          const runningAt = notice?.compactSettled ? lastIndexOfCompacting(curr.messages) : -1;
+          // A settled compaction REPLACES the "Compacting…" row it ends: they are one
+          // happening, and the CLI states the start (a status) and the end (the boundary,
+          // or a failed status) as two frames. Dropping the row is the whole update when
+          // there is no error text to draw in its place.
+          if (runningAt !== -1) {
+            const messages = content
+              ? [...curr.messages.slice(0, runningAt), { id: nextId("n"), role: "notice", subtype: notice.subtype || "", level: notice.level || "info", content }, ...curr.messages.slice(runningAt + 1)]
+              : [...curr.messages.slice(0, runningAt), ...curr.messages.slice(runningAt + 1)];
+            return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages } } };
+          }
+          // Content was checked above, so only a settled compaction reaches here empty —
+          // and it has already done its work above or had no row to close. Returning the
+          // state unchanged is required: a bare `return` hands zustand `undefined`, which
+          // it takes as "replace the whole store with this" and wipes every session.
+          if (!content) return state;
           const row = {
             id: nextId("n"),
             role: "notice",
@@ -115,7 +209,12 @@ export const useAiStore = create(
             content,
             // A row that names a FILE carries it, so the pane can open it. Only set when
             // the reader produced one — see noticeFrom.
-            ...(notice.file ? { file: notice.file } : null)
+            ...(notice.file ? { file: notice.file } : null),
+            // The compaction's own numbers, so the row prints "557k → 21k tokens" rather
+            // than only the harness's sentence — see harnessTasks.compactFrom.
+            ...(notice.compact ? { compact: notice.compact } : null),
+            // A compaction still running, which the boundary record later settles.
+            ...(notice.compacting ? { compacting: true } : null)
           };
           // The placeholder `addUserMessage` opened is for the answer, and the answer has
           // not started. Dropping it is what stops the pane drawing a bare turn ahead of
@@ -601,13 +700,17 @@ export const useAiStore = create(
       hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null, elapsedMs = 0, lastTurnMs = 0, harnessTasks = null }) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
+          // The replayed log is a page of the past, and its `running` rows are whatever
+          // they were when they were written — a background shell that has since ended
+          // comes back mid-spin. The harness tasks arriving with it say which ended.
+          const settled = harnessTasks ? settleTasks(harnessTasks, messages) : null;
           return {
             bySession: {
               ...state.bySession,
               [sessionId]: {
                 ...curr,
                 activePermission: null,
-                messages,
+                messages: settled || messages,
                 tasks,
                 isTurnRunning,
                 // The host's own duration anchors the mark, so a turn rejoined mid-flight
@@ -646,10 +749,15 @@ export const useAiStore = create(
         if (!older?.length) return;
         set((state) => {
           const curr = sessionOf(state, sessionId);
+          // Older turns, same as the hydrate: their `running` rows are whatever the log
+          // said when they were written, and a task that has ended since must not come
+          // back spinning. The task list already in the store is the judge — it is the
+          // whole set, folded from every record seen so far.
+          const messages = settleTasks(curr.harnessTasks || [], older) || older;
           return {
             bySession: {
               ...state.bySession,
-              [sessionId]: { ...curr, messages: [...older, ...curr.messages] }
+              [sessionId]: { ...curr, messages: [...messages, ...curr.messages] }
             }
           };
         });
