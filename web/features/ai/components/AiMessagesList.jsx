@@ -9,9 +9,11 @@ import { ENGINE_INFO, STARTER_PROMPTS } from "../constants";
 import { ArrowDown, Check, Loader2, Pencil, History } from "@/shared/components/ui/Icon";
 import { describeLive, estimateTurnTokens, countTurnChanges, formatTokens } from "../lib/liveStatus";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 import { termLog } from "@/shared/utils/termLog";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import { OPEN_SESSION_EVENT } from "@/features/terminal/constants/terminalConfig";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn } from "../lib/messageWindow";
 
@@ -151,17 +153,6 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
   );
   const summary = finished || reopened;
 
-  // TEMP DIAGNOSTIC — why the tail line is what it is. This is the decision the bug lives
-  // at: "running" with no line means the live branch was not reached at all, "worked" while
-  // a turn streams means the store said the turn was over. Remove once F5 mid-turn is
-  // confirmed on a real reload.
-  useEffect(() => {
-    termLog("ai-status", "render", {
-      sessionId, isTurnRunning, hasFinished: !!finished, hasReopened: !!reopened,
-      lastTurnMs, turnStartedAt, msgs: turnMessages.length, hydrating
-    });
-  }, [sessionId, isTurnRunning, finished, reopened, lastTurnMs, turnStartedAt, turnMessages.length, hydrating]);
-
   if (!isTurnRunning && !summary) return null;
 
   if (!isTurnRunning) {
@@ -226,6 +217,7 @@ function relativeAge(ms) {
 // talked about here. Only mounted while the list is empty, so the session scan and
 // the git poll stay off a chat that is under way.
 const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspacePath, fileBus, onSendPrompt, onOpenResume }) {
+  const { t } = useI18n();
   const [recent, setRecent] = useState([]);
   const [homedir, setHomedir] = useState(null);
   const git = useWorkspaceGit(workspacePath, fileBus, { enabled: Boolean(workspacePath) });
@@ -290,19 +282,32 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
             <span>Recent in this project</span>
           </div>
           <div className="max-h-[38vh] overflow-y-auto custom-scrollbar rounded-brand border border-border-subtle bg-surface-2/30">
-            {recent.map((row) => (
-              <button
-                key={`${row.agent}:${row.sessionId}`}
-                type="button"
-                onClick={() => { vibrate(); onOpenResume?.(row); }}
-                className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left border-b border-border-subtle/50 last:border-b-0 hover:bg-surface-2 transition-colors"
-              >
-                <span className="flex-1 min-w-0 truncate text-[11px] text-text">
-                  {row.title || "Untitled conversation"}
-                </span>
-                <span className="shrink-0 text-[10px] font-mono text-text-muted">{relativeAge(row.updatedAt)}</span>
-              </button>
-            ))}
+            {recent.map((row) => {
+              // The host tags the row whose conversation a terminal is already
+              // running. Resuming it would open a second copy of the same chat, so
+              // the row says so and picks that terminal instead.
+              const isOpen = !!row.openSessionId;
+              const onPick = () => {
+                if (isOpen) window.dispatchEvent(new CustomEvent(OPEN_SESSION_EVENT, { detail: { sessionId: row.openSessionId } }));
+                else onOpenResume?.(row);
+              };
+              return (
+                <button
+                  key={`${row.agent}:${row.sessionId}`}
+                  type="button"
+                  onClick={() => { vibrate(); onPick(); }}
+                  className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left border-b border-border-subtle/50 last:border-b-0 hover:bg-surface-2 transition-colors"
+                  title={isOpen ? t("agentHistory.openNow") : undefined}
+                >
+                  {/* Already running is the brighter row, the way the sidebar's history
+                      says it — same idiom, no badge. */}
+                  <span className={`flex-1 min-w-0 truncate text-[11px] ${isOpen ? "text-text font-medium" : "text-text-muted"}`}>
+                    {row.title || "Untitled conversation"}
+                  </span>
+                  <span className="shrink-0 text-[10px] font-mono text-text-muted">{relativeAge(row.updatedAt)}</span>
+                </button>
+              );
+            })}
           </div>
           {recent.length >= RECENT_SESSIONS && (
             <button
@@ -384,19 +389,6 @@ export const AiMessagesList = memo(function AiMessagesList({
     [topId, messages, visibleBytes]
   );
   useEffect(() => { setTopId(nextTopId); }, [nextTopId]);
-
-  // TEMP DIAGNOSTIC — the mounted window, once per change, with the session id. This is
-  // the line that says whether the pane is short because the WINDOW hides turns (mount >
-  // 0 while the store holds more) or because the STORE itself is short (mount == 0 with
-  // fewer messages than the host sent). Remove once the short-reopen is settled.
-  useEffect(() => {
-    termLog("ai-page", "window", {
-      sessionId, total: messages.length, hiddenCount, visibleBytes,
-      topId: nextTopId, firstVisible: messages[hiddenCount]?.role || "none",
-      prompts: messages.filter((m) => m.role === "user").length,
-      hasOlder, hydrating, synced
-    });
-  }, [sessionId, messages, hiddenCount, visibleBytes, nextTopId, hasOlder, hydrating, synced]);
 
   const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 

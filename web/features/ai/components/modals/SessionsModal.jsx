@@ -1,9 +1,11 @@
 "use client";
 
 import { memo, useState, useEffect, useMemo, useCallback } from "react";
-import { History, Search, CornerDownLeft, RefreshCw, Loader2 } from "@/shared/components/ui/Icon";
+import { History, Search, RefreshCw, Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { OPEN_SESSION_EVENT } from "@/features/terminal/constants/terminalConfig";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { ModalShell } from "./ModalShell";
 
 function relativeAge(ms) {
@@ -67,21 +69,23 @@ export const SessionsModal = memo(function SessionsModal({
       maxWidth="max-w-xl"
       onClose={onClose}
     >
-      <div className="p-3 border-b border-border-subtle bg-bg shrink-0">
-        <div className="flex items-center gap-2 px-3 py-1.5 rounded-brand bg-surface border border-border-subtle focus-within:border-brand-500">
-          <Search size={14} className="text-text-muted shrink-0" />
+      {/* No fill and no strip of its own: the panel behind is already a surface, and a
+          second one nested in it read as a darker band across the top of the modal. */}
+      <div className="px-4 py-2.5 border-b border-border-subtle shrink-0">
+        <div className="flex items-center gap-2 focus-within:text-text text-text-muted">
+          <Search size={14} className="shrink-0" />
           <input
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search sessions..."
-            className="w-full bg-transparent text-xs text-text placeholder-text-muted focus:outline-none"
+            className="w-full bg-transparent text-xs text-text placeholder-text-muted/70 focus:outline-none"
             autoFocus
           />
           <button
             type="button"
             onClick={load}
-            className="text-text-muted hover:text-text shrink-0"
+            className="hover:text-text shrink-0"
             title="Refresh"
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
@@ -103,27 +107,47 @@ export const SessionsModal = memo(function SessionsModal({
             </span>
           </div>
         ) : (
-          filtered.map((row) => (
-            <div
-              key={`${row.agent}:${row.sessionId}`}
-              onClick={() => handlePick(row)}
-              className="modal-row"
-            >
-              <div className="min-w-0 flex-1">
-                <div className="text-xs font-semibold text-text truncate">
+          filtered.map((row) => {
+            // The host tags the row a terminal is already running. Resuming it would
+            // open a second copy of one conversation, so the row marks it and picks
+            // that terminal instead.
+            const isOpen = !!row.openSessionId;
+            return (
+              <div
+                key={`${row.agent}:${row.sessionId}`}
+                onClick={() => {
+                  vibrate();
+                  if (isOpen) {
+                    window.dispatchEvent(new CustomEvent(OPEN_SESSION_EVENT, { detail: { sessionId: row.openSessionId } }));
+                    onClose?.();
+                    return;
+                  }
+                  handlePick(row);
+                }}
+                className="modal-row"
+                title={row.sessionId}
+              >
+                {/* The CLI's own mark, the one thing that tells Claude from Codex at a
+                    glance. The session id it replaced was a 36-char string nobody picks by. */}
+                <img
+                  src={agentIconUrl(row.mode === "ui" ? `${row.agent}-ui` : row.agent)}
+                  alt={row.agent}
+                  className={`shrink-0 ${AGENT_ICON_CLS} ${isOpen ? "" : "opacity-50"}`}
+                  style={{ width: 14, height: 14 }}
+                />
+                {/* Already running reads as the brighter row, same as the sidebar's
+                    history — no badge, no colour, the contrast says it. */}
+                <span className={`flex-1 min-w-0 truncate text-xs ${isOpen ? "text-text font-medium" : "text-text-muted"}`}>
                   {row.title || "Untitled conversation"}
-                </div>
-                <div className="flex items-center gap-2 mt-1 text-[10px] font-mono text-text-subtle">
-                  <span className="truncate max-w-[160px]">{row.sessionId}</span>
-                  {row.updatedAt ? <><span>·</span><span>{relativeAge(row.updatedAt)}</span></> : null}
-                </div>
+                </span>
+                {row.updatedAt ? (
+                  <span className="shrink-0 text-[10px] font-mono text-text-subtle tabular-nums">
+                    {relativeAge(row.updatedAt)}
+                  </span>
+                ) : null}
               </div>
-              <span className="modal-row-acts text-[11px] text-brand-500 items-center gap-1">
-                <span>Resume</span>
-                <CornerDownLeft size={11} />
-              </span>
-            </div>
-          ))
+            );
+          })
         )}
       </div>
     </ModalShell>

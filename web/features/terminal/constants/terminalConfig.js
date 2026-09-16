@@ -136,6 +136,12 @@ export const NOTE_SUGGESTIONS = ["check again", "continue", "summarize"];
 // is broadcast to the other (detail: {sessionId, items}) instead of re-reading the agent.
 export const NOTE_SYNC_EVENT = "terminal:noteSync";
 
+// Focus an already-open terminal by id (detail: {sessionId}). Same reach as the dock
+// click: the chat pane's history rows sit under several memoized layers that a
+// callback would have to be threaded through, and the listener is the one place
+// that already owns "open the terminal holding this session".
+export const OPEN_SESSION_EVENT = "terminal:openSession";
+
 // Mobile status strip: the right slot alternates between the cwd folder and the
 // running CLI's 5h quota, since a phone-width bar fits only one at a time.
 export const STRIP_ROTATE_MS = 5000;
