@@ -3,6 +3,8 @@
 import { create } from "zustand";
 import { createJSONStorage, persist } from "zustand/middleware";
 import { updateToolTree, settleRunningTools } from "@/features/ai/lib/toolTree";
+import { applyTaskRecord } from "@/features/ai/lib/harnessTasks";
+import { upsertTask } from "@/features/ai/lib/taskList";
 
 // Zustand's persist writes on EVERY set, and a streamed answer sets the store once per
 // frame — so a turn spends thousands of synchronous JSON.stringify + localStorage
@@ -53,6 +55,9 @@ const INITIAL_SESSION_STATE = {
   turnBaseline: { inputTokens: 0, outputTokens: 0 },
   metadata: { model: "", skills: [], mcpServers: [] },
   tasks: [], // TaskCreate/TaskUpdate checklist
+  // The harness's own task state (a background shell, a sub-agent), read straight off the
+  // CLI's records — see lib/harnessTasks.js, the only place that knows their shape.
+  harnessTasks: [],
 };
 
 // Persisted slices keep prefs only, so a session restored from localStorage can be
@@ -72,6 +77,56 @@ export const useAiStore = create(
             [sessionId]: { ...INITIAL_SESSION_STATE }
           }
         }));
+      },
+
+      // The harness's task records, folded by the one reader that knows their shape.
+      // Kept as a single action rather than four cases in the reducer's switch: the live
+      // path and the replay path must land the same list, and two copies of the rules is
+      // how they drift.
+      applyTaskRecords: (sessionId, records) => {
+        if (!sessionId || !records?.length) return;
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          let next = curr.harnessTasks || [];
+          for (const [type, subtype, record] of records) next = applyTaskRecord(next, type, subtype, record);
+          if (next === curr.harnessTasks) return state;
+          return { bySession: { ...state.bySession, [sessionId]: { ...curr, harnessTasks: next } } };
+        });
+      },
+
+      /**
+       * A line the harness asked the timeline to draw (see lib/harnessTasks.noticeFrom).
+       *
+       * Appended, never merged into an assistant row: it is the CLI speaking, not the
+       * agent answering, and it has to keep its place between them. Empty text is refused
+       * here as well as at the reader — a record with nothing to show is bookkeeping, not
+       * a row the pane should carry.
+       */
+      addNotice: (sessionId, notice) => {
+        const content = typeof notice?.content === "string" ? notice.content.trim() : "";
+        if (!sessionId || !content) return;
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          const row = {
+            id: nextId("n"),
+            role: "notice",
+            subtype: notice.subtype || "",
+            level: notice.level || "info",
+            content,
+            // A row that names a FILE carries it, so the pane can open it. Only set when
+            // the reader produced one — see noticeFrom.
+            ...(notice.file ? { file: notice.file } : null)
+          };
+          // The placeholder `addUserMessage` opened is for the answer, and the answer has
+          // not started. Dropping it is what stops the pane drawing a bare turn ahead of
+          // a line that arrived first; the next streamed token opens a fresh one.
+          // Same rule as the replay door — see reduceSessionEvents.
+          const last = curr.messages[curr.messages.length - 1];
+          const messages = last && last.role === "assistant" && !last.content && !last.thinking && !(last.tools || []).length
+            ? [...curr.messages.slice(0, -1), row]
+            : [...curr.messages, row];
+          return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages } } };
+        });
       },
 
       setPermissionMode: (sessionId, mode) => {
@@ -522,32 +577,13 @@ export const useAiStore = create(
         });
       },
 
-      // TaskCreate/TaskUpdate → upsert into session tasks list
+      // TaskCreate/TaskUpdate → fold into the session's checklist. The rules live in
+      // lib/taskList.js so the replay path lands the same list — see there.
       upsertTask: (sessionId, taskData) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          // TodoWrite carries the whole list — it replaces, never appends
-          if (taskData.replaceAll) {
-            return {
-              bySession: {
-                ...state.bySession,
-                [sessionId]: { ...curr, tasks: taskData.todos || [] }
-              }
-            };
-          }
-          const tasks = [...(curr.tasks || [])];
-          const targetId = String(taskData.taskId || taskData.id || "");
-          const idx = tasks.findIndex(
-            (t, i) =>
-              (t.id && String(t.id) === targetId) ||
-              (t.taskId && String(t.taskId) === targetId) ||
-              String(i + 1) === targetId
-          );
-          if (idx !== -1) {
-            tasks[idx] = { ...tasks[idx], ...taskData };
-          } else if (taskData.subject) {
-            tasks.push(taskData);
-          }
+          const tasks = upsertTask(curr.tasks, taskData);
+          if (tasks === curr.tasks) return state;
           return {
             bySession: {
               ...state.bySession,
@@ -557,13 +593,12 @@ export const useAiStore = create(
         });
       },
 
-      // Batch hydration: replaces the entire message history and task checklist in ONE
-      // state update instead of dispatching 5000+ individual actions on join/reconnect.
+      // Batch hydration: replaces the entire message history and task checklist in ONE      // state update instead of dispatching 5000+ individual actions on join/reconnect.
       // A gate the host did not replay is one nobody is waiting on. The caller sets it
       // back when the replay DOES carry a pending request — dropping it there instead
       // left the card from before a reload on screen, and its "answered" report went to
       // a request id the CLI had already moved past.
-      hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null, elapsedMs = 0, lastTurnMs = 0 }) => {
+      hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null, elapsedMs = 0, lastTurnMs = 0, harnessTasks = null }) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
           return {
@@ -593,7 +628,11 @@ export const useAiStore = create(
                 // Authoritative from the replay: a blocked card with no matching event
                 // in the log is stale and must not survive the reload.
                 activeBlocked,
-                ...(permissionMode ? { permissionMode } : {})
+                ...(permissionMode ? { permissionMode } : {}),
+                // What the replay's own records rebuilt. Only when the caller sent one:
+                // an older agent's ack carries none, and blanking there would erase the
+                // list the live path had already folded.
+                ...(harnessTasks ? { harnessTasks } : {})
               }
             }
           };

@@ -53,6 +53,16 @@ export function visibleTools(engine, tools, diffs) {
 export function buildTurnRows(messages = [], engine = "claude") {
   const rows = [];
   for (const m of messages) {
+    // A line the harness asked for (see harnessTasks.noticeFrom). Not a step and not
+    // prose: the CLI is telling the reader something, so it keeps its own place in the
+    // order and never goes behind the "N more" bar.
+    if (m.role === "notice") {
+      rows.push({
+        kind: "notice", id: m.id,
+        notice: { subtype: m.subtype, level: m.level, content: m.content, ...(m.file ? { file: m.file } : null) }
+      });
+      continue;
+    }
     if (m.role !== "assistant") continue;
     if (m.thinking?.trim()) rows.push({ kind: "thought", id: `${m.id}-th`, text: m.thinking });
 

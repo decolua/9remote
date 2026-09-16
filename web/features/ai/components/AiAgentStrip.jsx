@@ -22,10 +22,15 @@ const ANCHOR = { agent: "agent", shell: "shell" };
  */
 export const AiAgentStrip = memo(function AiAgentStrip({ sessionId = "" }) {
   const messages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY;
+  // The harness's task set, when the engine keeps one. It is the authority: the CLI states
+  // each task's status, so the strip stops inferring "still running" from a row that was
+  // handed off. Engines with no task model (codex, antigravity) leave this empty and fall
+  // back to the row scan — see runningAsync.
+  const harnessTasks = useAiStore((s) => s.bySession[sessionId]?.harnessTasks) || EMPTY;
   // Derived on every message update, i.e. once per streamed token — but the scan reads
   // one segment's tool rows and stops at the first hit, and returns nothing when the turn
   // holds no async work at all, which is the overwhelming majority of turns.
-  const running = runningAsync(messages);
+  const running = runningAsync(messages, harnessTasks);
   if (running.length === 0) return null;
 
   const agents = running.filter((r) => r.kind === "agent");

@@ -21,18 +21,29 @@ export const agentLabel = (t) =>
 const shellLabel = (t) => t?.input?.description || t?.input?.command || "shell";
 
 /**
- * Everything launched asynchronously that is still going, off one message list,
- * deepest-last — the pinned strip's read model.
+ * Everything launched asynchronously that is still going — the pinned strip's read model.
  *
- * Two shapes, because the CLIs hand off two different kinds of work:
- *   - a sub-agent (LAUNCH_TOOLS), which the tree nests and which has no end signal
- *   - a background shell (`async` on a Bash row), which returns at once and is still
- *     running when it does
- *
- * Kept from the shared scan below so both the strip and the "is anything running"
- * question read one traversal, not two.
+ * The harness's task set is the authority when it is there (`harnessTasks`, from
+ * task_started / background_tasks_changed): the CLI states a task's status, so the strip
+ * stops guessing. The tool-row scan below is the FALLBACK for engines that keep no task
+ * model of their own — codex and antigravity hand work off without ever saying its name
+ * again, and for those the row is all there is.
  */
-export function runningAsync(messages = []) {
+export function runningAsync(messages = [], harnessTasks = []) {
+  if (harnessTasks.length > 0) {
+    return harnessTasks
+      .filter((t) => t?.status === "running")
+      .map((t) => ({
+        kind: t.background ? "shell" : "agent",
+        id: t.toolUseId || t.taskId,
+        label: t.description || t.subagentType || "task"
+      }));
+  }
+  return scanRunningRows(messages);
+}
+
+/** The tool-row fallback: work handed off and never reported on again. */
+function scanRunningRows(messages = []) {
   const out = [];
   const walk = (tools) => {
     for (const t of tools || []) {
@@ -51,9 +62,9 @@ export function runningAsync(messages = []) {
   return out;
 }
 
-/** Every sub-agent still running, off one message list, deepest-last. */
-export function runningAgents(messages = []) {
-  return runningAsync(messages)
+/** Every sub-agent still running. */
+export function runningAgents(messages = [], harnessTasks = []) {
+  return runningAsync(messages, harnessTasks)
     .filter((r) => r.kind === "agent")
     .map(({ id, label }) => ({ id, label }));
 }

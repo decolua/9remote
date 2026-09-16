@@ -6,7 +6,10 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
+import { applyTaskRecord, noticeFrom } from "../lib/harnessTasks";
+import { upsertTask } from "../lib/taskList";
 import { estimateMessageBytes } from "../lib/messageWindow";
+import { collectOlderPage } from "../lib/olderPaging";
 import { createRetryLadder, shouldApplyHydrateAck } from "../lib/hydrateRetry";
 import { isAlreadyApplied } from "../lib/seqDedupe";
 import { termLog } from "@/shared/utils/termLog";
@@ -25,18 +28,6 @@ const HYDRATE_TIMEOUT_MS = 4000;
 // calls back, and the same guard is what keeps the terminal's history fetch alive
 // (see features/terminal/lib/reconnectState.js).
 const HISTORY_TIMEOUT_MS = 4000;
-// How much rendered conversation ONE scroll-up brings back. The wire budget (32KB) is
-// spent on raw events, which serialize ~2.4x their text — a turn carrying a tool result
-// measures tens of KB of events but reduces to one small row. Sized on the wire budget
-// instead, a page bought a couple of rows while the list's own budget (128KB of rendered
-// messages) grew by four times as much, so every tap fetched again and the thread crept
-// upward a few rows at a time — measured 24 taps to reach the first message of an 8-turn
-// chat. This is the budget the fetch is spent against, in the currency the list spends.
-const OLDER_PAGE_BYTES = 128 * 1024;
-// Ceiling on the chunks one tap may buy. A turn that reduces to almost nothing (a log
-// made of tool events, no prose) would otherwise walk the whole thread in one tap —
-// the fetch is bounded, the walk is not.
-const OLDER_MAX_CHUNKS = 8;
 // Applying a rewind is not a fetch: claude's file half spawns its CLI twice, and the
 // host allows each spawn a minute (see agent/features/ai/claudeRewind.js). On the fetch
 // budget a working rewind was reported to the user as "the host did not answer", while
@@ -50,7 +41,11 @@ const REWIND_APPLY_TIMEOUT_MS = 130000;
 // in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
 export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) {
   const messages = [];
-  const tasks = [];
+  let tasks = [];
+  // The CLI's own records, in order, for whatever the pane learns to read next. The task
+  // model is folded out of them at the end rather than inside the switch: the rules live
+  // in lib/harnessTasks.js, so the live path and this replay call the same code.
+  const harnessRecords = [];
   let metadata = { model: "", skills: [], mcpServers: [] };
   let stats = { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 };
   let isTurnRunning = false;
@@ -58,6 +53,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   let activeBlocked = null;
   let permissionMode = null;
   let turnEnded = false;
+  let lastTurn = null;
   let msgSeq = idBase;
 
   for (const item of events) {
@@ -193,17 +189,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         }
         if (data.name) {
           const t = parseEngineTaskEvent(engine, data.name, data.input, data.id, tasks);
-          if (t) {
-            const tId = String(t.taskId || t.id || "");
-            const tIdx = tasks.findIndex(
-              (item, i) =>
-                (item.id && String(item.id) === tId) ||
-                (item.taskId && String(item.taskId) === tId) ||
-                String(i + 1) === tId
-            );
-            if (tIdx !== -1) tasks[tIdx] = { ...tasks[tIdx], ...t };
-            else if (t.subject) tasks.push(t);
-          }
+          if (t) tasks = upsertTask(tasks, t);
         }
         break;
       }
@@ -218,16 +204,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
           }
         }
         const taskRes = parseEngineTaskResult(engine, data.name || "", data.output || "", data.id);
-        if (taskRes) {
-          const tId = String(taskRes.taskId || taskRes.id || "");
-          const tIdx = tasks.findIndex(
-            (item, i) =>
-              (item.id && String(item.id) === tId) ||
-              (item.taskId && String(item.taskId) === tId) ||
-              String(i + 1) === tId
-          );
-          if (tIdx !== -1) tasks[tIdx] = { ...tasks[tIdx], ...taskRes };
-        }
+        if (taskRes) tasks = upsertTask(tasks, taskRes);
         break;
       }
       case "permission_request":
@@ -250,6 +227,9 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         activePermission = null;
         if (data?.stats) stats = { ...stats, ...data.stats };
         if (messages.length > 0) messages[messages.length - 1].isLive = false;
+        // Whether the turn FAILED travels with its end. Without this the pane can only
+        // say a turn finished, never that it finished badly.
+        lastTurn = { isError: Boolean(data?.isError), subtype: data?.subtype || "", result: data?.result || "" };
         break;
       case "stats":
         if (data?.stats) stats = { ...stats, ...data.stats };
@@ -294,10 +274,35 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
       case "conversation_reset":
         messages.length = 0;
         tasks.length = 0;
+        harnessRecords.length = 0;
         isTurnRunning = false;
         activePermission = null;
         activeBlocked = null;
+        lastTurn = null;
         break;
+      // A record the pane has no card for. Kept rather than dropped: the pane is a
+      // re-render of the TUI, and a record it cannot draw YET must not leave a hole
+      // that is invisible from both ends.
+      case "cli_event": {
+        const type = data?.type || "";
+        const record = data?.record || null;
+        harnessRecords.push([type, data?.subtype || "", record]);
+        // A record the harness gave something readable to is a line in the timeline, in
+        // the order it happened. Which ones those are is the harness's call — see
+        // noticeFrom.
+        const notice = noticeFrom(type, record);
+        if (!notice) break;
+        // The placeholder `user_message` opened is for the answer, and the answer has not
+        // started. Dropping it here is what stops the pane drawing a bare turn (a bubble
+        // with nothing in it) ahead of a line that arrived first; the next `delta` opens
+        // a fresh one.
+        const last = messages[messages.length - 1];
+        if (last && last.role === "assistant" && !last.content && !last.thinking && !(last.tools || []).length) {
+          messages.pop();
+        }
+        messages.push({ id: `n-${++msgSeq}`, role: "notice", ...notice });
+        break;
+      }
       default:
         break;
     }
@@ -311,7 +316,15 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
     for (const m of messages) if (m.tools) m.tools = settleRunningTools(m.tools);
   }
 
-  return { messages, tasks, metadata, stats, isTurnRunning, activePermission, activeBlocked, permissionMode };
+  let harnessTasks = [];
+  for (const [type, subtype, record] of harnessRecords) harnessTasks = applyTaskRecord(harnessTasks, type, subtype, record);
+
+  return {
+    messages, tasks, metadata, stats, isTurnRunning, activePermission, activeBlocked, permissionMode,
+    harnessRecords,
+    harnessTasks,
+    lastTurn
+  };
 }
 
 export function useAiSession({
@@ -491,6 +504,17 @@ export function useAiSession({
         useAiStore.getState().clearMessages(sid);
         useAiStore.getState().restoreTurnState(sid, data);
         break;
+      // Every CLI record the pane has no card for goes to the store as-is; the fold into
+      // a task list happens there, through the same reader the replay uses.
+      case "cli_event": {
+        const type = data?.type || "";
+        const record = data?.record || null;
+        useAiStore.getState().applyTaskRecords(sid, [[type, data?.subtype || "", record]]);
+        // Same rule as the replay: the harness decides which records a person reads.
+        const notice = noticeFrom(type, record);
+        if (notice) useAiStore.getState().addNotice(sid, notice);
+        break;
+      }
       default:
         break;
     }
@@ -716,7 +740,11 @@ export function useAiSession({
             elapsedMs: res.session.elapsedMs || 0,
             lastTurnMs: res.session.lastTurnMs || 0,
             permissionMode: res.session.permissionMode || hydrated.permissionMode,
-            activeBlocked: hydrated.activeBlocked
+            activeBlocked: hydrated.activeBlocked,
+            // What the replay's own records rebuilt. Without this the strip came back
+            // empty after an F5 while a shell was still running: the log said so, and
+            // nobody carried the answer into the store.
+            harnessTasks: hydrated.harnessTasks
           });
           // The host states the gate itself when the CLI is holding one, so a request
           // that scrolled off the replay tail still comes back — a card that cannot be
@@ -1144,64 +1172,34 @@ export function useAiSession({
     // older events of a conversation that is no longer shown, so its ack stands down
     // instead of prepending one log's turns onto another's.
     const logSeq = olderSeqRef.current;
-    const fetchChunk = (before) => new Promise((resolve) => {
-      let settled = false;
-      const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
-      const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
-      b.emit("aiHistory", { sessionId, before }, done);
-    });
     try {
       const t0 = Date.now();
-      // One tap buys a PAGE, not a frame: chunks are fetched until the rendered
-      // messages they reduced to fill the list's own budget, the host runs out, or the
-      // chunk ceiling is reached. Each chunk is still one bounded wire frame.
-      let before = logSeq;
-      let older = [];
-      let bytes = 0;
-      let hasMore = true;
-      let chunks = 0;
-      let answered = false;
-      while (chunks < OLDER_MAX_CHUNKS) {
-        const res = await fetchChunk(before);
-        chunks++;
-        // TEMP DIAGNOSTIC — one line PER CHUNK, with the session id. This is the line
-        // that separates the two ways a scroll-up dies: a null ack (nobody answered —
-        // carrier or route) from success:false / empty (the host had nothing behind
-        // `before`). The summary line below cannot tell them apart once the loop has run.
-        // Remove with the rest of the ai-page logging.
-        termLog("ai-page", "chunk", {
-          sessionId, asked: before, ms: Date.now() - t0,
-          res: res == null ? "TIMEOUT/no-ack"
-               : { ok: res.success, events: res.events?.length ?? null, hasMore: res.hasMore, err: res.error }
-        });
-        // A timed-out ack is not an answer — keep the door open so the next scroll
-        // retries. Only the host saying "no such session" closes it.
-        if (res == null) break;
-        if (!res.success) { hasMore = false; break; }
-        if (!res.events?.length) { hasMore = false; break; }
-        answered = true;
-        // Ids continue past everything already held — this tap's own pages included,
-        // or the second chunk would re-mint the ids the first one just used.
-        const curr = useAiStore.getState().bySession[sessionId];
-        const page = reduceSessionEvents(res.events, engine, (curr?.messages?.length || 0) + older.length + 1);
-        // A chunk that reduces to nothing is a hole in the fetch, not progress: the
-        // next ask would carry the same `before` and buy the same empty page forever.
-        if (!page.messages.length) { hasMore = false; break; }
-        // Kept BEFORE the budget is judged, so the mark never runs ahead of what was
-        // actually delivered — a chunk dropped after `before` moved past it could never
-        // be asked for again.
-        older = [...page.messages, ...older];
-        bytes += page.messages.reduce((n, m) => n + estimateMessageBytes(m), 0);
-        before = res.events[0].seq;
-        hasMore = Boolean(res.hasMore);
-        if (!hasMore || bytes >= OLDER_PAGE_BYTES) break;
-      }
+      // One tap buys a PAGE, not a frame. The loop's rules live in lib/olderPaging so a
+      // test drives the real code rather than a copy of it — the copy is what let a dead
+      // scroll-up pass its own reachability test.
+      const result = await collectOlderPage({
+        startSeq: logSeq,
+        estimateBytes: estimateMessageBytes,
+        fetchChunk: (before) => new Promise((resolve) => {
+          let settled = false;
+          const done = (v) => { if (settled) return; settled = true; clearTimeout(timer); resolve(v); };
+          const timer = setTimeout(() => done(null), HISTORY_TIMEOUT_MS);
+          b.emit("aiHistory", { sessionId, before }, done);
+        }),
+        reduceChunk: (events, held) => {
+          const curr = useAiStore.getState().bySession[sessionId];
+          return reduceSessionEvents(events, engine, (curr?.messages?.length || 0) + held + 1).messages;
+        }
+      });
+      const { messages: older, before, hasMore, answered, chunks } = result;
       // TEMP DIAGNOSTIC — the host side of the scroll-up fetch. A null ack means nobody
       // answered (carrier or route), success:false means the host had nothing to give.
       // Remove once paging is confirmed end to end.
       termLog("ai-page", "loadOlder", {
         sessionId, before: logSeq, ms: Date.now() - t0, transport: b.transport || b.carrier || "?",
-        chunks, messages: older.length, bytes: Math.round(bytes / 1024) + "KB", hasMore
+        chunks, messages: older.length,
+        bytes: Math.round(older.reduce((n, m) => n + estimateMessageBytes(m), 0) / 1024) + "KB",
+        hasMore
       });
       // The log changed under this fetch. Its turns belong to a conversation that is no
       // longer shown — dropping them here also keeps the marks below untouched, or the

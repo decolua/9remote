@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useMemo } from "react";
+import { memo, useEffect, useRef, useState, useMemo } from "react";
 import { AiToolCard } from "./cards/AiToolCard";
 import { StepWindow, WINDOW_STEPS } from "./StepWindow";
 import { AiDiffCard } from "./cards/AiDiffCard";
@@ -9,6 +9,8 @@ import { AiThinkingBlock } from "./cards/AiThinkingBlock";
 import { renderToolCard } from "./cards/toolCards";
 import { buildTurnRows, splitTurnBlocks } from "../lib/turnRows";
 import MarkdownBody from "@/shared/components/ui/MarkdownBody";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { vibrate } from "@/shared/utils/vibration";
 
 // The cards are the cards — a tool call renders the same row it always did, so one tap
 // opens its output. What this adds is only the *window*: a long run of steps shows its
@@ -38,12 +40,72 @@ function StepCard({ row, engine, workspacePath, deferred }) {
   );
 }
 
+// How long streamed prose holds its last parsed text.
+const MARKDOWN_STREAM_MS = 80;
+
+// The parse is O(content) and a streamed answer only grows, so re-parsing per frame
+// costs O(content²) over one reply. While the turn is live the text advances on a fixed
+// beat; the moment it settles the exact text is parsed once, so nothing is lost.
+function useStreamedText(content, isLive) {
+  const [shown, setShown] = useState(content);
+  const latestRef = useRef(content);
+
+  useEffect(() => { latestRef.current = content; }, [content]);
+
+  useEffect(() => {
+    if (!isLive) return;
+    const timer = setInterval(() => {
+      // Same value bails out of the render — a quiet beat costs nothing.
+      setShown((prev) => (prev === latestRef.current ? prev : latestRef.current));
+    }, MARKDOWN_STREAM_MS);
+    return () => clearInterval(timer);
+  }, [isLive]);
+
+  return isLive ? shown : content;
+}
+
+// The harness's own levels, styled as the CLI would: dim for a note, amber for a warning,
+// red for an error. `suggestion` is the CLI's word for a hint, so it reads like a note.
+const NOTICE_CLS = {
+  info: "text-text-muted",
+  suggestion: "text-text-muted",
+  warning: "text-warning",
+  error: "text-danger"
+};
+
+/**
+ * A line the harness asked the timeline to draw — a compaction, a local command, a
+ * refused message, an API error. The pane decides nothing here: a record the CLI gave
+ * `content` (or a formatted error) is one it means a person to read, and the rest are
+ * bookkeeping that never reaches this row (see lib/harnessTasks.noticeFrom).
+ */
+function NoticeRow({ notice }) {
+  if (!notice?.content) return null;
+  const cls = `text-xs leading-relaxed py-1 px-2 my-0.5 rounded border-l-2 border-current/30 bg-surface-2/40 wrap-anywhere ${NOTICE_CLS[notice.level] || NOTICE_CLS.info}`;
+  // A row that names a file is a door to it — the file was changed by a route the diff
+  // card cannot see (a shell command), so this row is the only place the pane says so.
+  if (notice.file) {
+    return (
+      <button
+        type="button"
+        onClick={() => { vibrate(); useTerminalStore.getState().openEditorFile(notice.file); }}
+        className={`${cls} block w-full text-left hover:bg-surface-3 transition-colors cursor-pointer`}
+        title={notice.file}
+      >
+        {notice.content}
+      </button>
+    );
+  }
+  return <div className={cls}>{notice.content}</div>;
+}
+
 function ProseRow({ content, isLive }) {
+  const text = useStreamedText(content, isLive);
   return (
     // wrap-anywhere, not break-words: only `anywhere` shrinks min-content, so a path
     // with no space to break on wraps instead of widening the column into a scrollbar.
     <div className="text-sm leading-relaxed text-text py-1.5 wrap-anywhere">
-      <MarkdownBody content={content} />
+      <MarkdownBody content={text} />
       {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
     </div>
   );
@@ -69,6 +131,9 @@ export const AiTurn = memo(function AiTurn({
           // step it took, and indenting it would read as one more thing it did.
           if (b.row.kind === "prose") {
             return <ProseRow key={b.key} content={b.row.content} isLive={b.row.isLive} />;
+          }
+          if (b.row.kind === "notice") {
+            return <NoticeRow key={b.key} notice={b.row.notice} />;
           }
           if (b.row.kind === "permission") {
             const p = b.row.permission;
