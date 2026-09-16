@@ -46,6 +46,207 @@ test("an error with only a message still shows", () => {
   assert.match(notices(out)[0].content, /Connection error/);
 });
 
+// ── the compaction, whose two doors spell the record differently ──
+
+test("the LIVE compact_boundary frame draws a row even though it has no content", () => {
+  // Captured from claude 2.1.273's stream-json: the frame the pipe carries is metadata
+  // and nothing else — no `content`, no `level`. A reader keyed on text drew NOTHING
+  // here, which is why a compaction showed up only after an F5.
+  const out = reduceSessionEvents([rec("compact_boundary", {
+    compact_metadata: { trigger: "manual", pre_tokens: 40053, post_tokens: 2452, cumulative_dropped_tokens: 37601, duration_ms: 22885 }
+  })], "claude");
+  const row = notices(out)[0];
+  assert.ok(row, "the live frame must draw a row");
+  assert.equal(row.content, "Compacted");
+  assert.equal(row.compact.trigger, "manual");
+  assert.equal(row.compact.preTokens, 40053);
+  assert.equal(row.compact.postTokens, 2452);
+  assert.equal(row.compact.durationMs, 22885);
+  assert.match(row.compact.detail, /40.1k → 2.5k tokens/);
+});
+
+test("the REPLAY copy of the same record keeps the harness's own sentence", () => {
+  // The transcript the CLI writes for itself spells the metadata in camelCase and adds
+  // the sentence. Both spellings, one row — an F5 must not draw a different line.
+  const out = reduceSessionEvents([rec("compact_boundary", {
+    content: "Conversation compacted", level: "info",
+    compactMetadata: { trigger: "auto", preTokens: 557511, postTokens: 20680, durationMs: 51369 }
+  })], "claude");
+  const row = notices(out)[0];
+  assert.equal(row.content, "Conversation compacted");
+  assert.equal(row.compact.trigger, "auto");
+  assert.equal(row.compact.preTokens, 557511);
+  assert.match(row.compact.detail, /558k → 20.7k tokens/);
+});
+
+test("a metadata-only record with no counts invents nothing", () => {
+  const out = reduceSessionEvents([rec("compact_boundary", { compact_metadata: { trigger: "auto" } })], "claude");
+  assert.equal(notices(out)[0].content, "Compacted");
+  assert.equal(notices(out)[0].compact.detail, undefined, "no numbers stated, none printed");
+});
+
+test("a compaction with neither text nor metadata adds no row", () => {
+  assert.equal(notices(reduceSessionEvents([rec("compact_boundary", {})], "claude")).length, 0);
+});
+
+test("the running status opens a row, and the boundary that follows settles it", () => {
+  // The CLI states the start (`status: compacting`) and then says nothing for 20–50s.
+  // The row it opens is REPLACED by the boundary, not joined by it: they are one
+  // happening, and leaving the spinner under a finished line is a lie.
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "/compact" } },
+    rec("status", { status: "compacting" }),
+    rec("compact_boundary", { compact_metadata: { trigger: "manual", pre_tokens: 40053, post_tokens: 2452, duration_ms: 22885 } })
+  ], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1, "the pair is one row, not two");
+  assert.equal(rows[0].compacting, undefined, "the settled row is not still running");
+  assert.equal(rows[0].compact.preTokens, 40053);
+});
+
+test("a status that is not a compaction is not a row", () => {
+  // `status` is the CLI's whole activity channel. Only the compaction's own two words are
+  // read here; anything else on it is someone else's business.
+  for (const status of ["requesting"]) {
+    assert.equal(notices(reduceSessionEvents([rec("status", { status })], "claude")).length, 0, `${status} must not open a row`);
+  }
+  // `permissionMode` rides the same channel and says nothing about compaction either.
+  assert.equal(notices(reduceSessionEvents([rec("status", { status: "requesting", permissionMode: "plan" })], "claude")).length, 0);
+});
+
+// ── the compaction that ends without ever reaching a boundary ──
+
+test("a FAILED compaction closes its row instead of spinning forever", () => {
+  // The CLI's failure path emits `status: null, compact_result: "failed"` and NO
+  // compact_boundary at all (verified in 2.1.273: the boundary is only written on the
+  // success path). A reader that only looked for a boundary left the "Compacting…" row
+  // spinning over a compaction that had already given up.
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "/compact" } },
+    rec("status", { status: "compacting" }),
+    rec("status", { status: null, compact_result: "failed", compact_error: "Compaction failed · conversation could not be reduced" })
+  ], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1, "the running row is replaced, not joined");
+  assert.equal(rows[0].compacting, undefined, "nothing is still running");
+  assert.equal(rows[0].level, "error");
+  assert.match(rows[0].content, /could not be reduced/);
+});
+
+test("a failed compaction with the detail stripped still says it failed", () => {
+  // `compact_error` sits behind a feature flag in the CLI and is often absent; the outcome
+  // word is always there, so the row must not come out empty.
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "/compact" } },
+    rec("status", { status: "compacting" }),
+    rec("status", { status: null, compact_result: "failed" })
+  ], "claude");
+  assert.equal(notices(out)[0].content, "Compaction failed");
+  assert.equal(notices(out)[0].level, "error");
+});
+
+test("a SUCCESSFUL compaction's clearing closes the row, and the boundary draws the result", () => {
+  // Captured from a real /compact: the clearing arrives FIRST, the boundary second. The
+  // first has nothing to say and only ends the spinner; the second is the row.
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "/compact" } },
+    rec("status", { status: "compacting" }),
+    rec("status", { status: null, compact_result: "success" }),
+    rec("compact_boundary", { compact_metadata: { trigger: "manual", pre_tokens: 40053, post_tokens: 2452, duration_ms: 22885 } })
+  ], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1, "one compaction, one row");
+  assert.equal(rows[0].compact.preTokens, 40053);
+});
+
+test("a skipped compaction does not leave its row spinning", () => {
+  // `status: null` with no outcome at all is the CLI saying the compaction never happened.
+  // Nothing to report, so the row simply goes.
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "/compact" } },
+    rec("status", { status: "compacting" }),
+    rec("status", { status: null })
+  ], "claude");
+  assert.equal(notices(out).length, 0, "the spinner is gone and no empty row replaces it");
+  assert.equal(out.messages.filter((m) => m.role === "assistant" && !m.content).length, 0);
+});
+
+test("a settled compaction with nothing to say still closes the row in the store", () => {
+  // The store door holds the same rule as the reducer: an empty notice is refused EXCEPT
+  // when it is a compaction ending, which is the one record whose whole job is to end one.
+  useAiStore.getState().initSession("live-settle");
+  useAiStore.getState().addNotice("live-settle", { subtype: "status", level: "info", content: "Compacting…", compacting: true });
+  assert.equal(useAiStore.getState().bySession["live-settle"].messages.length, 1);
+  useAiStore.getState().addNotice("live-settle", { subtype: "status", level: "info", content: "", compactSettled: true });
+  assert.equal(useAiStore.getState().bySession["live-settle"].messages.length, 0, "the spinner is dropped");
+});
+
+test("a compaction whose row is NOT the last one still gets replaced", () => {
+  // The CLI can put another readable record between a compaction's start and its end —
+  // `api_error` is the one that really happens, when the summarization call fails. A rule
+  // that only looked at the last row left "Compacting…" spinning under the finished row.
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "/compact" } },
+    rec("status", { status: "compacting" }),
+    rec("api_error", { level: "error", error: { formatted: "503 Service Unavailable" } }),
+    rec("compact_boundary", { compact_metadata: { trigger: "manual", pre_tokens: 40053, post_tokens: 2452, duration_ms: 22885 } })
+  ], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 2, "the error keeps its place, the compaction settles in its own");
+  assert.equal(rows.filter((r) => r.compacting).length, 0, "nothing is left spinning");
+  assert.equal(rows[0].compact.preTokens, 40053, "the settled row took the spinner's SLOT, not the end of the list");
+  assert.equal(rows[1].subtype, "api_error", "and the error stayed where it happened, after it");
+});
+
+test("a skipped compaction removes its row from the middle, not the end", () => {
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "/compact" } },
+    rec("status", { status: "compacting" }),
+    rec("api_error", { level: "error", error: { formatted: "503 Service Unavailable" } }),
+    rec("status", { status: null })
+  ], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1, "the spinner is gone and the error survives");
+  assert.equal(rows[0].subtype, "api_error");
+});
+
+test("a settled compaction that is NOT running yet adds no empty row", () => {
+  // A clearing with no start before it (a client that joined mid-compaction, or a stale
+  // frame after a reset) must not leave a blank row behind.
+  useAiStore.getState().initSession("live-settle-stray");
+  useAiStore.getState().addNotice("live-settle-stray", { subtype: "status", level: "info", content: "", compactSettled: true });
+  assert.equal(useAiStore.getState().bySession["live-settle-stray"].messages.length, 0);
+});
+
+test("a refused notice leaves the store intact, every session still in it", () => {
+  // Zustand replaces the WHOLE store when a `set` updater returns undefined — a bare
+  // `return` inside the callback is not "no change", it is "throw everything away". This
+  // pins that: an update that decides to do nothing must hand the state back.
+  useAiStore.getState().initSession("live-keep-a");
+  useAiStore.getState().initSession("live-keep-b");
+  useAiStore.getState().addUserMessage("live-keep-a", "still here");
+  useAiStore.getState().addNotice("live-keep-b", { level: "info", content: "   " });
+  const after = useAiStore.getState();
+  assert.ok(after?.bySession, "the store survives an update that changed nothing");
+  assert.ok(after.bySession["live-keep-a"], "and it did not drop the other sessions");
+  assert.equal(after.bySession["live-keep-a"].messages.length, 2, "user prompt plus its placeholder");
+});
+
+test("the compaction row reaches the pane with its numbers, not just its text", () => {
+  const rows = buildTurnRows([
+    { id: "n1", role: "notice", subtype: "compact_boundary", level: "info", content: "Compacted", compact: { trigger: "manual", preTokens: 40053, postTokens: 2452, detail: "40k → 2.5k tokens", durationMs: 22885 } }
+  ], "claude");
+  assert.equal(rows[0].kind, "notice");
+  assert.equal(rows[0].notice.compact.preTokens, 40053, "the row carries what the pane prints");
+});
+
+test("a running compaction reaches the pane as a running row", () => {
+  const rows = buildTurnRows([
+    { id: "n1", role: "notice", subtype: "status", level: "info", content: "Compacting…", compacting: true }
+  ], "claude");
+  assert.equal(rows[0].notice.compacting, true);
+});
+
 test("a record with nothing to show adds no row", () => {
   // `turn_duration` and `stop_hook_summary` are bookkeeping: the harness gives them no
   // text, which is the harness saying "this is not for a person to read".
@@ -194,24 +395,18 @@ test("the live store keeps a segment that already has content", () => {
   assert.equal(msgs[1].content, "partial");
 });
 
-test("an edited-file row keeps its filename all the way to the pane", () => {
-  // The row is a door to the file, so the filename has to survive both hops — the store's
-  // addNotice and the turn's row builder. It did not: both copied subtype/level/content and
-  // dropped the rest, so the button would have opened nothing.
-  useAiStore.getState().initSession("live-file");
-  useAiStore.getState().addNotice("live-file", {
-    subtype: "edited_text_file", level: "info", content: "/w/x.sh", file: "/w/x.sh"
-  });
-  const msgs = useAiStore.getState().bySession["live-file"].messages;
-  assert.equal(msgs[0].file, "/w/x.sh", "the store keeps it");
+test("a notice is a plain line, whatever it carries", () => {
+  // A notice used to become a button when it named a file. The only record that did —
+  // `edited_text_file` — no longer draws a row at all (see noticeFrom), so nothing
+  // produces one and the door went with it. The row is the content, and nothing else.
+  useAiStore.getState().initSession("live-plain");
+  useAiStore.getState().addNotice("live-plain", { level: "info", content: "compacted" });
+  const msgs = useAiStore.getState().bySession["live-plain"].messages;
+  assert.equal(msgs[0].file, undefined, "the store keeps no file on a notice");
 
   const rows = buildTurnRows(msgs, "claude");
-  assert.equal(rows[0].notice.file, "/w/x.sh", "and the row builder does too");
-});
-
-test("a notice with no file stays a plain line", () => {
-  const rows = buildTurnRows([{ id: "n1", role: "notice", level: "info", content: "just a note" }], "claude");
-  assert.equal(rows[0].notice.file, undefined, "no button where there is nothing to open");
+  assert.equal(rows[0].notice.content, "compacted");
+  assert.equal(rows[0].notice.file, undefined, "and the row carries none either");
 });
 
 // ── harness bookkeeping must never be drawn as a line ──

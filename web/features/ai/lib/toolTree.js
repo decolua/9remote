@@ -35,7 +35,12 @@ export function runningAsync(messages = [], harnessTasks = []) {
       .filter((t) => t?.status === "running")
       .map((t) => ({
         kind: t.background ? "shell" : "agent",
+        // Two ids, deliberately: `id` is what the pane's own rows are keyed by (the tool
+        // call), while `taskId` is the name the CLI minted and the only one a stop can
+        // address. They coincide on a row the scan produced, and only there is a stop
+        // meaningless anyway — nothing on the other side answers to a tool call id.
         id: t.toolUseId || t.taskId,
+        taskId: t.taskId,
         label: t.description || t.subagentType || "task"
       }));
   }

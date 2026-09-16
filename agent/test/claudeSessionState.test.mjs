@@ -314,16 +314,15 @@ await test("an edit the harness saw is carried even when no Edit tool made it", 
   assert.equal(rows[0].data.record.attachment.filename, "/w/edited/by/bash.sh");
 });
 
-await test("an edited-file row names the file, and does not pretend to be a diff", async () => {
-  // The snippet is the WHOLE file re-read (8KB measured), not the change — so it must not
-  // be drawn as a patch. What it can honestly say is that this file changed.
+await test("an edited-file record draws no row of its own", async () => {
+  // The record still travels — the task model and the store read other attachments, and a
+  // reader that dropped this one would have to know which. It is the ROW that is gone: the
+  // harness writes one for `Edit`/`Write` too, so the row mostly repeated a diff card
+  // already on screen, and the file's name is on the row beside it either way.
   const { noticeFrom } = await import("../../web/features/ai/lib/harnessTasks.js");
   const events = recoverFromClaudeTranscript("/tmp", ID3);
   const row = events.find((e) => e.data?.subtype === "edited_text_file").data;
-  const n = noticeFrom(row.type, row.record.attachment);
-  assert.ok(n, "a person reads this");
-  assert.match(n.content, /bash\.sh/, "it names the file");
-  assert.doesNotMatch(n.content, /echo hi/, "and does not dump the file body as a diff");
+  assert.equal(noticeFrom(row.type, row.record.attachment), null, "nothing to draw");
 });
 
 await test("an edited-file row never carries the file body as its text", () => {

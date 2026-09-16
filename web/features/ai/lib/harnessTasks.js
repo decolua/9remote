@@ -12,6 +12,8 @@
 //   task_notification        it ended, with the status the CLI gave
 //   background_tasks_changed the live set — absence means the task ended
 
+import { formatTokens } from "./liveStatus";
+
 // Wrapper tags the harness writes around text IT generated, not text a person wrote. The
 // CLI says so itself of the task notification ("never quote or paste any part of it"): it
 // is the harness reporting a task to itself. Drawing one puts the whole XML block on screen.
@@ -23,7 +25,6 @@
 // TUI shows it (`/resume` and its arguments are something the user typed). Only the frames
 // the harness writes to talk to ITSELF are hidden.
 const HARNESS_FRAME_RE = /^\s*<(task-notification|environment_context|turn_aborted|persisted-output)>/;
-
 /** Would this text put a harness frame on screen? */
 const isHarnessFrame = (text) => HARNESS_FRAME_RE.test(String(text || ""));
 
@@ -42,7 +43,31 @@ function collapsePersistedOutput(text) {
 }
 
 /** A status the CLI will not move a task out of — the task is over. */
-const TERMINAL = new Set(["completed", "failed", "killed", "stopped"]);
+export const TASK_ENDED = new Set(["completed", "failed", "killed", "stopped"]);
+
+/**
+ * Where the running "Compacting…" row sits, or -1 when there is none.
+ *
+ * Scanned rather than read off the end: the CLI can put another readable record between a
+ * compaction's start and its end — `api_error` is the one that actually happens, when the
+ * summarization call itself fails — and a rule that only checked the last row left the
+ * spinner running under the finished one. Shared by both doors (the reducer and the store),
+ * which is why it sits with the reader that produced the row rather than in either of them.
+ */
+export const lastIndexOfCompacting = (messages = []) => {
+  for (let i = messages.length - 1; i >= 0; i--) if (messages[i]?.compacting) return i;
+  return -1;
+};
+
+/**
+ * The statuses that mean a compaction is RUNNING.
+ *
+ * The CLI sets one when it starts and clears it when it ends (`status: null` with a
+ * `compact_result` beside it), so the clearing is what tells the row to stop. Listed as a
+ * set rather than matched on the word "compact" because the field is the CLI's whole
+ * activity channel: a future status must be added here on purpose, not matched by luck.
+ */
+const COMPACTING_STATUSES = new Set(["compacting"]);
 
 /** Fold one harness record into the task list. Returns the SAME array when nothing moved. */
 export function applyTaskRecord(tasks, type, subtype, record) {
@@ -73,7 +98,7 @@ export function applyTaskRecord(tasks, type, subtype, record) {
       // A task that moved back OUT of a terminal status is running again, and the end it
       // reported before is no longer true. Leaving the stamp there is how a resumed task
       // printed "ended at …" while it was working.
-      const resumed = patch.status && !TERMINAL.has(patch.status);
+      const resumed = patch.status && !TASK_ENDED.has(patch.status);
       const merged = {
         ...next[at],
         ...(patch.status ? { status: patch.status } : null),
@@ -103,15 +128,15 @@ export function applyTaskRecord(tasks, type, subtype, record) {
     case "background_tasks_changed": {
       const live = new Set((record?.tasks || []).map((t) => t.task_id));
       let next = tasks;
-      // Absence means the task is gone. The test is a TERMINAL status, not `running`: a
+      // Absence means the task is gone. The test is a TASK_ENDED status, not `running`: a
       // paused task is still alive and still listed, so one that vanished while paused
       // ended too — leaving it paused forever is the stuck row this whole model replaces.
       //
       // Background only. A sub-agent is never in this list, so reading it as "everything
       // else ended" would settle every sub-agent the moment a shell task changed.
-      if (next.some((t) => t.background && !TERMINAL.has(t.status) && !live.has(t.taskId))) {
+      if (next.some((t) => t.background && !TASK_ENDED.has(t.status) && !live.has(t.taskId))) {
         next = next.map((t) =>
-          t.background && !TERMINAL.has(t.status) && !live.has(t.taskId) ? { ...t, status: "stopped" } : t
+          t.background && !TASK_ENDED.has(t.status) && !live.has(t.taskId) ? { ...t, status: "stopped" } : t
         );
       }
       for (const t of record?.tasks || []) {
@@ -150,8 +175,73 @@ const shallowEqual = (a, b) => {
   return ka.every((k) => a[k] === b[k]);
 };
 
+/**
+ * Fold the host's task records, then the replayed log's, into one list.
+ *
+ * The two are the SAME records from two doors: the host states the task set beside the
+ * log (a task announced at the top of a long turn falls outside the replay tail, which
+ * is how an F5 came back with an empty strip), and the window carries whatever of it
+ * still fits. Host first, window on top — the window is the newer reading of the events
+ * they share, and folding them in that order lands on the same list a client that
+ * watched the whole turn live would have.
+ *
+ * Both are raw records in the harness's own shape, so ONE reader folds them: a second
+ * copy of these rules is the drift this file exists to prevent.
+ */
+export function foldTaskRecords(hostRecords, windowTasks) {
+  let tasks = [];
+  for (const rec of hostRecords || []) {
+    if (!rec) continue;
+    tasks = applyTaskRecord(tasks, rec.type || "system", rec.subtype || "", rec.record || null);
+  }
+  // The window came folded already (reduceSessionEvents). Merged by task id — NOT through
+  // taskList's upsertTask, whose rules are TaskCreate's (it only opens a row on a
+  // `subject`, and refuses to add a task nobody listed): a harness record has no subject,
+  // so routing these through it dropped every one of them.
+  const byId = new Map(tasks.map((t) => [t.taskId, t]));
+  for (const t of windowTasks || []) {
+    if (t?.taskId) byId.set(t.taskId, { ...byId.get(t.taskId), ...t });
+  }
+  return [...byId.values()];
+}
+
 /** The tasks still running, newest last — the strip's read model. */
 export const runningTasks = (tasks = []) => tasks.filter((t) => t.status === "running");
+
+/**
+ * The context compaction, as the CLI's `compact_boundary` record states it.
+ *
+ * Two spellings of the same fields, because the two doors carry the record differently:
+ * stream-json puts snake_case on the frame (`compact_metadata`, `pre_tokens`), and the
+ * transcript the CLI writes for itself — which is what a reopened chat replays from —
+ * uses camelCase (`compactMetadata`, `preTokens`). Both are read here so one row is drawn
+ * either way.
+ *
+ * The LIVE frame is the reason this exists at all: it carries the metadata and NO
+ * `content`, while the transcript copy also carries "Conversation compacted". A reader
+ * that only looked for text drew nothing live and a row after a reload.
+ */
+function compactFrom(record) {
+  const m = record.compact_metadata || record.compactMetadata;
+  if (!m || typeof m !== "object") return null;
+  const num = (v) => (Number.isFinite(v) ? v : null);
+  const preTokens = num(m.pre_tokens ?? m.preTokens);
+  const postTokens = num(m.post_tokens ?? m.postTokens);
+  // The window's own two numbers, in the CLI's shorthand. `preTokens` is what the turn
+  // resent before compaction, so it is also the context fill the pane has been showing.
+  const shift = preTokens != null && postTokens != null
+    ? `${formatTokens(preTokens)} → ${formatTokens(postTokens)} tokens`
+    : "";
+  return {
+    trigger: m.trigger || "auto",
+    preTokens,
+    postTokens,
+    durationMs: num(m.duration_ms ?? m.durationMs),
+    // Only what the record actually states — a metadata-only record with no counts draws
+    // the word "Compacted" and nothing invented next to it.
+    ...(shift ? { detail: shift } : null)
+  };
+}
 
 /**
  * The line a harness record asks the timeline to draw, or null when it asks for none.
@@ -166,20 +256,58 @@ export const runningTasks = (tasks = []) => tasks.filter((t) => t.status === "ru
  */
 export function noticeFrom(type, record) {
   if (!record) return null;
+  // The one record whose live frame carries no text at all — see compactFrom. Read before
+  // the content rules below, which would otherwise drop it.
+  if (type === "system" && record.subtype === "compact_boundary") {
+    const compact = compactFrom(record);
+    const text = typeof record.content === "string" ? record.content.trim() : "";
+    if (!compact && !text) return null;
+    return {
+      subtype: "compact_boundary", level: record.level || "info", content: text || "Compacted",
+      // The boundary is also the end of a compaction the CLI announced it had started, so
+      // the pane replaces that row rather than stacking this one under it.
+      compactSettled: true,
+      ...(compact ? { compact } : null)
+    };
+  }
+  // The CLI's own sign that a compaction is RUNNING, and — on the same channel — the sign
+  // that it stopped. Live-only: the harness never writes either to the transcript, so a
+  // reopened chat has no such line to replay, which is right, by then it is over.
+  if (type === "system" && record.subtype === "status") {
+    if (COMPACTING_STATUSES.has(record.status)) {
+      return { subtype: "status", level: "info", content: "Compacting…", compacting: true };
+    }
+    // The end of it. The CLI clears `status` when the compaction finishes and states the
+    // outcome beside it when there is one: `compact_result: "failed"` (and then NO boundary
+    // is ever written), or nothing at all when it was skipped. Both close the running row —
+    // without this the row spun forever over a compaction that had already given up.
+    // `requesting` is excluded on purpose: it opens some other request, and the boundary
+    // and this clear are the only two frames that end a compaction.
+    if (record.status != null && !record.compact_result) return null;
+    const failed = record.compact_result === "failed";
+    return {
+      subtype: "status",
+      level: failed ? "error" : "info",
+      // `compact_error` is behind a feature flag in the CLI and is often stripped; the
+      // outcome word is always there, so that is what the row falls back to.
+      content: failed ? String(record.compact_error || "").trim() || "Compaction failed" : "",
+      compactSettled: true
+    };
+  }
   // An `attachment` is what the harness put INTO the conversation, and two of its kinds
   // carry text a person reads: a hook's output and a prompt waiting for its turn. The rest
   // (`environment`, `task_reminder`, `prompt_snapshot`, the listings) hold state, not prose.
   if (type === "attachment") {
     const a = record.attachment || record;
     const kind = a.type || "";
-    // A file the harness watched change. Its `snippet` is the WHOLE file re-read (8KB on a
-    // real one), not the change — so it is named, never drawn as a patch. What this covers
-    // is the edit route the diff card cannot see: a file changed through a shell command
-    // rather than Edit/Write.
-    if (kind === "edited_text_file") {
-      const file = typeof a.filename === "string" ? a.filename.trim() : "";
-      return file ? { subtype: kind, level: "info", content: file, file } : null;
-    }
+    // `edited_text_file` draws NO row. It is the one attachment the reader carries without
+    // ever looking at it, and the row it used to draw said only the file's PATH — a line
+    // the pane already has beside it: a diff card's own title for an edit, the shell
+    // command's text for a script that wrote the file. What that cost was one path line
+    // per file touched, every turn that touched one, on a pane whose whole job is to stay
+    // readable. The record still travels (see the caller) — dropping it there would mean
+    // this reader deciding which attachments the rest of the system gets to see.
+    if (kind === "edited_text_file") return null;
     // A hook's output reaches the screen in exactly ONE place, and the TUI's own code says
     // which: `if (!("hookEvent" in n) || n.hookEvent !== "SessionStart") return []`. Every
     // other hook — UserPromptSubmit, PostToolUse, a formatter, codegraph — feeds the MODEL,

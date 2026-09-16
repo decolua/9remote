@@ -59,7 +59,13 @@ export function buildTurnRows(messages = [], engine = "claude") {
     if (m.role === "notice") {
       rows.push({
         kind: "notice", id: m.id,
-        notice: { subtype: m.subtype, level: m.level, content: m.content, ...(m.file ? { file: m.file } : null) }
+        notice: {
+          subtype: m.subtype, level: m.level, content: m.content,
+          // The compaction's own numbers, and whether it is still running: the pane draws
+          // a spinner for the second, a sized line for the first. See noticeFrom.
+          ...(m.compact ? { compact: m.compact } : null),
+          ...(m.compacting ? { compacting: true } : null)
+        }
       });
       continue;
     }
