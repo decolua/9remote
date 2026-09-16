@@ -228,6 +228,11 @@ export class OpenCodeAdapter {
         this.stats.totalTurns += 1;
         this.onEvent?.("stats", { stats: this.stats });
       }
+    } else {
+      // Nothing above claimed it. The pane re-renders the CLI's own TUI, so a record this
+      // adapter does not know yet still has to REACH it — under its own name, whole — or
+      // the pane quietly shows less than the CLI said, with nothing to notice.
+      this.onEvent?.("cli_event", { type: type || "", subtype: "", record: data });
     }
   }
 

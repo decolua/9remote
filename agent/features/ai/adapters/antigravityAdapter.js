@@ -205,6 +205,11 @@ export class AntigravityAdapter {
     if (event.event === "init") return this.handleInit(event);
     if (event.event === "step_update") return this.handleStep(event.step_update);
     if (event.event === "result") return this.handleResult(event.result);
+    // Nothing above claimed it — this CLI names records with `event`, not `type`, so a
+    // record carrying either is one it does not know yet. The pane re-renders this CLI's
+    // own TUI, so the record still has to REACH it, whole and under its own name, or the
+    // pane quietly shows less than the CLI said and nothing anywhere says so.
+    this.onEvent?.("cli_event", { type: event.event || event.type || "", subtype: "", record: event });
   }
 
   handleInit(event) {
@@ -221,6 +226,9 @@ export class AntigravityAdapter {
   }
 
   handleStep(step) {
+    // `user_input` is the prompt the user typed, echoed back by the CLI. It is already on
+    // screen — the pane draws it when it is sent — so carrying it again would show every
+    // prompt twice. Deliberately dropped, not an oversight.
     if (!step || step.step_type === "user_input") return;
 
     if (step.step_type === "agent_response") {
@@ -245,6 +253,11 @@ export class AntigravityAdapter {
     // this adapter does not read — so the card shows the sub-agent and its brief and
     // leaves the count at zero rather than inventing children.
     if (step.step_type === "subagent") return this.handleSubagentStep(step);
+
+    // A step this adapter does not know yet. It used to fall off the end of this function
+    // in silence — the CLI said something and the pane was never told. Carried whole,
+    // under its own step_type, for whatever the pane learns to draw next.
+    this.onEvent?.("cli_event", { type: "step_update", subtype: step.step_type || "", record: step });
   }
 
   handleSubagentStep(step) {
