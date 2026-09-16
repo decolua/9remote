@@ -541,6 +541,26 @@ export class ClaudeAdapter {
     }
   }
 
+  /**
+   * Stop ONE background task, by the id the CLI named in `task_started`.
+   *
+   * The turn is untouched — this is the TUI's per-row stop, not its kill-all. Fire and
+   * forget: the CLI answers with a `task_notification` carrying the status, which is what
+   * settles the row, so the ack itself is not worth a second reader here.
+   */
+  stopTask(taskId) {
+    if (!taskId) return false;
+    try {
+      this.rpc.notify("control_request", {
+        request_id: `stop-${Date.now()}`,
+        request: { subtype: "stop_task", task_id: String(taskId) }
+      });
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   stop() {
     this.isTurnRunning = false;
     return this.proc.stop();

@@ -91,6 +91,11 @@ export function publicSession(session) {
     // so length stops equalling the highest seq and the client would swallow an event.
     seq: session.history.at(-1)?.seq ?? 0,
     permissionMode: session.permissionMode,
+    // The harness's task records, outside the replay window's reach — a task announced
+    // early in a long turn falls outside a 32KB tail, which is how an F5 came back with
+    // an empty agent strip while a background shell was still going. Same reason as the
+    // gate just below, and the same channel.
+    taskRecords: session.taskRecords(),
     // The gate the CLI is holding, outside the replay window's reach — see
     // aiSession.pendingPermission for why the tail cannot be trusted to carry it.
     activePermission: session.pendingPermission?.() || null,
@@ -356,6 +361,20 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       }
       cb?.({ ok: true });
     } catch (err) {
+      cb?.({ ok: false, error: err.message });
+    }
+  });
+
+  socket.on(AI_SOCKET_EVENTS.STOP_TASK, async ({ sessionId, taskId }, cb) => {
+    try {
+      const session = manager.getSession(sessionId);
+      if (!session) throw new Error(`AI session not found: ${sessionId}`);
+      // An engine with no per-task stop has nothing to answer, and saying so beats an ok
+      // over a request that reached nobody — the client would settle its row on a lie.
+      if (!session.stopTask(taskId)) return cb?.({ ok: false, reason: "unsupported" });
+      cb?.({ ok: true });
+    } catch (err) {
+      logger.error(`[ai] stopTask failed: ${err.message}`);
       cb?.({ ok: false, error: err.message });
     }
   });

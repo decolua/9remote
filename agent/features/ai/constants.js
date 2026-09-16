@@ -20,6 +20,7 @@ export const AI_SOCKET_EVENTS = {
   PERMISSION: "ai:permission",
   QUESTION: "ai:question",
   STOP: "ai:stop",
+  STOP_TASK: "ai:stopTask",
   RESET: "ai:reset",
   OPTIONS: "ai:options",
   DESTROY: "ai:destroy",
@@ -65,6 +66,17 @@ export const AI_PERSIST_STREAM_MS = 1000;
 // then sits on "Syncing…" forever, since every re-ask rebuilds the same oversize frame.
 // The oldest turns stay reachable through the scroll-up fetch.
 export const AI_REPLAY_BYTES = 32 * 1024;
+
+// The harness's task records that ride BESIDE the replay window (AiSession.taskRecords),
+// in the same frame. A task announced at the top of a long turn falls outside any 32KB
+// tail, and losing it is how an F5 came back with an empty agent strip while the work was
+// still going.
+//
+// Sized so the two together stay under the 64KB SCTP cap: a window may widen to
+// AI_REPLAY_WIDEN_BYTES (48KB), leaving 16KB, and this takes half of it. Measured across
+// 218 real sessions the pair peaked at 55.6KB; the newest records are the ones the strip
+// needs, so the head is what this drops.
+export const AI_TASK_RECORDS_BYTES = 8 * 1024;
 
 // How far past the replay budget a window may stretch to carry a tool call its own
 // results need. The packing budget leaves ~32KB unused under the 64KB SCTP cap, and a
