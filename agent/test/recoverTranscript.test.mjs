@@ -179,3 +179,53 @@ assert.equal(ocResults[0].error, "", "both keys always, empty on the other side"
 
 fs.rmSync(home, { recursive: true, force: true });
 console.log("recoverTranscript: ok");
+
+// ── the task a replayed conversation ran ──
+//
+// A reopen must not show a sub-agent or a background shell as still running. The live
+// path settles them on `task_notification`; the transcript holds that same fact as a
+// `<task-notification>` record — under the ORIGIN `task-notification`, which
+// isClaudeInjectedTurn drops wholesale because it is not a turn anyone typed. Dropping it
+// loses the only trace the transcript keeps, which is what this pins.
+const TASK_ID = "a2b292cd45a42d6da";
+const TOOL_USE = "toolu_01Km3Bv5R6d76cGsh7r3oQBp";
+const dir2 = path.join(projectsDir, "-tmp-taskprobe");
+fs.mkdirSync(dir2, { recursive: true });
+const TASK_ID_CONV = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+fs.writeFileSync(path.join(dir2, `${TASK_ID_CONV}.jsonl`), [
+  JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "spawn an agent" }] }, isSidechain: false }),
+  JSON.stringify({
+    type: "assistant",
+    message: { content: [{ type: "tool_use", id: TOOL_USE, name: "Agent", input: { description: "look it up" } }] }
+  }),
+  JSON.stringify({
+    type: "user",
+    message: {
+      role: "user",
+      content: [{ type: "text", text: `<task-notification>
+<task-id>${TASK_ID}</task-id>
+<tool-use-id>${TOOL_USE}</tool-use-id>
+<status>completed</status>
+<summary>Agent "look it up" finished</summary>
+</task-notification>` }]
+    },
+    origin: { kind: "task-notification" },
+    isSidechain: false
+  })
+].join("\n"));
+
+const taskLog = recover(elsewhere, TASK_ID_CONV);
+assert.ok(taskLog, "the conversation must still be recovered");
+assert.equal(taskLog.filter((e) => e.event === "user_message").length, 1,
+  "a task notification is not a prompt the user typed");
+assert.equal(taskLog.filter((e) => e.event === "tool_start").length, 1, "the launch is still there");
+
+// The replay speaks the SAME vocabulary as the live door: the CLI's own task_notification
+// record, wrapped as a cli_event. The pane folds task records with one reader, so a shape
+// invented here would be a task that vanishes on reopen with nothing to say it existed.
+const done = taskLog.filter((e) => e.event === "cli_event" && e.data?.subtype === "task_notification");
+assert.equal(done.length, 1, "the task's end must survive the replay");
+assert.equal(done[0].data.record.task_id, TASK_ID);
+assert.equal(done[0].data.record.tool_use_id, TOOL_USE);
+assert.equal(done[0].data.record.status, "completed");
+assert.equal(done[0].data.type, "system", "the harness's own type, not a name of our own");

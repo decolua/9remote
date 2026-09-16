@@ -16,6 +16,16 @@ export const SESSION_ID_ENV = "NINE_REMOTE_SESSION_ID";
 // Read by the claude CLI alone — other engines ignore it.
 export const CLAUDE_FILE_CHECKPOINTING_ENV = "CLAUDE_CODE_ENABLE_SDK_FILE_CHECKPOINTING";
 
+// The name the CLI stamps into a transcript's records, and the one `/resume` reads when
+// deciding whether to list it. It rewrites `cli` to `sdk-cli` whenever stdin is not a TTY
+// (which driving it with stream-json always is), so asking for `cli` does not work —
+// verified on 2.1.270. A value it does not recognise is honoured VERBATIM, and any value
+// outside PROGRAMMATIC_ENTRYPOINTS is listed by the TUI's /resume.
+export const CLAUDE_ENTRYPOINT_ENV = "CLAUDE_CODE_ENTRYPOINT";
+export const PROGRAMMATIC_ENTRYPOINTS = ["sdk-cli", "sdk-ts", "sdk-py"];
+// Deliberately not "cli" (rewritten) and not one of the above (filtered out of /resume).
+const CHAT_ENTRYPOINT = "9remote";
+
 export function getExtendedEnv({ hostSessionId } = {}) {
   const home = os.homedir();
   const extraPaths = process.platform === "win32" ? [
@@ -44,6 +54,10 @@ export function getExtendedEnv({ hostSessionId } = {}) {
     // that terminal's id in its own env, and a chat spawning from here would report its
     // hooks under a session it is not. Empty is the "no session" every hook reads.
     [SESSION_ID_ENV]: hostSessionId || "",
-    [CLAUDE_FILE_CHECKPOINTING_ENV]: "true"
+    [CLAUDE_FILE_CHECKPOINTING_ENV]: "true",
+    // Stamped so the chat's transcript is one the TUI's /resume will list. Without it the
+    // CLI defaults to `sdk-cli`, and `/resume` hides every programmatic transcript — the
+    // chat and the TUI then keep separate histories of the same conversation.
+    [CLAUDE_ENTRYPOINT_ENV]: CHAT_ENTRYPOINT
   };
 }
