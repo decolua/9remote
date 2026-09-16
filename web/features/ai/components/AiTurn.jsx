@@ -9,8 +9,11 @@ import { AiThinkingBlock } from "./cards/AiThinkingBlock";
 import { renderToolCard } from "./cards/toolCards";
 import { buildTurnRows, splitTurnBlocks } from "../lib/turnRows";
 import MarkdownBody from "@/shared/components/ui/MarkdownBody";
-import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { vibrate } from "@/shared/utils/vibration";
+import { Loader2 } from "@/shared/components/ui/Icon";
+
+// How often the compaction row's clock ticks. One second: it prints whole seconds, so a
+// faster beat would re-render for a number that has not changed.
+const COMPACT_CLOCK_MS = 1000;
 
 // The cards are the cards — a tool call renders the same row it always did, so one tap
 // opens its output. What this adds is only the *window*: a long run of steps shows its
@@ -82,21 +85,53 @@ const NOTICE_CLS = {
 function NoticeRow({ notice }) {
   if (!notice?.content) return null;
   const cls = `text-xs leading-relaxed py-1 px-2 my-0.5 rounded border-l-2 border-current/30 bg-surface-2/40 wrap-anywhere ${NOTICE_CLS[notice.level] || NOTICE_CLS.info}`;
-  // A row that names a file is a door to it — the file was changed by a route the diff
-  // card cannot see (a shell command), so this row is the only place the pane says so.
-  if (notice.file) {
+  // A compaction in flight. The CLI states no progress for it — one status at the start,
+  // one record at the end, 20–50s apart — so the row can only say what it is doing, not
+  // how far along it is. The clock beside it is the client's own, started when the row
+  // appeared; the real duration arrives with the boundary that replaces this row.
+  if (notice.compacting) {
     return (
-      <button
-        type="button"
-        onClick={() => { vibrate(); useTerminalStore.getState().openEditorFile(notice.file); }}
-        className={`${cls} block w-full text-left hover:bg-surface-3 transition-colors cursor-pointer`}
-        title={notice.file}
-      >
-        {notice.content}
-      </button>
+      <div className={`${cls} flex items-center gap-2`}>
+        <Loader2 size={12} className="animate-spin text-brand-500 shrink-0" />
+        <span>{notice.content}</span>
+        <CompactingClock />
+      </div>
     );
   }
-  return <div className={cls}>{notice.content}</div>;
+  // Always a plain line. A row used to become a button when it named a file, for the one
+  // notice that did — `edited_text_file`, which no longer draws at all (see
+  // lib/harnessTasks.noticeFrom). Nothing produces a notice with a file now, so the door
+  // went with it rather than staying wired to an empty hallway.
+  return (
+    <div className={cls}>
+      {notice.content}
+      {/* What the compaction cost and saved, in the CLI's own shorthand. Dropped when the
+          record carried only its trigger — inventing a number there would be worse than
+          the missing one. */}
+      {notice.compact?.detail && <span className="text-text-muted"> · {notice.compact.detail}</span>}
+      {notice.compact?.durationMs ? <span className="text-text-muted"> · {formatSeconds(notice.compact.durationMs)}</span> : null}
+    </div>
+  );
+}
+
+// Seconds, one decimal below a minute — the CLI reports 22885ms, and rounding that to
+// "23s" loses the only precision the row has.
+function formatSeconds(ms) {
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+}
+
+// The wait, counted where the wait is being watched. A live region so a screen reader
+// is told once that it is running rather than on every tick.
+function CompactingClock() {
+  const [startedAt] = useState(() => Date.now());
+  const [now, setNow] = useState(startedAt);
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), COMPACT_CLOCK_MS);
+    return () => clearInterval(timer);
+  }, []);
+  return <span className="text-text-muted/70 tabular-nums">{formatSeconds(now - startedAt)}</span>;
 }
 
 function ProseRow({ content, isLive }) {

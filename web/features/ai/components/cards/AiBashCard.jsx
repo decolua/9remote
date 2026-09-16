@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useEffect } from "react";
-import { Terminal, ChevronDown, ChevronRight, Copy, Check, AlertCircle, Loader2 } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronRight, Copy, Check, AlertCircle, Loader2, CheckCircle2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { shellIdFromResult } from "../../lib/shellId";
 import { useAiPaneScope, anchorId } from "../PaneScope";
@@ -40,9 +40,11 @@ export const AiBashCard = memo(function AiBashCard({
   // in and overwrote the input.
   const shellId = shellIdFromResult(output);
   const isBackground = Boolean(input?.run_in_background || shellId);
-  // It stays live on the strength of that report alone — the host never learns the
-  // shell's own exit code, and a ✓ here would claim it did.
-  const showRunning = isRunning || isBackground;
+  // The row's own status is the only claim that the shell is still going. The launch ack
+  // above sits in the output forever, so treating it as "live" left a shell that had
+  // ended — or one an agent restart had already settled — spinning for good. What ends
+  // it is the harness's own task record (see aiStore.settleTasks).
+  const showRunning = isRunning;
 
   const handleCopyCmd = (e) => {
     e.stopPropagation();
@@ -75,7 +77,7 @@ export const AiBashCard = memo(function AiBashCard({
             ) : isError ? (
               <AlertCircle size={13} className="text-danger" />
             ) : (
-              <Terminal size={13} className="text-success" />
+              <CheckCircle2 size={13} className="text-success" />
             )}
           </span>
           <span className="text-text-muted select-none shrink-0 font-mono text-[11px] leading-relaxed">$</span>

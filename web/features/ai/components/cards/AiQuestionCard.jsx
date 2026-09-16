@@ -18,33 +18,54 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   const { isFocused, activate } = useAiPaneScope();
   const [selectedAnswers, setSelectedAnswers] = useState({});
   const [otherText, setOtherText] = useState({});
-  const [submitted, setSubmitted] = useState(false);
-  // Skipping is its own outcome, not a submitted one: reusing `submitted` made a skipped
-  // card render the green "Answered" view for a question the user refused to answer.
-  const [skipped, setSkipped] = useState(false);
+  // An answer or a skip is OUT with the host and nothing has come back yet. It locks the
+  // controls for the round-trip and claims nothing else: the card stays on screen, and
+  // only the store taking it away — which it does on the host's own ack — says the gate
+  // was answered. The version that painted the green "Answered" view from local state
+  // reported success for an answer that never arrived, and the question came back on the
+  // next F5. Skip shares the flag: both are a reply in flight, and neither is an outcome.
+  const [inFlight, setInFlight] = useState(false);
   // One question on screen at a time: a 4-question gate rendered all at once covered
   // the whole transcript, and the user answered blind to the chat behind it.
   const [step, setStep] = useState(0);
+  // The three guards the handlers below read. Kept in refs, not read off props: a
+  // callback that closed over them would be a new function on every render, and the key
+  // listener keyed on it would rebind mid-answer.
   const answersRef = useRef(answers);
   useEffect(() => { answersRef.current = answers; });
+  const declinedRef = useRef(declined);
+  useEffect(() => { declinedRef.current = declined; });
+  const inFlightRef = useRef(inFlight);
+  useEffect(() => { inFlightRef.current = inFlight; });
+
+  // The host gave up on the attempt in flight — it never reached the CLI — so the
+  // controls come back and it can be given again. A lock that outlived the failure left
+  // reloading the page as the only way out of a gate nobody had answered.
+  //
+  // Every attempt re-arms this, because `resolvePermission` clears the failure as it
+  // sends: the flip that lands here is always THIS attempt's own, never a stale one.
+  useEffect(() => { if (failed) { inFlightRef.current = false; setInFlight(false); } }, [failed]);
 
   const current = questions[Math.min(step, questions.length - 1)];
   const isLast = step >= questions.length - 1;
   const answered = (q) => Boolean(selectedAnswers[q?.question]);
   const canAdvance = answered(current);
 
+  // `answers` and `declined` are read through refs so this callback — and the key
+  // listener that holds it — stay stable across renders.
   const handleSubmit = useCallback(() => {
-    // `answers` only ever arrives on a replayed card — guard via ref so this
-    // callback stays stable for the key listener below.
-    if (answersRef.current || submitted) return;
+    if (answersRef.current || declinedRef.current || inFlightRef.current) return;
     if (!questions.every((q) => Boolean(selectedAnswers[q.question]))) return;
     vibrate();
-    setSubmitted(true);
+    // The ref moves with the state, not a render behind it: two taps inside one frame
+    // would otherwise both pass the guard and put two answers on the wire.
+    inFlightRef.current = true;
+    setInFlight(true);
     onResolve?.(requestId, "allow", "", selectedAnswers);
-  }, [questions, selectedAnswers, submitted, requestId, onResolve]);
+  }, [questions, selectedAnswers, requestId, onResolve]);
 
   const handleNext = useCallback(() => {
-    if (!canAdvance) return;
+    if (inFlightRef.current || declinedRef.current || !canAdvance) return;
     vibrate();
     if (isLast) handleSubmit();
     else setStep((s) => s + 1);
@@ -57,13 +78,15 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   }, [step]);
 
   const handleSkip = useCallback(() => {
-    if (submitted || skipped || answersRef.current) return;
+    if (inFlightRef.current || declinedRef.current || answersRef.current) return;
     vibrate();
-    setSkipped(true);
+    inFlightRef.current = true;
+    setInFlight(true);
     onResolve?.(requestId, SKIP_BEHAVIOR, SKIP_MESSAGE);
-  }, [submitted, skipped, requestId, onResolve]);
+  }, [requestId, onResolve]);
 
   const handleSelect = useCallback((qText, optLabel, multiSelect) => {
+    if (inFlightRef.current) return;
     vibrate();
     if (!multiSelect) {
       setSelectedAnswers((prev) => ({ ...prev, [qText]: optLabel }));
@@ -100,7 +123,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
 
   useEffect(() => {
     if (!isFocused) return;
-    if (submitted || skipped || answers || !current) return;
+    if (inFlight || answers || declined || !current) return;
     const handleKeyDown = (e) => {
       // Don't intercept if user is typing in an input
       if (e.target?.tagName === "INPUT" || e.target?.tagName === "TEXTAREA") return;
@@ -113,19 +136,20 @@ export const AiQuestionCard = memo(function AiQuestionCard({
     };
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [current, selectedAnswers, submitted, skipped, answers, handleNext, handleSelect, isFocused]);
+  }, [current, inFlight, answers, declined, handleNext, handleSelect, isFocused]);
 
   const handleOther = (qText, val) => {
     setOtherText((prev) => ({ ...prev, [qText]: val }));
     setSelectedAnswers((prev) => ({ ...prev, [qText]: val }));
   };
 
-  // Answered view: this client's own submit, or an answer replayed from the host.
+  // An outcome replayed from the host: the answer its tool output records, or its own
+  // record of a gate the user walked away from. Both are the HOST saying so — nothing
+  // this card decided on its own. A card that painted either from local state reported
+  // an outcome the CLI never received, and the question was back on the next reload.
   const past = answers ? (typeof answers === "string" ? parseAnswered(answers) : answers) : null;
 
-  // A refusal replayed from the host lands on the same outcome — the CLI's own record
-  // of a gate the user walked away from, which is exactly what "Skipped" says.
-  if (skipped || declined) {
+  if (declined) {
     return (
       <div className="my-2 p-3 rounded-brand-lg bg-surface text-[13px] flex flex-col gap-1">
         <span className="text-text-muted font-medium">Skipped</span>
@@ -134,7 +158,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
     );
   }
 
-  if (submitted || answers) {
+  if (answers) {
     return (
       <div className="my-2 p-3 rounded-brand-lg border border-success/30 bg-success/10 text-[13px] font-medium flex flex-col gap-1.5">
         <div className="flex items-center gap-2 text-success">
@@ -142,7 +166,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
           <span>Answered</span>
         </div>
         {questions.map((q, idx) => {
-          const a = past?.[q.question] ?? selectedAnswers[q.question];
+          const a = past?.[q.question];
           if (!a) return null;
           return (
             <div key={idx} className="flex flex-col gap-0.5">
@@ -151,37 +175,40 @@ export const AiQuestionCard = memo(function AiQuestionCard({
             </div>
           );
         })}
-        {/* Unparseable host text still beats showing nothing — but only when there is
-            text: `answers` is null on a card that was answered locally, and String(null)
-            put the word "null" on screen. */}
-        {!past && !Object.keys(selectedAnswers).length && answers != null && (
-          <span className="font-mono text-text">{String(answers)}</span>
-        )}
+        {/* Unparseable host text still beats showing nothing. */}
+        {!past && <span className="font-mono text-text">{String(answers)}</span>}
       </div>
     );
   }
 
   if (!current) return null;
 
+  // A card with no `onResolve` is a RECORD of a past call — the same tool rendered in the
+  // transcript, which replays the call but has no gate behind it. It is not a door: it
+  // used to draw the whole form, and a tap there went to `onResolve?.()` → nowhere while
+  // the card painted itself answered. Nothing to answer here, so there is nothing to show.
+  if (!onResolve) return null;
+
   const currentAnswer = selectedAnswers[current.question] || "";
   const selectedList = current.multiSelect && currentAnswer ? currentAnswer.split(", ") : [currentAnswer];
 
   return (
-    // Same tint as the answered view below, so the card reads the same before and after
-    // the tap instead of changing colour under the user's finger.
+    // The surface tint of the permission card, NOT the green of the answered one: green
+    // here was the old tell that promised an answer the host had not taken yet. The card
+    // only turns green once the host's own record of the answer replaces it.
     //
     // onPointerDown, not onClick: it lands before the option button's own click, so the pane
     // is active by the time the choice is applied — and it fires for a tap anywhere on the
     // card, including the empty strip between controls.
     <div
       onPointerDown={armPane}
-      className="my-2 p-3 rounded-brand-lg shadow-sm text-[13px] select-none border border-success/30 bg-success/10"
+      className="my-2 p-3 rounded-brand-lg shadow-sm text-[13px] select-none border border-warning/30 bg-surface"
     >
       {/* Same header grammar as AiPermissionCard/AiBlockedCard: icon, what this card is,
           and the tool's own badge. Without it the card opened on a bare sentence and read
           as another paragraph of the transcript rather than something waiting on a tap. */}
-      <div className="flex items-center gap-2 mb-2 text-text font-medium">
-        <HelpCircle size={16} className="text-success shrink-0" />
+      <div className="flex items-center gap-2 mb-2 text-warning font-medium">
+        <HelpCircle size={16} className="text-warning shrink-0" />
         <span>Question</span>
         {questions.length > 1 && (
           <span className="font-mono text-[11px] px-1.5 py-0.5 rounded bg-surface-2 text-text-muted">
@@ -240,6 +267,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
       <input
         type="text"
         value={otherText[current.question] || ""}
+        disabled={inFlight}
         onChange={(e) => handleOther(current.question, e.target.value)}
         onKeyDown={(e) => {
           if (e.key !== "Enter") return;
@@ -248,7 +276,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
           handleNext();
         }}
         placeholder="Type your answer..."
-        className={`w-full px-1.5 py-1 rounded bg-bg border border-border-subtle text-[12px] text-text placeholder-text-muted/70 focus:outline-none focus:border-brand-500 ${
+        className={`w-full px-1.5 py-1 rounded bg-bg border border-border-subtle text-[12px] text-text placeholder-text-muted/70 focus:outline-none focus:border-brand-500 disabled:opacity-40 ${
           current.options?.length ? "mt-1.5" : "mt-1"
         }`}
       />
@@ -264,7 +292,8 @@ export const AiQuestionCard = memo(function AiQuestionCard({
         <button
           type="button"
           onClick={handleSkip}
-          className="px-2 py-1 rounded text-[12px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
+          disabled={inFlight}
+          className="px-2 py-1 rounded text-[12px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
           Skip
         </button>
@@ -285,10 +314,10 @@ export const AiQuestionCard = memo(function AiQuestionCard({
         <button
           type="button"
           onClick={handleNext}
-          disabled={!canAdvance}
+          disabled={inFlight || !canAdvance}
           className="px-2.5 py-1 rounded bg-brand-500 hover:bg-brand-600 text-white flex items-center gap-1 text-[12px] font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
         >
-          <span>{isLast ? "Submit" : "Next"}</span>
+          <span>{isLast ? (inFlight ? "Sending…" : "Submit") : "Next"}</span>
           {isLast ? <CornerDownLeft size={11} /> : <ChevronRight size={12} />}
         </button>
       </div>

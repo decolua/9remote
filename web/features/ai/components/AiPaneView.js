@@ -74,7 +74,7 @@ export const AiPaneView = memo(function AiPaneView({
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const { t } = useI18n();
 
-  const { sendPrompt, resolvePermission, stop, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced, hydrateFailed } = useAiSession({
+  const { sendPrompt, resolvePermission, stop, stopTask, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced, hydrateFailed } = useAiSession({
     sessionId,
     engine,
     workspacePath,
@@ -337,7 +337,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {/* Running sub-agents, same idea one level down: their cards scroll out of view
           while the work they are doing is still going. */}
-      <AiAgentStrip sessionId={sessionId} />
+      <AiAgentStrip sessionId={sessionId} onStopTask={stopTask} />
 
       {/* Scrollable Message List */}
       <AiMessagesList
