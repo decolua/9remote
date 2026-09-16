@@ -4,11 +4,21 @@
 // is a duration rather than two timestamps (the two clocks sit on different machines).
 // Run: node agent/test/aiTurnSpan.test.mjs
 import assert from "node:assert/strict";
-import { AiSession } from "../features/ai/aiSession.js";
-import { publicSession } from "../features/ai/aiSocket.js";
-import { getLastOutputAt } from "../features/terminal/statusManager.js";
-import { replayWindow } from "../features/ai/aiEventSlice.js";
-import { AI_REPLAY_BYTES } from "../features/ai/constants.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+// A throwaway home, set BEFORE the imports below: this file builds real AiSessions, and
+// the constructor schedules a snapshot write on creation. Without this it wrote every one
+// of them into the live ~/.9remote/ai-sessions — measured at 983 stray `claude-span-*`
+// files, because a test session is never destroyed and so nothing ever deleted them.
+process.env.NREMOTE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-turnspan-"));
+
+const { AiSession } = await import("../features/ai/aiSession.js");
+const { publicSession } = await import("../features/ai/aiSocket.js");
+const { getLastOutputAt } = await import("../features/terminal/statusManager.js");
+const { replayWindow } = await import("../features/ai/aiEventSlice.js");
+const { AI_REPLAY_BYTES } = await import("../features/ai/constants.js");
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
