@@ -136,7 +136,9 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   // The reset restates the turn state of the log it opens. The client applies it after the
   // ack that hydrated the same log, so a reset carrying only the window would leave a live
   // turn looking finished — the pane printing "Worked for …" over an answer still streaming.
-  assert.match(SESSION, /"conversation_reset", \{\s*hasMore, fromSeq,\s*lastTurnMs: this\.lastTurnMs,\s*\.\.\.this\.turnState\(\)\s*\}\)/);
+  // ...and it carries the harness's task records, which the log cannot state: a replay
+  // window is the newest 32KB, and a task announced early in a long turn falls outside it.
+  assert.match(SESSION, /"conversation_reset", \{\s*hasMore, fromSeq,\s*lastTurnMs: this\.lastTurnMs,\s*taskRecords: this\.taskRecords\(\),\s*\.\.\.this\.turnState\(\)\s*\}\)/);
   // Replayed events reach the pane tagged as history: the status mirror reads that tag
   // and stands down, or a rebuilt log ending on turn_complete painted a live turn dot
   // as finished on every F5.
@@ -148,7 +150,7 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   const callers = (SESSION.match(/this\._adoptLog\(/g) || []).length;
   assert.equal(callers, 3, `hydrate, rewind and resume must share the one delivery, saw ${callers}`);
   // ...and /clear still states the empty window rather than sending no payload at all.
-  assert.match(SESSION, /conversation_reset", \{\s*hasMore: false, fromSeq: 0,\s*lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0\s*\}\)/);
+  assert.match(SESSION, /conversation_reset", \{\s*hasMore: false, fromSeq: 0,[^}]*taskRecords: \[\],[^}]*lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0\s*\}\)/);
 });
 
 test("a hydrate ack ships a tail and says there is more — that is what arms scroll-up", () => {
@@ -283,8 +285,11 @@ test("every payload-bearing event is capped before it enters the re-serialized l
   // `tool_start` were missed in the first place.
   assert.match(SESSION, /data = capEvent\(event, data\);/);
   assert.match(SESSION, /function capEvent\(event, data\)/);
-  // Old snapshots hold raw payloads; capping only at emit left them unbounded on load.
-  assert.match(SESSION, /capLog\(renumber\(compactEvents\(snap\.events\)\)\)/);
+  // Both doors a log can enter by: the CLI's transcript (rebuilt on every open) and the
+  // rebuild that merges the harness records into it. The snapshot is no longer a door —
+  // it holds state, not events (see saveSnapshot).
+  assert.match(SESSION, /capLog\(recovered\)/);
+  assert.match(SESSION, /renumber\(capLog\(merged\)\)/);
 });
 
 // ── Reducer coverage ──

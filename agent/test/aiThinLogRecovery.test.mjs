@@ -68,26 +68,24 @@ test("a rebuilt log is renumbered from 1, and the counter follows it", () => {
 // (measured: 65 events left of a live chat, none of them a prompt). Reopening must
 // rebuild from the transcript, or the pane shows a column of cards with no bubbles above
 // them and nothing to scroll to: the prompts are not in the log.
-test("a log whose prompts were shed by the event cap is rebuilt from the transcript", () => {
-  fs.writeFileSync(path.join(home, "ai-sessions", "claude-capped.json"), JSON.stringify({
-    engine: "claude", cwd, threadId: null, cliSessionId: cliId,
-    events: Array.from({ length: 20 }, (_, i) => ({ seq: 9000 + i, event: "tool_start", data: { id: `t${i}`, name: "Bash" } }))
-  }));
-  const s = new AiSession({ id: "capped", engine: "claude", cwd, options: { mock: true }, onEvent() {} });
-  assert.equal(s.history.filter((e) => e.event === "user_message").length, TURNS, "the prompts are back");
-  assert.ok(s.history.length > 20, "the transcript's log replaced the shed one");
-});
-
-test("an engine with no transcript store keeps the log it has", () => {
-  // codex/opencode/antigravity have their own readers; with nothing in the store the
-  // session keeps the snapshot rather than being blanked.
+test("the log comes from the store alone — a snapshot cannot substitute for it", () => {
+  // The snapshot no longer holds events, so a session whose store has nothing opens
+  // EMPTY rather than falling back. That is the deliberate trade: the log lives in the
+  // CLI's transcript, and a file that also carried it was thrown away on the next open
+  // anyway (measured: 6.93 MB -> 253 bytes).
   fs.writeFileSync(path.join(home, "ai-sessions", "codex-none.json"), JSON.stringify({
-    engine: "codex", cwd, threadId: "t-1", cliSessionId: null,
-    events: [{ seq: 1, event: "user_message", data: { text: "kept" } }]
+    engine: "codex", cwd, threadId: "t-1", cliSessionId: null, model: "m"
   }));
   const s = new AiSession({ id: "none", engine: "codex", cwd, options: { mock: true }, onEvent() {} });
-  assert.equal(s.history.length, 1, "the snapshot stands when the store has nothing");
-  assert.equal(s.history[0].data.text, "kept");
+  assert.equal(s.history.length, 0, "no store, no log");
+  assert.equal(s.model, "m", "but the state it does carry still loads");
+});
+
+test("a prompt shed from a live log is still there on the next open — the store is read every time", () => {
+  // The log in memory can lose its head to AI_MAX_EVENTS; the transcript never does. So
+  // opening rebuilds, and the prompts come back with it.
+  const s = open();
+  assert.equal(s.history.filter((e) => e.event === "user_message").length, TURNS, "every turn is back");
 });
 
 fs.rmSync(transcriptPath, { force: true });

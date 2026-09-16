@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT } from "./constants.js";
+import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT, AI_TASK_RECORDS_BYTES } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
 import { readClaudeSessionState, readNewAttachments } from "./claudeTranscript.js";
@@ -101,7 +101,10 @@ function loadSessionSnapshot(sessionId, engine) {
   try {
     const raw = fs.readFileSync(aiSnapshotFile(sessionId, engine), "utf8");
     const snap = JSON.parse(raw);
-    if (!snap || snap.engine !== engine || !Array.isArray(snap.events)) return null;
+    // No `events` requirement: the log is no longer stored here (see saveSnapshot). A
+    // file written by an older agent still carries them and still loads — the extra
+    // field is simply ignored.
+    if (!snap || snap.engine !== engine) return null;
     return snap;
   } catch {
     return null;
@@ -233,6 +236,41 @@ function capLog(events) {
   });
 }
 
+/**
+ * The harness records a rebuild cannot reproduce — the ONE kind of cli_event the CLI does
+ * not write down itself.
+ *
+ * Verified against 1007 real transcripts: zero `task_started`, zero
+ * `background_tasks_changed`. Everything else a `cli_event` carries — an attachment, a
+ * hook result, a prompt snapshot — the CLI has already written to its own transcript,
+ * and `_rebuildFromStore` reads it back from there on every open.
+ *
+ * Two things read this set: `_adoptLog` carries these across a rebuild (dropping them is
+ * how an F5 came back with an empty agent strip mid-task), and `taskRecords` lifts them
+ * out for the connect state, where a 32KB replay window would not reach them.
+ */
+const CARRIED_CLI_SUBTYPES = new Set([
+  "task_started", "task_updated", "task_notification", "background_tasks_changed"
+]);
+
+/** Is this record one the transcript cannot hand back? */
+const isCarriedRecord = (ev) => ev.event === "cli_event" && CARRIED_CLI_SUBTYPES.has(ev.data?.subtype);
+
+/** The records worth carrying across a rebuild, with the position they sat at. */
+const cliEventsOf = (events) =>
+  (events || []).map((e, i) => ({ e, i })).filter(({ e }) => isCarriedRecord(e));
+
+/**
+ * A rebuilt log with the records only this agent has, put back where they were.
+ *
+ * Shared by the constructor and `_adoptLog` on purpose: they are the same operation, and
+ * every time the two were written separately they drifted — one carried the records and
+ * the other overwrote them, which is how a restored chat lost its task set.
+ */
+function mergeCarried(carried, events) {
+  return carried.length ? insertByIndex(events, carried) : events;
+}
+
 // The CLI's transcript is the authority on what this conversation IS; the log here is a
 // cache of what the agent happened to see. They disagree in one direction only — the log
 // loses: AI_MAX_EVENTS sheds its head (and the head is where the prompts are), and
@@ -351,22 +389,27 @@ export class AiSession {
     const bindId = snap?.threadId || snap?.cliSessionId || requestedId || options.threadId || options.sessionId || null;
     this.threadId = engine === AI_ENGINES.CODEX ? bindId : null;
     this.cliSessionId = engine === AI_ENGINES.CODEX ? null : bindId;
-    // No snapshot of its own yet (a chat opened from the history list, or an agent
-    // restarted): replay the conversation from the CLI's own store, so the pane shows
-    // it instead of an empty log.
-    this.history = snap ? capLog(renumber(compactEvents(snap.events))) : [];
-    // A restored row marked `async` says work was handed off before this process existed,
-    // and the process that held its watchdog is gone. Settle it here, or the row spins
-    // forever: the client deliberately keeps `async` rows live past their turn.
-    this._settleRestoredAsync();
-    // The transcript is the authority, and the snapshot only a cache of it — so it is
-    // read here too, not only on a hydrate. See adoptLog: every "is the log thin?" test
-    // written for this drifted from the others, and the drift is what a short reopen
-    // looked like. When the transcript has nothing, the snapshot stands.
+    // The log starts empty and is rebuilt from the CLI's own store below. There is no
+    // snapshot to fall back on any more: the conversation is the CLI's to keep, and a
+    // turn it has not written down yet is still in the daemon's ring (see _replay).
+    this.history = [];
+    // The transcript is the authority on what this conversation IS, so it is read here,
+    // not only on a hydrate. See adoptLog: every "is the log thin?" test written for this
+    // drifted from the others, and the drift is what a short reopen looked like.
+    //
+    // Merged, not overwritten: a plain assignment would throw away the harness records a
+    // rebuild cannot produce, and the task set would come back empty. Same door and same
+    // carry rule as a hydrate (`_adoptLog`), minus its broadcast: no client is attached
+    // yet, and the first hydrate will state this log for itself.
     if (bindId) {
-      this.history = this._rebuildFromStore(bindId) || this.history;
-      this._settleRestoredAsync();
+      const rebuilt = this._rebuildFromStore(bindId);
+      if (rebuilt) this.history = mergeCarried(cliEventsOf(this.history), rebuilt);
     }
+    // A row marked `async` in the rebuilt log says work was handed off before this process
+    // existed, and the process that held its watchdog is gone. Settle it here, or the row
+    // spins forever: the client deliberately keeps `async` rows live past their turn.
+    // After the rebuild, never before — there is no log to settle until it lands.
+    this._settleRestoredAsync();
     // Where the next event's seq comes from. Seed from the log rather than the snapshot
     // field so a snapshot written before this counter existed still continues upward.
     this.seqCounter = this.history.at(-1)?.seq || 0;
@@ -635,10 +678,15 @@ export class AiSession {
   _adoptLog(events) {
     // The CLI's transcript is the authority on the CONVERSATION, and only on that: every
     // rebuild path (a hydrate, /resume, a rewind) replaces the log with what the transcript
-    // can reconstruct. The harness's own records are not in it — measured, 0 of
-    // `task_started` / `background_tasks_changed` / `status` / `hook_*` across 934 real
-    // transcripts — so replacing the log wholesale dropped them, and a pane that reloaded
-    // mid-task came back with an empty strip while the work was still running.
+    // can reconstruct. The harness's own TASK records are not in it — measured, 0 of
+    // `task_started` / `background_tasks_changed` across 1007 real transcripts — so
+    // replacing the log wholesale dropped them, and a pane that reloaded mid-task came
+    // back with an empty strip while the work was still running.
+    //
+    // Only those. The transcript DOES hold the other records the pane renders — an
+    // `api_error`, a `queued_command`, an edited file — so carrying every cli_event across
+    // while the rebuild also produced them drew each row twice. `cliEventsOf` is the line
+    // between the two, and it is the same one the snapshot is written with.
     //
     // Carried across, not re-emitted: the client is told this is a NEW log (the reset
     // below), and re-sending them would draw each row twice.
@@ -647,8 +695,7 @@ export class AiSession {
     // a task from turn 1 to the end of the log would surface it under turn 2. The
     // transcript's own events carry no timestamp to sort by, so position is taken from
     // what the log does know: how many live events sat before each record.
-    const carried = (this.history || []).map((e, i) => ({ e, i })).filter(({ e }) => e.event === "cli_event");
-    const merged = carried.length ? insertByIndex(events, carried) : events;
+    const merged = mergeCarried(cliEventsOf(this.history), events);
     // Numbered from 1 on purpose: the reset tells every client this is a NEW log. The
     // counter restarts with it, or the next live event would carry a seq from the log
     // that just ended and the client would drop it as already applied.
@@ -664,6 +711,7 @@ export class AiSession {
     this.onEvent?.(this.id, "conversation_reset", {
       hasMore, fromSeq,
       lastTurnMs: this.lastTurnMs,
+      taskRecords: this.taskRecords(),
       ...this.turnState()
     });
     for (const ev of replay) {
@@ -705,11 +753,48 @@ export class AiSession {
     };
   }
 
+  // The harness's TASK records, lifted out of the log.
+  //
+  // They are kept in `history` already (CARRIED_CLI_SUBTYPES, so a rebuild carries them),
+  // but the log is not how a client can be trusted to receive them: a replay window is the
+  // newest 32KB, and a task announced early in a long turn falls outside it. Measured on a
+  // real 2560-event log, the window held 56 events and zero task records — which is how an
+  // F5 came back with an empty agent strip while the work was still running.
+  //
+  // So they ride with the STATE instead, beside `isTurnRunning`: it is the same kind of
+  // fact — what is true right now, which the log can only state by having witnessed it.
+  // Raw records, not a folded task list: the pane folds task records with ONE reader
+  // (web/features/ai/lib/harnessTasks.js), and a second one here would be a second set of
+  // rules for the same records — the drift that reader exists to prevent.
+  //
+  // Newest first, and bounded: this rides in the SAME frame as the replay window, and the
+  // two together have one SCTP message to fit in. Measured across 218 real sessions the
+  // pair peaked at 55.6KB under the 64KB cap, so the head is what would go over — and the
+  // recent records are the ones a strip needs anyway.
+  taskRecords() {
+    const out = [];
+    let bytes = 0;
+    for (let i = this.history.length - 1; i >= 0; i--) {
+      const ev = this.history[i];
+      if (!isCarriedRecord(ev)) continue;
+      const size = JSON.stringify(ev.data).length;
+      if (bytes + size > AI_TASK_RECORDS_BYTES) break;
+      bytes += size;
+      out.push(ev.data);
+    }
+    return out.reverse();
+  }
+
   emitNormalized(event, data, record = true) {
     // A record the harness itself does not keep is not history — see LIVE_ONLY_CLI_SUBTYPES.
     if (record && event === "cli_event" && LIVE_ONLY_CLI_SUBTYPES.has(data?.subtype)) record = false;
     if (event === "init") {
       if (data?.threadId) this.threadId = data.threadId;
+      // A DIFFERENT conversation drops the offset with it: the value indexes one
+      // transcript file by byte, and a respawn that picked up another conversation would
+      // otherwise read into the wrong one. Repeating the same id is the ordinary reattach
+      // and must keep it — that is what lets the attachment read resume.
+      if (data?.sessionId && data.sessionId !== this.cliSessionId) this.attachmentOffset = null;
       if (data?.sessionId) this.cliSessionId = data.sessionId;
       // Only a real model id may be remembered: this value is handed back to the CLI
       // as `-m` when an adapter is rebuilt (a /clear, a restart). Adapters default
@@ -977,11 +1062,17 @@ export class AiSession {
     if (this.persisting) { this.persistAgain = true; return; }
     this.persisting = true;
     try {
-      // A turn in flight is mostly delta slices — hundreds of them per turn, each a
-      // few bytes. Compacting on the way out keeps the file (and the bytes written
-      // every debounce tick) proportional to the conversation, not to its chunkiness.
-      // The in-memory log stays whole: clients replay slices, the snapshot need not.
-      const events = this.isTurnRunning ? compactEvents(this.history) : this.history;
+      // State only — never the log.
+      //
+      // The conversation is the CLI's to keep, and it does: `_rebuildFromStore` reads its
+      // transcript on every open. An in-flight turn is the daemon's: the ring buffer still
+      // holds the raw output, and a re-attach replays it. Measured on a real 7 MB chat,
+      // storing the log here bought nothing those two could not already answer, and cost
+      // megabytes rewritten on every debounce tick.
+      //
+      // What is left is what NEITHER has: the line watermark this process has consumed,
+      // the byte offset into the transcript, and the user's own picks. A few hundred
+      // bytes, and the only reason this file exists at all.
       const payload = JSON.stringify({
         engine: this.engine,
         cwd: this.cwd,
@@ -997,7 +1088,10 @@ export class AiSession {
         // arrive whole and exactly once.
         consumedLines: this.consumedLines,
         consumedEpoch: this.consumedEpoch,
-        events
+        // How far into the CLI's transcript this session has read. Read back in the
+        // constructor since the field existed, but never written — so every restart
+        // re-seeded to the file's end and the attachments in between were lost.
+        attachmentOffset: this.attachmentOffset
       });
       if (sync) {
         fs.writeFileSync(aiSnapshotFile(this.id, this.engine), payload);
@@ -1039,6 +1133,10 @@ export class AiSession {
       // the next agent skip the new conversation's first lines as "already consumed".
       this.consumedLines = 0;
       this.consumedEpoch = null;
+      // The offset indexes ONE transcript file. Left behind, the reader would resume
+      // mid-record in whatever file next takes this id — or, seeing a shorter one, reset
+      // to 0 and replay a history the pane has already drawn.
+      this.attachmentOffset = null;
       this.isTurnRunning = false;
       // The turn whose span the pane was printing belongs to the conversation this
       // clears, so the summary goes with it.
@@ -1057,6 +1155,9 @@ export class AiSession {
       this.history.push({ seq: ++this.seqCounter, event: "init", data: init, timestamp: Date.now() });
       this.onEvent?.(this.id, "conversation_reset", {
         hasMore: false, fromSeq: 0,
+        // Empty, and stated: the task set belonged to the conversation this clears, and a
+        // client that is told nothing keeps drawing it (see aiStore.setTaskRecords).
+        taskRecords: [],
         lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0
       });
       this.onEvent?.(this.id, "init", init);
@@ -1142,6 +1243,9 @@ export class AiSession {
       // Replace the replay log with the resumed conversation's tail, or the pane would
       // show one conversation while the CLI continues another. Same one door as every
       // other rebuild — a hydrate, the constructor, a gap and a rewind all come here.
+      // The attachment offset indexes the OLD conversation's transcript, so it goes with
+      // it: the resumed one seeds its own on the first read.
+      this.attachmentOffset = null;
       this._adoptLog(this._rebuildFromStore(resume) || []);
       // A different conversation: the span of the turn this session ran belongs to the
       // log that just went, and would print under the resumed chat as its own summary.
@@ -1197,6 +1301,16 @@ export class AiSession {
     const sent = this.adapter?.interrupt?.();
     if (!sent) this.adapter?.signal?.("SIGINT");
     this.emitNormalized("stopped", {});
+  }
+
+  /**
+   * Stop ONE background task. Nothing is emitted here on purpose: the CLI reports the
+   * stop itself (`task_notification` with status `stopped`), and that record is what
+   * settles the row on both the live path and a later replay. A local event would be a
+   * second, weaker claim about a task this process cannot see.
+   */
+  stopTask(taskId) {
+    return this.adapter?.stopTask?.(taskId) || false;
   }
 
   destroy() {
