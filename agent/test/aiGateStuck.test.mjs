@@ -56,23 +56,27 @@ async function claudeSession(manager, id) {
   return { session, proc };
 }
 
-await test("watchdog stands down while a gate is open", async () => {
+await test("a CLI holding a gate is never stopped — nor is any quiet turn", async () => {
+  // There is no watchdog any more (the TUI has none: it emits `tool_heartbeat` every 30s
+  // and never kills a tool). The old concern — a gate held for two minutes must not be
+  // SIGINTed out from under the card — is now true of every turn, so this test pins the
+  // stronger property: a held gate AND a silent turn both leave the process alone.
   const manager = new AiManager();
   const { session, proc } = await claudeSession(manager, "gate-watchdog");
   session.isTurnRunning = true;
   session.adapter.pendingRequests.set("req-1", { toolName: "AskUserQuestion", input: {} });
 
-  // Fire the timer for real: with the gate held, the guard returns before it can decide
-  // the CLI stalled, so no SIGINT reaches a process that is only waiting on the user.
-  session.armIdleWatchdog(5);
+  session.emitNormalized("delta", { text: "waiting" });
   await new Promise((r) => setTimeout(r, 30));
-  assert.equal(proc.stopped, undefined, "the CLI was killed out from under the card");
+  assert.equal(proc.stopped, undefined, "a CLI waiting on the user is left alone");
 
-  // The gate closed → the watchdog is free to judge silence again.
+  // The gate closed, and the turn stays quiet. It is still not stopped: only the user
+  // decides a turn is over.
   session.adapter.pendingRequests.delete("req-1");
-  session.armIdleWatchdog(5);
+  session.emitNormalized("delta", { text: "still here" });
   await new Promise((r) => setTimeout(r, 30));
-  assert.equal(proc.stopped, true, "a genuinely silent turn must still be stopped");
+  assert.equal(proc.stopped, undefined, "and neither is a quiet one");
+  assert.equal(session.isTurnRunning, true, "the turn is still the turn");
 });
 
 await test("an answer for a dropped request is refused, not written", async () => {

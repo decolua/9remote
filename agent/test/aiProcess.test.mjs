@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { AiManager } from "../features/ai/aiManager.js";
 import { AgentProc } from "../features/ai/proc/agentProc.js";
 import { DaemonProc } from "../features/ai/proc/daemonProc.js";
-import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS } from "../features/ai/constants.js";
+import { AI_ENGINES, AI_PERSIST_STREAM_MS } from "../features/ai/constants.js";
 import { touchOutput, forgetSession } from "../features/terminal/statusManager.js";
 
 // A stand-in daemon for the proc tests: the client is injected, so no daemon and no
@@ -138,56 +138,27 @@ const withFrozenClock = (fn) => {
   try { return fn((ms) => { now += ms; }); } finally { Date.now = real; }
 };
 
-await test("a quiet turn is killed once nothing has been heard for the whole window", async () => {
-  const session = startTurn("s-watchdog-idle");
+await test("a silent turn is left running — there is no watchdog", async () => {
+  // Replaces three tests that pinned the old SIGINT-after-120s behaviour. It is gone: the
+  // TUI has no watchdog (it emits `tool_heartbeat` every 30s and never kills a tool), and
+  // ours killed slow work that was fine — a 150s `sleep` is an ordinary thing to run.
+  // Whoever adds a clock here has to argue with this test first.
+  const session = startTurn("s-no-watchdog");
   try {
     withCapturedTimers((timers) => {
-      session.armIdleWatchdog();
-      assert.equal(timers.length, 1);
-      assert.equal(timers[0].ms, AI_TURN_IDLE_TIMEOUT_MS);
-      timers[0].cb();
+      assert.equal(session.armIdleWatchdog, undefined, "the method is gone");
+      session.emitNormalized("delta", { text: "working" });
+      // The only timer a live event arms is the snapshot debounce (AI_PERSIST_DEBOUNCE_MS),
+      // which writes the log to disk. Nothing here can stop the turn.
+      // Both debounces are sub-second disk writes (AI_PERSIST_DEBOUNCE_MS, _STREAM_MS).
+      // A watchdog would be a two-minute clock, so that is what this excludes.
+      assert.ok(
+        timers.every((t) => t.ms <= AI_PERSIST_STREAM_MS),
+        `no watchdog-sized clock was armed: ${JSON.stringify(timers)}`
+      );
+      assert.equal(session.isTurnRunning, true, "a quiet turn is still a turn");
     });
-    assert.equal(session.isTurnRunning, false, "the turn should have been stopped");
-  } finally { session.destroy(); }
-});
-
-await test("a streaming terminal reschedules the watchdog instead of ending the turn", async () => {
-  const session = startTurn("s-watchdog-streaming");
-  try {
-    withCapturedTimers((timers) => {
-      withFrozenClock((tick) => {
-        touchOutput("s-watchdog-streaming");
-        session.armIdleWatchdog();
-        timers[0].cb(); // the whole window elapses, but the terminal is still printing
-        assert.equal(session.isTurnRunning, true, "the turn must survive");
-        assert.equal(timers.length, 2, "the watchdog must be re-armed");
-        assert.equal(timers[1].ms, AI_TURN_IDLE_TIMEOUT_MS, "and given a fresh window");
-        tick(30_000); // it keeps printing, so an event-less stretch can never kill it
-        timers[1].cb();
-        assert.equal(session.isTurnRunning, true, "still printing, still working");
-        assert.equal(timers.length, 3);
-      });
-    });
-  } finally { session.destroy(); forgetSession("s-watchdog-streaming"); }
-});
-
-await test("a terminal that streamed and then stopped still lets the turn time out", async () => {
-  const session = startTurn("s-watchdog-gap");
-  try {
-    withCapturedTimers((timers) => {
-      withFrozenClock((tick) => {
-        touchOutput("s-watchdog-gap");
-        session.armIdleWatchdog();
-        tick(60_000); // printed for a minute, then went quiet
-        timers[0].cb();
-        assert.equal(session.isTurnRunning, true, "a minute of silence is not the whole window yet");
-        assert.equal(timers.length, 2, "the watchdog must survive to the end of the window");
-        tick(60_000); // now nothing at all has been heard for two minutes
-        timers[1].cb();
-        assert.equal(session.isTurnRunning, false, "the turn must be stopped");
-      });
-    });
-  } finally { session.destroy(); forgetSession("s-watchdog-gap"); }
+  } finally { session.destroy(); forgetSession("s-no-watchdog"); }
 });
 
 await test("a started turn's lines are delivered live, not held for a replay nobody asked for", async () => {

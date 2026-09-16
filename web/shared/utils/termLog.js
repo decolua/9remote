@@ -77,6 +77,10 @@ export function termLog(category, ...args) {
   lastEntry = entry;
   buffer.push(entry);
   if (buffer.length > MAX) buffer.shift();
+  // TEMP DIAGNOSTIC — mirror to the browser console so a reload's own sequence is
+  // readable from the dev server's log, where the ring buffer cannot be seen. Remove
+  // with the ai-hydrate logging it exists to read.
+  try { console.log(`[termLog ${category}] ${msg}`); } catch {}
   // Listeners are notified on a microtask, never synchronously: termLog can be
   // called from a render-phase state update (a legal React pattern in its own
   // component), and a synchronous notify made a log-panel component setState

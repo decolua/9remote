@@ -11,18 +11,23 @@
 // Run: node web/test/aiReach.test.mjs
 import assert from "node:assert/strict";
 import {
-  aiTailStart, aiHistoryChunk, windowBytes
+  aiTailStart, aiHistoryChunk, windowBytes, replayWindow
 } from "../../agent/features/ai/aiEventSlice.js";
 import { AI_REPLAY_BYTES } from "../../agent/features/ai/constants.js";
 import {
-  PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn
+  PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn, estimateMessageBytes
 } from "../features/ai/lib/messageWindow.js";
+import { reduceSessionEvents } from "../features/ai/hooks/useAiSession.js";
+import { collectOlderPage } from "../features/ai/lib/olderPaging.js";
+
+// The budget one scroll-up tap spends, mirrored from useAiSession (OLDER_PAGE_BYTES).
+const OLDER_PAGE_BYTES = 128 * 1024;
 
 let pass = 0, fail = 0;
-const test = (name, fn) => {
-  try { fn(); pass++; console.log(`  ✓ ${name}`); }
-  catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
-};
+// Collected, not awaited inline: several cases are async now (they drive the real paging
+// loop), and a bare `await` in a top-level test call would print the ✓ before the run.
+const tests = [];
+const test = (name, fn) => tests.push([name, fn]);
 
 // ── Fixtures ─────────────────────────────────────────────────────────────────
 const user = (seq, text = "prompt") => ({ seq, event: "user_message", data: { text } });
@@ -197,5 +202,104 @@ test("the open-time fetch is bounded by the host running out, not by the cap", (
   assert.ok(history.length < 200, `walked ${history.length} rounds — is it terminating?`);
 });
 
+// ── the loadOlder loop itself, not a model of it ──────────────────────────────
+//
+// `walkUp` above re-implements paging; a bug in the real loop then hides behind it. This
+// drives the loop's own rules against the real chunker and the real reducer, because that
+// is where the reported bug lived: a chunk the reducer turned into NOTHING was treated as
+// the end of history, so scroll-up stopped on the first one it met.
+//
+// A `cli_event` the pane draws NOTHING for. `edited_text_file` without a filename, a
+// `hook_success` that is not a SessionStart, a `task_reminder` — the reducer reads each
+// through `noticeFrom`, which returns null, so a chunk of these reduces to zero messages.
+// That is the case that ended the walk: not a chunk that draws too little, one that draws
+// nothing at all, and it is the common one (measured: 24 of 238 chunks on a real chat).
+const attachment = (seq, kb) => ({
+  seq, event: "cli_event",
+  data: {
+    type: "attachment", subtype: "task_reminder",
+    record: {
+      rendered: [{ content: "r".repeat(kb * 1024) }],
+      attachment: { type: "task_reminder", content: "x".repeat(kb * 1024), itemCount: 3 }
+    }
+  }
+});
+
+// One turn: a numbered prompt, a tool call with its result, then `filler` attachment-only
+// events. The fillers are what a page fills up with — a whole 32KB chunk of them reduces
+// to nothing, which is exactly the chunk the old walk treated as the end of history.
+const turnWithFiller = (startSeq, steps, filler, n) => {
+  const out = [{ seq: startSeq, event: "user_message", data: { text: `prompt ${n}` } }];
+  for (let i = 0; i < steps; i++) {
+    out.push(tool(startSeq + 1 + i * 2, `t${startSeq}_${i}`));
+    out.push(result(startSeq + 2 + i * 2, `t${startSeq}_${i}`));
+  }
+  out.push(done(startSeq + 1 + steps * 2));
+  let seq = startSeq + out.length;
+  for (let i = 0; i < filler; i++) out.push(attachment(seq++, 9));
+  return out;
+};
+
+// The client's loop, the REAL one — lib/olderPaging is what useAiSession.loadOlder runs,
+// so this drives the code that ships rather than a transcription of it. (A transcription
+// is what let the dead scroll-up pass its own reachability test: it was written in a
+// kinder order than the real loop, and the real loop's order is the bug.)
+async function loadOlderWalk(full) {
+  const ack = replayWindow(full, AI_REPLAY_BYTES);
+  const prompts = new Set();
+  for (const e of ack.events) if (e.event === "user_message") prompts.add(e.data.text);
+  let before = ack.fromSeq;
+  for (let tap = 0; tap < 500; tap++) {
+    const r = await collectOlderPage({
+      startSeq: before,
+      estimateBytes: estimateMessageBytes,
+      // The wire shape, not the chunker's own return — the host wraps it (SessionHandler:
+      // `callback({ success: true, events, hasMore })`), and the loop reads the ack.
+      fetchChunk: async (b) => {
+        const c = aiHistoryChunk(full, b, AI_REPLAY_BYTES);
+        return { success: true, events: c.events, hasMore: c.hasMore };
+      },
+      reduceChunk: (events, held) => reduceSessionEvents(events, "claude", held + 1).messages
+    });
+    for (const m of r.messages) if (m.role === "user") prompts.add(m.content);
+    if (!r.answered || r.before === before) break;   // nothing moved: the walk is over
+    before = r.before;
+  }
+  return prompts;
+}
+
+test("a chunk of nothing-drawable records does not end the walk", async () => {
+  // The reported bug, in miniature: pages made only of `edited_text_file` attachments
+  // reduce to a notice or to nothing at all. Ending on that cost the pane its history —
+  // 0 of 76 prompts reachable on a real chat.
+  const full = [];
+  let seq = 1;
+  for (let i = 0; i < 12; i++) {
+    const t = turnWithFiller(seq, 3, 6, i + 1);
+    full.push(...t);
+    seq += t.length;
+  }
+  const reached = await loadOlderWalk(full);
+  for (let i = 1; i <= 12; i++) {
+    assert.ok(reached.has(`prompt ${i}`), `prompt ${i} is unreachable`);
+  }
+});
+
+test("every prompt of a 40-turn chat filled with attachments is reachable", async () => {
+  const full = [];
+  let seq = 1;
+  for (let i = 0; i < 40; i++) {
+    const t = turnWithFiller(seq, 2, 4, i + 1);
+    full.push(...t);
+    seq += t.length;
+  }
+  const reached = await loadOlderWalk(full);
+  assert.equal(reached.size, 40, `reached ${reached.size} of 40 prompts`);
+});
+
+for (const [name, fn] of tests) {
+  try { await fn(); pass++; console.log(`  ✓ ${name}`); }
+  catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
+}
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

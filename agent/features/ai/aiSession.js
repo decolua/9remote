@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
+import { readClaudeSessionState, readNewAttachments } from "./claudeTranscript.js";
 import { readThreadGoal } from "./goal.js";
 import { ClaudeAdapter } from "./adapters/claudeAdapter.js";
 import { DaemonProc } from "./proc/daemonProc.js";
@@ -15,7 +16,7 @@ import { CodexAdapter } from "./adapters/codexAdapter.js";
 import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
-import { getLastOutputAt, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
+import { getLastOutputAt, touchOutput, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
 import { TURN_END_EVENTS } from "./aiStatus.js";
 import { PATHS } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
@@ -111,6 +112,25 @@ function loadSessionSnapshot(sessionId, engine) {
 // appends them. Only these two carry a parentToolUseId today.
 const CHILD_EVENTS = { tool_start: "tool_child", tool_result: "tool_result_child" };
 
+// Records the CLI STREAMS but never writes down. Measured: across a 7.7 MB transcript the
+// harness persisted zero `thinking_tokens` and zero `hook_progress` — it emits them for a
+// live spinner and lets them go. Keeping them here cost the pane its history: on a real
+// session telemetry was 8.6% of the log but 807% of one AI_REPLAY_BYTES window, so the
+// window the client was sent was almost all telemetry and the prompts fell outside it —
+// scrolling up showed nothing, and an F5 came back empty.
+//
+// Broadcast, not recorded: that is what `record = false` is for, and it is the rule the
+// per-connect metadata already follows. Nothing replays one, because nothing reads one.
+const LIVE_ONLY_CLI_SUBTYPES = new Set([
+  "thinking_tokens",
+  "tool_progress",
+  "hook_started",
+  "hook_progress",
+  "hook_response",
+  "status",
+  "control_response"
+]);
+
 // A conversation id a client may resume. Thread/session ids are UUID-like; the first
 // character may not be "-" (argv would read it as a flag) and no path or whitespace is
 // allowed. Anything else is rejected before it can reach the CLI.
@@ -156,6 +176,30 @@ function capDeep(value) {
   return value;
 }
 
+// An attachment record as the pane reads it, without the two fields no reader touches.
+//
+// `rendered` is the harness's OWN rendering of the record — the text it would print in the
+// TUI — and it is the larger half: measured on a real chat, 3.5KB of a 3.5KB
+// `hook_success`, 9KB of a 9.6KB `edited_text_file`. The pane never reads it: it reads
+// `attachment.content` / `attachment.prompt` / `attachment.filename`, which are the
+// harness's own fields and the ones its TUI renders from too. It is dropped here rather
+// than at the reader so it never reaches the log, the snapshot, or a replay window.
+//
+// `snippet` is the WHOLE file re-read (8KB measured), not the change — `stripAttachmentBody`
+// drops it on the transcript path for the same reason, and the live path was keeping it.
+//
+// Together 30% of a 6.7MB log on the worst real chat, and a replay window is 32KB.
+// Copy-on-write, like capDeep: a record with neither field comes back as the SAME
+// reference, so an attachment the harness sends plainly allocates nothing.
+function slimAttachment(record) {
+  if (!record?.attachment) return record;
+  if (record.rendered === undefined && record.attachment.snippet === undefined) return record;
+  const { rendered, attachment, ...rest } = record;
+  if (attachment.snippet === undefined) return { ...rest, attachment };
+  const { snippet, ...body } = attachment;
+  return { ...rest, attachment: body };
+}
+
 // The one door every event takes into the log — live, adopted from the CLI's transcript,
 // or read back from a snapshot written before these caps existed. Capping at the emit
 // site alone left old logs unbounded on every load. Called for every event, so the skip
@@ -164,6 +208,10 @@ function capEvent(event, data) {
   if (!data) return data;
   // Metadata the client renders as-is; nothing in it is a payload worth truncating.
   if (event === "init" || event === "options_changed" || event === "stats") return data;
+  if (event === "cli_event" && data.type === "attachment") {
+    const record = slimAttachment(data.record);
+    return record === data.record ? data : { ...data, record };
+  }
   return capDeep(data);
 }
 
@@ -211,6 +259,38 @@ function compactEvents(events) {
   return compacted;
 }
 
+/**
+ * Put carried records back among the rebuilt ones, wherever they still belong.
+ *
+ * The rebuilt log is usually SHORTER than the one it replaces — the head is shed past
+ * `AI_MAX_EVENTS`, and the transcript rebuilds only what it holds. So an old index cannot
+ * be compared against the new array: a record that sat at position 5 of a 6-event log has
+ * no home in a 2-event one, and a naive walk puts it at the end AND leaves earlier records
+ * unfiled, which is how carried records ended up duplicated at the tail.
+ *
+ * What survives a rebuild is the conversation's SHAPE, so position is taken from it: count
+ * how many live events preceded the record, then put it before the same count of rebuilt
+ * ones. Past the end is a legitimate answer — it arrived after everything the transcript
+ * could reconstruct — and it keeps arrival order among the records that share it.
+ */
+function insertByIndex(events, carried) {
+  const out = [];
+  let src = 0;
+  const liveSeen = (upto) => {
+    let n = 0;
+    for (let i = 0; i < upto; i++) if (!(carriedAt.has(i))) n++;
+    return n;
+  };
+  const carriedAt = new Set(carried.map(({ i }) => i));
+  for (const { e, i } of carried) {
+    const at = Math.min(liveSeen(i), events.length);
+    while (src < at) out.push(events[src++]);
+    out.push(e);
+  }
+  while (src < events.length) out.push(events[src++]);
+  return out;
+}
+
 export class AiSession {
   constructor({ id, engine, cwd, options = {}, onEvent }) {
     this.id = id;
@@ -221,6 +301,8 @@ export class AiSession {
     this.createdAt = Date.now();
     this.isTurnRunning = false;
     // Async work still in flight, by the tool id that launched it — see armAsyncWatchdog.
+    // ponytail: the FALLBACK clock. The CLI states a task's life in task_* records, and
+    // this timer only covers a CLI too old to emit them (none left at 2.1.270).
     this.asyncTimers = new Map();
     // How long the last turn took, measured by the host's own clock — the pane prints
     // "Worked for …" from this after an F5, since a client that rejoins saw neither edge.
@@ -236,6 +318,14 @@ export class AiSession {
     this.goalKey = null;
 
     const snap = loadSessionSnapshot(id, engine);
+    // Where the transcript was last read to, for the attachments stream-json never sends.
+    // A byte offset, not a line count: the file is append-only and can be megabytes.
+    //
+    // A session that has never read starts at the CURRENT end of the file, not at zero.
+    // Starting at zero replayed every attachment the conversation ever had — measured 72
+    // `hook_success` from turns the pane had already drawn — because the rebuild already
+    // put this conversation's history on screen, and these would be a second copy of it.
+    this.attachmentOffset = snap?.attachmentOffset ?? null;
     // The CLI process for a daemon-backed engine is not born here: `start()` (called
     // by aiSocket right after) decides between starting one and adopting the one the
     // daemon is already running. This only carries the id across that gap.
@@ -293,9 +383,29 @@ export class AiSession {
     // CLI per turn, so the mode has to be re-sent with every prompt). A session the
     // host has never seen starts at the engine's own default mode, sent by the client.
     this.permissionMode = snap?.permissionMode || options.mode || options.defaultMode || null;
+    // The harness states its own mode, title and last prompt as records in the transcript,
+    // and it is the authority on them — the values above are 9Remote's reconstruction (a
+    // mode inferred from a stream-json init, a title cut from prose, a prompt kept in
+    // memory). Overridden, not merged: a value the harness wrote beats one derived from
+    // watching it. Absent records leave these alone (see readClaudeSessionState).
+    if (this.engine === AI_ENGINES.CLAUDE && bindId) {
+      const state = readClaudeSessionState(this.cwd, bindId);
+      if (state) {
+        if (state.permissionMode) this.permissionMode = state.permissionMode;
+        if (state.lastPrompt) this.lastPrompt = state.lastPrompt;
+        // NOT `state.cwd`. The transcript records the directory the CLI STARTED in, and a
+        // session object's own `cwd` is where its process will run — moving this one would
+        // send the next spawn somewhere the user never chose. Kept as a separate fact for
+        // the pane to show, not for the session to run on.
+        if (state.cwd) this.harnessCwd = state.cwd;
+        if (state.isWorktree) this.isWorktree = true;
+        // The harness's own title for the conversation, kept for the history list and for
+        // a terminal that follows its chat's name.
+        if (state.title) this.harnessTitle = state.title;
+      }
+    }
     // Discovered at connect time by aiSocket; kept so a cleared log can be re-seeded
     this.skills = [];
-    this.idleTimer = null;
 
     if (!options.mock) {
       this.ready = this.initAdapter();
@@ -333,7 +443,12 @@ export class AiSession {
           proc: this.managed ? this.proc : null,
           threadId: this.threadId,
           model: this.model || this.options.model,
-          hostSessionId: this.id
+          hostSessionId: this.id,
+          // Which transport this chat runs on, straight from the caller. Gating this on
+          // `managed` was wrong twice over: it silently dropped a transport the caller
+          // HAD asked for (so the option looked broken), and the daemon is not actually
+          // required — without one the adapter gets a null proc and makes its own.
+          transport: this.options.transport || null
         });
         this.adapter = mine;
         // Mode is re-sent on every rebuild: the CLI is spawned fresh per turn, and the
@@ -407,9 +522,11 @@ export class AiSession {
     this.adopted = false;
     this.consumedLines = 0;
     this.consumedEpoch = null;
-    // A turn-per-CLI engine has nothing to start until the user asks for a turn; only
-    // claude holds one process for the whole conversation.
-    if (this.engine !== AI_ENGINES.CLAUDE) return null;
+    // A turn-per-CLI engine has nothing to start until the user asks for a turn. The
+    // adapter says which it is: claude always holds one process, and codex does too when
+    // it runs on the app-server transport. Asking the adapter instead of the engine name
+    // is what lets codex change transports without this line knowing.
+    if (!adapter.persistent && this.engine !== AI_ENGINES.CLAUDE) return null;
     const fetch = await adapter.start(mode, this.cliSessionId);
     this._replay(fetch);
     return fetch;
@@ -501,7 +618,6 @@ export class AiSession {
   async stopAdapter() {
     if (this.options.mock || !this.adapter) return false;
     this.isTurnRunning = false;
-    this.clearIdleWatchdog();
     // The CLI is going away, so nothing it launched is still running — and no result is
     // coming to settle those rows.
     this.clearAllAsyncWatchdogs();
@@ -517,10 +633,26 @@ export class AiSession {
   }
 
   _adoptLog(events) {
+    // The CLI's transcript is the authority on the CONVERSATION, and only on that: every
+    // rebuild path (a hydrate, /resume, a rewind) replaces the log with what the transcript
+    // can reconstruct. The harness's own records are not in it — measured, 0 of
+    // `task_started` / `background_tasks_changed` / `status` / `hook_*` across 934 real
+    // transcripts — so replacing the log wholesale dropped them, and a pane that reloaded
+    // mid-task came back with an empty strip while the work was still running.
+    //
+    // Carried across, not re-emitted: the client is told this is a NEW log (the reset
+    // below), and re-sending them would draw each row twice.
+    //
+    // Put back where they were, not appended. The pane reads order as arrival, so nailing
+    // a task from turn 1 to the end of the log would surface it under turn 2. The
+    // transcript's own events carry no timestamp to sort by, so position is taken from
+    // what the log does know: how many live events sat before each record.
+    const carried = (this.history || []).map((e, i) => ({ e, i })).filter(({ e }) => e.event === "cli_event");
+    const merged = carried.length ? insertByIndex(events, carried) : events;
     // Numbered from 1 on purpose: the reset tells every client this is a NEW log. The
     // counter restarts with it, or the next live event would carry a seq from the log
     // that just ended and the client would drop it as already applied.
-    const log = renumber(capLog(events));
+    const log = renumber(capLog(merged));
     this.seqCounter = log.length;
     this.history = log;
     // One door for the reset replay, same as the hydrate ack: it steps over any event too
@@ -574,6 +706,8 @@ export class AiSession {
   }
 
   emitNormalized(event, data, record = true) {
+    // A record the harness itself does not keep is not history — see LIVE_ONLY_CLI_SUBTYPES.
+    if (record && event === "cli_event" && LIVE_ONLY_CLI_SUBTYPES.has(data?.subtype)) record = false;
     if (event === "init") {
       if (data?.threadId) this.threadId = data.threadId;
       if (data?.sessionId) this.cliSessionId = data.sessionId;
@@ -609,6 +743,16 @@ export class AiSession {
     const childEvent = CHILD_EVENTS[event];
     const wire = data?.parentToolUseId && childEvent ? { event: childEvent, data } : { event, data };
 
+    // The harness writes an `attachment` for what it put INTO the conversation — a hook's
+    // output, a prompt waiting its turn — and stream-json never sends one, so the live pane
+    // could only ever see them after a reload. Read the tail it appended, ONCE per turn:
+    // the file is append-only, so it costs one small read (measured 0.014ms).
+    //
+    // Pulled BEFORE assigning this record's seq. Emitted inside _pullAttachments, those
+    // records take earlier seqs than `turn_complete`, so the client applies them in order
+    // and never drops the turn's ending as an "already applied" lower seq.
+    if (TURN_END_EVENTS.has(event)) this._pullAttachments();
+
     // A seq on every event is what lets a hydrating client drop the live events it
     // already replayed, and what marks where its scroll-up window ends. It is a counter,
     // never the array length: compaction and the event cap both shrink the log, and a
@@ -625,14 +769,27 @@ export class AiSession {
     // or below its watermark, and an unrecorded event's number is not in the log the
     // watermark is compared against — a live event stamped past the snapshot would be
     // swallowed on the next hydrate.
+    // The chat's own sign of life, for the idle watchdog.
+    //
+    // `getLastOutputAt` is stamped by the PTY on every chunk, and a chat session HAS no
+    // PTY — so that reading stayed 0 ("never") and `quietFor` was the whole age of the
+    // process. Every chat turn therefore looked stalled from birth, and the watchdog
+    // SIGINTed a CLI that was working normally. A record arriving from the adapter IS
+    // this session's output; stamping here is what makes the two comparable.
+    touchOutput(this.id);
     this.onEvent?.(this.id, wire.event, data, record ? seq : undefined);
     if (record) this.scheduleSaveSnapshot();
-    if (this.isTurnRunning) this.armIdleWatchdog();
 
-    // Work that outlives the turn it was launched in: arm on a launch ack, disarm when a
-    // real result finally lands on that row. Keyed on `handle`, not on `async` alone —
-    // this watchdog's OWN settle event carries `async` too, and arming on that would
-    // restart the clock every time it fired.
+    // Work that outlives the turn it was launched in.
+    //
+    // The CLI states a task's end itself (`task_notification`), so that is what disarms
+    // the clock: the record's `tool_use_id` is the call the pane's row is keyed by.
+    // `asyncHandle`'s regex only arms the clock for a CLI too old to emit task records,
+    // or an engine that hands work off without ever naming it again (codex, antigravity).
+    if (event === "cli_event" && data?.subtype === "task_notification") {
+      const toolUseId = data.record?.tool_use_id;
+      if (toolUseId) this.clearAsyncWatchdog(toolUseId);
+    }
     if (event === "tool_result") {
       if (data?.async && data?.handle) this.armAsyncWatchdog(data.id, data.parentToolUseId);
       else if (data?.id) this.clearAsyncWatchdog(data.id);
@@ -643,10 +800,45 @@ export class AiSession {
     // so the pane came back from an F5 spinning on a process that was already gone.
     if (TURN_END_EVENTS.has(event)) {
       this.isTurnRunning = false;
-      this.clearIdleWatchdog();
       this.history = compactEvents(this.history);
       this.flushSaveSnapshot();
       this.applyPendingOptions();
+    }
+  }
+
+  /**
+   * Emit any attachment the harness appended since the last read.
+   *
+   * Called at a turn boundary: by then the harness has written the turn's records, so one
+   * read catches them all. Failure is silent on purpose — this is a side channel to the
+   * transcript, and a pane must not lose a turn because a read of someone else's file
+   * failed.
+   */
+  _pullAttachments() {
+    if (this.engine !== AI_ENGINES.CLAUDE || !this.cliSessionId || this.destroyed) return;
+    if (this.attachmentOffset == null) {
+      // First read of a session: adopt the file's current end so only what comes AFTER
+      // this point is news. See the constructor.
+      const seeded = this._seedAttachmentOffset
+        ? this._seedAttachmentOffset()
+        : readNewAttachments(this.cwd, this.cliSessionId, Infinity);
+      this.attachmentOffset = seeded?.offset || 0;
+      return;
+    }
+    const read = this._readAttachments
+      ? this._readAttachments()
+      : readNewAttachments(this.cwd, this.cliSessionId, this.attachmentOffset);
+    if (!read?.records?.length) {
+      if (read?.offset != null) this.attachmentOffset = read.offset;
+      return;
+    }
+    this.attachmentOffset = read.offset;
+    for (const record of read.records) {
+      this.emitNormalized("cli_event", {
+        type: "attachment",
+        subtype: record.attachment?.type || "",
+        record
+      });
     }
   }
 
@@ -694,36 +886,6 @@ export class AiSession {
   // "Silence" counts every sign of life, not just chat events: a terminal sharing this
   // session that is still streaming output is a turn making progress (a long build), so
   // the clock runs from there instead of the turn being killed under it.
-  armIdleWatchdog(ms = AI_TURN_IDLE_TIMEOUT_MS) {
-    this.clearIdleWatchdog();
-    this.idleTimer = setTimeout(() => {
-      this.idleTimer = null;
-      if (!this.isTurnRunning) return;
-      // A gate the CLI is waiting on is not a stall — it is silent because nobody has
-      // answered it, and the watchdog used to SIGINT the CLI out from under the card
-      // after two minutes of the user reading the question.
-      if (this.adapter?.pendingRequests?.size) return;
-      const quietFor = Date.now() - getLastOutputAt(this.id);
-      // Still printing — give the turn a fresh window rather than killing it mid-build.
-      if (quietFor < OUTPUT_LIVE_WINDOW_MS) return this.armIdleWatchdog();
-      // Otherwise the clock runs from that last output: wait out whichever is longer.
-      if (quietFor < AI_TURN_IDLE_TIMEOUT_MS) return this.armIdleWatchdog(AI_TURN_IDLE_TIMEOUT_MS - quietFor);
-      try { this.adapter?.stop(); } catch {}
-      // Its own event, not `error`: this is the watchdog guessing at a stall, and a
-      // false positive must not paint an error bubble over a turn that is merely slow.
-      // `error` stays reserved for failures the CLI actually reported.
-      this.emitNormalized("stall", {
-        message: `No response from the ${this.engine} CLI for ${Math.round(AI_TURN_IDLE_TIMEOUT_MS / 1000)}s — the turn was stopped. This usually means the CLI stalled on startup; try again.`
-      });
-    }, ms);
-  }
-
-  clearIdleWatchdog() {
-    if (!this.idleTimer) return;
-    clearTimeout(this.idleTimer);
-    this.idleTimer = null;
-  }
-
   /**
    * The turn's own watchdog does not cover work that outlives it. A sub-agent or a
    * background shell keeps running after `turn_complete`, and nothing in the CLI ever
@@ -882,7 +1044,6 @@ export class AiSession {
       // clears, so the summary goes with it.
       this.turnStartedAt = 0;
       this.lastTurnMs = 0;
-      this.clearIdleWatchdog();
       this.flushSaveSnapshot();
       if (!this.options.mock && !this.managed) {
         // Kill before rebuilding — initAdapter replaces the reference, and an adapter
@@ -1039,7 +1200,6 @@ export class AiSession {
   }
 
   destroy() {
-    this.clearIdleWatchdog();
     this.clearAllAsyncWatchdogs();
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
     // The stop is async under the daemon, so the unlink below has to wait for it —

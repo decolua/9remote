@@ -38,6 +38,11 @@ export function toolResult({ id, name, output = "", error = "", parentToolUseId 
 // `running` on the wire even though the call itself has returned, and the client's agent
 // strip and shell chip show work that is genuinely still in flight.
 //
+// ponytail: this is the FALLBACK now, not the mechanism. The CLI names the task in
+// `task_started` before the ack ever lands, so the pane reads that; the regex only
+// covers a CLI too old to emit task records. Delete when the floor version moves past
+// task_started (checked against 2.1.270 — it is already there).
+//
 // The handle is kept on the event, so a row can be settled early by a later call naming
 // it. Nothing does that yet — both kinds settle on their own timeout (see AiSession).
 
