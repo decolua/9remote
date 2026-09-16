@@ -10,6 +10,18 @@ import { LocalProc } from "../proc/localProc.js";
 import { decodeLine } from "../proc/daemonProc.js";
 import { claudeBin } from "../constants.js";
 import { asyncHandle } from "../toolEvent.js";
+import { JsonRpcClient } from "../proc/jsonRpcClient.js";
+
+// Every record the CLI writes reaches the pane. The list of what it can write is the
+// SDK's own SDKMessage union — thirty-nine shapes, checked against
+// @anthropic-ai/claude-agent-sdk's sdk.d.ts — and this adapter used to name six of them
+// and let the rest fall through its last `if` into silence.
+//
+// What it does NOT do is rename them. Six shapes are drawn here (text, thinking, tool
+// calls, diffs, the turn's own edges) because the pane needs a stable vocabulary for the
+// things it lays out; everything else travels WHOLE, under the harness's own type/subtype
+// and field names, so the pane reads exactly what the TUI reads. A translation layer is
+// what the two would drift apart on, and every renamed field is a place to drift.
 
 // Images ride as content blocks; other files are staged to disk and named in the
 // text. Same shape the terminal path writes, so both read identically to the CLI.
@@ -24,6 +36,21 @@ function buildContent(prompt, attachments) {
     ...images.map((a) => ({ type: "image", source: { type: "base64", media_type: a.mediaType, data: a.data } })),
     { type: "text", text: [paths, prompt].filter(Boolean).join(" ") },
   ];
+}
+
+/**
+ * A result the CLI persisted to a file becomes the path it saved to.
+ *
+ * Measured on a real session: 9 `Bash` results carried a `<persisted-output>` frame — 15.8KB
+ * of XML saying the real output went to a file, drawn verbatim in the chat. The frame is the
+ * harness talking to itself; the path is what a reader can act on, and the file holds the
+ * rest. The CLI's own TUI does the same fold.
+ */
+function collapsePersisted(text) {
+  const s = String(text || "");
+  if (!s.startsWith("<persisted-output>")) return text;
+  const m = /saved to: (\S+)/.exec(s);
+  return m ? `saved to: ${m[1]}` : "";
 }
 
 // Tools whose whole point is a file change. Their input carries the edit as old/new
@@ -149,7 +176,32 @@ export class ClaudeAdapter {
     this._initializedThisSpawn = false;
     // Bind before starting: a line can arrive while start() is still awaiting, and a
     // handler attached afterwards would drop it.
-    this.proc.onLine = (line) => this.feed(line);
+    // Every line goes through the RPC client. It owns the correlation between a gate the
+    // CLI opens (`control_request`) and the answer we write back — the same job codex's
+    // app-server does, in one place instead of two. What is NOT JSON-RPC (the whole
+    // conversation: assistant, stream_event, result, user) comes back through `onMessage`
+    // and is parsed exactly as before.
+    this.rpc = new JsonRpcClient(this.proc, {
+      // Claude spells its envelope its own way: `type`/`request_id`, not `jsonrpc`/`id`.
+      //
+      // `extractMethod` answers null for a `control_request` ON PURPOSE. Reporting it as a
+      // method made the client treat the CLI's gate as a server request and answer
+      // `unhandled server request: can_use_tool` on the spot — refusing every permission
+      // prompt before the adapter ever saw it. The gate is not a request to route; it is
+      // part of the conversation, and it travels with the rest through `onMessage`.
+      extractId: (m) => (typeof m.id === "number" ? m.id : null),
+      extractMethod: (m) => null,
+      encodeResponse: (id, result) => ({ type: "control_response", response: { subtype: "success", request_id: id, response: result } }),
+      encodeError: (id, message) => ({
+        type: "control_response",
+        response: { subtype: "error", request_id: id, error: message }
+      }),
+      // Outgoing messages this CLI spells as its own `type`, not as JSON-RPC methods.
+      encodeNotification: (method, params) => ({ type: method, ...params }),
+      // The client hands back a parsed object, which is exactly what the parser takes —
+      // no re-serializing a line just to parse it again.
+      onMessage: (msg) => this.handleMessage(msg)
+    });
     this.proc.onExit = (info) => this._handleExit(info);
   }
 
@@ -324,7 +376,15 @@ export class ClaudeAdapter {
       }
 
       this.turnStreamedText = "";
-      this.onEvent?.("turn_complete", { stats: this.stats, result: data.result });
+      // The subtype and `is_error` travel with the end of the turn. `turn_complete` alone
+      // says a turn ended; it does not say it ended BADLY, and a pane that only hears the
+      // first cannot tell a failure from a success.
+      this.onEvent?.("turn_complete", {
+        stats: this.stats,
+        result: data.result,
+        isError: Boolean(data.is_error),
+        subtype: data.subtype || ""
+      });
       return;
     }
 
@@ -333,8 +393,10 @@ export class ClaudeAdapter {
     if (data.type === "assistant" && data.message) {
       const msg = data.message;
       const contents = msg.content || [];
+      let rendered = false;
       for (const item of contents) {
         if (item.type === "tool_use") {
+          rendered = true;
           // Kept until its result arrives: `tool_result` carries only the id, and the
           // diff for an edit needs the name and input the call was made with.
           this.toolCalls.set(item.id, { name: item.name, input: item.input });
@@ -345,6 +407,7 @@ export class ClaudeAdapter {
             parentToolUseId
           });
         } else if (item.type === "text" && item.text) {
+          rendered = true;
           // Fallback only if text was not streamed already
           if (!this.turnStreamedText) {
             this.turnStreamedText = item.text;
@@ -356,14 +419,20 @@ export class ClaudeAdapter {
           }
         }
       }
+      // An assistant record with nothing this pane draws (an empty content array, a block
+      // type the pane has no card for) still happened, and the pane is a re-render of the
+      // TUI rather than a summary of it — so it travels whole rather than vanishing.
+      if (!rendered) this.emitCliEvent(data, parentToolUseId);
       return;
     }
 
     // User message: Tool execution result from CLI
     if (data.type === "user" && data.message) {
       const contents = data.message.content || [];
+      let rendered = false;
       for (const item of contents) {
         if (item.type === "tool_result") {
+          rendered = true;
           const isError = Boolean(item.is_error);
           const output = typeof item.content === "string" ? item.content : JSON.stringify(item.content);
           // A launch ack is not a result: the CLI returns the instant a sub-agent or a
@@ -376,7 +445,7 @@ export class ClaudeAdapter {
             id: item.tool_use_id,
             name: call?.name || "",
             error: isError ? output : "",
-            output: !isError ? output : "",
+            output: !isError ? collapsePersisted(output) : "",
             status: isError ? "error" : async ? "running" : "done",
             ...(async ? { async: true, handle: async.id } : null),
             parentToolUseId
@@ -391,17 +460,35 @@ export class ClaudeAdapter {
           }
         }
       }
+      // A user record with no tool_result is one the CLI wrote under the user role, or a
+      // replayed prompt. Opening a prompt bubble for the first would show a question
+      // nobody asked; dropping either would be the pane deciding what the harness meant.
+      if (!rendered) this.emitCliEvent(data, parentToolUseId);
+      return;
     }
+
+    // Nothing above claimed it, and the pane is a re-render of the TUI rather than a
+    // summary of it — so it travels whole, under the harness's own name, for whatever
+    // the pane learns to draw next.
+    this.emitCliEvent(data, parentToolUseId);
+  }
+
+  /** A record no branch above draws, on its way to the pane under the harness's own name. */
+  emitCliEvent(data, parentToolUseId = "") {
+    this.onEvent?.("cli_event", {
+      type: data.type || "",
+      subtype: data.subtype || "",
+      parentToolUseId,
+      record: data
+    });
   }
 
   sendPrompt(prompt, attachments = null) {
     this.isTurnRunning = true;
     this.turnStreamedText = "";
-    const payload = JSON.stringify({
-      type: "user",
-      message: { role: "user", content: buildContent(prompt, attachments) },
-    }) + "\n";
-    this.proc.write(payload);
+    // Through the client, so "how this CLI spells an outgoing message" lives in ONE place
+    // with everything else about its envelope.
+    this.rpc.notify("user", { message: { role: "user", content: buildContent(prompt, attachments) } });
   }
 
   resolvePermission(requestId, behavior, message = "") {
@@ -412,16 +499,12 @@ export class ClaudeAdapter {
     // pipe and reported success for an answer nobody received.
     if (!pending) return false;
 
-    this.proc.write(JSON.stringify({
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: requestId,
-        response: behavior === "allow"
-          ? { behavior: "allow", updatedInput: pending.input || {} }
-          : { behavior: "deny", message: message || "Permission denied." },
-      },
-    }) + "\n");
+    // Through the RPC client, so the envelope is spelled in ONE place — the same one the
+    // refusal path uses. Writing it here by hand is what made "how Claude spells an
+    // answer" a thing two call sites had to agree on.
+    this.rpc.respond(requestId, behavior === "allow"
+      ? { behavior: "allow", updatedInput: pending.input || {} }
+      : { behavior: "deny", message: message || "Permission denied." });
     return true;
   }
 
@@ -430,20 +513,13 @@ export class ClaudeAdapter {
     this.pendingRequests.delete(requestId);
     if (!pending) return false;
 
-    this.proc.write(JSON.stringify({
-      type: "control_response",
-      response: {
-        subtype: "success",
-        request_id: requestId,
-        response: {
-          behavior: "allow",
-          updatedInput: {
-            questions: pending.input?.questions || [],
-            answers: answers || {},
-          },
-        },
+    this.rpc.respond(requestId, {
+      behavior: "allow",
+      updatedInput: {
+        questions: pending.input?.questions || [],
+        answers: answers || {},
       },
-    }) + "\n");
+    });
     return true;
   }
 
@@ -455,11 +531,10 @@ export class ClaudeAdapter {
    */
   interrupt() {
     try {
-      this.proc.write(JSON.stringify({
-        type: "control_request",
+      this.rpc.notify("control_request", {
         request_id: `int-${Date.now()}`,
         request: { subtype: "interrupt", cancel_queued: true }
-      }) + "\n");
+      });
       return true;
     } catch {
       return false;

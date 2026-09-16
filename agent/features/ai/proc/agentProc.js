@@ -68,8 +68,16 @@ export class AgentProc {
   /**
    * Start one turn's CLI. The turn ends when the process does, so this returns nothing
    * to replay — the handlers are already live.
+   *
+   * `keepStdin` matters, and this carrier used to swallow it: an engine that takes every
+   * later turn on the same pipe (claude, codex app-server) dies at birth if the pipe is
+   * closed after the handshake, and the failure looks like a server that never answers —
+   * `initialize` went into a closed stdin and timed out 15s later. The daemon carrier
+   * already honoured the flag; this one has to as well or the two disagree on what the
+   * same call means. A turn-per-CLI engine keeps the default: closing stdin is what stops
+   * `codex exec` blocking on a pipe nobody will write to again.
    */
-  async start({ bin, args = [], cwd, env = {} }) {
+  async start({ bin, args = [], cwd, env = {}, keepStdin = false }) {
     // A new process numbers its lines from 1, so the watermark restarts with it.
     this.lineNo = 0;
     this._hold = null;
@@ -83,7 +91,7 @@ export class AgentProc {
       // Nothing was missed and nothing has to be replayed: this process was born with
       // the handlers already live, so every line it prints is delivered as it arrives.
       // Holding them for a release() the caller never calls would mute the whole turn.
-      return startResult({ closeStdin: () => this.closeStdin() });
+      return startResult(keepStdin ? {} : { closeStdin: () => this.closeStdin() });
     } catch (e) {
       this._unsubscribe();
       throw e;

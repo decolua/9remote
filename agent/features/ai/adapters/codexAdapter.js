@@ -2,8 +2,16 @@
 import { getExtendedEnv } from "./env.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 import { AgentProc } from "../proc/agentProc.js";
-import { readCodexFileChanges } from "../transcript.js";
+import { DaemonProc } from "../proc/daemonProc.js";
+import { LocalProc } from "../proc/localProc.js";
+import * as daemonClient from "../../terminal/ptyDaemonClient.js";
+import { readCodexFileChanges, readCodexParsedCommands } from "../transcript.js";
 import { codexItemEvents, isCodexFileChange, isCodexToolItem } from "../codexItems.js";
+import { CodexAppServer } from "../proc/codexAppServer.js";
+import { spawnArgsFor } from "../codexSettings.js";
+import { createLogger } from "../../../lib/logger.js";
+
+const logger = createLogger("ai");
 
 // Codex reports a refusal as plain assistant text ("I can't create X because this
 // workspace is read-only"), not a structured event. Matching that text is the only
@@ -46,12 +54,31 @@ function nextModeUp(current) {
 }
 
 export class CodexAdapter {
-  constructor({ cwd, onEvent, proc = null, threadId = null, model = "", hostSessionId = null } = {}) {
+  constructor({ cwd, onEvent, proc = null, threadId = null, model = "", hostSessionId = null, transport = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
     this.hostSessionId = hostSessionId;
+    // Two transports, one protocol's worth of difference between them. `exec` spawns a
+    // process per turn and reads stdout one way; `app-server` keeps one process for the
+    // chat and talks JSON-RPC both ways, which is what makes thinking stream and lets a
+    // permission gate hold a turn.
+    //
+    // app-server is the default: it is the transport that behaves like the CLI's own TUI
+    // (streamed reasoning, the CLI's parse of every command), and `exec` is kept as the
+    // way back — `NREMOTE_CODEX_TRANSPORT=exec` — for a machine where the app-server
+    // cannot start. Anything not exactly "exec" is the default, so a typo cannot silently
+    // switch a deployment to the older path either.
+    const asked = transport || process.env.NREMOTE_CODEX_TRANSPORT;
+    this.transport = asked === "exec" ? "exec" : "app-server";
+    this.appServer = null;
+    this._restarting = false;
+    // Prompts that arrived while the server was being replaced; drained once it is up.
+    this._heldPrompts = [];
     // Turn-per-CLI: a process is born per turn. Under the daemon it outlives an agent
     // restart, and adopt() picks that turn back up.
+    // An injected proc is the caller's (a test's); otherwise the transport decides —
+    // AgentProc for exec, a two-way carrier for the app-server, chosen lazily in start().
+    this._procOverride = proc;
     this.proc = proc || new AgentProc({ procId: "" });
     this.activeThreadId = threadId || null;
     this.isTurnRunning = false;
@@ -95,6 +122,9 @@ export class CodexAdapter {
   }
 
   setOptions({ model, effort, planEffort, sandbox, mode, resume, personality, networkAccess, addDirs, enable, disable, skipGitRepoCheck, ephemeral }) {
+    // Read once, before anything is written: a feature flag lives on the PROCESS, so a
+    // change to it is only visible by comparing what it was.
+    const featuresBefore = `${this.enable.join(",")}|${this.disable.join(",")}`;
     if (model) {
       this.currentModel = model;
       this.metadata.model = model;
@@ -156,12 +186,218 @@ export class CodexAdapter {
     }
     // Resume a past thread: the next turn runs `codex exec resume <id>`.
     if (resume) this.setThreadId(resume);
+    this._syncAppServer(`${this.enable.join(",")}|${this.disable.join(",")}` !== featuresBefore);
     this.onEvent?.("init", { ...this.metadata });
+  }
+
+  /**
+   * Push the options onto the running server, restarting it only when something needs a
+   * new process.
+   *
+   * On the exec transport every option was an argv flag on the turn's own process, so a
+   * change cost nothing. Here the process is the chat, and the two kinds of option are
+   * not alike:
+   *
+   *   request fields  sandbox, approval, plan, effort, personality, model — a
+   *                   `thread/settings/update`, effective on the spot
+   *   process flags   feature enable/disable — probed on the real server: thread/start's
+   *                   `config` does NOT apply them and `experimentalFeature/enablement/set`
+   *                   answers `{}` without changing anything. Only `-c features.X=true`
+   *                   at spawn does, so the server is respawned.
+   *
+   * A restart drops the turn in flight, so it is never taken while one is running —
+   * the same rule the exec path followed when a spawn-time option changed.
+   */
+  _syncAppServer(featuresChanged) {
+    if (!this.appServer || this.isTurnRunning) return;
+
+    const changed = this.appServer.applyOptions({
+      mode: this.permissionMode,
+      networkAccess: this.networkAccess,
+      addDirs: this.addDirs,
+      planMode: this.planMode,
+      planEffort: this.planEffort,
+      model: this.currentModel,
+      effort: this.reasoningEffort,
+      personality: this.personality
+    });
+    // Fire and forget: a settings call that fails must not take the turn's options with
+    // it, and every one of them is repeated on `turn/start` anyway.
+    this.appServer.updateSettings(changed).catch(() => {});
+
+    if (featuresChanged) this.restart().catch(() => {});
+  }
+
+  /**
+   * Respawn the server with the options this adapter now holds, keeping the thread.
+   * `thread/resume` on the same id is what makes this a restart rather than a new chat.
+   *
+   * `this.appServer` is left in place until the replacement exists. Clearing it first
+   * made `sendPrompt` fall through to the exec branch for the width of the restart —
+   * a chat on this transport would spawn `codex exec`, a second writer on the same
+   * conversation. The old session is detached from the proc right before the respawn,
+   * so its exit cannot be read as this chat dying.
+   */
+  async restart() {
+    if (!this.persistent || this._restarting) return;
+    this._restarting = true;
+    const threadId = this.activeThreadId;
+    const previous = this.appServer;
+    try {
+      previous?.detach();
+      // The carrier this chat's server runs on, not `this.proc` — that one is exec's
+      // AgentProc, and stopping it would ask a daemon that never ran this process.
+      //
+      // Stopped even when the caller injected it: that carrier IS this chat's server, and
+      // a respawn without stopping it leaves two codex processes on one thread. DaemonProc
+      // is keyed by procId, so this ends the process for this chat and nothing else.
+      const carrier = this._activeCarrier();
+      this._appServerProc = null;
+      await carrier?.stop();
+      await this.start(this.permissionMode, threadId);
+    } finally {
+      this._restarting = false;
+      // Replayed in order, through the normal path so each one is staged the same way
+      // it would have been. A restart takes a moment; a prompt typed during it must not
+      // vanish.
+      const held = this._heldPrompts;
+      this._heldPrompts = [];
+      for (const p of held) {
+        try { this.sendPrompt(p.prompt, p.attachments); }
+        catch (err) { this.onEvent?.("error", { message: err.message }); }
+      }
+    }
   }
 
   // The CLI's own health command. Static so it resolves without spawning a process.
   static doctorSpec() {
     return { command: "codex", args: ["doctor"] };
+  }
+
+  /**
+   * True for a transport that holds ONE process for the whole chat. `aiSession` starts
+   * those eagerly (as it does for Claude) and leaves a turn-per-CLI engine alone until
+   * the user asks for a turn.
+   */
+  get persistent() {
+    return this.transport === "app-server";
+  }
+
+  /**
+   * The carrier to run the app-server on.
+   *
+   * `AgentProc` — codex's own default — is for `exec`: it only READS the CLI's stdout and
+   * has no `write()` at all, so a chat built on it could never send its first
+   * `initialize`. The app-server is two-way and needs a carrier that can both write and
+   * spawn: the caller's when it gave one (aiSession hands down a DaemonProc, a test hands
+   * its own), otherwise a direct child.
+   *
+   * ONE accessor, deliberately: `_appServerProc` used to be set here and read in
+   * restart()/stop(), so with an injected carrier those two saw `null` and the old
+   * process was never stopped — a respawn that left the previous codex running.
+   */
+  _carrierFor() {
+    if (this._procOverride) return this._procOverride;
+    if (!this._appServerProc) this._appServerProc = new LocalProc();
+    return this._appServerProc;
+  }
+
+  /** The carrier this chat's server was actually started on, for stopping it. */
+  _activeCarrier() {
+    return this._procOverride || this._appServerProc || null;
+  }
+
+  /**
+   * Spawn the app-server and open (or rejoin) a thread. The exec path has nothing to do
+   * here — its process is born with the turn — so it falls through to the same
+   * "nothing fetched" answer the session already handles.
+   */
+  async start(mode = "default", resumeSessionId = null) {
+    if (!this.persistent) return null;
+    if (resumeSessionId) this.setThreadId(resumeSessionId);
+
+    // TEMP DIAGNOSTIC — a codex chat that opens and then says nothing has no other trace:
+    // the adapter logs nothing, so a failed spawn and a spawn that was never attempted
+    // look identical from outside. Remove once the app-server path has settled.
+    const diag = (msg) => logger.info(`[codex-adapter] ${msg}`);
+    diag(`start begin transport=${this.transport} mode=${mode} resume=${resumeSessionId} managed=${daemonClient.isConnected()}`);
+
+    this.permissionMode = mode || this.permissionMode;
+    // ONE carrier, used for both the spawn and the session. Spawning on `this.proc` was
+    // the bug: that one is AgentProc — exec's carrier, which talks to the daemon — so the
+    // session held a LocalProc nobody had started while the spawn asked a daemon that
+    // never ran this chat. It answered "Not connected to daemon" in 1ms, and on a machine
+    // WITH a daemon it would have been worse: the process spawned under one carrier and
+    // the protocol written to another, so the turn would hang with no error at all.
+    const carrier = this._carrierFor();
+    this.appServer = new CodexAppServer({
+      proc: carrier,
+      cwd: this.cwd,
+      onEvent: (ev, data) => this._forward(ev, data),
+      threadId: this.activeThreadId,
+      model: this.currentModel,
+      effort: this.reasoningEffort,
+      personality: this.personality || null
+    });
+    // The app's options are set BEFORE the handshake: a chat that opens in Plan must
+    // open its thread in Plan, not switch into it a call later. The session holds them
+    // itself — assigning the returned patch back onto it made a second copy that the
+    // turn overrides read instead of the first.
+    this.appServer.applyOptions({
+      mode: this.permissionMode,
+      networkAccess: this.networkAccess,
+      addDirs: this.addDirs,
+      planMode: this.planMode,
+      planEffort: this.planEffort,
+      model: this.currentModel,
+      effort: this.reasoningEffort,
+      personality: this.personality
+    });
+
+    // `-c features.<name>=true` is the ONLY way to turn a feature on — probed: neither
+    // thread/start's config nor experimentalFeature/enablement/set has any effect. So
+    // the flags belong to the process, and changing them means a new process (see
+    // setOptions).
+    const started = await carrier.start({
+      bin: "codex",
+      args: ["app-server", ...spawnArgsFor({ enable: this.enable, disable: this.disable, skipGitRepoCheck: this.skipGitRepoCheck })],
+      cwd: this.cwd,
+      env: getExtendedEnv({ hostSessionId: this.hostSessionId }),
+      keepStdin: true
+    }).then(
+      (r) => { diag(`carrier started (${carrier.constructor.name})`); return r; },
+      (err) => { diag(`carrier start FAILED: ${err.message}`); throw err; }
+    );
+
+    // `commit` is not optional on every carrier. DaemonProc opens a HOLD around the
+    // spawn — every line the process prints is buffered until the caller releases it —
+    // so skipping this left the server's `initialize` answer sitting in that buffer for
+    // good, and the handshake timed out after 15s on a server that had answered at once.
+    // LocalProc has no hold, which is exactly why the same code worked without a daemon
+    // and failed with one. `commit(feed)` is the one door: feed what was fetched, let
+    // the held lines through, then (for a non-keepStdin engine) close stdin.
+    //
+    // The feed goes to the JSON-RPC client, not to this adapter's `feed`: these are
+    // protocol envelopes, and the exec parser would only turn them into ANSI noise.
+    started?.commit?.((line) => this.appServer?.rpc?.feed(line));
+    diag("carrier committed");
+
+    const threadId = await this.appServer.start().then(
+      (id) => { diag(`handshake OK thread=${id}`); return id; },
+      (err) => { diag(`handshake FAILED: ${err.message}`); throw err; }
+    );
+    this.setThreadId(threadId);
+    this._bind();
+    this.onEvent?.("init", { ...this.metadata, permissionMode: this.permissionMode });
+    return null;
+  }
+
+  /** Events raised by the app-server session, plus the bookkeeping the session reads. */
+  _forward(ev, data) {
+    if (ev === "stats") Object.assign(this.stats, data);
+    if (ev === "turn_complete" || ev === "error") this.isTurnRunning = false;
+    if (ev === "tool_start" || ev === "thinking" || ev === "delta") this.isTurnRunning = true;
+    this.onEvent?.(ev, ev === "turn_complete" ? { stats: this.stats, ...data } : data);
   }
 
   /**
@@ -184,6 +420,10 @@ export class CodexAdapter {
   // Handlers bind to the process that owns them, and the same process can carry a
   // second turn later — so this is idempotent, not a one-shot wiring.
   _bind() {
+    // The app-server owns the pipe AND the exit hook: it parses JSON-RPC itself and has
+    // to hear the process die to end the turn. Re-pointing either one here would leave a
+    // dead server looking alive and the pane spinning forever.
+    if (this.persistent) return;
     this.proc.onLine = (line) => this.feed(line);
     this.proc.onExit = ({ code, error }) => {
       this.isTurnRunning = false;
@@ -256,8 +496,31 @@ export class CodexAdapter {
     if (this.isTurnRunning) {
       throw new Error("Codex turn is already running.");
     }
+    // This transport has no per-turn fallback: `exec` here would be a SECOND writer on a
+    // conversation the server still owns. So a prompt that lands mid-restart is held
+    // until the replacement is up. It is HELD, not retried on a promise chain — a chain
+    // whose link re-runs this method spins through microtasks forever while the restart
+    // is still in flight, because each link sees the same "not ready" and makes another.
+    if (this.persistent && (!this.appServer || this._restarting)) {
+      this._heldPrompts.push({ prompt, attachments });
+      return;
+    }
 
     const staged = attachments?.length ? attachments.map(stageAttachment) : null;
+
+    // One process for the chat: the prompt is a turn on the server that is already up,
+    // and the server carries the mode/sandbox it was opened with.
+    if (this.persistent && this.appServer) {
+      this.isTurnRunning = true;
+      // Attachments ride as `localImage` entries; a file is named in the text for the
+      // agent to read (the server takes no file input).
+      this.appServer.sendPrompt(prompt, staged).catch((err) => {
+        this.isTurnRunning = false;
+        this.onEvent?.("error", { message: err.message });
+      });
+      return;
+    }
+
     // Images ride as files (`--image=`); other files — and the caption — join the text
     // as a path list, which codex reads on its own. Verified against the CLI: `exec` and
     // `exec resume` both take the flag, and an image-only prompt is fine (an empty
@@ -332,11 +595,20 @@ export class CodexAdapter {
         type === "item.completed" && isCodexFileChange(item)
           ? readCodexFileChanges(this.cwd, this.activeThreadId)
           : null;
+      // `parsed_cmd` is missing from the live stream on every command item, so the same
+      // read from the rollout puts the name back — without it a live turn is all
+      // "command" while the reopened chat names each one. Looked up on `item.started`,
+      // which is the event that opens the card and the only one whose name is kept.
+      const parsed =
+        type === "item.started" && item?.id
+          ? readCodexParsedCommands(this.cwd, this.activeThreadId)?.[item.id]
+          : null;
       // The envelope IS the status here: the live stream spells it as two event types and
       // puts no status on the item, while the rollout has only the completed one. Handed
       // over so the shared mapper reads one field either way.
       const status = type === "item.completed" ? "completed" : "started";
-      for (const ev of codexItemEvents({ item, status }, recorded)) this.onEvent?.(ev.event, ev.data);
+      const enriched = parsed ? { ...item, parsed_cmd: parsed } : item;
+      for (const ev of codexItemEvents({ item: enriched, status }, recorded)) this.onEvent?.(ev.event, ev.data);
       return;
     }
 
@@ -351,13 +623,55 @@ export class CodexAdapter {
       this.stats.reasoningTokens = event.usage.reasoning_output_tokens || 0;
       this.stats.totalTurns += 1;
       this.onEvent?.("stats", { stats: this.stats });
+      return;
     }
+
+    // Nothing above claimed it. The pane is a re-render of the CLI's own TUI, so a record
+    // this adapter does not know yet still has to REACH it — under its own name, whole —
+    // or the pane quietly shows less than the CLI said and nobody ever finds out. Every
+    // branch above returns, so reaching here means no branch wanted it.
+    this.onEvent?.("cli_event", { type: type || "", subtype: "", record: event });
   }
 
-  stop() {
+  /**
+   * The gates the server is holding right now, keyed by the id an answer must carry.
+   * `aiSession.pendingPermission()` reads this to bring a card back after a replay —
+   * without it a reopened chat shows a CLI waiting on an answer nobody can see.
+   */
+  get pendingRequests() {
+    return this.appServer?.gates || new Map();
+  }
+
+  /** Answer a gate. `false` when it is no longer waiting, so the card stays put. */
+  resolvePermission(requestId, behavior, message = "") {
+    if (!this.appServer) return false;
+    return this.appServer.resolvePermission(requestId, behavior, message);
+  }
+
+  /**
+   * End this chat's server and return when it is actually gone.
+   *
+   * Awaiting matters here rather than being tidiness: the carriers kill a child process,
+   * and a caller that returns first (a restart opening the replacement, a session tearing
+   * down) leaves the old codex app-server running with nobody reading it — the orphan that
+   * only shows up later as CPU or as a second writer on the same thread.
+   */
+  async stop() {
     this.isTurnRunning = false;
-    // The daemon asks the CLI first and only kills it if it will not go, so a turn
-    // that can flush its transcript still gets to.
+    if (this.appServer) {
+      // The chat is the process: dropping the session without ending it would leave it
+      // running with nobody reading, and the next start would open a second thread.
+      await this.appServer.stop();
+      this.appServer = null;
+      // Stopped on the carrier the server actually runs on. `this.proc` is AgentProc —
+      // exec's carrier — and calling stop() there talks to a daemon this chat never used
+      // ("Not connected to daemon"), while the real child kept running.
+      const carrier = this._activeCarrier();
+      this._appServerProc = null;
+      await carrier?.stop();
+      return;
+    }
+    // exec: the turn's own process is `this.proc`, and stopping it IS stopping the turn.
     return this.proc.stop();
   }
 }
