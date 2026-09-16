@@ -49,12 +49,12 @@ export function fileChangeDiffs(item, recorded) {
   return out;
 }
 
-// Item type → the tool name the client sees. The two sources spell the same item
+// Item type → the category the client sees. The two sources spell the same item
 // differently: the live `exec --json` stream writes the lower-case name (its own tests
 // record `collab_tool_call`, `todo_list`, `command_execution`), the rollout writes the
 // PascalCase one. Both are listed, so the mapping is the same object either way — that
 // is the whole point of this file.
-const ITEM_TOOLS = Object.freeze({
+const ITEM_CATEGORY = Object.freeze({
   command_execution: "command",
   CommandExecution: "command",
   file_change: "file_change",
@@ -70,13 +70,28 @@ const ITEM_TOOLS = Object.freeze({
   ImageView: "view_image"
 });
 
+// The name the client sees for one command. Codex runs EVERY built-in through one shell
+// tool — a read is `cat`, a listing is `ls`, a patch is `apply_patch` piped to the
+// binary — so every item arrived as the same row reading "command" and the session's
+// reads, searches and patches were indistinguishable on screen. The CLI already knows
+// which is which: it tags the command itself (`parsed_cmd`), one entry per call — 136
+// reads, 68 searches, 35 listings across the rollouts on this machine. Read that tag and
+// the row names what actually happened; without it the row falls back to "command",
+// which is also where the tag's own `unknown` lands.
+//
+// The tag is only ever a SUFFIX here. The row's category stays "command" so it keeps its
+// shell card and its bash icon, and so the transcript reader still pairs an item with the
+// `exec_command` call beside it — that pairing is by category, and a renamed item would
+// fall out of it and draw a second card for one call.
+const PARSED_NAMES = Object.freeze({ read: "read", search: "search", list_files: "list_files" });
+
 export function isCodexToolItem(type) {
-  return Boolean(ITEM_TOOLS[type]);
+  return Boolean(ITEM_CATEGORY[type]);
 }
 
 /** True for a file_change in either spelling — the live stream writes the lower-case one. */
 export function isCodexFileChange(item) {
-  return ITEM_TOOLS[item?.type] === "file_change";
+  return ITEM_CATEGORY[item?.type] === "file_change";
 }
 
 /**
@@ -90,7 +105,7 @@ export function isCodexFileChange(item) {
 export function codexItemEvents(payload, recorded = null) {
   const item = payload?.item || payload;
   const type = item?.type;
-  const tool = ITEM_TOOLS[type];
+  const tool = ITEM_CATEGORY[type];
   if (!tool) return [];
 
   // What the card prints beside its name. Codex hands a command over as argv — the live
@@ -98,8 +113,10 @@ export function codexItemEvents(payload, recorded = null) {
   // array rejoins the way a shell would have taken it. Every field is read in both
   // spellings for the same reason the item names are.
   const cmd = item.command ?? item.command_line;
+  const parsed = tool === "command" ? parsedCall(item) : null;
   const input =
-    tool === "command" ? { command: commandLine(cmd) }
+    // The raw argv is the fallback, not the default: it carries the login-shell wrapper.
+    tool === "command" ? { ...parsed, command: parsed.command || commandLine(cmd) }
     : tool === "file_change" ? changeInput(item)
     : tool === "mcp_tool_call" ? { server: item.server, ...(item.arguments || item.input || {}) }
     // Only `spawn_agent` carries a brief worth showing; the calls that steer an agent
@@ -108,11 +125,16 @@ export function codexItemEvents(payload, recorded = null) {
     : tool === "todo_list" ? { todos: item.items || item.todos || [] }
     : { path: item.path || "" };
 
+  // The name is the item's own tool name where it has one (an MCP call, a spawned agent),
+  // and the category otherwise — which for a command is the CLI's own read of what the
+  // command was.
+  const name = item.tool || parsed?.name || tool;
+
   // Codex opens a tool with one event and closes it with another. The live stream says
   // which by its envelope (`item.started` / `item.completed`, and the item carries no
   // status of its own); the rollout has only the completed item and says so on the item.
   const done = payload?.status === "completed" || item.status === "completed";
-  const events = [toolStart({ id: item.id, name: item.tool || tool, input })];
+  const events = [toolStart({ id: item.id, name, input })];
   if (!done) return events;
 
   if (tool === "command") {
@@ -121,8 +143,8 @@ export function codexItemEvents(payload, recorded = null) {
     const exit = item.exit_code ?? item.exitCode;
     events.push(
       exit
-        ? toolResult({ id: item.id, name: tool, error: `${output}\n(exit ${exit})`.trim() })
-        : toolResult({ id: item.id, name: tool, output })
+        ? toolResult({ id: item.id, name, error: `${output}\n(exit ${exit})`.trim() })
+        : toolResult({ id: item.id, name, output })
     );
     return events;
   }
@@ -167,6 +189,24 @@ export function codexItemEvents(payload, recorded = null) {
 function commandLine(command) {
   if (Array.isArray(command)) return command.join(" ");
   return command || "";
+}
+
+// The command line the card prints. Codex runs every command through a login shell —
+// `/bin/bash -lc 'cat a.txt'` on POSIX, `powershell.exe -Command …` or `cmd.exe /d /s /c …`
+// on Windows — and showing that wrapper wastes the row and differs per OS. It does NOT
+// need unwrapping here: the CLI already hands the clean text over on `parsed_cmd[].cmd`,
+// which is the same command with the shell stripped, whatever the platform. One entry per
+// command in the call, so a compound line (`a; b`) still prints whole.
+function parsedCall(item) {
+  const parts = (item.parsed_cmd || []).filter((p) => p?.cmd);
+  const first = parts[0];
+  const name = PARSED_NAMES[first?.type];
+  return {
+    command: parts.map((p) => p.cmd).join("; "),
+    name: name || null,
+    ...(first?.path ? { path: first.path, file_path: first.path } : {}),
+    ...(first?.query ? { query: first.query } : {})
+  };
 }
 
 // A file_change names its files; `changePaths` reads all three spellings, and the card

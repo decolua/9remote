@@ -148,6 +148,33 @@ export function readCodexFileChanges(cwd, sessionId) {
   return out;
 }
 
+// The live `exec --json` stream prints each CommandExecution WITHOUT its `parsed_cmd` —
+// verified against codex-cli 0.154.0: the item carries id, command, aggregated_output,
+// exit_code and status, and nothing else. The rollout file written beside it has the
+// whole record, same item id. So a live turn showed every read, search and listing as a
+// bare "command" row while a reopened chat showed them named, and the same session read
+// differently depending on which door it came through.
+//
+// Read by id rather than by position: an id names exactly one item, and the caller
+// already holds it.
+export function readCodexParsedCommands(cwd, sessionId) {
+  if (!cwd || !sessionId) return null;
+  const file = findCodexRollout(sessionId, cwd);
+  if (!file) return null;
+
+  const lines = readRolloutLines(file);
+  if (!lines) return null;
+
+  const out = {};
+  for (const line of lines) {
+    if (!line.includes("parsed_cmd")) continue;
+    let item;
+    try { item = JSON.parse(line).payload?.item; } catch { continue; }
+    if (item?.id && Array.isArray(item.parsed_cmd)) out[item.id] = item.parsed_cmd;
+  }
+  return out;
+}
+
 export function recoverFromCodexTranscript(cwd, sessionId) {
   if (!cwd || !sessionId) return null;
   const file = findCodexRollout(sessionId, cwd);

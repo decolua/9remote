@@ -200,5 +200,50 @@ test("agy: an unmapped parameter key is passed through, not dropped", () => {
   assert.equal(of("tool_start")[0][1].input.Whatever, "x");
 });
 
+// Codex runs every built-in through one shell tool, so a read, a search and a patch all
+// arrived as a row reading "command" — a whole session of reads was indistinguishable
+// from the commands around it. `parsed_cmd` is the CLI's own tag for what the command
+// was; the row is named from it. Recorded shapes, one per tag.
+test("codex: a tagged command is named for what it did, not for the shell", () => {
+  const { of } = replay(CodexAdapter, [
+    codexItem("item.completed", {
+      id: "c1", type: "command_execution", command: ["/bin/bash", "-lc", "cat a.js | head -n 100"],
+      parsed_cmd: [{ type: "read", cmd: "cat a.js", name: "a.js", path: "web/a.js" }],
+      aggregated_output: "…", exit_code: 0
+    }),
+    codexItem("item.completed", {
+      id: "c2", type: "command_execution", command: ["/bin/bash", "-lc", "find . -name '*chat*'"],
+      parsed_cmd: [{ type: "search", cmd: "find . -name '*chat*'", query: "*chat*", path: "." }],
+      aggregated_output: "", exit_code: 0
+    }),
+    codexItem("item.completed", {
+      id: "c3", type: "command_execution", command: ["/bin/bash", "-lc", "ls -la"],
+      parsed_cmd: [{ type: "list_files", cmd: "ls -la", path: null }],
+      aggregated_output: "", exit_code: 0
+    }),
+    // Untagged and `unknown` both keep the plain name — the shell is all that is known.
+    codexItem("item.completed", {
+      id: "c4", type: "command_execution", command: ["/bin/bash", "-lc", "npm test"],
+      parsed_cmd: [{ type: "unknown", cmd: "npm test" }], aggregated_output: "", exit_code: 0
+    }),
+    codexItem("item.completed", { id: "c5", type: "command_execution", command: ["/bin/bash", "-lc", "pwd"], aggregated_output: "", exit_code: 0 })
+  ]);
+  const starts = of("tool_start").map(([, d]) => d);
+  assert.deepEqual(starts.map((d) => d.name), ["read", "search", "list_files", "command", "command"]);
+  // The row prints what the CLI ran, not the login shell it ran it through: codex hands
+  // the unwrapped line over on `parsed_cmd[].cmd`, which is the same on every OS
+  // (`-lc` on POSIX, `-Command` on PowerShell, `/d /s /c` on cmd) so nothing here has to
+  // know which one it is. A compound call keeps both commands.
+  assert.equal(starts[0].input.command, "cat a.js");
+  assert.equal(starts[1].input.command, "find . -name '*chat*'");
+  assert.equal(starts[3].input.command, "npm test");
+  // No parsed_cmd at all (the live stream drops it): the raw argv is the only thing left.
+  assert.equal(starts[4].input.command, "/bin/bash -lc pwd");
+  assert.equal(starts[0].input.path, "web/a.js");
+  assert.equal(starts[1].input.query, "*chat*");
+  // Start and result must agree on the name, or the row is renamed mid-flight.
+  assert.deepEqual(of("tool_result").map(([, d]) => d.name), ["read", "search", "list_files", "command", "command"]);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exit(1);
