@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useRef, useEffect, useState, useCallback, useMemo } from "react";
+import { memo, useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { MessageBubble } from "./MessageBubble";
@@ -16,8 +16,33 @@ import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { OPEN_SESSION_EVENT } from "@/features/terminal/constants/terminalConfig";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn } from "../lib/messageWindow";
+import { anchorFrom, anchoredScrollTop } from "../lib/scrollAnchor";
 
 const EMPTY_MESSAGES = [];
+
+// What the reader was looking at, read off ONE NODE — the same element both times.
+//
+// Held as the element itself, not as an index or a key: React reconciles by key, so the
+// div for a turn is the same DOM node before and after a page is prepended above it, only
+// moved further down. Slot 0 is NOT that node afterwards, and re-finding it by key would
+// mean a lookup table, a callback per turn and a way to escape the key — all to re-derive
+// a node already in hand.
+const measure = (el, node) => {
+  if (!el || !node) return null;
+  // Both rects in ONE reading, and `scrollTop` added to land in CONTENT coordinates —
+  // the units that survive the correction being written, which is what makes the second
+  // reading comparable to the first. `offsetTop` would have been measured against the
+  // node's offsetParent, i.e. whichever positioned ancestor happens to be nearest, so a
+  // class change on the scroller could silently move the mark.
+  const content = el.getBoundingClientRect();
+  return {
+    scrollTop: el.scrollTop,
+    scrollHeight: el.scrollHeight,
+    clientHeight: el.clientHeight,
+    nodeTop: node.getBoundingClientRect().top - content.top + el.scrollTop
+  };
+};
+
 // How many past conversations the empty state offers before deferring to /resume.
 const RECENT_SESSIONS = 8;
 const LOAD_MORE_THRESHOLD_PX = 120;
@@ -362,6 +387,15 @@ export const AiMessagesList = memo(function AiMessagesList({
   const sentinelRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const scrollTimerRef = useRef(null);
+  // The element in slot 0 right now. Only ever read at the moment a fetch starts: what gets
+  // held across the await is that ELEMENT, kept on the anchor itself, because React
+  // reconciles by key — the div for that turn is the same DOM node after a page is
+  // prepended, just moved further down. Slot 0 is NOT that node afterwards (an older turn
+  // takes it), which is why the anchor carries the node and not an index or a key.
+  const topRef = useRef(null);
+  // The correction waiting for its commit. Armed by handleLoadMore, spent by the layout
+  // effect below.
+  const anchorRef = useRef(null);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [visibleBytes, setVisibleBytes] = useState(PAGE_BUDGET_BYTES);
   // The mounted window's top, kept across renders so appends never move it: recomputing it
@@ -379,6 +413,8 @@ export const AiMessagesList = memo(function AiMessagesList({
   useEffect(() => {
     setVisibleBytes(PAGE_BUDGET_BYTES);
     setTopId(null);
+    // A correction measured against the log being replaced would be applied to this one.
+    anchorRef.current = null;
   }, [sessionId]);
 
   // Derived during render, not through state, so the frame that receives a hydrate mounts
@@ -440,31 +476,66 @@ export const AiMessagesList = memo(function AiMessagesList({
     return out;
   }, [visibleMessages]);
 
-  // Prepending shifts everything down; anchor on the old scrollHeight so the turn the
-  // user was reading stays put.
+  // Prepending shifts everything down; hold the turn the reader was on, so paging up does
+  // not move what they are reading.
+  //
+  // The correction is taken BEFORE the await and settled in a LAYOUT effect (see
+  // anchorRef below), never from a `scrollHeight` read across it. That was the
+  // old way and it moved the reader: the fetch takes seconds, the scroller is clamped by
+  // the browser while it runs, and the live turn kept streaming text into the tail — so
+  // `scrollHeight` grew for reasons that had nothing to do with the page being prepended,
+  // and the whole delta was added to `scrollTop`. On a phone, where one page is worth far
+  // fewer pixels than on a desktop, the wrong part of the delta is the bigger part.
   const handleLoadMore = useCallback(async () => {
     const el = scrollRef.current;
-    const prevHeight = el?.scrollHeight ?? 0;
-    const prevTop = el?.scrollTop ?? 0;
+    // The node the spec would pick too — nearest the block start edge. A page can only
+    // ever land ABOVE it, which is what makes it a mark worth holding on to. Read through a
+    // ref rather than from `turns`: the store appends a message per streamed token, so
+    // anything this callback closed over would be rebuilt that often, and the observer
+    // below is keyed on it.
+    const node = topRef.current;
+    const pending = node ? { ...anchorFrom(measure(el, node)), node } : null;
     // TEMP DIAGNOSTIC — scroll-up shows no older turns; log the decision inputs and the
     // outcome so we can tell "never asked the host" from "host had nothing" from "got it
     // but never mounted". Remove once the paging path is confirmed end to end.
-    const diagBefore = { hiddenCount, hasOlder, scrollTop: prevTop, scrollHeight: prevHeight };
+    const diagBefore = { hiddenCount, hasOlder, scrollTop: el?.scrollTop ?? 0, scrollHeight: el?.scrollHeight ?? 0 };
     // The in-RAM window grows first; past its end the older turns still live on the host.
     // Dropping the mark is what reveals a page that arrived while it was still standing —
     // a held top wins over the page budget by design.
     let fetched = null;
     if (hiddenCount === 0 && hasOlder) fetched = await onLoadOlder?.();
     termLog("ai-page", "loadMore", { ...diagBefore, fetched });
+    // The anchor is armed here and spent by the layout effect below, on the commit these
+    // two setters cause. A second call that got through the hook's in-flight guard simply
+    // overwrites it with a fresher reading of the same node — and settling twice on the
+    // same node gives the same answer, so nothing compounds.
+    anchorRef.current = pending;
     setTopId(null);
     setVisibleBytes((b) => b + PAGE_BUDGET_BYTES);
-    requestAnimationFrame(() => {
-      if (!el) return;
-      // A reader paging up stays on the turn they were reading; a pane paging at open
-      // (or while live at the bottom) stays at the bottom, where it already was.
-      el.scrollTop = isAtBottomRef.current ? el.scrollHeight : prevTop + (el.scrollHeight - prevHeight);
-    });
   }, [hiddenCount, hasOlder, onLoadOlder]);
+
+  // The commit that reveals the page, closed before the browser paints.
+  //
+  // useLayoutEffect, not requestAnimationFrame: React runs this after the DOM is written
+  // and before paint, so the reader never sees the shifted frame. A rAF lands at least one
+  // paint later — one visible jump, and on iOS often several.
+  //
+  // Keyed on the two values that change the mounted slice — they ARE the commit — so there
+  // is no tick to remember to bump. `anchorRef` is the guard: it is written only by
+  // handleLoadMore and cleared here, so a commit with nothing pending does nothing.
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    const anchor = anchorRef.current;
+    if (!el || !anchor) return;
+    anchorRef.current = null;
+    const target = anchoredScrollTop(anchor, measure(el, anchor.node) || {});
+    if (target != null) el.scrollTop = target;
+    // One reading for both flags, so the scroll handler does not fire a second correction
+    // a moment later on the position this one just chose.
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    isAtBottomRef.current = distance < 8;
+    setShowScrollBottom(distance > 140);
+  }, [visibleBytes, topId]);
 
   // Open on a turn: the host answers a hydrate with a byte-measured tail, and one agentic
   // turn can run past that budget — a reopened chat then mounts a column of cards with no
@@ -526,6 +597,13 @@ export const AiMessagesList = memo(function AiMessagesList({
     () => messages.map((m) => `${m.id}:${m.thinking ? 1 : 0}:${m.content ? 1 : 0}:${m.tools?.length || 0}:${m.diffs?.length || 0}:${m.permission ? 1 : 0}`).join("|"),
     [messages]
   );
+
+  // Ref callbacks are re-run on every render when they are re-created, so both live in refs
+  // of their own: a callback that changes identity detaches and re-attaches the node each
+  // pass, and on a streaming turn that is once per token.
+  // Slot 0 is where a fetch takes its anchor node from — see topRef. On the element
+  // itself, so React keeps it current without anything being recomputed at render time.
+  const slot0Ref = useCallback((n) => { topRef.current = n; }, []);
 
   // Smart auto-scroll: only when the user is already at the bottom. A new step scrolls
   // into view; a growing one does not.
@@ -597,25 +675,29 @@ export const AiMessagesList = memo(function AiMessagesList({
                 {hiddenCount > 0 ? `Load older · ${hiddenCount} more` : "Load older turns"}
               </button>
             )}
-            {turns.map((turn) => {
+            {turns.map((turn, turnIdx) => {
               const [first, ...rest] = turn.messages;
+              // Slot 0 is the anchor: the top of the mounted window, which is exactly where
+              // a page lands above. Nothing to recompute — it is a function of position, and
+              // position is what the DOM already knows.
               // A user prompt stays a bubble of its own; everything the agent did in
               // response is one foldable turn under it. A window that starts mid-turn
               // has no prompt to show, so the whole thing is the turn.
               if (first.role !== "user") {
                 return (
-                  <AiTurn
-                    key={turn.key}
-                    messages={turn.messages}
-                    engine={engine}
-                    workspacePath={workspacePath}
-                    onResolvePermission={onResolvePermission}
-                    isLive={isLiveTurn(turn)}
-                  />
+                  <div key={turn.key} ref={turnIdx === 0 ? slot0Ref : undefined}>
+                    <AiTurn
+                      messages={turn.messages}
+                      engine={engine}
+                      workspacePath={workspacePath}
+                      onResolvePermission={onResolvePermission}
+                      isLive={isLiveTurn(turn)}
+                    />
+                  </div>
                 );
               }
               return (
-                <div key={turn.key}>
+                <div key={turn.key} ref={turnIdx === 0 ? slot0Ref : undefined}>
                   <MessageBubble
                     message={first}
                     engine={engine}

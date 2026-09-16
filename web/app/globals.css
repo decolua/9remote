@@ -638,7 +638,13 @@ html.terminal-page body {
 .ai-pane { touch-action: none; }
 /* Y axis only: `contain` on both axes also trapped horizontal wheel gestures, so a
    trackpad swipe over a chat never reached the panes row behind it. */
-.ai-conversation { touch-action: pan-y; overscroll-behavior-y: contain; }
+/* The chat list corrects its own scroll when a page of older turns is prepended (see
+   AiMessagesList.handleLoadMore). Scroll anchoring is the browser doing the same job, and
+   in Chrome/Android it would do it FIRST, on the frame the DOM changes — then the layout
+   effect corrects again on top of it, applying the shift twice. One owner: ours, because
+   it also runs on iOS Safari, where anchoring has never shipped. Same call SessionList
+   already makes for the same reason. */
+.ai-conversation { touch-action: pan-y; overscroll-behavior-y: contain; overflow-anchor: none; }
 
 /* AI pane tracks the terminal's font size. Only the conversation layer is sized —
    buttons, badges and modals keep their compact chrome sizing. Tailwind's `text-*`
