@@ -552,5 +552,80 @@ test("a codex compaction draws the one line it has", () => {
   assert.equal(n.compactSettled, true, "and it closes a running compaction row if one is open");
 });
 
+// ── a turn that FAILED is a line, not a silent ending ──
+//
+// `turn_complete` has always carried `isError`, `subtype` and the CLI's own `result`,
+// and the pane threw all three away — so a turn that died to a model 404, a spent retry
+// budget or the turn limit looked exactly like one that answered. Probed on claude
+// 2.1.274: a request to an unreachable model returns `is_error: true` with the reason in
+// `result` ("There's an issue with the selected model …").
+
+test("a failed turn draws the CLI's own sentence", () => {
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "hi" } },
+    { seq: 2, event: "delta", data: { text: "…" } },
+    { seq: 3, event: "turn_complete", data: { isError: true, subtype: "error_during_execution", result: "Reached maximum number of turns (5)" } }
+  ], "claude");
+  const n = notices(out);
+  assert.equal(n.length, 1, "the failure is a row of its own");
+  assert.equal(n[0].level, "error");
+  assert.equal(n[0].content, "Reached maximum number of turns (5)");
+});
+
+test("a turn that answered draws nothing", () => {
+  const out = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "hi" } },
+    { seq: 2, event: "turn_complete", data: { isError: false, subtype: "success", result: "done" } }
+  ], "claude");
+  assert.equal(notices(out).length, 0, "a finished turn is not a line");
+});
+
+test("a failure the answer already printed is not printed twice", () => {
+  // The CLI reports some failures on BOTH doors: a synthetic assistant message whose text
+  // streams to the pane as prose, and the same sentence again in `result` — verified on
+  // 2.1.274, the two strings byte-identical. Drawing both puts the line back to back.
+  const said = "There is an issue with the selected model (x).";
+  const dup = reduceSessionEvents([
+    { seq: 1, event: "user_message", data: { text: "hi" } },
+    { seq: 2, event: "delta", data: { text: said } },
+    { seq: 3, event: "turn_complete", data: { isError: true, subtype: "success", result: said } }
+  ], "claude");
+  assert.equal(notices(dup).length, 0, "the reader is already looking at that sentence");
+
+  // A turn whose answer said something else still has to state its failure.
+  const other = reduceSessionEvents([
+    { seq: 1, event: "delta", data: { text: said } },
+    { seq: 2, event: "turn_complete", data: { isError: true, result: "The connection dropped." } }
+  ], "claude");
+  assert.equal(notices(other)[0].content, "The connection dropped.");
+});
+
+test("a failed turn that states no text still says it failed", () => {
+  const out = reduceSessionEvents([{ seq: 1, event: "turn_complete", data: { isError: true } }], "claude");
+  assert.equal(notices(out)[0].content, "The turn ended in an error.");
+});
+
+test("a process that died draws a row, an ordinary exit does not", () => {
+  const bad = reduceSessionEvents([{ seq: 1, event: "exit", data: { code: 1, signal: null } }], "claude");
+  assert.match(notices(bad)[0].content, /code 1/);
+  assert.equal(notices(bad)[0].level, "error");
+
+  // A spawn failure reports through `error` and no code at all.
+  const noBin = reduceSessionEvents([{ seq: 1, event: "exit", data: { code: null, error: "spawn claude ENOENT" } }], "claude");
+  assert.match(notices(noBin)[0].content, /ENOENT/);
+
+  // The ordinary exit after a completed turn says nothing — /clear and a model switch
+  // both stop the CLI on purpose, and a red row over each would be crying wolf.
+  assert.equal(notices(reduceSessionEvents([{ seq: 1, event: "exit", data: { code: 0, signal: "SIGINT" } }], "claude")).length, 0);
+});
+
+test("a spawn failure is the same row the harness's own errors use", () => {
+  const out = reduceSessionEvents([{ seq: 1, event: "error", data: { message: "spawn claude ENOENT" } }], "claude");
+  const n = notices(out);
+  assert.equal(n.length, 1);
+  assert.equal(n[0].level, "error");
+  assert.match(n[0].content, /ENOENT/);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;

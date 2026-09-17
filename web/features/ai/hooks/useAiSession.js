@@ -37,6 +37,22 @@ const REWIND_APPLY_TIMEOUT_MS = 130000;
 // it the load-older affordance. The ladder that re-asks lives in lib/hydrateRetry, and
 // the lib owns the delays — this hook only drives its timer.
 
+/**
+ * Has the tail of this log already printed `text`?
+ *
+ * The CLI reports some failures twice — a synthetic assistant message the pane streams
+ * as prose, and the same sentence again in `result` — so the failure row must not repeat
+ * a line the reader is looking at. Only the last message is checked: the duplicate is by
+ * construction the answer the turn just made, and scanning the whole log per turn would
+ * make this O(n) on every ending.
+ */
+function alreadySaid(messages, text) {
+  const said = String(text || "").trim();
+  if (!said) return false;
+  const last = messages[messages.length - 1];
+  return Boolean(last && last.role === "assistant" && String(last.content || "").trim().endsWith(said));
+}
+
 // Pure reducer that transforms an event log into a complete session snapshot in RAM
 // in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
 export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) {  const messages = [];
@@ -52,7 +68,6 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   let activeBlocked = null;
   let permissionMode = null;
   let turnEnded = false;
-  let lastTurn = null;
   let msgSeq = idBase;
 
   for (const item of events) {
@@ -226,9 +241,22 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         activePermission = null;
         if (data?.stats) stats = { ...stats, ...data.stats };
         if (messages.length > 0) messages[messages.length - 1].isLive = false;
-        // Whether the turn FAILED travels with its end. Without this the pane can only
-        // say a turn finished, never that it finished badly.
-        lastTurn = { isError: Boolean(data?.isError), subtype: data?.subtype || "", result: data?.result || "" };
+        // A turn that FAILED says so in the timeline, in the same row the harness's own
+        // errors use. `turn_complete` has always carried this — the adapter forwards
+        // `isError`, `subtype` and the CLI's `result` — and this reducer threw it away,
+        // so a turn that died (a model 404, a retry budget spent, the turn limit) looked
+        // exactly like one that answered. The text is the CLI's own sentence.
+        //
+        // Not when the answer already said it: the CLI reports some failures twice, once
+        // as a synthetic assistant message whose text streams to the pane as prose and
+        // again in `result` (verified on 2.1.274 — the two strings were byte-identical),
+        // and drawing both prints the same sentence back to back.
+        if (data?.isError && !alreadySaid(messages, data.result)) {
+          messages.push({
+            id: `n-${++msgSeq}`, role: "notice", subtype: data.subtype || "",
+            level: "error", content: data.result || "The turn ended in an error."
+          });
+        }
         break;
       case "stats":
         if (data?.stats) stats = { ...stats, ...data.stats };
@@ -253,6 +281,16 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         // The gate dies with it: a card replayed against a dead process answers nobody.
         isTurnRunning = false;
         activePermission = null;
+        for (const m of messages) if (m.isLive) m.isLive = false;
+        // A process that went away mid-turn is a failure the pane has to name: the CLI
+        // crashed, was killed, or the spawn never worked. `code` 0 with no error is the
+        // ordinary exit after a completed turn, so only a bad one draws the row.
+        if (data?.error || (data?.code != null && data.code !== 0)) {
+          messages.push({
+            id: `n-${++msgSeq}`, role: "notice", subtype: "exit", level: "error",
+            content: data.error || `The AI process exited (code ${data.code}).`
+          });
+        }
         break;
       case "error":
         turnEnded = true;
@@ -262,12 +300,11 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         isTurnRunning = false;
         for (const m of messages) if (m.isLive) m.isLive = false;
         messages.push({
-          id: `msg-${++msgSeq}`,
-          role: "assistant",
-          content: `\n\n**Error:** ${data?.message || "AI process failed"}`,
-          isLive: false,
-          diffs: [],
-          tools: []
+          id: `n-${++msgSeq}`,
+          role: "notice",
+          subtype: "error",
+          level: "error",
+          content: data?.message || "AI process failed"
         });
         break;
       case "conversation_reset":
@@ -277,7 +314,6 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         isTurnRunning = false;
         activePermission = null;
         activeBlocked = null;
-        lastTurn = null;
         break;
       // A record the pane has no card for. Kept rather than dropped: the pane is a
       // re-render of the TUI, and a record it cannot draw YET must not leave a hole
@@ -342,8 +378,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   return {
     messages, tasks, metadata, stats, isTurnRunning, activePermission, activeBlocked, permissionMode,
     harnessRecords,
-    harnessTasks,
-    lastTurn
+    harnessTasks
   };
 }
 
@@ -484,6 +519,19 @@ export function useAiSession({
       // which rides with the event that ends the turn — is the honest number.
       case "turn_complete":
         finishTurn(sid, data.stats, data.turnMs, Boolean(data?.replay));
+        // A turn that FAILED draws the CLI's own sentence, in the row the harness's own
+        // errors use. Drawn on the replayed door too: a reset clears the messages before
+        // it re-sends the log, so the row has to be rebuilt with them or an F5 would
+        // quietly drop the only record that the turn died.
+        //
+        // Same duplicate rule as the reducer: the CLI reports some failures as a synthetic
+        // assistant message AND in `result`, and the prose half has already printed it.
+        if (data?.isError && !alreadySaid(useAiStore.getState().bySession[sid]?.messages, data.result)) {
+          useAiStore.getState().addNotice(sid, {
+            subtype: data.subtype || "", level: "error",
+            content: data.result || "The turn ended in an error."
+          });
+        }
         break;
       case "stats":
         // codex/opencode report token usage mid-turn; claude folds it into turn_complete
@@ -498,6 +546,14 @@ export function useAiSession({
         clearPermission(sid);
         // The span of the turn this event just ended, when the host measured one.
         useAiStore.getState().finishTurn(sid, null, data?.turnMs);
+        // Same row the replay draws for a process that died: `stopped` is a deliberate
+        // interrupt and says nothing, but a nonzero code or a spawn failure is news.
+        if (event === "exit" && (data?.error || (data?.code != null && data.code !== 0))) {
+          useAiStore.getState().addNotice(sid, {
+            subtype: "exit", level: "error",
+            content: data.error || `The AI process exited (code ${data.code}).`
+          });
+        }
         break;
       case "stall":
         // Same release as `stopped`, deliberately without the text `error` appends.
@@ -505,9 +561,14 @@ export function useAiSession({
         finishTurn(sid, null, data?.turnMs);
         break;
       case "error":
-        // Spawn/CLI failure never produces a turn_complete — surface it as text
-        // and release the turn, or the pane spins on a process that is gone.
-        appendDelta(sid, `\n\n**Error:** ${data?.message || "AI process failed"}`);
+        // Spawn/CLI failure never produces a turn_complete — surface it and release the
+        // turn, or the pane spins on a process that is gone. The row, not appended text:
+        // a failure and an answer are two different things, and the pane paints the
+        // first red where the reader is looking (same rule as the replay door).
+        useAiStore.getState().addNotice(sid, {
+          subtype: "error", level: "error",
+          content: data?.message || "AI process failed"
+        });
         finishTurn(sid, null, data?.turnMs);
         break;
       case "conversation_reset":
@@ -706,6 +767,8 @@ export function useAiSession({
         appliedSeq: appliedSeqRef.current,
         sameLog: epoch === logEpochRef.current
       })) return;
+      // The gate this ack states, applied once the held events are drained — see below.
+      let gateToRestore = null;
       const events = res?.session?.events;
       // TEMP DIAGNOSTIC — the ack, or the absence of one (this line never printed = the
       // callback was never called at all). `ok:false` carries the host's own error.
@@ -777,11 +840,6 @@ export function useAiSession({
             // two that could disagree.
             harnessTasks: foldTaskRecords(res.session.taskRecords, hydrated.harnessTasks)
           });
-          // The host states the gate itself when the CLI is holding one, so a request
-          // that scrolled off the replay tail still comes back — a card that cannot be
-          // reopened would leave the CLI waiting on an answer no surface can give.
-          const gate = res.session.activePermission || hydrated.activePermission;
-          if (gate) useAiStore.getState().setPermission(sessionId, gate);
         } else {
           setTurnRunning(sessionId, Boolean(res.session.isTurnRunning));
           // An empty window is not an absent task set: a session whose log the host holds
@@ -795,6 +853,13 @@ export function useAiSession({
           // pane on a running session reads the same numbers as the one it replaced.
           if (res.session.stats) useAiStore.getState().setStats(sessionId, res.session.stats);
         }
+        // The host states the gate itself when the CLI is holding one, so a request that
+        // scrolled off the replay tail — or that the rebuild below never reproduced —
+        // still comes back; a card that cannot be reopened leaves the CLI waiting on an
+        // answer no surface can give. Held here rather than set above: the reset that
+        // comes with a hydrate's ack is drained by the `finally` AFTER this block, and
+        // clearMessages drops the card on its way through.
+        gateToRestore = res.session.activePermission || null;
         // The snapshot is authoritative for this log. Assign rather than max: after a
         // /resume or /clear the host starts a NEW log whose seqs begin at 1, so a
         // higher watermark left over from the previous log would drop every replay.
@@ -803,6 +868,15 @@ export function useAiSession({
         // Always drains — a failed ack must not discard events that really arrived.
         clearTimeout(releaseTimer);
         if (gen === hydrateSeqRef.current) releaseHeld();
+        // After the drain, never before: an ack to a hydrate is accompanied by the host's
+        // own conversation_reset, and that reset clears the gate on its way past. Set
+        // earlier, the card was wiped a moment after it was drawn — the pane came back
+        // from an F5 with an empty composer above a CLI waiting on an answer nobody could
+        // reach. The log cannot carry it back either: a rebuild reads the transcript, and
+        // a gate is not in there.
+        if (gateToRestore && gen === hydrateSeqRef.current) {
+          useAiStore.getState().setPermission(sessionId, gateToRestore);
+        }
         // The drained events are HISTORY, and the log they came from ends wherever it ends
         // — a rebuild lands on a turn_complete, and a chat replayed mid-turn carries the
         // prompt that started it. Either way they set the turn flag as a side effect, so
