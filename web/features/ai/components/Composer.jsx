@@ -662,7 +662,7 @@ export const Composer = memo(function Composer({
   // differently (claude/codex say effort, opencode says variant) and some have none at
   // all (antigravity folds the tier into the model id) — so the chip is simply absent
   // when there is nothing to say, never a placeholder.
-  const displayTier = storeTier || "";
+  const displayTier = storeTier || engineConfig.defaultEffort || "";
 
   // The running model may not be in the host's list (set from another surface, or a
   // settings change since) — show it anyway rather than pretending another is active.

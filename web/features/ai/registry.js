@@ -193,6 +193,7 @@ export const DEFAULT_CONFIG = Object.freeze({
   // Permission mode a brand-new session starts in. The host applies it only when it
   // has no snapshot for that session — reopening an old chat keeps the mode it ran with.
   defaultMode: "bypassPermissions",
+  defaultEffort: "",
   features: DEFAULT_FEATURES,
   slashCommands: DEFAULT_SLASH_COMMANDS,
 });
@@ -244,6 +245,7 @@ export class AiEngine {
       models: o.models || DEFAULT_CONFIG.models,
       permissionModes: o.permissionModes || DEFAULT_CONFIG.permissionModes,
       defaultMode: o.defaultMode || DEFAULT_CONFIG.defaultMode,
+      defaultEffort: o.defaultEffort || DEFAULT_CONFIG.defaultEffort,
       features: { ...DEFAULT_CONFIG.features, ...(o.features || {}) },
       slashCommands: o.slashCommands || DEFAULT_CONFIG.slashCommands,
     });
@@ -429,6 +431,7 @@ export class CodexEngine extends AiEngine {
           { id: "fullAccess", label: "Full Access", desc: "Edit anywhere and reach the network, no prompts", icon: PERMISSION_ICONS.bypass },
         ],
         defaultMode: "fullAccess",
+        defaultEffort: "xhigh",
         features: { thinking: true, planMode: true, tasks: true, skills: true, mcp: true, rewind: true },
         slashCommands: [
           { name: "/model", description: "Choose the Codex model and reasoning effort", action: "modal:model" },

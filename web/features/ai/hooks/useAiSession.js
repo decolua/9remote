@@ -795,7 +795,10 @@ export function useAiSession({
       sessionId,
       engine,
       cwd: workspacePath,
-      options: { defaultMode: getEngineConfig(engine).defaultMode }
+      options: {
+        defaultMode: getEngineConfig(engine).defaultMode,
+        defaultEffort: getEngineConfig(engine).defaultEffort
+      }
     }, (res) => {
       const isNewest = gen === hydrateSeqRef.current;
       // The gate rule lives in the lib, beside the ladder it belongs to — see there for
