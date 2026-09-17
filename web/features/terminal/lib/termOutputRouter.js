@@ -10,7 +10,7 @@ import { classifyLiveChunk, syncAfterReplay, GAP_DETECTED, GAP_STALE } from "@/f
 //   gapFetch   — the createGapFetch() instance ({ handleGapChunk, queueLive, start })
 //   refs       — { joiningRef, joinQueueRef, lastSeqRef, lastOutputAtRef, outputTotalRef,
 //                  awaitingTuiOutputRef, userAtTopRef, historyFetchingRef, historyHaveAtEmitRef,
-//                  historyTotalRef, historyMirrorRef, historyBytesRef }
+//                  historyTotalRef, historyMirrorRef, historyBytesRef, onPrefixSettledRef }
 //   setHistoryFetching — local loading-indicator setter
 export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch, refs, setHistoryFetching }) {
 
@@ -36,6 +36,7 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
     if (chunkLen === 0) {
       refs.historyFetchingRef.current = false;
       setHistoryFetching(false);
+      refs.onPrefixSettledRef?.current?.();
       return;
     }
 
@@ -55,6 +56,9 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
         if (delta < 0) term.scrollLines(delta);
         refs.historyFetchingRef.current = false;
         setHistoryFetching(false);
+        // Chunk is painted and the viewport is back where the reader left it — from here the
+        // caller can tell whether any new ground actually appeared above them.
+        refs.onPrefixSettledRef?.current?.();
       });
     });
   };

@@ -13,6 +13,7 @@ import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, S
 import { resetReconnectState, recoveryBusy } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
+import { createHistoryChain } from "@/features/terminal/lib/historyChain";
 import { createJoinSession } from "@/features/terminal/lib/termJoin";
 import { createOutputRouter } from "@/features/terminal/lib/termOutputRouter";
 import { writeChunked } from "@/features/terminal/lib/historyMirror";
@@ -286,6 +287,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
   const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
   const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers
   const userAtTopRef = useRef(false); // true only when the user actively scrolled up to top
+  const onPrefixSettledRef = useRef(null);  // told by the output router when a prefix has landed
   const lastOutputAtRef = useRef(0);  // ts of last live output (diagnostics)
   const outputTotalRef = useRef(0);   // bytes received this session — dup detector
 
@@ -474,22 +476,26 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     resizeObserver.observe(containerRef.current);
 
     // Detect scroll near top (primary buffer only) → fetch an older history chunk from the agent.
-    const maybeFetchHistory = () => {
+    // auto=true is the self-continued leg (see historyChain): it skips the user-gesture gate and
+    // the fixed guard — its own debounce is the pacing. Returns whether a fetch actually started.
+    const fetchHistory = (auto = false) => {
       const buf = term.buffer.active;
-      if (HISTORY_FETCH.disabled) return;
-      if (historyFetchingRef.current) return;
-      if (buf.type === "alternate") return;
-      if (historyTotalRef.current <= 0) return;
+      if (HISTORY_FETCH.disabled) return false;
+      if (historyFetchingRef.current) return false;
+      if (buf.type === "alternate") return false;
+      if (historyTotalRef.current <= 0) return false;
       // Skip when fewer than minFetchBytes remain — a few stray bytes (live output that landed
       // between fetches) aren't worth a full mirror reset+rewrite, which yanks the viewport.
-      if (historyTotalRef.current - historyBytesRef.current < HISTORY_FETCH.minFetchBytes) return;
+      if (historyTotalRef.current - historyBytesRef.current < HISTORY_FETCH.minFetchBytes) return false;
       const now = Date.now();
-      if (now - historyLastFetchRef.current < HISTORY_FETCH.guardMs) return;
-      // Only fetch when the user actively scrolled to top — viewportY is transiently 0 right
-      // after mount/write, so relying on it alone would fire a fetch on every F5.
-      if (!userAtTopRef.current) return;
-      if (buf.viewportY > HISTORY_FETCH.topThresholdLines) { userAtTopRef.current = false; return; }
-      if (!useConnectionStore.getState().connected) return;
+      if (!auto && now - historyLastFetchRef.current < HISTORY_FETCH.guardMs) return false;
+      // A gesture proves intent via userAtTopRef; the auto leg cannot (live output clears that
+      // flag on every chunk), so it re-checks the position instead — the chain only ever arms
+      // the continuation from a top that a gesture already reached.
+      const atTop = buf.viewportY <= HISTORY_FETCH.topThresholdLines;
+      if (!auto && !userAtTopRef.current) return false;
+      if (!atTop) { if (!auto) userAtTopRef.current = false; return false; }
+      if (!useConnectionStore.getState().connected) return false;
 
       historyFetchingRef.current = true;
       historyLastFetchRef.current = now;
@@ -500,8 +506,26 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
         if (!result.prefixLen) { historyFetchingRef.current = false; setHistoryFetching(false); }
         historyTotalRef.current = result.total || historyTotalRef.current;
       });
+      return true;
     };
-    scrollDisposeRef.current = term.onScroll(maybeFetchHistory);
+    const chain = createHistoryChain({
+      fetchOlder: fetchHistory,
+      isAtTop: () => (term.buffer.active.viewportY ?? 0) <= HISTORY_FETCH.topThresholdLines,
+      max: HISTORY_FETCH.chainMax,
+      delayMs: HISTORY_FETCH.chainDebounceMs
+    });
+    onPrefixSettledRef.current = () => chain.settled();
+
+    // onScroll is NOT a fetch trigger and NOT a chain closer. Both roles belong to the wheel /
+    // touch / key paths, which announce a real gesture; a replay scrolls the buffer itself, so
+    // anything driven off onScroll would let the replay hand the chain a fresh budget forever.
+    // All this keeps is the flag's other job: leaving the top retires the gesture.
+    const handleScroll = () => {
+      if ((term.buffer.active.viewportY ?? 0) > HISTORY_FETCH.topThresholdLines) userAtTopRef.current = false;
+    };
+    // Gesture entry, shared with the wheel/touch handlers — they set userAtTopRef first.
+    const maybeFetchHistory = () => chain.gesture();
+    scrollDisposeRef.current = term.onScroll(handleScroll);
     term.textarea?.addEventListener("keyup", maybeFetchHistory);
     maybeFetchHistoryRef.current = maybeFetchHistory;
 
@@ -615,7 +639,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       refs: {
         joiningRef, joinQueueRef, lastSeqRef, lastOutputAtRef, outputTotalRef,
         awaitingTuiOutputRef, userAtTopRef, historyFetchingRef, historyHaveAtEmitRef,
-        historyMirrorRef, historyBytesRef, prefixFragsRef
+        historyMirrorRef, historyBytesRef, prefixFragsRef, onPrefixSettledRef
       },
       setHistoryFetching
     });
@@ -662,6 +686,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
         prefixFrags: prefixFragsRef,
       });
       gapFetch.cancel();
+      chain.cancel();
       clearTimeout(peekDeadline); peekDeadline = null;
       peekInFlight = false; // an ack from the dead carrier never arrives — don't wedge recovery
       peekGen++;            // and if it does arrive late, it must not decide anything
@@ -710,6 +735,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       bus.off("output", handleOutput);
       bus.off("cwdChange", handleCwdChange);
       if (scrollDisposeRef.current) scrollDisposeRef.current.dispose();
+      onPrefixSettledRef.current = null;
       term.textarea?.removeEventListener("keyup", maybeFetchHistory);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);

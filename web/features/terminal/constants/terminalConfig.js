@@ -97,6 +97,10 @@ export const HISTORY_FETCH = {
   topThresholdLines: 5,    // within N lines of buffer top → fetch older prefix
   guardMs: 600,            // min interval between scroll-top fetches — short enough that deep scroll-up flows (2s made a 2MB buffer take ~30s to walk)
   minFetchBytes: 256,      // skip fetch when fewer bytes remain — a few stray ANSI bytes aren't worth a full mirror reset+rewrite that yanks the viewport
+  // A chunk can carry nothing but redraws — the reader is still parked at the top with no new
+  // ground above them. Continue on its own, bounded, so they don't have to keep tugging.
+  chainMax: 3,             // max self-continued fetches per scroll-to-top gesture
+  chainDebounceMs: 300,    // pause before a self-continued fetch — a repaint is not a gesture
   disabled: false          // global kill switch (e.g. alt-buffer apps)
 };
 
