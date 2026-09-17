@@ -24,6 +24,26 @@ test("tolerates whitespace around the equals sign", () => {
   assert.deepEqual(parseAnswered('"A" = "1"'), { A: "1" });
 });
 
+// The host writes the question back verbatim and does NOT escape quotes inside it, so
+// the key the regex sees is the tail after the last inner quote. Measured: 20 of 107
+// real answers look like this, and each one drew "Answered" with nothing under it.
+test("a question containing quotes still matches its answer", () => {
+  const q = '"Nhớ tab hiện tại theo workspace" là nhớ tab nào?';
+  const out = parseAnswered(`Your questions have been answered: "${q}"="Cả hai". You can now continue.`, [q]);
+  assert.deepEqual(out, { [q]: "Cả hai" });
+});
+
+test("two quoted questions keep their own answers, in order", () => {
+  const a = 'Bạn muốn "tạo agent" nghĩa là gì?';
+  const b = 'Nút copy "thông minh hơn" theo kiểu nào?';
+  const text = `Your questions have been answered: "${a}"="Ý 1", "${b}"="Ý 2".`;
+  assert.deepEqual(parseAnswered(text, [a, b]), { [a]: "Ý 1", [b]: "Ý 2" });
+});
+
+test("no questions given falls back to the raw pairs", () => {
+  assert.deepEqual(parseAnswered('"A"="1", "B"="2"'), { A: "1", B: "2" });
+});
+
 test("returns null when there is nothing to parse", () => {
   assert.equal(parseAnswered(""), null);
   assert.equal(parseAnswered("no pairs here"), null);

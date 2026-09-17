@@ -25,6 +25,13 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   // reported success for an answer that never arrived, and the question came back on the
   // next F5. Skip shares the flag: both are a reply in flight, and neither is an outcome.
   const [inFlight, setInFlight] = useState(false);
+  // The cursor in the free-text box is an answer in progress: focusing it arms the
+  // forward action, so Enter acts at once — including on an empty box — instead of
+  // doing nothing until a character lands. Sticky rather than cleared on blur: a
+  // mousedown on Submit blurs the box first, and a button that flips to disabled in
+  // that gap swallows the click (Safari never focuses a button on click, so
+  // `relatedTarget` cannot tell the two blurs apart either).
+  const [typing, setTyping] = useState(false);
   // One question on screen at a time: a 4-question gate rendered all at once covered
   // the whole transcript, and the user answered blind to the chat behind it.
   const [step, setStep] = useState(0);
@@ -49,7 +56,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   const current = questions[Math.min(step, questions.length - 1)];
   const isLast = step >= questions.length - 1;
   const answered = (q) => Boolean(selectedAnswers[q?.question]);
-  const canAdvance = answered(current);
+  const canAdvance = answered(current) || typing;
 
   // `answers` and `declined` are read through refs so this callback — and the key
   // listener that holds it — stay stable across renders.
@@ -147,7 +154,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   // record of a gate the user walked away from. Both are the HOST saying so — nothing
   // this card decided on its own. A card that painted either from local state reported
   // an outcome the CLI never received, and the question was back on the next reload.
-  const past = answers ? (typeof answers === "string" ? parseAnswered(answers) : answers) : null;
+  const past = answers ? (typeof answers === "string" ? parseAnswered(answers, questions.map((q) => q.question)) : answers) : null;
 
   if (declined) {
     return (
@@ -193,16 +200,18 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   const selectedList = current.multiSelect && currentAnswer ? currentAnswer.split(", ") : [currentAnswer];
 
   return (
-    // The surface tint of the permission card, NOT the green of the answered one: green
-    // here was the old tell that promised an answer the host had not taken yet. The card
-    // only turns green once the host's own record of the answer replaces it.
+    // Waiting, not answered: the tint is the warning family, never the green of the
+    // answered card — green was the old tell that promised an answer the host had not
+    // taken yet, and the card only turns green once the host's own record replaces it.
+    // A tinted ground rather than the plain surface: on a dark pane `bg-surface` (#171717
+    // over #0a0a0a) read as a black hole with a hairline around it.
     //
     // onPointerDown, not onClick: it lands before the option button's own click, so the pane
     // is active by the time the choice is applied — and it fires for a tap anywhere on the
     // card, including the empty strip between controls.
     <div
       onPointerDown={armPane}
-      className="my-2 p-3 rounded-brand-lg shadow-sm text-[13px] select-none border border-warning/30 bg-surface"
+      className="my-2 p-3 rounded-brand-lg shadow-sm text-[13px] select-none border border-warning/30 bg-warning/[0.06]"
     >
       {/* Same header grammar as AiPermissionCard/AiBlockedCard: icon, what this card is,
           and the tool's own badge. Without it the card opened on a bare sentence and read
@@ -268,6 +277,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
         type="text"
         value={otherText[current.question] || ""}
         disabled={inFlight}
+        onFocus={() => setTyping(true)}
         onChange={(e) => handleOther(current.question, e.target.value)}
         onKeyDown={(e) => {
           if (e.key !== "Enter") return;
