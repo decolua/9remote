@@ -58,10 +58,53 @@ export function listModelOptions() {
 }
 
 /**
+ * The model ids the host's own config names, when codex runs on a provider the host
+ * declared itself (top-level `model_provider` → a `[model_providers.*]` block). The
+ * CLI's catalog is OpenAI's and through such a gateway every one of its slugs 404s —
+ * the config's ids are the only picks that provider is known to answer. Null means
+ * the built-in provider is in play and the catalog applies.
+ */
+function configuredCodexModels() {
+  let text = "";
+  try {
+    text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
+  } catch {
+    return null;
+  }
+  // Sections in file order; the text before the first is the top level — the only part
+  // a plain `codex` run picks up (same rule as resolveDefaultModel).
+  const sections = text.split(/^\s*\[/m);
+  const top = sections[0] || "";
+  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(top)?.[1] || "";
+  if (!provider || !text.includes(`[model_providers.${provider}]`)) return null;
+
+  const ids = [];
+  const push = (id) => { if (id && !ids.includes(id)) ids.push(id); };
+  push(/^\s*model\s*=\s*"([^"]+)"/m.exec(top)?.[1]);
+  for (const section of sections.slice(1)) {
+    const header = (section.slice(0, section.indexOf("]")) || "").trim();
+    if (!/^profiles\.[^.\]]+$/.test(header)) continue;
+    // A profile naming another provider belongs to that one, not the one running.
+    const sectionProvider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(section)?.[1] || provider;
+    if (sectionProvider !== provider) continue;
+    push(/^\s*model\s*=\s*"([^"]+)"/m.exec(section)?.[1]);
+  }
+  // A provider with no model named anywhere falls back to the catalog — an empty
+  // picker is worse than one that lists the built-ins.
+  return ids.length > 0 ? ids : null;
+}
+
+/**
  * Models the host's codex CLI offers, each with the reasoning tiers it supports.
  * Hidden catalog entries (auto-review, oss) are dropped — they are not user picks.
  */
 export function listCodexModelOptions() {
+  const configured = configuredCodexModels();
+  if (configured) {
+    // No tiers: the catalog does not know a gateway id, and the composer already
+    // falls back to codex's own effort ladder for exactly that case.
+    return configured.map((id) => ({ id, label: id, short: id, desc: "Configured in ~/.codex/config.toml", efforts: [], defaultEffort: "" }));
+  }
   let res;
   try {
     res = spawnSync("codex", ["debug", "models"], {

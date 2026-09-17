@@ -1,7 +1,10 @@
 // Tests for the per-engine default model/effort lookup and the opencode catalog.
 // Run: node agent/test/aiModels.test.mjs
 import assert from "node:assert/strict";
-import { resolveDefaultModel, resolveDefaultEffort, listOpencodeModelOptions } from "../features/ai/models.js";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { resolveDefaultModel, resolveDefaultEffort, listCodexModelOptions, listOpencodeModelOptions } from "../features/ai/models.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -22,6 +25,18 @@ await test("codex default is a slug in codex's own catalog", () => {
   const id = resolveDefaultModel("codex");
   assert.equal(typeof id, "string");
   assert.ok(!id.includes(" "), `id must not be a display label: ${id}`);
+});
+
+// A host pointed at a provider it declared itself (`model_provider` → a
+// [model_providers.*] block) must not be offered OpenAI's catalog — those slugs 404
+// through the gateway. Only runs on a host so configured; the catalog is right otherwise.
+await test("a custom provider's options are the ids its own config names", () => {
+  const text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
+  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(text.split(/^\s*\[/m)[0] || "")?.[1];
+  if (!provider || !text.includes(`[model_providers.${provider}]`)) return;
+  const options = listCodexModelOptions();
+  assert.ok(options.length > 0);
+  for (const o of options) assert.ok(text.includes(`"${o.id}"`), o.id);
 });
 
 await test("opencode default is a provider/model id from its own catalog", () => {
