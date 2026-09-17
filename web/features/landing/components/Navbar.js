@@ -68,10 +68,17 @@ export default function Navbar() {
 
         <div className="hidden md:flex items-center gap-3">
           <ThemeToggle />
+          <a
+            href="#how-it-works"
+            className="px-4 py-2 rounded-lg font-semibold text-sm border transition-transform hover:scale-[1.03]"
+            style={{ background: THEME.bgPanel, borderColor: THEME.border, color: THEME.text }}
+          >
+            <span>Download Host</span>
+          </a>
           <Link
             href="/login"
             className="btn-cta px-5 py-2 rounded-lg font-semibold text-sm transition-transform hover:scale-[1.03]"
-            style={{ background: THEME.accent, color: "#FFF" }}
+            style={{ background: "var(--color-text)", color: "var(--color-bg)" }}
           >
             <span>Remote</span>
           </Link>
@@ -119,10 +126,18 @@ export default function Navbar() {
                 )}
               </a>
             ))}
+            <a
+              href="#how-it-works"
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-6 py-2 rounded-lg font-semibold text-sm text-center border"
+              style={{ background: THEME.bgPanel, borderColor: THEME.border, color: THEME.text }}
+            >
+              Download Host
+            </a>
             <Link
               href="/login"
               className="px-6 py-2 rounded-lg font-semibold text-sm text-center"
-              style={{ background: THEME.accent, color: "#FFF" }}
+              style={{ background: "var(--color-text)", color: "var(--color-bg)" }}
             >
               Remote
             </Link>

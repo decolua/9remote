@@ -84,13 +84,15 @@ const PRODUCTS = [
 ];
 
 function CheckIcon({ ok }) {
+  // Bright disc for yes, bare faint X for no — no way to mix the columns up
   return ok ? (
-    <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 mx-auto" fill="currentColor" viewBox="0 0 20 20" style={{ color: THEME.success }}>
-      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+    <svg className="w-4 h-4 sm:w-[18px] sm:h-[18px] mx-auto" viewBox="0 0 20 20" style={{ color: THEME.text }}>
+      <circle cx="10" cy="10" r="9" fill="currentColor" />
+      <path d="M6.5 10.5l2.5 2.5 4.5-5.5" fill="none" stroke="var(--color-bg)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
     </svg>
   ) : (
-    <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 mx-auto" fill="currentColor" viewBox="0 0 20 20" style={{ color: THEME.textMuted }}>
-      <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zM8.707 7.293a1 1 0 00-1.414 1.414L8.586 10l-1.293 1.293a1 1 0 101.414 1.414L10 11.414l1.293 1.293a1 1 0 001.414-1.414L11.414 10l1.293-1.293a1 1 0 00-1.414-1.414L10 8.586 8.707 7.293z" clipRule="evenodd" />
+    <svg className="w-3.5 h-3.5 sm:w-4 sm:h-4 mx-auto opacity-50" viewBox="0 0 20 20" style={{ color: THEME.textMuted }}>
+      <path d="M6 6l8 8m0-8l-8 8" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
     </svg>
   );
 }
@@ -120,25 +122,17 @@ export default function FeaturesSection() {
           {SUPERPOWERS.map((item, index) => (
             <div
               key={item.title}
-              className="group relative p-6 rounded-xl border flex flex-col justify-between transition-all duration-300 hover:-translate-y-1"
+              className="group relative p-6 rounded-xl border flex flex-col justify-between"
               style={{
                 background: THEME.bgElevated,
                 borderColor: THEME.border,
                 animation: `fadeInUp 0.4s ease-out ${index * 0.04}s both`
               }}
-              onMouseEnter={(e) => {
-                e.currentTarget.style.borderColor = THEME.borderStrong;
-                e.currentTarget.style.boxShadow = "0 20px 40px -20px rgba(255,255,255,0.08)";
-              }}
-              onMouseLeave={(e) => {
-                e.currentTarget.style.borderColor = THEME.border;
-                e.currentTarget.style.boxShadow = "none";
-              }}
             >
               <div>
                 <div className="flex items-center justify-between mb-4">
                   <div
-                    className="w-10 h-10 rounded-lg flex items-center justify-center transition-all duration-300 group-hover:scale-110"
+                    className="w-10 h-10 rounded-lg flex items-center justify-center"
                     style={{ background: THEME.bgPanel, color: THEME.text }}
                   >
                     <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -235,8 +229,9 @@ export default function FeaturesSection() {
               className="inline-flex items-center gap-2 px-4 py-2 rounded-full border text-xs sm:text-sm"
               style={{ background: THEME.bgPanel, borderColor: THEME.border }}
             >
-              <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20" style={{ color: THEME.success }}>
-                <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
+              <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 20 20" style={{ color: THEME.text }}>
+                <circle cx="10" cy="10" r="8" fill="currentColor" />
+                <path d="M6.5 10.5l2.5 2.5 4.5-5.5" fill="none" stroke="var(--color-bg)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
               <span className="font-semibold" style={{ color: THEME.text }}>
                 9Remote: Complete 19/19 capabilities · 100% self-hosted & private
