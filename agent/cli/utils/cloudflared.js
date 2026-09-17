@@ -452,17 +452,11 @@ function parseQuickTunnelUrl(message) {
 export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null) {
   const binaryPath = await ensureCloudflared();
 
-  // Clear any cloudflared left over from an earlier spawn or a hard agent restart.
-  // Uses the PID file, not the port: a cloudflared that never finished connecting
-  // has no ESTABLISHED socket, so the port lookup would miss exactly the orphans
-  // a timeout leaves behind. The stale process is a different PID than the one we
-  // are about to spawn, so its exit event can't be confused with ours.
-  const stalePid = readPid("cloudflared");
-  if (stalePid && isAlive(stalePid)) {
-    logger.info(`killing stale cloudflared pid=${stalePid}`);
-    killPid(stalePid);
-    clearPid("cloudflared");
-  }
+  // Sweep leftovers from a previous start. The pid file cannot do this job: it
+  // names at most one process, so anything an earlier instance left behind —
+  // including a tunnel of ours from days ago — is invisible to it. Runs on every
+  // start and every restart.
+  sweepStaleTunnels(binaryPath);
 
   if (onRestart) restartCallback = onRestart;
   currentRestartArg = localPort;
@@ -658,6 +652,67 @@ function killPid(pid) {
   } else {
     try { process.kill(pid, "SIGKILL"); } catch {}
   }
+}
+
+/** Parse `ps -eo pid=,args=` / PowerShell CSV rows into { pid, args }.
+ *  argv is kept whole (not split) so a path with spaces stays matchable by token. */
+export function parsePsOutput(out) {
+  if (!out) return [];
+  return out.split("\n").flatMap((line) => {
+    const m = line.match(/^\s*(\d+)\s+(.+)$/);
+    return m ? [{ pid: Number(m[1]), args: m[2].trim() }] : [];
+  });
+}
+
+/**
+ * PIDs of cloudflared processes launched from OUR managed binary with the
+ * `tunnel` subcommand. Both signals are required: pids.js forbids matching by
+ * image name because a user's own cloudflared (brew, a named tunnel for another
+ * service) is a different program that shares the name, and the `tunnel` token
+ * rejects a sibling binary that merely shares our path prefix.
+ */
+export function pickStalePids(procs, binaryPath) {
+  if (!Array.isArray(procs)) return [];
+  return procs
+    .filter((p) => {
+      if (!p?.args || typeof p.pid !== "number") return false;
+      const argv = p.args.split(/\s+/);
+      return argv.includes(binaryPath) && argv.includes("tunnel");
+    })
+    .map((p) => p.pid);
+}
+
+function listOurTunnelPids(binaryPath) {
+  try {
+    const out = IS_WINDOWS
+      ? execSync(
+        `powershell -NoProfile -Command "Get-CimInstance Win32_Process -Filter 'Name=\\'cloudflared.exe\\'' | ForEach-Object { \\"$($_.ProcessId) $($_.CommandLine)\\"" }"`,
+        { encoding: "utf8", windowsHide: true, stdio: ["ignore", "pipe", "ignore"] },
+      )
+      : execSync("ps -eo pid=,args=", { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return pickStalePids(parsePsOutput(out), binaryPath);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Kill cloudflared processes left behind by a previous 9remote start.
+ *
+ * The pid file alone cannot do this: a later instance overwrites it, orphaning
+ * the tunnel of the one before — whose edge connection still holds a
+ * trycloudflare slot, which is what starves the next start of quota. Sweeping by
+ * identity instead of by recorded pid also drops the pid-reuse hazard, where the
+ * recorded pid has been recycled onto an unrelated process.
+ */
+export function sweepStaleTunnels(binaryPath) {
+  const pids = listOurTunnelPids(binaryPath);
+  for (const pid of pids) {
+    if (pid === process.pid) continue;
+    logger.info(`killing leftover cloudflared pid=${pid}`);
+    killPid(pid);
+  }
+  return pids;
 }
 
 // Find cloudflared PIDs holding TCP to localhost:port — filtered by image name to avoid false positives
