@@ -16,6 +16,7 @@ export function claudeBin() {
 
 export const AI_SOCKET_EVENTS = {
   CREATE: "ai:create",
+  PEEK_SEQ: "ai:peekSeq",
   PROMPT: "ai:prompt",
   PERMISSION: "ai:permission",
   QUESTION: "ai:question",

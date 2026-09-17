@@ -769,6 +769,11 @@ export class AiSession {
   // (web/features/ai/lib/harnessTasks.js), and a second one here would be a second set of
   // rules for the same records — the drift that reader exists to prevent.
   //
+  // Each record carries `ageMs` — how long ago the LOG saw it, a duration and not a mark
+  // (same reason as turnState.elapsedMs: the two machines sit on different clocks). The
+  // harness states no start time for a task, so this is the only edge a strip can count
+  // from, and it survives an F5 because the log carries it.
+  //
   // Newest first, and bounded: this rides in the SAME frame as the replay window, and the
   // two together have one SCTP message to fit in. Measured across 218 real sessions the
   // pair peaked at 55.6KB under the 64KB cap, so the head is what would go over — and the
@@ -776,13 +781,15 @@ export class AiSession {
   taskRecords() {
     const out = [];
     let bytes = 0;
+    const now = Date.now();
     for (let i = this.history.length - 1; i >= 0; i--) {
       const ev = this.history[i];
       if (!isCarriedRecord(ev)) continue;
-      const size = JSON.stringify(ev.data).length;
+      const data = { ...ev.data, ageMs: now - (ev.timestamp || now) };
+      const size = JSON.stringify(data).length;
       if (bytes + size > AI_TASK_RECORDS_BYTES) break;
       bytes += size;
-      out.push(ev.data);
+      out.push(data);
     }
     return out.reverse();
   }
@@ -797,7 +804,12 @@ export class AiSession {
       // transcript file by byte, and a respawn that picked up another conversation would
       // otherwise read into the wrong one. Repeating the same id is the ordinary reattach
       // and must keep it — that is what lets the attachment read resume.
-      if (data?.sessionId && data.sessionId !== this.cliSessionId) this.attachmentOffset = null;
+      if (data?.sessionId && data.sessionId !== this.cliSessionId) {
+        this.attachmentOffset = null;
+        // The CLI's own name for the OLD conversation goes with it. Kept, the terminal
+        // tab would keep the last chat's title after a `/clear` or a resume.
+        this.threadTitle = "";
+      }
       if (data?.sessionId) this.cliSessionId = data.sessionId;
       // Only a real model id may be remembered: this value is handed back to the CLI
       // as `-m` when an adapter is rebuilt (a /clear, a restart). Adapters default
@@ -807,6 +819,10 @@ export class AiSession {
       // The thread id is what codex's goal RPC keys on, so it is only worth looking a
       // goal up once it is known — and it changes with a resume, so re-read on each init.
       if (this.engine === AI_ENGINES.CODEX && data?.threadId) this.refreshGoal(data.threadId);
+      // The server's own name for this thread, kept where `conversationTitle` looks. That
+      // reader can only see the rollout FILE — the first prompt — so a thread renamed with
+      // `/rename`, or in the CLI's TUI, kept its old name on the tab and in the pane.
+      if (data?.threadName) this.threadTitle = String(data.threadName).trim();
     }
     // A sub-agent's tool calls are nested under the Agent/Task card that spawned them,
     // so the live path would have to nest them on arrival anyway. Record and broadcast
@@ -815,6 +831,10 @@ export class AiSession {
     // whose child events still say tool_start simply drops them rather than floating
     // a sub-agent's internals loose on the timeline.
     data = capEvent(event, data);
+    // A log record carries how long ago it was logged, so the pane can put a task's clock
+    // on ITS own clock without the two machines ever comparing marks (see taskRecords).
+    // Live records are stamped as they pass, so theirs is zero by definition.
+    if (event === "cli_event" && CARRIED_CLI_SUBTYPES.has(data?.subtype)) data = { ...data, ageMs: 0 };
     // Stamped on the way out, so every writer that ends a turn (/clear, /resume, a rewind)
     // is covered without repeating the bookkeeping in each of them.
     const now = Date.now();
@@ -1176,6 +1196,24 @@ export class AiSession {
     }
 
     this.lastPrompt = prompt;
+    if (this.options.mock) {
+      this.isTurnRunning = true;
+      this.emitNormalized("user_message", { text: prompt, attachments: attachmentMeta(attachments) });
+      this.emitNormalized("delta", { text: `[Mock reply to: ${prompt}]` });
+      this.emitNormalized("turn_complete", { stats: {} });
+      return;
+    }
+    // The adapter's own busy-check FIRST. Accepting a prompt the engine then refused
+    // logged a `user_message` no turn would ever answer: the pane replayed it as a
+    // forever-running turn after the next F5, and Stop had nothing real to stop
+    // (session-1789642859582). Refused, nothing enters the log — the event carries the
+    // text back, so the pane can say what did not send instead of silently losing it.
+    try {
+      this.adapter?.sendPrompt(prompt, attachments);
+    } catch (err) {
+      this.emitNormalized("prompt_refused", { text: prompt, reason: String(err?.message || err) });
+      return;
+    }
     this.isTurnRunning = true;
     // A new prompt ends every gate the old turn left open. The user typing IS them moving
     // on, and the client cannot do this alone: it skips the card it can see, while the
@@ -1188,12 +1226,6 @@ export class AiSession {
     // The echoed message carries the attachment names so every client can render them
     // under the bubble — the base64 never rides the replay log.
     this.emitNormalized("user_message", { text: prompt, attachments: attachmentMeta(attachments) });
-    if (this.options.mock) {
-      this.emitNormalized("delta", { text: `[Mock reply to: ${prompt}]` });
-      this.emitNormalized("turn_complete", { stats: {} });
-      return;
-    }
-    this.adapter?.sendPrompt(prompt, attachments);
   }
 
   // Metadata carried in `init`, restored from disk so a cleared session still names its
@@ -1338,8 +1370,18 @@ export class AiSession {
     // The turn is what the user is stopping, and a control request keeps the CLI (and
     // its conversation) alive. A signal is only the fallback when it cannot be written.
     const sent = this.adapter?.interrupt?.();
-    if (!sent) this.adapter?.signal?.("SIGINT");
+    const signalled = sent ? false : this.adapter?.signal?.("SIGINT");
+    // An engine that could do NEITHER has not stopped anything, and saying it did is worse
+    // than saying nothing: the pane clears its turn flag, the next prompt queues behind a
+    // turn the CLI is still running, and the dot disagrees with the agent — the whole
+    // mismatch this event was supposed to prevent. Codex used to land here, because its
+    // adapter exposed no `interrupt` and no `signal` at all.
+    if (!sent && !signalled) {
+      this.emitNormalized("error", { message: `${this.engine} could not stop this turn — the CLI is still running.` });
+      return false;
+    }
     this.emitNormalized("stopped", {});
+    return true;
   }
 
   /**

@@ -10,7 +10,7 @@ import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, reso
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus } from "../terminal/terminalSocket.js";
-import { getConversation, getSessionAgent, setConversationId, getStatus, touchWorking } from "../terminal/statusManager.js";
+import { getConversation, getSessionAgent, setConversationId, getStatus, touchWorking, requestAutoName } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
 import { replayWindow } from "./aiEventSlice.js";
@@ -328,6 +328,16 @@ function mirrorAiConversation(sessionId, event, data, engine) {
   setConversationId(sessionId, getSessionAgent(sessionId) || engine, data.sessionId, "hook");
 }
 
+// The CLI named this conversation. Ask for a rename through the seam the terminal layer
+// already listens on — the tab is auto-named after its chat, and a chat renamed with
+// codex's `/rename` (or in the TUI) would otherwise keep its opening words forever. Only
+// `thread/name/updated` carries this; the transcript scan behind it can read nothing but
+// the rollout file's first prompt.
+function mirrorThreadName(sessionId, event, data) {
+  if (event !== "init" || !data?.threadName) return;
+  requestAutoName(sessionId);
+}
+
 export function setupAiHandlers(socket, io, manager = globalAiManager) {
   // 1. Forward events from AiManager to clients exactly ONCE via global broadcast
   if (io && !broadcastAttached) {
@@ -349,6 +359,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       const engine = manager.getSession(sessionId)?.engine || "claude";
       mirrorAiStatus(manager, sessionId, event, data, engine);
       mirrorAiConversation(sessionId, event, data, engine);
+      mirrorThreadName(sessionId, event, data);
     });
   }
 
@@ -532,6 +543,20 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       cb?.({ ok: true });
     } catch (err) {
       logger.error(`[ai] stopTask failed: ${err.message}`);
+      cb?.({ ok: false, error: err.message });
+    }
+  });
+
+  socket.on(AI_SOCKET_EVENTS.PEEK_SEQ, ({ sessionId } = {}, cb) => {
+    try {
+      const session = manager.getSession(sessionId);
+      if (!session) return cb?.({ ok: false, error: "not_found" });
+      cb?.({
+        ok: true,
+        seq: session.history.at(-1)?.seq ?? 0,
+        isTurnRunning: Boolean(session.isTurnRunning)
+      });
+    } catch (err) {
       cb?.({ ok: false, error: err.message });
     }
   });

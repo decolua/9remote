@@ -59,6 +59,7 @@ await test("setupAiHandlers registers all required socket events", () => {
   setupAiHandlers(socket, bus, manager);
 
   assert.ok(socket.handlers.has("ai:create"));
+  assert.ok(socket.handlers.has("ai:peekSeq"));
   assert.ok(socket.handlers.has("ai:prompt"));
   assert.ok(socket.handlers.has("ai:permission"));
   assert.ok(socket.handlers.has("ai:question"));
@@ -85,6 +86,14 @@ await test("ai:create socket message initializes session and returns metadata", 
   assert.equal(res.sessionId, "sock-s1");
   assert.equal(res.engine, "claude");
   assert.ok(manager.getSession("sock-s1"));
+
+  const peek = await socket.trigger("ai:peekSeq", { sessionId: "sock-s1" });
+  assert.equal(peek.ok, true);
+  assert.equal(typeof peek.seq, "number");
+  assert.equal(typeof peek.isTurnRunning, "boolean");
+
+  const peekMissing = await socket.trigger("ai:peekSeq", { sessionId: "non-existent" });
+  assert.equal(peekMissing.ok, false);
 });
 
 await test("ai:prompt socket message dispatches to engine", async () => {

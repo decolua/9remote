@@ -544,3 +544,54 @@ await test("an ordinary tool result is left exactly as it was", () => {
 });
 
 console.log(`\nAll tests passed: ${pass}/${pass}`);
+
+// ── a refused prompt must not become a phantom turn ──
+
+// Just enough of AiSession to drive sendPrompt on the REAL prototype: the constructor
+// would initAdapter (and spawn a CLI), which is not what this is about.
+function bareSession() {
+  const session = Object.create(AiSession.prototype);
+  session.id = `refuse-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  session.engine = "codex";
+  session.history = [];
+  session.seqCounter = 0;
+  session.isTurnRunning = false;
+  session.turnStartedAt = 0;
+  session.lastTurnMs = 0;
+  session.destroyed = false;
+  session.options = { mock: false };
+  session.persistTimer = null;
+  session._pullAttachments = () => {};
+  session.refreshGoal = () => {};
+  session.flushSaveSnapshot = () => {};
+  session.scheduleSaveSnapshot = () => {};
+  session.onEvent = () => {};
+  return session;
+}
+
+await test("a refused prompt leaves no phantom turn", () => {
+  // Measured on session-1789642859582: a prompt the engine refused (its turn was still
+  // running) had already been logged as `user_message` with isTurnRunning=true — a turn
+  // that never existed, replayed after every F5 as forever-running, with a Stop that had
+  // nothing to stop. The adapter's answer must come back before anything is recorded.
+  const s = bareSession();
+  const seen = [];
+  s.onEvent = (id, ev, data) => seen.push([ev, data]);
+  s.skipOpenGates = () => seen.push(["skip_gates"]);
+  s.adapter = { sendPrompt: () => { throw new Error("Codex turn is already running."); } };
+
+  s.sendPrompt("bạn khỏe ko", null);
+  assert.deepEqual(seen.map(([e]) => e), ["prompt_refused"], "the refusal is the only thing that happens");
+  assert.equal(seen[0][1].text, "bạn khỏe ko", "the text rides the refusal, so the pane can show it");
+  assert.match(seen[0][1].reason, /already running/);
+  assert.equal(s.isTurnRunning, false, "no phantom running turn");
+  assert.ok(!s.history.some((h) => h.event === "user_message"), "the refused text never enters the log as a turn");
+  assert.equal(s.history.filter((h) => h.event === "prompt_refused").length, 1, "the refusal itself is kept, for the replay");
+
+  // And the accepted path is unchanged: one prompt, one turn.
+  const before = s.history.length;
+  s.adapter = { sendPrompt: () => {} };
+  s.sendPrompt("next", null);
+  assert.equal(s.isTurnRunning, true);
+  assert.ok(s.history.slice(before).some((h) => h.event === "user_message"));
+});

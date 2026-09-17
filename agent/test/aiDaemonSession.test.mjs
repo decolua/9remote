@@ -255,7 +255,34 @@ test("Stop interrupts the turn instead of killing the CLI process", () => {
   assert.match(ADAPTER, /subtype: "interrupt", cancel_queued: true/);
   // SIGINT is only the fallback when the control request could not be written
   assert.match(SESSION, /const sent = this\.adapter\?\.interrupt\?\.\(\);/);
-  assert.match(SESSION, /if \(!sent\) this\.adapter\?\.signal\?\.\("SIGINT"\);/);
+  assert.match(SESSION, /const signalled = sent \? false : this\.adapter\?\.signal\?\.\("SIGINT"\);/);
+  // ...and when neither went out, the host says so instead of reporting a stop it did not
+  // make. `stopped` is what the pane reads to clear its turn flag, so emitting it over an
+  // engine that could not be interrupted left both ends disagreeing about whether a turn
+  // was running — codex and opencode landed here, exposing neither method.
+  assert.match(SESSION, /if \(!sent && !signalled\) \{/);
+  assert.match(SESSION, /could not stop this turn — the CLI is still running\./);
+});
+
+test("every engine's adapter can actually end a turn", () => {
+  // A missing `interrupt` is not a no-op: `AiSession.stop` calls it through optional
+  // chaining, so the call silently does nothing while the host still reports the turn
+  // stopped. Each engine needs its own way to end ONE turn — the app-server ends it on the
+  // thread, a per-turn engine ends the process that IS the turn.
+  for (const file of ["claudeAdapter", "codexAdapter", "opencodeAdapter", "antigravityAdapter"]) {
+    const src = fs.readFileSync(path.join(root, `agent/features/ai/adapters/${file}.js`), "utf8");
+    assert.match(src, /\n  interrupt\(\) \{/, `${file} must expose interrupt()`);
+    assert.match(src, /\n  signal\(sig/, `${file} must expose signal()`);
+  }
+  // Codex's runs on the server's own RPC, which needs BOTH the thread and the open turn
+  // (`TurnInterruptParams = { threadId, turnId }`). A thread with no turn has nothing to
+  // end, and answering `true` there would be the same lie in a new place.
+  const CODEX = fs.readFileSync(path.join(root, "agent/features/ai/adapters/codexAdapter.js"), "utf8");
+  const SERVER = fs.readFileSync(path.join(root, "agent/features/ai/proc/codexAppServer.js"), "utf8");
+  assert.match(SERVER, /if \(!this\.threadId \|\| !this\.turnId \|\| this\.closed\) return false;/);
+  assert.match(SERVER, /\{ threadId: this\.threadId, turnId: this\.turnId \}/);
+  // The adapter reports the server's answer rather than assuming one.
+  assert.match(CODEX, /return Boolean\(this\.appServer\?\.interrupt\(\)\);/);
 });
 
 test("/clear mid-turn stops the turn and resets, instead of stranding an empty pane", () => {
