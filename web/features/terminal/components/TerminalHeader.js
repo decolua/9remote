@@ -31,10 +31,11 @@ import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 // conversation between surfaces through its daemon, which speaks Claude's stream
 // protocol alone. ponytail: add codex/opencode here once their streams move there too.
 const UI_SWITCHABLE_ENGINES = new Set(["claude"]);
-const isChatEngine = (agentId) => !!agentId && UI_SWITCHABLE_ENGINES.has(agentId.endsWith("-ui") ? agentId.slice(0, -3) : agentId);
 // A turn in flight owns the conversation: the host would have to move it out from under
 // a running CLI. Only a settled terminal (idle, or a finished turn) may switch.
-const SWITCHABLE_STATES = new Set(["idle", "done"]);
+export const SWITCHABLE_STATES = new Set(["idle", "done"]);
+
+export const isChatEngine = (agentId) => !!agentId && UI_SWITCHABLE_ENGINES.has(agentId.endsWith("-ui") ? agentId.slice(0, -3) : agentId);
 
 function TerminalHeader({
   sessions = [],
@@ -603,6 +604,7 @@ function TerminalHeader({
         <SessionBackgroundModal
           sessionId={tabBgSessionId}
           title={sessions.find((s) => s.id === tabBgSessionId)?.name}
+          busRef={busRef}
           onClose={() => setTabBgSessionId(null)}
         />
       )}

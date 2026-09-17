@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check, Image as ImageIcon } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
@@ -26,6 +26,8 @@ import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
+import { isChatEngine, SWITCHABLE_STATES } from "./TerminalHeader";
+import SessionBackgroundModal from "./SessionBackgroundModal";
 
 // Inside the Tauri shell or on loopback agent, the sidebar's brand row
 // becomes a back-to-dashboard button instead (standalone web keeps the brand).
@@ -184,6 +186,16 @@ function TerminalSidebar({
   const [ctxMenu, setCtxMenu] = useState(null); // { sessionId, x, y }
   const ctxRef = useRef(null);
   const ctxPos = useClampedMenu(ctxRef, ctxMenu?.left ?? 0, ctxMenu?.top ?? 0);
+
+  // Per-session background picker, opened from the context menu
+  const [bgSessionId, setBgSessionId] = useState(null);
+
+  // The switch door: which surface this terminal is on, and whether the host may be
+  // asked to move it right now (same rule as the tab menu).
+  const ctxAsUi = agentBySession[ctxMenu?.sessionId]?.endsWith("-ui");
+  const ctxConversationId = sessionStatus[ctxMenu?.sessionId]?.conversationId;
+  const ctxSwitchable = isChatEngine(agentBySession[ctxMenu?.sessionId]) && !!ctxConversationId;
+  const ctxSwitchReady = ctxSwitchable && SWITCHABLE_STATES.has(sessionStatus[ctxMenu?.sessionId]?.state || "idle");
 
   // Rename prompt (shared modal — same UX as tab header and session list)
   const [renameDialog, setRenameDialog] = useState({ sessionId: null, name: "", value: "" });
@@ -543,6 +555,18 @@ function TerminalSidebar({
           >
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
+          {/* Per-session background, same door as the tab menu */}
+          <button
+            onClick={() => {
+              vibrate();
+              const id = ctxMenu.sessionId;
+              setBgSessionId(id);
+              setCtxMenu(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+          >
+            <ImageIcon size={13} className="flex-shrink-0" /> {t("menu.terminalBackground")}
+          </button>
           {/* Only a yellow terminal has something to mark read; typing/giving it a prompt
               does the same thing, this is the explicit door. */}
           {sessionStatus[ctxMenu.sessionId]?.state === "done" && (
@@ -576,6 +600,28 @@ function TerminalSidebar({
               <RotateCw size={13} /> {t("sessions.resumeSession")}
             </button>
           )}
+          {/* Swap this terminal between the chat UI and the agent CLI — the host owns the
+              switch, so the door is only lit on a settled terminal, never mid-turn. */}
+          {ctxSwitchable && (
+            <button
+              disabled={!ctxSwitchReady}
+              onClick={() => {
+                vibrate();
+                const id = ctxMenu.sessionId;
+                busRef?.current?.emit(
+                  "setSessionMode",
+                  { sessionId: id, mode: ctxAsUi ? "terminal" : "ui" },
+                  (res) => { if (!res?.success) alert(res?.error || t("sessions.modeSwitchFailed")); }
+                );
+                setCtxMenu(null);
+              }}
+              className={`w-full text-left px-2.5 py-1.5 text-xs rounded-[6px] flex items-center gap-2 ${
+                ctxSwitchReady ? "text-text hover:bg-surface-2/80" : "text-text-subtle cursor-not-allowed"
+              }`}
+            >
+              <Sparkles size={13} /> {ctxAsUi ? t("sessions.openAsTerminal") : t("sessions.openAsUi")}
+            </button>
+          )}
 
           <div className="h-px bg-border-subtle my-1" />
           <button
@@ -585,6 +631,16 @@ function TerminalSidebar({
             <Trash2 size={13} /> {t("sessions.deleteTitle")}
           </button>
         </div>
+      )}
+
+      {/* Per-session background picker */}
+      {bgSessionId && (
+        <SessionBackgroundModal
+          sessionId={bgSessionId}
+          title={sessionById(bgSessionId)?.name}
+          busRef={busRef}
+          onClose={() => setBgSessionId(null)}
+        />
       )}
 
       {/* Rename prompt (shared modal) */}
