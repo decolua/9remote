@@ -4,8 +4,10 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
-import { X, ImageOff } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
+import { X, ImageOff, Loader2, Plus } from "@/shared/components/ui/Icon";
 import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, TERMINAL_BG_PREVIEW_ALPHA, resolvableBackgroundKeys } from "@/features/terminal/constants/terminalConfig";
+import useBackgroundPicker from "@/features/terminal/hooks/useBackgroundPicker";
 
 const NONE_KEY = "none";
 
@@ -14,7 +16,7 @@ const NONE_KEY = "none";
 // the pane's real veil is nearly opaque, which would make every thumbnail read as black.
 // "Apply to all" flips the grid into the pool multi-select the settings sheet uses,
 // so one terminal can push its wallpaper to every pane in the workspace.
-export default function SessionBackgroundModal({ sessionId, title, onClose }) {
+export default function SessionBackgroundModal({ sessionId, title, onClose, busRef }) {
   const { t } = useI18n();
   const current = useTerminalStore((s) => s.backgroundBySession[sessionId]);
   const setSessionBackground = useTerminalStore((s) => s.setSessionBackground);
@@ -24,6 +26,7 @@ export default function SessionBackgroundModal({ sessionId, title, onClose }) {
   const setTerminalBackgroundOpacity = useTerminalStore((s) => s.setTerminalBackgroundOpacity);
   const opacity = useTerminalStore((s) => s.terminalBackgroundOpacity) ?? TERMINAL_BG_ALPHA;
   const [applyAll, setApplyAll] = useState(false);
+  const { saving, error, fileInput, openPicker } = useBackgroundPicker(busRef);
 
   if (typeof document === "undefined") return null;
 
@@ -43,9 +46,13 @@ export default function SessionBackgroundModal({ sessionId, title, onClose }) {
   };
 
   const selected = current ?? null;
+  // None leads (it drops the override), own uploads next, presets scroll under them
   const tiles = [
-    ...Object.entries(TERMINAL_BACKGROUNDS).map(([key, preset]) => ({ key, label: preset.label, src: preset.src })),
-    ...customBackgrounds.map((it) => ({ key: `custom:${it.id}`, label: t("menu.bgCustomLabel"), src: it.dataUrl }))
+    { key: NONE_KEY, label: TERMINAL_BACKGROUNDS.none.label },
+    ...customBackgrounds.map((it) => ({ key: `custom:${it.id}`, label: t("menu.bgCustomLabel"), src: it.dataUrl })),
+    ...Object.entries(TERMINAL_BACKGROUNDS)
+      .filter(([key]) => key !== NONE_KEY)
+      .map(([key, preset]) => ({ key, label: preset.label, src: preset.src }))
   ];
 
   const renderTile = ({ key, label, src }) => {
@@ -142,16 +149,38 @@ export default function SessionBackgroundModal({ sessionId, title, onClose }) {
           <span className="text-xs text-text-muted tabular-nums flex-shrink-0">{Math.round(opacity * 100)}%</span>
         </div>
 
-        <label className="flex-shrink-0 border-t border-border-subtle px-4 py-3 flex items-center gap-2.5 cursor-pointer">
-          <input
-            type="checkbox"
-            checked={applyAll}
-            onChange={(e) => setApplyAll(e.target.checked)}
-            className="accent-brand-500 w-3.5 h-3.5 flex-shrink-0"
-          />
-          <span className="text-xs text-text">{t("menu.bgApplyAll")}</span>
-        </label>
+        <div className="flex-shrink-0 border-t border-border-subtle px-4 py-2.5 flex items-center gap-3">
+          <label className="flex items-center gap-2.5 cursor-pointer min-w-0">
+            <input
+              type="checkbox"
+              checked={applyAll}
+              onChange={(e) => setApplyAll(e.target.checked)}
+              className="accent-brand-500 w-3.5 h-3.5 flex-shrink-0"
+            />
+            <span className="text-xs text-text truncate">{t("menu.bgApplyAll")}</span>
+          </label>
+          <div className="flex-1" />
+          {/* Same door as the settings sheet: save an image from the device, which lands
+              in the shared list and joins the pool */}
+          <button
+            type="button"
+            onClick={openPicker}
+            disabled={saving}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-brand border border-border-subtle text-xs text-text-muted hover:text-brand-500 hover:border-brand-500 transition-colors disabled:opacity-40 flex-shrink-0"
+          >
+            {saving ? <Loader2 size={13} className="animate-spin" /> : <Plus size={13} />}
+            {t("menu.bgAdd")}
+          </button>
+        </div>
+
+        {error && (
+          <div className="flex-shrink-0 px-4 pb-3">
+            <div className="px-3 py-2 rounded-brand bg-red-500/10 border border-red-500/30 text-red-500 text-xs break-all">{error}</div>
+          </div>
+        )}
       </div>
+
+      {fileInput}
     </div>,
     document.body
   );

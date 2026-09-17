@@ -231,6 +231,8 @@ export function backgroundLabel(bgKey) {
 
 // An old agent never acks bg:list — fall back to legacy bg:get after this.
 export const BG_LIST_TIMEOUT_MS = 4000;
+// Old agents have no bg:save handler either — the ack never fires, so time it out.
+export const BG_SAVE_TIMEOUT_MS = 20000;
 
 // Pane i in display order renders pool[i % len] — empty pool means no background.
 export function paneBackgroundKey(keys, index) {

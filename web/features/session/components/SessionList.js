@@ -294,6 +294,7 @@ export default function SessionList({
         <SessionBackgroundModal
           sessionId={bgTarget.id}
           title={bgTarget.name}
+          busRef={busRef}
           onClose={() => setBgTarget(null)}
         />
       )}

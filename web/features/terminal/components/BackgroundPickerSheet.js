@@ -1,16 +1,13 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { createPortal } from "react-dom";
 import { X, ImageOff, Loader2, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { TERMINAL_BACKGROUNDS, TERMINAL_BG_ALPHA, TERMINAL_BG_OPACITY, TERMINAL_BG_PREVIEW_ALPHA, resolvableBackgroundKeys, DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
-import { fileToScaledDataUrl } from "@/features/terminal/lib/backgroundImage";
-
-// Old agents have no bg:save handler — the ack never fires, so time the request out.
-const SAVE_TIMEOUT_MS = 20000;
+import useBackgroundPicker from "@/features/terminal/hooks/useBackgroundPicker";
 
 // Wallpaper-style picker sheet for the mobile terminal background. Tiles are
 // multi-select: the ordered pool round-robins across panes by display index
@@ -22,13 +19,11 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const setTerminalBackgroundOpacity = useTerminalStore((s) => s.setTerminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
+  const { saving, error, setError, fileInput, openPicker } = useBackgroundPicker(busRef);
 
-  const [saving, setSaving] = useState(false);
-  const [error, setError] = useState("");
   // Desktop gets the centered dialog; the drawer sheet stays for phones. Seeded
   // from the window so the first open doesn't flash a full-width sheet.
   const [isDesktop, setIsDesktop] = useState(() => typeof window !== "undefined" && window.innerWidth >= DESKTOP_BREAKPOINT);
-  const fileInputRef = useRef(null);
 
   useEffect(() => {
     const check = () => setIsDesktop(window.innerWidth >= DESKTOP_BREAKPOINT);
@@ -45,7 +40,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [isOpen, onClose]);
+  }, [isOpen, onClose, setError]);
 
   // Error clears on close, not on open — a sync setState in the open effect
   // would trip cascading-render lint and re-render the sheet needlessly.
@@ -62,29 +57,6 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
 
   // Send the picked image to the agent — it compresses/stores, then we add the
   // returned item to the list and select it at the end of the pool.
-  const saveBackground = (dataUrl) => {
-    const bus = busRef?.current;
-    if (!bus?.emit) { setError(t("menu.bgSaveFailed")); return; }
-    setSaving(true);
-    setError("");
-    let done = false;
-    const finish = (fn) => { if (done) return; done = true; clearTimeout(timer); setSaving(false); fn(); };
-    const timer = setTimeout(() => finish(() => setError(t("menu.bgSaveFailed"))), SAVE_TIMEOUT_MS);
-    bus.emit("bg:save", { dataUrl }, (res) => {
-      finish(() => {
-        if (res?.success && res.id && res.dataUrl) {
-          const key = `custom:${res.id}`;
-          const { customBackgrounds: list, setCustomBackgrounds, terminalBackgrounds: keys, setTerminalBackgrounds: setKeys } = useTerminalStore.getState();
-          setCustomBackgrounds([...list, { id: res.id, dataUrl: res.dataUrl }]);
-          if (!keys.includes(key)) setKeys([...keys, key]);
-          vibrate();
-        } else {
-          setError(res?.error || t("menu.bgSaveFailed"));
-        }
-      });
-    });
-  };
-
   const deleteBackground = (id) => {
     vibrate();
     const bus = busRef?.current;
@@ -96,22 +68,6 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
       setCustomBackgrounds(list.filter((it) => it.id !== id));
       setKeys(keys.filter((k) => k !== key));
     });
-  };
-
-  const handlePickFile = async (e) => {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || saving) return;
-    try {
-      saveBackground(await fileToScaledDataUrl(file));
-    } catch {
-      setError(t("menu.bgSaveFailed"));
-    }
-  };
-
-  const openPicker = () => {
-    vibrate();
-    if (!saving) fileInputRef.current?.click();
   };
 
   if (!inline && !isOpen) return null;
@@ -170,8 +126,6 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
       </button>
     );
   };
-
-  const fileInput = <input ref={fileInputRef} type="file" accept="image/*" className="hidden" onChange={handlePickFile} />;
 
   const grid = (
     <div className={inline || isDesktop ? "grid grid-cols-3 gap-3" : "grid grid-cols-2 gap-3"}>
