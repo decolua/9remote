@@ -11,7 +11,13 @@
 //
 // `cost-state` is deliberately NOT read, and there is a test for that below.
 //
-// Run: node agent/test/claudeSessionState.test.mjs
+// Run: cd web && node --import ./test/loader-alias.mjs ../agent/test/claudeSessionState.test.mjs
+//
+// FROM web/, not from the repo root: three of these cases read `noticeFrom` out of
+// web/features/ai/lib, and that module's own imports are extensionless (the project
+// convention, resolved by the webpack bundler). Node needs the alias loader to follow
+// them — running this file with a bare `node` reported three failures that were really
+// "Cannot find module ./liveStatus", not anything about the session state under test.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";

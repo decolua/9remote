@@ -27,6 +27,15 @@ test("the vite dev server is allowed", () => {
   assert.equal(isAllowedOrigin(VITE), true);
 });
 
+test("the Next dev server's port is allowed too — it is another local UI", () => {
+  // `npm run web:dev` serves the web app on 3000 and its page talks to the agent on
+  // 2208, so that origin belongs on the list. This was asserted the OTHER way until the
+  // dev-server commit added the port and left the test behind — a red suite for a rule
+  // that had deliberately changed.
+  assert.equal(isAllowedOrigin("http://localhost:3000"), true);
+  assert.equal(isAllowedOrigin("http://127.0.0.1:3000"), true);
+});
+
 test("a request with no Origin is allowed", () => {
   // Node has no Origin: the CLI polls /api/health and /api/ui/state, and
   // hookManager posts to /api/notify. Refusing these would break the agent's
@@ -58,7 +67,6 @@ test("a lookalike host is refused", () => {
 
 test("another port on localhost is refused", () => {
   // A dev server the user is running is still not the agent UI.
-  assert.equal(isAllowedOrigin("http://localhost:3000"), false);
   assert.equal(isAllowedOrigin("http://127.0.0.1:8080"), false);
 });
 
