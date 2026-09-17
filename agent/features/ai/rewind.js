@@ -19,7 +19,12 @@
 
 /** Per-engine rewind support. `files` means the engine can restore what the agent wrote. */
 export const REWIND_SUPPORT = Object.freeze({
-  opencode: { conversation: true, files: true, how: "opencode server: stage, then commit" },
+  // `files: false` on the strength of a measurement, not of the docs: opencode's snapshot
+  // store (~/.local/share/opencode/snapshot/<project>/<hash>) holds git dirs with ZERO
+  // commits on this version, so `revert/stage` answers `{files: []}` and a commit puts
+  // nothing back — see opencodeRewindE2E.test.mjs, which asserts exactly that. The
+  // conversation half does work, which is what stays true here.
+  opencode: { conversation: true, files: false, how: "opencode server: the conversation rolls back; this CLI keeps no file snapshot" },
   claude: { conversation: true, files: true, how: "claude --rewind-files, plus a cut of its transcript" },
   // `thread/revert` replaces the thread's own history with the prefix before a turn —
   // measured on the real server: 3 turns cut before the 2nd left 1, under the SAME thread

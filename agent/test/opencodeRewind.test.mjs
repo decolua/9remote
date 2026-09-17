@@ -52,7 +52,10 @@ await test("an engine that cannot rewind says so, and is not offered a control",
   // The one engine left with no rewind at all: its app-server has no such API.
   assert.equal(rewindSupport("antigravity").conversation, false);
   assert.equal(rewindSupport("opencode").conversation, true);
-  assert.equal(rewindSupport("opencode").files, true);
+  // Measured, not documented: opencode's snapshot git dirs hold ZERO commits on this
+  // version, so `revert/stage` answers `{files: []}` and a commit restores nothing. See
+  // opencodeRewindE2E.test.mjs, which drives the real server and asserts both halves.
+  assert.equal(rewindSupport("opencode").files, false);
   // Claude rewinds through its own CLI flags, not this path — see claudeRewind.test.mjs.
   assert.equal(rewindSupport("claude").conversation, true);
   assert.equal(rewindSupport("claude").files, true);

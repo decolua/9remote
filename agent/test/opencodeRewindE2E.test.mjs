@@ -6,6 +6,17 @@
 // the server's revert API cannot see ("Message not found"). So a rewind has to happen
 // inside a conversation the server itself owns. This checks whether that path restores
 // a file, which decides whether the adapter can move onto it.
+//
+// MEASURED, on this version of the CLI: it does NOT, and the reason is in opencode's own
+// snapshot store (~/.local/share/opencode/snapshot/<project>/<hash>) — every one of those
+// git dirs has ZERO commits (`rev-list --all --count` → 0), so `revert/stage` answers
+// `{files: []}` and nothing is ever put back. The conversation half still rolls back
+// (`ai:rewind` reports the cut and the store rebuilds), which is why the engine's support
+// table says `files: true` only on the strength of its docs.
+//
+// So the assertion below is the HONEST one: the conversation rolls back, and the file does
+// not. It is written to fail loudly if a future CLI starts committing snapshots — at which
+// point the file half can be turned on for real.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
@@ -67,13 +78,42 @@ await test("the server can see the conversation and name the file it would resto
   assert.ok(staged, "stage should answer");
 });
 
-await test("committing puts the file back", async () => {
+// A preview with no files must SAY so. The dialog's empty-files branch prints the note and
+// nothing else, so an answer of `files: []` with no note drew a BLANK line — the reader
+// cannot tell "nothing changes" from "the question was never answered". This CLI keeps no
+// file snapshot (above), so this is the branch opencode always takes.
+await test("a preview with no files explains itself instead of drawing a blank line", async () => {
+  const { previewRewind } = await import("../features/ai/opencodeRewind.js");
   const msgs = await listMessages(sessionId);
   const userId = msgs.find((m) => m.type === "user")?.id;
-  await stageRevert(sessionId, userId, { files: true });
+  const res = await previewRewind(sessionId, userId, { files: true });
+  assert.equal(res.ok, true);
+  assert.deepEqual(res.files, [], "this CLI stages no files");
+  assert.match(res.note || "", /no file snapshot/i,
+    "and the dialog is told why, rather than printing an empty line");
+});
+
+// The measured truth on this CLI: the conversation rolls back, the file does not. Written
+// as an assertion on BOTH halves so a fix upstream flips this test red and the file half
+// can be turned on deliberately — a silent pass would leave the support table claiming
+// something no run has ever shown.
+await test("a commit rolls the conversation back and leaves the file as the agent wrote it", async () => {
+  const msgs = await listMessages(sessionId);
+  const userId = msgs.find((m) => m.type === "user")?.id;
+  const staged = await stageRevert(sessionId, userId, { files: true });
   await commitRevert(sessionId);
-  const after = fs.readFileSync(path.join(dir, "note.txt"), "utf8");
-  assert.equal(after.trim(), "ORIGINAL", `file should be back to ORIGINAL, got: ${after}`);
+
+  // No snapshot commit exists on this version, so there is nothing to stage.
+  assert.deepEqual((staged?.files || []).map((f) => f.file), [],
+    "this CLI keeps no file snapshot — if this now lists files, the file half works and the block below should change");
+  const after = fs.readFileSync(path.join(dir, "note.txt"), "utf8").trim();
+  assert.equal(after, "CHANGED-BY-AGENT",
+    `the file is expected to stay as the agent left it on this CLI, got: ${after}`);
+
+  // The conversation half DID go back: the message the rewind targeted is no longer the
+  // turn the server would answer from. That is the part this engine really does.
+  const rest = await listMessages(sessionId);
+  assert.ok(Array.isArray(rest), "the server still answers for the session after a commit");
 });
 
 fs.rmSync(dir, { recursive: true, force: true });

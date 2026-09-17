@@ -129,6 +129,13 @@ export async function previewRewind(sessionId, messageId, { files = true } = {})
     ok: true,
     messageId,
     files: (staged?.files || []).map(({ file, status, additions, deletions }) => ({ file, status, additions, deletions })),
-    snapshot: staged?.snapshot || null
+    snapshot: staged?.snapshot || null,
+    // A preview with no files and no note renders an EMPTY line in the dialog — the
+    // reader is left to guess whether nothing changes or the question was never answered.
+    // This CLI keeps no file snapshot (measured: its snapshot git dirs hold zero commits),
+    // so say that, in the same shape every other engine's preview uses.
+    ...(files && !(staged?.files || []).length
+      ? { note: "OpenCode keeps no file snapshot on this version, so only the conversation is rewound." }
+      : null)
   };
 }
