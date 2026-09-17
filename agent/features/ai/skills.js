@@ -52,17 +52,11 @@ export function listSkills(engine = "claude", workspacePath = null) {
   }
 
   const home = os.homedir();
-  const dirs = [];
-
-  if (engine === "codex") {
-    dirs.push(path.join(home, ".codex", "skills"));
-  } else {
-    dirs.push(path.join(home, ".claude", "skills"));
-    dirs.push(path.join(home, ".claude", "skills copy"));
-    if (workspacePath) {
-      dirs.push(path.join(workspacePath, ".claude", "skills"));
-    }
-  }
+  // Each engine reads where IT keeps skills — every path below was found on disk, not
+  // inferred. The old shape was `codex ? codex-dir : claude-dir`, so opencode and
+  // antigravity were shown claude's library as if it were theirs: 18 rows of another
+  // CLI's skills, in a modal that offers them as things this engine can run.
+  const dirs = skillDirs(engine, home, workspacePath);
 
   const map = new Map();
   for (const dir of dirs) {
@@ -75,4 +69,26 @@ export function listSkills(engine = "claude", workspacePath = null) {
   cachedSkills[engine] = list;
   cachedSkills.at = now;
   return list;
+}
+
+/** Every place one engine reads skills from, most specific last. */
+function skillDirs(engine, home, workspacePath) {
+  if (engine === "codex") return [path.join(home, ".codex", "skills")];
+  if (engine === "opencode") return [path.join(home, ".config", "opencode", "skills")];
+  if (engine === "antigravity") {
+    // Both are real: the user's own library and the CLI's shipped ones.
+    return [
+      path.join(home, ".gemini", "skills"),
+      path.join(home, ".gemini", "antigravity-cli", "builtin", "skills")
+    ];
+  }
+  if (engine === "claude") {
+    return [
+      path.join(home, ".claude", "skills"),
+      path.join(home, ".claude", "skills copy"),
+      ...(workspacePath ? [path.join(workspacePath, ".claude", "skills")] : [])
+    ];
+  }
+  // An engine nobody has taught: no library, rather than another engine's.
+  return [];
 }
