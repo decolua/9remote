@@ -42,8 +42,15 @@ const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "9r-rewind-"));
 console.log("Running opencode rewind tests...");
 
 await test("an engine that cannot rewind says so, and is not offered a control", async () => {
-  assert.equal(rewindSupport("codex").conversation, false);
+  // Codex moved: `thread/revert` replaces a thread's own history with the prefix before a
+  // turn, keeping the same id — measured on the real app-server (codexAppServerE2E). Its
+  // FILE half stays false, and not as a gap in this table: codex's protocol says the
+  // client owns file changes and it keeps no checkpoint to restore from.
+  assert.equal(rewindSupport("codex").conversation, true);
+  assert.equal(rewindSupport("codex").files, false);
   assert.equal(rewindSupport("antigravity").files, false);
+  // The one engine left with no rewind at all: its app-server has no such API.
+  assert.equal(rewindSupport("antigravity").conversation, false);
   assert.equal(rewindSupport("opencode").conversation, true);
   assert.equal(rewindSupport("opencode").files, true);
   // Claude rewinds through its own CLI flags, not this path — see claudeRewind.test.mjs.

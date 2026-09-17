@@ -134,6 +134,31 @@ const LIVE_ONLY_CLI_SUBTYPES = new Set([
   "control_response"
 ]);
 
+// The same rule for codex's own records, which are spelled as a method rather than a
+// subtype. Every one of these is emitted per CHUNK or per event-loop beat, and codex
+// writes none of them to its rollout — measured on 491 real rollouts on this machine:
+// zero `rawResponse*`, and the ones it does keep (`task_started`, `error`, a name change)
+// are deliberately NOT in this list. Carried, they were 25 records and 9.7KB for ONE
+// short turn against a 32KB replay window, which is how a window ends up holding nothing
+// a person wrote — the failure the Claude side already paid for once.
+const LIVE_ONLY_CLI_TYPES = new Set([
+  "hook/started",
+  "hook/completed",
+  "rawResponseItem/completed",
+  "rawResponse/completed",
+  "mcpServer/startupStatus/updated",
+  "mcpServer/event/stream/notification",
+  "mcpServer/oauthLogin/completed",
+  "account/rateLimits/updated",
+  "remoteControl/status/changed",
+  "thread/status/changed",
+  "model/safetyBuffering/updated",
+  "turn/moderationMetadata",
+  "fs/changed",
+  "process/outputDelta",
+  "process/exited"
+]);
+
 // A conversation id a client may resume. Thread/session ids are UUID-like; the first
 // character may not be "-" (argv would read it as a flag) and no path or whitespace is
 // allowed. Anything else is rejected before it can reach the CLI.
@@ -642,39 +667,6 @@ export class AiSession {
     return true;
   }
 
-  /**
-   * Make the CLI re-read its conversation from disk.
-   *
-   * A rewind rewrites the transcript underneath a process that is holding the old
-   * conversation in memory — the file is read once, at spawn, via `--resume`. Without
-   * this the CLI would answer from the turns the rewind just discarded and append them
-   * back, so the cut would undo itself on the next prompt.
-   *
-   * Deliberately not `setOptions({ resume })`: that only restarts when the id CHANGES,
-   * and a rewind keeps the same id — which is the point of it. A respawn under the same
-   * id is what makes the truncated file authoritative.
-   *
-   * Stop BEFORE the transcript is rewritten and start after: the old process is the only
-   * other writer, and killing it first means it cannot flush the discarded turns back
-   * over the cut on its way out.
-   */
-  async stopAdapter() {
-    if (this.options.mock || !this.adapter) return false;
-    this.isTurnRunning = false;
-    // The CLI is going away, so nothing it launched is still running — and no result is
-    // coming to settle those rows.
-    this.clearAllAsyncWatchdogs();
-    try { await this.adapter.stop(); } catch {}
-    return true;
-  }
-
-  async startAdapter() {
-    if (this.options.mock || !this.adapter) return false;
-    this.ready = this.initAdapter();
-    await this.ready;
-    return true;
-  }
-
   _adoptLog(events) {
     // The CLI's transcript is the authority on the CONVERSATION, and only on that: every
     // rebuild path (a hydrate, /resume, a rewind) replaces the log with what the transcript
@@ -788,6 +780,7 @@ export class AiSession {
   emitNormalized(event, data, record = true) {
     // A record the harness itself does not keep is not history — see LIVE_ONLY_CLI_SUBTYPES.
     if (record && event === "cli_event" && LIVE_ONLY_CLI_SUBTYPES.has(data?.subtype)) record = false;
+    if (record && event === "cli_event" && LIVE_ONLY_CLI_TYPES.has(data?.type)) record = false;
     if (event === "init") {
       if (data?.threadId) this.threadId = data.threadId;
       // A DIFFERENT conversation drops the offset with it: the value indexes one

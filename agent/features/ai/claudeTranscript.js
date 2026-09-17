@@ -123,6 +123,78 @@ const DENIED_RESULT_RE = /doesn't want to proceed|Request interrupted by user fo
 // the adapter's `toolCalls` — a result carries the id and nothing else.
 const DIFF_TOOL_SET = new Set(DIFF_TOOL_NAMES);
 
+/**
+ * A record the user typed, and nothing else.
+ *
+ * The reader decides which `user` records become a `user_message` with this same test —
+ * a tool result is stored as a `user` record too, and an injected one is the harness's own
+ * writing. `branchedThrough` needs the SAME answer: counting a tool result as a turn put
+ * the cut in the middle of the turn before it and dropped that turn's own answer.
+ */
+const textOf = (record) => {
+  const content = record?.message?.content;
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) return content.find((c) => c.type === "text")?.text || "";
+  return "";
+};
+const isTypedTurn = (record) =>
+  record.type === "user" && !record.isSidechain && !isClaudeInjectedTurn(record) && Boolean(textOf(record));
+
+/**
+ * Where the conversation the CLI would answer from ENDS, in this file.
+ *
+ * Claude's transcript is append-only and a REWIND does not delete from it: the CLI moves a
+ * pointer (`leafUuid`, on the last `last-prompt` record) to an earlier turn and leaves the
+ * dropped turns sitting in the file — verified against a real session, where a rewind left
+ * every line in place and `--resume` nonetheless answered from the cut conversation. A
+ * reader that walks the file therefore draws turns the CLI has already discarded, which is
+ * the whole of "the pane came back with the turns the rewind just removed" (and it happens
+ * to a chat rewound in the TUI too, not only to one rewound from here).
+ *
+ * What it returns is the LAST uuid still on that branch, and the rule for using it is
+ * deliberately one-sided: drop turns that come AFTER it, keep everything before it.
+ *
+ * Not "keep only what the branch can reach", though that is what this walks. A
+ * `compact_boundary` record has no `parentUuid`, so the walk stops dead at every
+ * compaction — measured on one real session: 6 turns reachable out of 133, i.e. it hid the
+ * entire pre-compaction history. Compaction also leaves its dropped turns EARLIER in the
+ * file than the live branch, so the one-sided rule never looks at them.
+ *
+ * Returns null when the file names no leaf, so a caller falls back to replaying it whole.
+ */
+function branchedThrough(lines) {
+  let leaf = null;
+  const byUuid = new Map();
+  const turns = [];   // { index, uuid } — a turn, and the line it starts at
+  for (const [index, line] of lines.entries()) {
+    if (!line.trim()) continue;
+    let d;
+    try { d = JSON.parse(line); } catch { continue; }
+    if (d.type === "last-prompt" && d.leafUuid) leaf = d.leafUuid;
+    if (!d.uuid) continue;
+    byUuid.set(d.uuid, d);
+    if (isTypedTurn(d)) turns.push({ index, uuid: d.uuid });
+  }
+  if (!leaf || !turns.length) return null;
+
+  const onBranch = new Set();
+  for (let cur = leaf; cur && byUuid.has(cur) && !onBranch.has(cur); ) {
+    onBranch.add(cur);
+    cur = byUuid.get(cur).parentUuid;
+  }
+  // The newest turn the branch can still reach. Everything after it is what a rewind
+  // dropped (or a branch the user abandoned); nothing before it is ever in question.
+  let last = -1;
+  for (let i = turns.length - 1; i >= 0; i--) {
+    if (onBranch.has(turns[i].uuid)) { last = i; break; }
+  }
+  if (last === -1) return null;
+  // The line to stop AT is the next turn's — not this turn's own. A turn's answer and the
+  // tool results it caused are written AFTER its uuid, so stopping on the uuid would keep
+  // the prompt and throw the reply away, which draws as a question still being answered.
+  return turns[last + 1] ? turns[last + 1].index : null;
+}
+
 export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
   if (!cwd || !cliSessionId) return null;
   if (!CLAUDE_SESSION_ID_RE.test(cliSessionId)) return null;
@@ -131,13 +203,20 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
 
   try {
     const lines = fs.readFileSync(resolved, "utf8").trim().split("\n");
+    // The turn a rewind stopped at, if one did — see branchedThrough. Everything past it
+    // is a turn the CLI no longer holds.
+    const cutAt = branchedThrough(lines);
     const events = [];
     // Tool calls awaiting their result, by tool_use id — see DIFF_TOOL_SET.
     const toolCalls = new Map();
     let seq = startSeq;
 
-    for (const line of lines) {
+    for (const [index, line] of lines.entries()) {
       if (!line.trim()) continue;
+      // Past the line a rewind stopped at, the rest of the file is turns the CLI has
+      // dropped: skipped whole, not just their turn records — a tool result or a diff
+      // belonging to one would otherwise draw on its own, orphaned.
+      if (cutAt !== null && index >= cutAt) break;
       try {
         const d = JSON.parse(line);
         // A task notification is read BEFORE the injection guard drops it: it is not a

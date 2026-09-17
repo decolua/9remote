@@ -177,8 +177,62 @@ assert.equal(ocResults[1].status, "error");
 assert.match(ocResults[1].error, /exit 1/);
 assert.equal(ocResults[0].error, "", "both keys always, empty on the other side");
 
-fs.rmSync(home, { recursive: true, force: true });
-console.log("recoverTranscript: ok");
+// (the rewind-pointer cases are appended below, before this test's own cleanup)
+
+// ── a rewind, which the transcript records as a POINTER and not as a shorter file ──
+//
+// Verified against a real session: `rewind_conversation` leaves every line in place and
+// moves `leafUuid` (on the last `last-prompt`) back to an earlier turn, and `--resume`
+// then answers from the cut conversation. A replay that walks the whole file hands the
+// dropped turns back, so the pane draws what the rewind just removed — which is what it
+// did, both for a rewind done here and for one done in the TUI.
+const REWIND_ID = "cccccccc-dddd-eeee-ffff-000000000000";
+const rec = (uuid, parent, text) => JSON.stringify({
+  type: "user", uuid, parentUuid: parent, message: { role: "user", content: [{ type: "text", text }] }
+});
+const ans = (uuid, parent, text) => JSON.stringify({
+  type: "assistant", uuid, parentUuid: parent, message: { role: "assistant", content: [{ type: "text", text }] }
+});
+// u1 → a1 → u2 → a2 → u3 → a3, then a rewind to u2: the CLI points the leaf at a2 and
+// leaves u3/a3 in the file.
+const WOUND = [
+  rec("u1", null, "first question"),
+  ans("a1", "u1", "first answer"),
+  rec("u2", "a1", "second question"),
+  ans("a2", "u2", "second answer"),
+  rec("u3", "a2", "third question"),
+  ans("a3", "u3", "third answer"),
+  JSON.stringify({ type: "last-prompt", leafUuid: "a2", lastPrompt: "second question" })
+];
+fs.writeFileSync(path.join(dir, `${REWIND_ID}.jsonl`), WOUND.join("\n"));
+
+const cut = recover(elsewhere, REWIND_ID);
+const cutTexts = cut.filter((e) => e.event === "user_message").map((e) => e.data.text);
+assert.deepEqual(cutTexts, ["first question", "second question"],
+  `turns after the leaf must not replay, got: ${JSON.stringify(cutTexts)}`);
+// The kept turn keeps its ANSWER. Stopping on the turn's own uuid instead of the next
+// turn's left a prompt with nothing under it.
+const cutDeltas = cut.filter((e) => e.event === "delta").map((e) => e.data.text);
+assert.deepEqual(cutDeltas, ["first answer", "second answer"],
+  `the kept turn's reply must survive, got: ${JSON.stringify(cutDeltas)}`);
+
+// No rewind: the leaf is the newest turn's answer, so nothing is dropped and the whole
+// conversation replays — the one-sided rule must not touch a healthy transcript.
+const WHOLE_ID = "dddddddd-eeee-ffff-0000-111111111111";
+fs.writeFileSync(path.join(dir, `${WHOLE_ID}.jsonl`), [
+  ...WOUND.slice(0, 6),
+  JSON.stringify({ type: "last-prompt", leafUuid: "a3", lastPrompt: "third question" })
+].join("\n"));
+const whole = recover(elsewhere, WHOLE_ID);
+assert.deepEqual(whole.filter((e) => e.event === "user_message").map((e) => e.data.text),
+  ["first question", "second question", "third question"], "nothing dropped when nothing was rewound");
+
+// A file with no `last-prompt` at all (older transcripts) still replays whole: the rule
+// needs a pointer to follow, and guessing one would drop turns for no reason.
+const PLAIN_ID = "eeeeeeee-ffff-0000-1111-222222222222";
+fs.writeFileSync(path.join(dir, `${PLAIN_ID}.jsonl`), WOUND.slice(0, 6).join("\n"));
+const plain = recover(elsewhere, PLAIN_ID);
+assert.equal(plain.filter((e) => e.event === "user_message").length, 3, "no leaf, no cut");
 
 // ── the task a replayed conversation ran ──
 //
@@ -229,3 +283,6 @@ assert.equal(done[0].data.record.task_id, TASK_ID);
 assert.equal(done[0].data.record.tool_use_id, TOOL_USE);
 assert.equal(done[0].data.record.status, "completed");
 assert.equal(done[0].data.type, "system", "the harness's own type, not a name of our own");
+
+fs.rmSync(home, { recursive: true, force: true });
+console.log("recoverTranscript: ok");

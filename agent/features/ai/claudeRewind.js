@@ -1,30 +1,27 @@
-// Rewind for Claude Code conversations, driven from the agent host.
+// The rewind POINTS of a Claude Code conversation, read from its transcript.
 //
-// Claude Code ships the machinery but only turns it on for the interactive TUI. Under
-// the SDK entrypoint — which is how 9Remote drives the CLI — the transcript gets no
-// `file-history-snapshot` and no backup, so nothing can be restored. Setting
-// CLAUDE_FILE_CHECKPOINTING_ENV on the spawn (see adapters/env.js) is what enables it;
-// with that env the CLI writes both, and the flag below does the file half.
+// Only the reading lives here. The rewind itself is a control request to the CLI that
+// already owns the conversation (see claudeAdapter.rewindConversation / rewindFiles),
+// which is why there is no cut, no write and no respawn in this file any more.
 //
-//   --rewind-files <userMessageUuid>   restore files to their state at that message
+// What used to be here: `--rewind-files` spawned as a one-shot CLI for the file half, and
+// a hand-rolled slice of the `.jsonl` for the conversation half. The slice existed because
+// `--resume-session-at` only truncates the context the CLI LOADS, not the transcript, and
+// `--fork-session` minted a second session id — so the file itself was rewritten in place,
+// underneath a running process that held the discarded turns in memory. Keeping that
+// process from flushing them back over the cut is what agent/test/spike-rewindRace.mjs was
+// written to measure, and what the stop→cut→start dance in aiSocket worked around.
 //
-// The conversation half is NOT a flag: `--resume-session-at` only truncates the context
-// the CLI loads, it does not shorten the transcript, so the old turns stay on disk and
-// come back. It is also what `--fork-session` had to be paired with, and that pairing
-// minted a new session id — a second `.jsonl` for one conversation, which is what the
-// history list showed as two chats. `cutAt` rewrites the transcript in place instead,
-// keeping the session id; see its comment and agent/test/spike-rewindInPlace.mjs.
+// The CLI implements `rewind_conversation` and `rewind_files` as control requests over the
+// stream-json pipe the adapter already holds open. It cuts its own conversation in its own
+// memory, under the same session id, and checkpoints the files itself. Measured end to end
+// in agent/test/spike-controlRewind.mjs: the cut takes, the id survives, the transcript
+// stays ONE file, and it works from a process started with `--resume`.
 
-import { spawn } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { claudeBin } from "./constants.js";
 import { CLAUDE_SESSION_ID_RE, isClaudeInjectedTurn } from "./claudeTranscript.js";
-import { getExtendedEnv } from "./adapters/env.js";
-
-// The CLI can take a few seconds to boot before it prints its one line of output.
-const REWIND_TIMEOUT_MS = 60000;
 
 // Overridable so a test can point at its own projects tree: the real one is the user's
 // whole chat history, and a lookup scans every project directory for the id.
@@ -71,274 +68,38 @@ const userText = (record) => {
 /**
  * A record the user typed: not a sub-agent's turn, not a tool result, and not one of the
  * messages the CLI writes into the transcript under the user's role (see
- * isClaudeInjectedTurn — they are what the rewind list and the cut boundary both mean
- * by a turn, so the two must agree on it).
+ * isClaudeInjectedTurn).
+ *
+ * This is the only filter left in 9Remote's hands, which makes it the one place the two
+ * sides can disagree: the client counts turns from the end of its own log, and a turn
+ * this drops but the log kept makes EVERY index after it off by one. A wrong index is no
+ * longer silently destructive — the CLI answers `stale_target` — but it is still the one
+ * thing here worth measuring against a real transcript.
  */
 const isUserTurn = (record) =>
   record?.type === "user" && !record.isSidechain && Boolean(userText(record)) && !isClaudeInjectedTurn(record);
 
-/** A turn the user typed — the only kind a rewind point or a cut boundary is. */
-const isTurn = (line) => {
-  try { return isUserTurn(JSON.parse(line)); } catch { return false; }
-};
-
 /**
  * The user turns a rewind can land on, oldest first.
  *
- * Only records carrying a uuid count: that uuid is what the CLI's two flags take, and
+ * Only records carrying a uuid count: that uuid is what the control requests take, and
  * a tool-result record is the CLI's own bookkeeping, not a turn the user asked for.
+ *
+ * No files per point: what a rewind would touch is answered by the CLI itself, for the
+ * turn actually picked (`rewind_files` with `dry_run`), rather than guessed here for
+ * every turn up front.
  */
 export function listRewindPoints(cliSessionId) {
   const file = findTranscript(cliSessionId);
   if (!file) return [];
-  // Parsed once and indexed by turn: resolving each point's files on its own would
-  // re-read and re-parse the whole transcript per turn, which is quadratic on a long
-  // conversation (a 200-turn chat parsed the file 200 times).
-  const records = parseLines(file);
-  const filesOf = filesByTurn(records);
   const points = [];
-  for (const record of records) {
-    if (!isUserTurn(record)) continue;
-    if (!record.uuid) continue;
-    const text = userText(record);
+  for (const record of parseLines(file)) {
+    if (!isUserTurn(record) || !record.uuid) continue;
     points.push({
       messageId: record.uuid,
-      text: text.slice(0, 200),
-      createdAt: record.timestamp || null,
-      files: [...(filesOf.get(record.uuid) || [])].map((file) => ({ file }))
+      text: userText(record).slice(0, 200),
+      createdAt: record.timestamp || null
     });
   }
   return points;
-}
-
-/**
- * The files a rewind to each user turn would change, by that turn's uuid.
- *
- * What `--rewind-files` restores is the whole tree as it stood at that turn — a file a
- * LATER turn created is deleted, not left alone (measured: two turns writing one file each,
- * rewinding to the first leaves neither). So a turn's list is everything written from that
- * turn onwards.
- *
- * Two transcript formats name those writes, and they are read in that order of trust:
- *   - `file-history-delta`, which the CLI writes under the SDK entrypoint. One record per
- *     write, carrying the path and the uuid of the turn that made it.
- *   - a snapshot's `trackedFileBackups`, which is the state BEFORE its turn and carries a
- *     backup version per file — the format older transcripts have, with no deltas at all.
- *     There, a file is changed by a rewind when its entry differs from the newest snapshot.
- */
-function filesByTurn(records) {
-  const turns = records.filter((r) => isUserTurn(r) && r.uuid).map((r) => r.uuid);
-  const position = new Map(turns.map((uuid, i) => [uuid, i]));
-  const writes = records.filter((r) => r.type === "file-history-delta" && r.trackingPath && position.has(r.snapshotMessageId));
-
-  if (writes.length > 0) {
-    return new Map(turns.map((uuid, i) => [
-      uuid,
-      new Set(writes.filter((w) => position.get(w.snapshotMessageId) >= i).map((w) => w.trackingPath))
-    ]));
-  }
-
-  const snapshots = records.filter((r) => r.type === "file-history-snapshot" && r.messageId);
-  const newest = snapshots.length ? snapshots[snapshots.length - 1].snapshot?.trackedFileBackups || {} : {};
-  const stateAt = (uuid) => snapshots.find((s) => s.messageId === uuid)?.snapshot?.trackedFileBackups || {};
-  return new Map(turns.map((uuid) => {
-    const then = stateAt(uuid);
-    // Missing from `then` means the file was created after this turn, so it changes too.
-    return [uuid, new Set(Object.entries(newest)
-      .filter(([file, entry]) => then[file]?.backupFileName !== entry?.backupFileName)
-      .map(([file]) => file))];
-  }));
-}
-
-/**
- * Files a rewind to `messageId` would change.
- *
- * Empty is a real answer — nothing was written from this turn on, or it was written
- * through a shell command, which is never checkpointed — but it is also what a transcript
- * with no file-history records at all returns, so callers must not read it as a promise
- * (see previewRewind's note).
- */
-function filesAt(file, messageId) {
-  return [...(filesByTurn(parseLines(file)).get(messageId) || [])].map((file) => ({ file }));
-}
-
-/** Run the CLI once with extra args and return everything it printed. */
-function runClaude(args, cwd) {
-  return new Promise((resolve) => {
-    const child = spawn(claudeBin(), args, {
-      cwd: cwd || process.cwd(),
-      env: getExtendedEnv({ hostSessionId: "" })
-    });
-    let out = "";
-    let err = "";
-    const timer = setTimeout(() => { try { child.kill(); } catch {} resolve({ ok: false, error: "The CLI did not answer in time." }); }, REWIND_TIMEOUT_MS);
-    child.stdout.on("data", (d) => { out += d.toString(); });
-    child.stderr.on("data", (d) => { err += d.toString(); });
-    child.on("error", (e) => { clearTimeout(timer); resolve({ ok: false, error: e.message }); });
-    child.on("close", (code) => {
-      clearTimeout(timer);
-      if (code !== 0) return resolve({ ok: false, error: (err || out).trim().slice(0, 400) || `claude exited ${code}` });
-      resolve({ ok: true, stdout: out.trim() });
-    });
-  });
-}
-
-/**
- * Put the files back the way they were at `messageId`.
- *
- * `--rewind-files` prints what it did and rewinds nothing else, so this is safe to run
- * on its own — the conversation is untouched.
- */
-export async function rewindFiles(sessionId, messageId, cwd) {
-  if (!sessionId || !messageId) return { ok: false, error: "Missing session or message id." };
-  return await runClaude(["-p", "--resume", sessionId, "--rewind-files", messageId], cwd);
-}
-
-/**
- * Cut the conversation at a turn, in place, under the SAME session id.
- *
- * Not a fork. Claude Code's own `/rewind` moves the leaf inside one transcript file
- * (anthropics/claude-code#55347), and the CLI accepts a transcript truncated by hand:
- * measured against 2.1.270 — resume loads the shortened thread, keeps the id, appends
- * to the same file afterwards (see agent/test/spike-rewindInPlace.mjs).
- *
- * The fork this replaces was the bug, not just a way of doing it: `--fork-session` mints
- * a new session id, so a rewind left a SECOND `.jsonl` in the project directory, and the
- * history list enumerates that directory — one rewind, two conversations on screen.
- *
- * The cost is real and the UI says so: the turns after the cut are gone from this
- * conversation. A branch that survives alongside the original cannot exist without a
- * second file, which is the thing being fixed.
- *
- * `keepThroughUuid` is `undefined` for "no rewind target in this conversation" (refuse),
- * `null` for "keep nothing" (the target is the first turn).
- */
-export function cutAt(sessionId, keepThroughUuid) {
-  if (keepThroughUuid === undefined) return { ok: false, error: "No rewind target in this conversation." };
-  const file = findTranscript(sessionId);
-  if (!file) return { ok: false, error: "This conversation's transcript is not on disk." };
-  let raw;
-  try { raw = fs.readFileSync(file, "utf8"); } catch { return { ok: false, error: "Could not read this conversation." }; }
-  const lines = raw.split("\n").filter((l) => l.trim());
-  if (keepThroughUuid === null) {
-    // Nothing survives but the header: a zero-byte transcript makes the CLI report
-    // "No conversation found" and the session becomes unusable (verified), so the
-    // file keeps its own records and a summary that says what happened.
-    const kept = [
-      ...conversationHeader(lines, lines.length),
-      JSON.stringify({ type: "summary", summary: "Rewound to the start of this conversation", sessionId })
-    ];
-    return writeTranscript(file, kept);
-  }
-  const cut = lines.findIndex((line) => {
-    try { return JSON.parse(line).uuid === keepThroughUuid; } catch { return false; }
-  });
-  if (cut === -1) return { ok: false, error: "That turn is no longer in this conversation." };
-  // The kept turn's own answer comes AFTER its uuid, so the cut lands on the next turn
-  // the user typed — otherwise the reply to the turn that was kept is discarded and the
-  // pane shows a prompt with nothing under it (the rewind target is the turn BEFORE the
-  // one being rewound). Everything from there on goes, including any branch off it.
-  const next = lines.findIndex((line, i) => i > cut && isTurn(line));
-  return writeTranscript(file, next === -1 ? lines : lines.slice(0, next));
-}
-
-/** Atomic: a crash mid-write must not leave a half transcript behind. */
-function writeTranscript(file, kept) {
-  const tmp = `${file}.rewind`;
-  try {
-    fs.writeFileSync(tmp, `${kept.join("\n")}\n`);
-    fs.renameSync(tmp, file);
-  } catch {
-    try { fs.unlinkSync(tmp); } catch {}
-    return { ok: false, error: "Could not write this conversation." };
-  }
-  return { ok: true };
-}
-
-/**
- * The session's non-conversation records — the `mode`/`permission-mode` pair at the top
- * of every transcript and anything else that is not a turn. They carry no history, so
- * keeping them cannot undo a rewind, and without them the file names no session.
- */
-function conversationHeader(lines, upTo) {
-  return lines.slice(0, upTo).filter((line) => {
-    try {
-      const record = JSON.parse(line);
-      return record.type !== "user" && record.type !== "assistant" && record.type !== "attachment";
-    } catch { return false; }
-  });
-}
-
-/**
- * The turn a rewind to `messageId` must keep: the one immediately before it.
- *
- * Two outcomes, and the caller must not conflate them:
- *   - a uuid  → the cut keeps everything through there
- *   - null    → the target is the FIRST turn, so nothing is kept
- */
-export function rewindTarget(sessionId, messageId) {
-  const points = listRewindPoints(sessionId);
-  const idx = points.findIndex((p) => p.messageId === messageId);
-  if (idx === -1) return undefined;   // unknown target — caller should refuse
-  if (idx === 0) return null;         // keep nothing
-  return points[idx - 1].messageId;
-}
-
-/** Stage without applying: what a rewind to this turn would change. */
-export async function previewRewind(sessionId, messageId, { files = true } = {}) {
-  const file = findTranscript(sessionId);
-  const known = files ? filesAt(file || "", messageId) : [];
-  // An empty list has two meanings and they read very differently to someone about to
-  // press Rewind: the CLI logged no file history for this conversation at all, or it did
-  // and nothing has been written since this turn. Saying the first when the second is true
-  // is what made a working rewind read as broken.
-  const tracked = Boolean(file) && parseLines(file).some((r) => String(r.type).startsWith("file-history"));
-  return {
-    ok: true,
-    messageId,
-    files: known,
-    snapshot: null,
-    filesUnknown: files && known.length === 0 && !tracked,
-    note: known.length > 0
-      ? "These files go back to how they were at this prompt, and any file written after it is deleted. Files changed by a shell command are not tracked and stay as they are."
-      : tracked
-        ? "No file changes: nothing has been written since this prompt. The conversation is what gets rewound."
-        : "Claude Code does not report which files a rewind will restore for this session. Files it wrote with Edit/Write are restored; files changed by a shell command are not."
-  };
-}
-
-/**
- * Backups a rewind to `messageId` would restore, looked up by the checkpoint's own id.
- *
- * Snapshot records keep the ORIGINAL message id even in a forked session, while its user
- * turns get new uuids — so this reads the snapshots directly rather than going through
- * `listRewindPoints`. Empty is "the CLI did not report it" or "nothing to put back", not
- * a claim either way (see previewRewind).
- */
-export function filesForCheckpoint(sessionId, messageId) {
-  const file = findTranscript(sessionId);
-  return file ? filesAt(file, messageId) : [];
-}
-
-export async function applyRewind(sessionId, messageId, { files = true, cwd = null } = {}) {
-  const before = filesForCheckpoint(sessionId, messageId);
-  // The file half runs first, while the transcript still names this turn's checkpoint —
-  // the cut below removes it. It is a one-shot CLI run against the ORIGINAL id, which
-  // the conversation keeps.
-  if (files) {
-    const res = await rewindFiles(sessionId, messageId, cwd);
-    if (!res.ok) return { ok: false, error: res.error, messageId };
-  }
-  // The conversation half is a cut in place: the turns after the one BEFORE `messageId`
-  // go, and the session keeps its id — so no second transcript, no second history row.
-  const cut = cutAt(sessionId, rewindTarget(sessionId, messageId));
-  if (!cut.ok) return { ok: false, error: cut.error, messageId, filesRewound: files };
-  return {
-    ok: true,
-    messageId,
-    files: before,
-    // An empty list is "the CLI did not report it", not "nothing changes" — say so.
-    filesUnknown: files && before.length === 0,
-    conversation: true
-  };
 }

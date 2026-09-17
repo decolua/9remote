@@ -1,18 +1,19 @@
-// The claude rewind path: reading a transcript for its user-turn uuids, and resolving
-// which files a rewind to one of those turns would put back.
+// The claude rewind points: which records in a transcript are turns the user typed, and
+// how a position from the end of the pane's log resolves to one of them.
 //
 // Run: node agent/test/claudeRewind.test.mjs
 //
-// These run against a synthetic transcript rather than a real session: the parser is
-// the part that can be wrong (every record type shares one file), and a real session
-// takes minutes to build and leaves a conversation behind. The two CLI flags themselves
-// are exercised by the spike that established them — see the header of claudeRewind.js.
+// These run against a synthetic transcript rather than a real session: the filter is the
+// part that can be wrong (every record type shares one file), and a real session takes
+// minutes to build and leaves a conversation behind. The rewind itself is a control
+// request now, not a cut of this file — measured end to end in
+// agent/test/spike-controlRewind.mjs.
 
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { listRewindPoints, previewRewind, rewindTarget, cutAt } from "../features/ai/claudeRewind.js";
+import { listRewindPoints } from "../features/ai/claudeRewind.js";
 import { resolveRewindTarget } from "../features/ai/rewind.js";
 
 let pass = 0, fail = 0;
@@ -116,17 +117,11 @@ try {
     assert.equal(resolveRewindTarget(points, 0), "u2");
   });
 
-  await test("a rewind to the first turn names every file written since", () => {
-    const [first] = listRewindPoints(SESSION_ID);
-    // What --rewind-files restores is the whole tree at that turn, so a file a LATER turn
-    // wrote is deleted — measured against the CLI, which left neither file behind.
-    assert.deepEqual(first.files, [{ file: "src/a.js" }, { file: "src/b.js" }]);
-  });
-
-  await test("a rewind to a later turn drops what was written before it", () => {
-    const second = listRewindPoints(SESSION_ID).find((p) => p.messageId === "u2");
-    // The path, not the CLI's internal backup name — that is what the confirm dialog prints.
-    assert.deepEqual(second.files, [{ file: "src/b.js" }]);
+  // What a rewind would restore is the CLI's answer for the turn actually picked
+  // (`rewind_files` with dry_run), not a reading of this file — so a point carries no
+  // file list at all, and nothing here guesses one.
+  await test("a point carries no file list of its own", () => {
+    for (const p of listRewindPoints(SESSION_ID)) assert.equal(p.files, undefined);
   });
 
   await test("an unknown session id yields no points rather than throwing", () => {
@@ -138,86 +133,9 @@ try {
     assert.deepEqual(listRewindPoints("-rf"), []);
   });
 
-  await test("preview names the files and warns about untracked writes", async () => {
-    const p = await previewRewind(SESSION_ID, "u2", { files: true });
-    assert.equal(p.ok, true);
-    assert.deepEqual(p.files, [{ file: "src/b.js" }]);
-    assert.equal(p.filesUnknown, false);
-    assert.match(p.note, /shell command/i);
-  });
-
-  await test("preview without files still reports ok", async () => {
-    const p = await previewRewind(SESSION_ID, "u2", { files: false });
-    assert.deepEqual(p.files, []);
-  });
-
-  // The two empty answers are not the same thing and the pane says different words for
-  // them: a transcript with no file-history record at all is "the CLI did not report it",
-  // while one that logs file history and has nothing for this turn is a plain "nothing to
-  // put back". The first is a session the CLI never checkpointed.
-  await test("a conversation with no file history at all is called unknown", async () => {
-    fs.writeFileSync(transcript, [
-      line({ type: "user", uuid: "v1", isSidechain: false, message: { role: "user", content: "no history here" } })
-    ].join("\n") + "\n");
-    const p = await previewRewind(SESSION_ID, "v1", { files: true });
-    assert.deepEqual(p.files, []);
-    assert.equal(p.filesUnknown, true);
-    assert.match(p.note, /does not report which files/i);
-    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
-  });
-
-  await test("a turn with nothing to put back is not called unknown", async () => {
-    // The newest turn wrote nothing, so nothing is left to change — while the conversation
-    // DOES log file history. This is the case that made a working rewind read as broken.
-    fs.writeFileSync(transcript, [
-      ...RECORDS,
-      line({ type: "user", uuid: "u3", isSidechain: false, message: { role: "user", content: "nothing written here" } })
-    ].join("\n") + "\n");
-    const p = await previewRewind(SESSION_ID, "u3", { files: true });
-    assert.deepEqual(p.files, []);
-    assert.equal(p.filesUnknown, false);
-    assert.match(p.note, /No file changes/i);
-    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
-  });
-  // The case a fresh conversation hits, and the one that reported nothing at all: under
-  // the SDK entrypoint the CLI logs each write as its own `file-history-delta`, keyed to
-  // the turn's checkpoint, while the snapshot's own map stays empty.
-  await test("a file the CLI logged as a delta belongs to the turn it names", async () => {
-    fs.writeFileSync(transcript, [
-      line({ type: "user", uuid: "w1", isSidechain: false, message: { role: "user", content: "write a file" } }),
-      line({ type: "file-history-snapshot", messageId: "w1", snapshot: { messageId: "w1", trackedFileBackups: {} } }),
-      line({ type: "file-history-delta", messageId: "d1", snapshotMessageId: "w1", trackingPath: "src/c.js",
-        backup: { backupFileName: "cccc3333@v1", version: 1 }, timestamp: "2026-09-13T10:04:00Z" }),
-      line({ type: "user", uuid: "w2", isSidechain: false, message: { role: "user", content: "and nothing else" } }),
-      line({ type: "file-history-snapshot", messageId: "w2", snapshot: { messageId: "w2", trackedFileBackups: {} } })
-    ].join("\n") + "\n");
-    const points = listRewindPoints(SESSION_ID);
-    assert.deepEqual(points.find((p) => p.messageId === "w1").files, [{ file: "src/c.js" }]);
-    assert.deepEqual(points.find((p) => p.messageId === "w2").files, []);
-    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
-  });
-
-  // The CLI KEEPS the turn named by --resume-session-at and drops what follows, so a
-  // rewind to a prompt has to keep the turn BEFORE it — passing the prompt's own uuid
-  // would leave that prompt in the conversation.
-  await test("a rewind keeps the turn before the target, not the target", () => {
-    assert.equal(rewindTarget(SESSION_ID, "u2"), "u1");
-  });
-
-  // null (keep NOTHING) and undefined (unknown target) must not be conflated: the
-  // first is a real rewind, the second is a refusal.
-  await test("rewinding to the first turn keeps nothing", () => {
-    assert.equal(rewindTarget(SESSION_ID, "u1"), null);
-  });
-
-  await test("an unknown target is refused, not treated as a rewind", () => {
-    assert.equal(rewindTarget(SESSION_ID, "nope"), undefined);
-  });
-
   // What the edit button sends. The pane counts turns from the end of what IT is showing,
   // and the host resolves that against the CLI's own list — so the two must agree on the
   // same conversation, including on which records count as a turn at all.
-  // Kept ABOVE the cut tests: those rewrite the fixture, and this one reads it.
   await test("a position from the end resolves to the same list the pane counted", () => {
     const points = listRewindPoints(SESSION_ID);
     // Newest is 0: the tail is the part the pane and the transcript always share.
@@ -230,66 +148,12 @@ try {
     assert.equal(points.length, 2);
   });
 
-  // ── The cut itself ──
-  //
-  // `cutAt` is what keeps a rewind to ONE conversation: it rewrites the transcript in
-  // place under the same session id, where the fork it replaced minted a new id and so
-  // left a second `.jsonl` — the "2 histories" the history list showed. These read the
-  // file back, because the file IS the deliverable, and they run LAST: each one rewrites
-  // the fixture the tests above read.
-
-  const readUuids = () => fs.readFileSync(transcript, "utf8").split("\n")
-    .filter((l) => l.trim())
-    .map((l) => { try { return JSON.parse(l).uuid; } catch { return null; } })
-    .filter(Boolean);
-
-  await test("a cut naming an absent turn changes nothing", () => {
-    // Before any real cut: a refusal must not half-write the file.
+  // Reading a transcript must not change it: the rewind is the CLI's job now, and a
+  // reader that rewrites the file would be the old cut creeping back in.
+  await test("listing points leaves the transcript untouched", () => {
     const before = fs.readFileSync(transcript, "utf8");
-    const res = cutAt(SESSION_ID, "not-a-turn");
-    assert.equal(res.ok, false);
+    listRewindPoints(SESSION_ID);
     assert.equal(fs.readFileSync(transcript, "utf8"), before);
-  });
-
-  await test("a cut keeps the named turn and drops everything after it", () => {
-    const res = cutAt(SESSION_ID, "u1");
-    assert.equal(res.ok, true);
-    const uuids = readUuids();
-    assert.ok(uuids.includes("u1"), "the turn the cut names survives");
-    assert.ok(!uuids.includes("u2"), "turns after it are gone");
-    assert.ok(!uuids.includes("sc1"), "and so is any branch that ran off them");
-  });
-
-  // The reply to the turn being kept is written AFTER that turn's uuid. Cutting on the
-  // uuid alone left the pane with a prompt and no answer under it — the reported bug.
-  await test("a cut keeps the answer to the turn it keeps", () => {
-    fs.writeFileSync(transcript, RECORDS.join("\n") + "\n");
-    const res = cutAt(SESSION_ID, "u1");
-    assert.equal(res.ok, true);
-    assert.ok(readUuids().includes("a1"), "the answer that followed u1 stays");
-  });
-
-  await test("a cut leaves the session id on every surviving record", () => {
-    // The whole point: the conversation is the same conversation afterwards, so the
-    // history list has one row for it and the pane can keep its id.
-    for (const line of fs.readFileSync(transcript, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      const record = JSON.parse(line);
-      if (!record.sessionId) continue;
-      assert.equal(record.sessionId, SESSION_ID);
-    }
-  });
-
-  await test("keeping nothing leaves a usable, non-empty transcript", () => {
-    // A zero-byte transcript makes the CLI report "No conversation found" and the
-    // session becomes unresumable, so the header and a summary must survive.
-    const res = cutAt(SESSION_ID, null);
-    assert.equal(res.ok, true);
-    const lines = fs.readFileSync(transcript, "utf8").split("\n").filter((l) => l.trim());
-    assert.ok(lines.length > 0, "the file still names a conversation");
-    const records = lines.map((l) => JSON.parse(l));
-    assert.ok(records.every((r) => r.type !== "user"), "no turn survives");
-    assert.ok(records.some((r) => r.type === "summary"), "and the rewind is recorded");
   });
 } finally {
   try { fs.rmSync(tmpRoot, { recursive: true, force: true }); } catch {}

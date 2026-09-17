@@ -21,7 +21,12 @@
 export const REWIND_SUPPORT = Object.freeze({
   opencode: { conversation: true, files: true, how: "opencode server: stage, then commit" },
   claude: { conversation: true, files: true, how: "claude --rewind-files, plus a cut of its transcript" },
-  codex: { conversation: false, files: false, how: "codex forks; it has no rewind" },
+  // `thread/revert` replaces the thread's own history with the prefix before a turn —
+  // measured on the real server: 3 turns cut before the 2nd left 1, under the SAME thread
+  // id. `fork` was the earlier reading and it is not a rewind (it mints a second
+  // conversation). The file half stays false and is not a gap in this file: codex's own
+  // protocol says the client is responsible for file changes, and it keeps no checkpoint.
+  codex: { conversation: true, files: false, how: "codex thread/revert, conversation only" },
   antigravity: { conversation: false, files: false, how: "no app-server API for /rewind" }
 });
 
