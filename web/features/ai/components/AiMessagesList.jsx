@@ -46,6 +46,13 @@ const measure = (el, node) => {
 // How many past conversations the empty state offers before deferring to /resume.
 const RECENT_SESSIONS = 8;
 const LOAD_MORE_THRESHOLD_PX = 120;
+// One page opens at most this often. Three doors ask for older turns — the scroll handler
+// each frame while the reader is under the threshold, the sentinel observer (rebuilt, and
+// so re-fired, on every page), the button. A page whose cards all mount collapsed can be
+// worth a few pixels, which leaves scrollTop under the threshold after the anchor holds it
+// — so the doors kept opening pages back to back, and a run of 128KB commits is what the
+// reader feels as a stutter.
+const PAGE_COOLDOWN_MS = 300;
 // How many times the pane re-asks whether this conversation is rewindable while waiting
 // for the engine to make it so. Enough to cover a slow first turn, few enough that a
 // host which will never say yes does not get polled.
@@ -396,6 +403,9 @@ export const AiMessagesList = memo(function AiMessagesList({
   // The correction waiting for its commit. Armed by handleLoadMore, spent by the layout
   // effect below.
   const anchorRef = useRef(null);
+  // When the last page started. The gate above reads it; opening the pane mid-turn does
+  // not, since those pages are sequential by construction.
+  const pageAtRef = useRef(0);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [visibleBytes, setVisibleBytes] = useState(PAGE_BUDGET_BYTES);
   // The mounted window's top, kept across renders so appends never move it: recomputing it
@@ -486,15 +496,27 @@ export const AiMessagesList = memo(function AiMessagesList({
   // `scrollHeight` grew for reasons that had nothing to do with the page being prepended,
   // and the whole delta was added to `scrollTop`. On a phone, where one page is worth far
   // fewer pixels than on a desktop, the wrong part of the delta is the bigger part.
-  const handleLoadMore = useCallback(async () => {
+  //
+  // The gate at the top is why a scroll gesture can no longer open pages back to back:
+  // every door lands here, and a page started within the cooldown is simply not opened.
+  const handleLoadMore = useCallback(async ({ auto = false } = {}) => {
     const el = scrollRef.current;
+    const now = Date.now();
+    if (!auto && now - pageAtRef.current < PAGE_COOLDOWN_MS) return;
+    pageAtRef.current = now;
     // The node the spec would pick too — nearest the block start edge. A page can only
     // ever land ABOVE it, which is what makes it a mark worth holding on to. Read through a
     // ref rather than from `turns`: the store appends a message per streamed token, so
     // anything this callback closed over would be rebuilt that often, and the observer
     // below is keyed on it.
     const node = topRef.current;
-    const pending = node ? { ...anchorFrom(measure(el, node)), node } : null;
+    const a = node ? anchorFrom(measure(el, node)) : null;
+    // Only the open-time ladder may re-pin the tail, and only while the reader has not
+    // touched the pane. A page the reader asked for is always HELD where they are: the pin
+    // is `scrollTop = scrollHeight`, so a reader who tapped "Load older" — or a window
+    // shorter than the pane, where top and bottom are the same place — was carried to the
+    // end of the conversation by the very page they asked for.
+    const pending = a ? { ...a, atBottom: auto && isAtBottomRef.current, node } : null;
     // TEMP DIAGNOSTIC — scroll-up shows no older turns; log the decision inputs and the
     // outcome so we can tell "never asked the host" from "host had nothing" from "got it
     // but never mounted". Remove once the paging path is confirmed end to end.
@@ -548,9 +570,14 @@ export const AiMessagesList = memo(function AiMessagesList({
     if (paged.n >= MAX_AUTO_PAGES) return;
     // Only on a settled hydrate — mid-hydrate the window still belongs to the old log.
     if (hydrating || !synced) return;
+    // The ladder is for opening the pane, which is what its name means: the reader is still
+    // on the tail. `opensMidTurn` stays true of almost any window in an agentic chat, so
+    // without this the ladder kept fetching DURING the reader's own scroll-up — 40 pages of
+    // auto-pinned tail, each one dropping them back at the bottom of the conversation.
+    if (!isAtBottomRef.current) return;
     if (!opensMidTurn(messages, hiddenCount, hasOlder)) return;
     paged.n += 1;
-    handleLoadMore();
+    handleLoadMore({ auto: true });
   }, [sessionId, messages, hiddenCount, hasOlder, hydrating, synced, handleLoadMore]);
 
   // Optimized scroll handler using requestAnimationFrame

@@ -486,6 +486,38 @@ await test("telemetry the harness does not keep does not push the log past its c
   assert.equal(s.history.length, before, "50 telemetry records cost the log nothing");
 });
 
+await test("codex's own telemetry does not cost the log either", () => {
+  // Same rule, codex's spelling: these records reach the pane as a method name, not a
+  // `system` subtype, so the set above never matched them. Measured on a real short turn
+  // through the app-server: 25 carried records / 9.7KB — 30% of one 32KB replay window
+  // for a turn whose whole readable content was two command cards and a one-word answer.
+  // `hook/started`+`hook/completed` alone were 5KB of that, per turn, forever.
+  const s = makeSession();
+  s.onEvent = () => {};
+  const before = s.history.length;
+  for (const [type, record] of [
+    ["hook/started", { run: { id: "session-start:3", eventName: "sessionStart" } }],
+    ["hook/completed", { run: { id: "session-start:3", status: "completed" } }],
+    ["mcpServer/startupStatus/updated", { name: "node_repl", status: "starting" }],
+    ["account/rateLimits/updated", { rateLimits: { limitId: "codex" } }],
+    ["thread/status/changed", { status: { type: "active" } }]
+  ]) {
+    s.emitNormalized("cli_event", { type, subtype: "", record });
+  }
+  assert.equal(s.history.length, before, "codex telemetry costs the log nothing");
+});
+
+await test("a codex record the CLI DOES write down is still kept", () => {
+  // The live-only list is a claim about what the CLI persists, and it has to stay one:
+  // codex writes `error`, `task_started` and the thread's own settings to its rollout
+  // (counted across 491 real rollouts on this machine), so those are history.
+  const s = makeSession();
+  s.onEvent = () => {};
+  s.emitNormalized("cli_event", { type: "error", subtype: "", record: { error: { message: "stream closed" } } });
+  assert.ok(s.history.some((e) => e.event === "cli_event" && e.data.type === "error"),
+    "an error is something that happened, and a reload must show it again");
+});
+
 // ── a tool result the CLI persisted is a path, not 15KB of frame ──
 
 await test("a persisted tool result reaches the pane as the file it saved to", () => {

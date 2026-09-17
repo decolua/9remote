@@ -500,5 +500,57 @@ test("a persisted-output frame never reaches a queued prompt's row either", () =
   assert.equal(noticeFrom("attachment", { type: "queued_command", prompt: "chạy test giúp tôi" }).content, "chạy test giúp tôi");
 });
 
+// ── codex says the same things under its own names ──
+//
+// These records are the whole message — the CLI bothered to write a sentence, which is
+// the same test this file applies to the harness's `content`. Before the reader knew
+// them they arrived (via the passthrough) and drew nothing.
+
+test("a codex warning becomes a line, worded by the CLI", () => {
+  const n = noticeFrom("warning", { threadId: "t-1", message: "Stream error: retrying" });
+  assert.equal(n.content, "Stream error: retrying");
+  assert.equal(n.level, "warning");
+});
+
+test("a codex error is read one level down, where its message lives", () => {
+  // `TurnError` nests: the record is `{error: {message, codexErrorInfo}}`, not `{message}`.
+  const n = noticeFrom("error", { error: { message: "sandbox denied" }, willRetry: false });
+  assert.equal(n.content, "sandbox denied");
+  assert.equal(n.level, "error");
+});
+
+test("an error the CLI is retrying is not painted as a dead turn", () => {
+  const n = noticeFrom("error", { error: { message: "stream closed" }, willRetry: true });
+  assert.equal(n.level, "warning");
+});
+
+test("a config warning joins its summary and details", () => {
+  const n = noticeFrom("configWarning", { summary: "unknown key", details: "line 4" });
+  assert.equal(n.content, "unknown key — line 4");
+});
+
+test("a rerouted model is stated, not hidden", () => {
+  // Silently answering from another model is the kind of thing a person has to be told.
+  const n = noticeFrom("model/rerouted", { fromModel: "gpt-5.6-sol", toModel: "gpt-5.5" });
+  assert.match(n.content, /gpt-5\.6-sol → gpt-5\.5/);
+});
+
+test("a codex notification that says nothing readable draws nothing", () => {
+  // 83 notifications exist and almost none of them are prose. A row each would bury the
+  // conversation; the passthrough still carries them, the timeline just does not draw them.
+  for (const type of ["turn/started", "thread/started", "item/started", "account/rateLimits/updated"]) {
+    assert.equal(noticeFrom(type, { threadId: "t-1" }), null, `${type} is state, not prose`);
+  }
+});
+
+test("a codex compaction draws the one line it has", () => {
+  // The whole record is `{threadId, turnId}` — no counts and no content, so the word is
+  // the row. Same event Claude's boundary states: the context behind this turn was folded.
+  const n = noticeFrom("thread/compacted", { threadId: "t-1", turnId: "turn-1" });
+  assert.equal(n.content, "Compacted");
+  assert.equal(n.level, "info");
+  assert.equal(n.compactSettled, true, "and it closes a running compaction row if one is open");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;

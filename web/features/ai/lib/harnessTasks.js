@@ -256,6 +256,31 @@ function compactFrom(record) {
  */
 export function noticeFrom(type, record) {
   if (!record) return null;
+  // Codex says the same things under its own names, and it says them the same way: a
+  // record whose whole point IS the sentence (`warning`, `warning`/`guardianWarning`,
+  // a `configWarning`) is one the CLI means a person to read. Its errors nest one level
+  // (`error.error.message`), and a reroute is a change of model the user should see —
+  // silently answering from another model is the kind of thing this file exists to stop.
+  const codexText =
+    type === "error" ? String(record.error?.message || "").trim()
+    : type === "warning" || type === "guardianWarning" ? String(record.message || "").trim()
+    : type === "configWarning" ? [record.summary, record.details].filter(Boolean).join(" — ").trim()
+    : type === "deprecationNotice" ? [record.summary, record.details].filter(Boolean).join(" — ").trim()
+    : type === "model/rerouted" ? `Model rerouted: ${record.fromModel} → ${record.toModel}`
+    : "";
+  if (codexText) {
+    // A retrying error is the CLI saying it is still working, and painting it red says the
+    // turn died. Only the one it is not retrying is an error.
+    const level = type === "error" && !record.willRetry ? "error" : "warning";
+    return { subtype: type, level, content: codexText };
+  }
+  // Codex states a compaction as one notification and nothing else — no start, no counts,
+  // and no content. It gets the same one-line row Claude's boundary gets, because it is
+  // the same event in the conversation: the context behind this turn was folded, and a
+  // reader scrolling back deserves to know why the thread looks different.
+  if (type === "thread/compacted") {
+    return { subtype: type, level: "info", content: "Compacted", compactSettled: true };
+  }
   // The one record whose live frame carries no text at all — see compactFrom. Read before
   // the content rules below, which would otherwise drop it.
   if (type === "system" && record.subtype === "compact_boundary") {
