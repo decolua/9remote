@@ -11,6 +11,7 @@
 import { AiBashCard } from "./AiBashCard";
 import { AiAgentCard } from "./AiAgentCard";
 import { AiPlanModeCard } from "./AiPlanModeCard";
+import { AiReviewCard } from "./AiReviewCard";
 import { AiQuestionCard } from "./AiQuestionCard";
 import { getToolCategory } from "../../registry";
 
@@ -30,6 +31,8 @@ const CARDS = {
     <AiAgentCard key={tool.id} {...tool} engine={engine} workspacePath={workspacePath} />
   ),
   plan: (tool) => <AiPlanModeCard key={tool.id} toolName={tool.name} input={tool.input} />,
+  // A code review, in either direction — its own vocabulary, its own card.
+  review: (tool) => <AiReviewCard key={tool.id} toolName={tool.name} input={tool.input} />,
   // Answered question — the host's tool output is the only record of the choice.
   // A rejected call carries no output, only a refusal message; feeding that in as
   // `answers` painted the green "Answered" view over a question nobody answered.

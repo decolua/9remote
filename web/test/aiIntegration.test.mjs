@@ -2,7 +2,7 @@
 // Run: node web/test/aiIntegration.test.mjs
 import assert from "node:assert/strict";
 import { ENGINE_INFO, AI_UI_OPTIONS } from "../features/ai/constants.js";
-import { getToolCategory, parseEngineTaskEvent, getEngineConfig, listEngines } from "../features/ai/registry.js";
+import { getToolCategory, parseEngineTaskEvent, getEngineConfig, listEngines, listEngineInstances } from "../features/ai/registry.js";
 import { splitPath } from "../features/ai/lib/shortenPath.js";
 
 let pass = 0, fail = 0;
@@ -25,14 +25,24 @@ await test("ENGINE_INFO exports correct configuration for Claude, Codex, OpenCod
   assert.ok(ENGINE_INFO.opencode.label.includes("OpenCode"));
 });
 
-await test("AI_UI_OPTIONS contains 3 UI options matching expected structure", () => {
-  assert.equal(AI_UI_OPTIONS.length, 3);
-  const ids = AI_UI_OPTIONS.map((o) => o.id);
-  assert.deepEqual(ids, ["claude-ui", "codex-ui", "opencode-ui"]);
+await test("AI_UI_OPTIONS is derived from the engines that declare a ui block", () => {
+  // The contract, not a count. A hardcoded 3 went red the moment opencode's chat surface
+  // was pulled (it declared a `ui` block and no longer does — see the registry's comment
+  // on temporary hiding), which said nothing about whether the derivation was right.
+  // Derived from the ENGINE INSTANCES' own `ui` blocks — the source `listAiUiOptions`
+  // reads. Comparing against `listAiUiOptions()` itself would be the function checking
+  // its own answer.
+  const declared = listEngineInstances().filter((e) => e.ui).map((e) => e.ui.id);
+  assert.deepEqual(AI_UI_OPTIONS.map((o) => o.id), declared);
+  assert.ok(AI_UI_OPTIONS.length > 0, "at least one engine exposes a chat UI");
   for (const opt of AI_UI_OPTIONS) {
     assert.equal(opt.isAiUi, true);
-    assert.ok(opt.aiEngine);
+    assert.ok(opt.aiEngine, `${opt.id} must name the engine it runs`);
+    assert.ok(listEngines().some((e) => e.id === opt.aiEngine), `${opt.aiEngine} must be a registered engine`);
   }
+  // The two that are live today, named so a silent removal is not just a shorter array.
+  assert.ok(AI_UI_OPTIONS.some((o) => o.id === "claude-ui"));
+  assert.ok(AI_UI_OPTIONS.some((o) => o.id === "codex-ui"));
 });
 
 await test("each engine exposes slash commands through its resolved config", () => {

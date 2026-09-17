@@ -14,6 +14,10 @@ const DEFAULT_TOOL_MAP = Object.freeze({
   Bash: "bash",
   BashOutput: "bash", // reads a background shell's output
   KillShell: "bash",
+  // Runs a shell command and waits on its output — the CLI's own way of watching a task
+  // file. Measured in one machine's transcripts: 44 of these, all drawing the generic
+  // row, so a monitored command looked like an unknown tool.
+  Monitor: "bash",
   Edit: "diff",
   Write: "diff",
   MultiEdit: "diff",
@@ -29,6 +33,18 @@ const DEFAULT_TOOL_MAP = Object.freeze({
   TodoWrite: "task",
   EnterPlanMode: "plan",
   ExitPlanMode: "plan",
+  // Codex's plan ITEM — the same tool family under the other engine's name, and the text
+  // it carries is the plan. Left out, it drew as the generic row: raw JSON where the plan
+  // card belongs.
+  update_plan: "plan",
+  // Codex's code review, which is its own pair of items and its own card — not plan mode.
+  enteredReviewMode: "review",
+  exitedReviewMode: "review",
+  // The rollout spells item types in PascalCase where the live stream uses the lower-case
+  // one, and `codexItems` passes the rollout's spelling straight through — so a replayed
+  // review fell to the generic row while the live one drew its card.
+  EnteredReviewMode: "review",
+  ExitedReviewMode: "review",
   AskUserQuestion: "question",
   Agent: "agent",
   Task: "agent",
@@ -364,6 +380,10 @@ export class CodexEngine extends AiEngine {
           // row shows a path and a search row a pattern instead of a raw command line.
           read: "file",
           list_files: "file",
+          // Codex looking at an image — a screenshot it took, or a file it read. A READ,
+          // so it draws as the file card with its path. Measured in the rollouts on this
+          // machine: 4 of these, drawn as the generic row before.
+          view_image: "file",
           todo_list: "task",
           web_search: "search",
           // `search` is a codex tool name on the wire (from parsed_cmd) AND a category;
@@ -418,6 +438,14 @@ export class CodexEngine extends AiEngine {
           { name: "/diff", description: "Show the working tree diff", action: "send" },
           { name: "/review", description: "Review the working tree for bugs and missing tests", action: "send" },
           { name: "/status", description: "Show workspace status and configuration", action: "send" },
+          // Codex's own persistent goal. The pane already READS it (AiStatusBar shows the
+          // objective and its status, from the CLI's state DB), but there was no way to set
+          // or change one from the composer — the TUI's `/goal` had no entry here.
+          { name: "/goal", description: "Set or view this thread's persistent goal", action: "send" },
+          // The rewind exists for this engine (`thread/revert`, conversation only) and had
+          // no way in from the menu — opencode and claude both list it, so the feature was
+          // reachable on every engine except this one.
+          { name: "/rewind", description: "Go back to an earlier prompt in this conversation", action: "modal:rewind" },
           { name: "/clear", description: "Start a fresh Codex session", action: "clear" },
           { name: "/mcp", description: "View and manage Codex MCP servers", action: "modal:mcp" },
           { name: "/skills", description: "Browse installed Codex skills", action: "modal:skills" },
