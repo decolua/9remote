@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useShallow } from "zustand/react/shallow";
-import { pathToView, viewToPath, OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
+import { pathToView, viewToPath, stackForUrl, OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 // URL is the single source of truth for navigation. Browser history drives the
 // viewStack (URL -> store). Store changes from in-app forward actions (open
@@ -37,16 +37,9 @@ export function useRouteSync(hydrated) {
     lastSyncedPath.current = target;
     if (routedView && viewToPath(routedView) === target) return; // store already matches
     navSourceRef.current = "url";
-    if (view.type === "list") {
-      setViewStack([{ type: "list" }]);
-    } else if (view.type === "terminal" && currentView?.type === "terminal") {
-      // Tab switch within terminal view = same level, replace top instead of growing stack
-      const newStack = [...viewStack];
-      newStack[newStack.length - 1] = view;
-      setViewStack(newStack);
-    } else {
-      pushView(view);
-    }
+    const nextStack = stackForUrl(viewStack, view);
+    if (nextStack) setViewStack(nextStack);
+    else pushView(view);
   }, [hydrated, pathname, searchParams]);
 
   // store -> URL: reflect forward navigation (open terminal/remote/files) into the URL.
@@ -63,11 +56,14 @@ export function useRouteSync(hydrated) {
     // Tab switch within terminal view is same-level: replace (not push) so browser Back
     // returns to session list instead of the previous tab.
     const sameLevelTerminal = prevViewRef.current?.type === "terminal" && currentView?.type === "terminal";
+    // Collapsing the whole stack back to its root is "leave this section", not a forward
+    // move: pushing would leave the section behind a Back press that re-enters it.
+    const toRoot = currentView?.type === "list" && viewStack.length === 1;
     navSourceRef.current = "store";
     lastSyncedPath.current = target;
     prevViewRef.current = currentView;
     if (fromUrl || target === currentUrlPath) return;
-    if (sameLevelTerminal) router.replace(target);
+    if (sameLevelTerminal || toRoot) router.replace(target);
     else router.push(target);
   }, [hydrated, currentView, pathname, searchParams]);
 }

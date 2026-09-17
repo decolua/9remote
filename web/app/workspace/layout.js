@@ -508,6 +508,15 @@ export default function WorkspaceLayout({ children }) {
     else storePopView();
   }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor, removeArtifact]);
 
+  // The terminal header's back means "leave the terminal, go to the session list" — not
+  // "undo one step". Stepping one history entry at a time landed on the previous terminal
+  // whenever tab switches or deep links had piled entries up, which reads as a tab change.
+  // Any other view keeps the ordinary one-step-back.
+  const backToSessionList = useCallback(() => {
+    if (currentView.type !== "terminal") return popView();
+    setViewStack([{ type: "list" }]);
+  }, [currentView, popView, setViewStack]);
+
   // Load sessions + workspaces when the bus connects.
   // Lost-packet retry lives in useSocket (loadedRef-gated, every view).
   useEffect(() => {
@@ -720,7 +729,7 @@ export default function WorkspaceLayout({ children }) {
             paneRegistry={paneRegistry}
             bindSwipeTab={bindSwipeTab}
             nav={nav}
-            onBack={popView}
+            onBack={backToSessionList}
             atStackBottom={isDesktop && currentView.type === "list"}
             onOpenRemote={remoteEntry}
             onOpenMobile={mobileEntry}

@@ -66,6 +66,24 @@ export function viewToPath(view) {
   return build(view);
 }
 
+// Resolve a view parsed from the URL against the current stack.
+// Returns the stack to adopt, or null when the view is a genuinely new level (push it).
+export function stackForUrl(viewStack, view) {
+  const target = viewToPath(view);
+  // The URL names a view the stack already holds lower down (Back out of files/editor):
+  // cut back to that entry. Pushing instead left a duplicate terminal above the original,
+  // so the next Back landed on the old terminal — which reads as a tab switch.
+  const seen = viewStack.findIndex((v) => viewToPath(v) === target);
+  if (seen !== -1) return viewStack.slice(0, seen + 1);
+  if (view.type === "terminal" && viewStack[viewStack.length - 1]?.type === "terminal") {
+    // Tab switch within terminal view = same level, replace top instead of growing stack
+    const next = [...viewStack];
+    next[next.length - 1] = view;
+    return next;
+  }
+  return null;
+}
+
 function numOrUndef(val) {
   const n = Number(val);
   return Number.isFinite(n) ? n : undefined;
