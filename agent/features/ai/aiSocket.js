@@ -142,6 +142,10 @@ async function claudeApply(session, targets, target, { files = true } = {}) {
   // this one is chosen for what it does when it fails, not for what it does when it works.
   const cut = await adapter.rewindConversation(target, lastSeen);
   if (!cut?.rewound) {
+    // The refusal itself, in the log: without it a rejected rewind is indistinguishable
+    // from one that never ran — the client reverts its log either way, so the screen shows
+    // nothing in both cases.
+    logger.debug(`[ai] rewind refused: target=${target} lastSeen=${lastSeen} reason=${cut?.reason || "-"} error=${cut?.error || "-"}`);
     return {
       ok: false,
       messageId: target,
@@ -156,14 +160,14 @@ async function claudeApply(session, targets, target, { files = true } = {}) {
     const done = await adapter.rewindFiles(target);
     if (done?.error) {
       logger.warn(`[ai] rewind: conversation cut, files not restored: ${done.error}`);
-      return { ok: true, messageId: target, filesUnknown: true, prefillText: cut.prefillText || "", conversation: true };
+      return { ok: true, messageId: target, filesUnknown: true, prefillText: cut.prefillText || "", conversation: true, leaf: cut.precedingAssistantUuid || null };
     }
   }
   // `prefillText` is the text of the turn that went, from the CLI itself rather than a
   // copy this host made. The client re-sends its own edited text today (the edit button
   // replaces the turn, so that text is the newer one); this is what a caller with no text
   // of its own — the rewind modal — would put back in the composer.
-  return { ok: true, messageId: target, prefillText: cut.prefillText || "", conversation: true };
+  return { ok: true, messageId: target, prefillText: cut.prefillText || "", conversation: true, leaf: cut.precedingAssistantUuid || null };
 }
 let broadcastAttached = false;
 // session ids whose async create is still in flight. Two mounts of the same pane (a
@@ -331,6 +335,14 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     manager.onEvent((sessionId, event, data, seq) => {
       // Streaming events fire per chunk — logging them drowns the file.
       if (event !== "delta" && event !== "thinking") logger.debug(`[ai] event: ${event} session: ${sessionId}`);
+      // Failures the pane now draws are also worth a line here: the CLI's reason is one
+      // sentence, and without it a reported "it errored" cannot be traced to which error.
+      if (event === "exit" && (data?.error || (data?.code != null && data.code !== 0))) {
+        logger.warn(`[ai] exit: session=${sessionId} engine=${manager.getSession(sessionId)?.engine || "claude"} code=${data.code ?? "-"} error=${data.error || "-"}`);
+      }
+      if (event === "turn_complete" && data?.isError) {
+        logger.warn(`[ai] turn failed: session=${sessionId} subtype=${data.subtype || "-"} result=${String(data.result || "").slice(0, 300)}`);
+      }
       // `seq` rides along so the client can tell an event it already replayed from a new
       // one — the same prompt arrives twice without it (live copy + replayed copy).
       broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq });
@@ -629,7 +641,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       // rather than a cached list, so a turn that arrived since is counted too.
       const targets = list(convId);
       const target = messageId || resolveRewindTarget(targets, index);
-      logger.debug(`[ai] rewind ${action}: ${engine} points=${targets.length} index=${index ?? "-"} → ${target || "UNRESOLVED"}`);
+      // The session id is half of this line's meaning: several chats run at once, and
+      // without it a rewind and the reset it broadcasts read as two different sessions,
+      // which is exactly how "the host did nothing" was diagnosed wrongly from this log.
+      logger.debug(`[ai] rewind ${action}: session=${sessionId} ${engine} points=${targets.length} index=${index ?? "-"} → ${target || "UNRESOLVED"}`);
       if (!target) {
         // The count the client holds and the CLI's own store disagree — its log was
         // rebuilt, or the turn sits outside what the CLI kept. Saying "missing message
@@ -664,7 +679,19 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         // The conversation is now the shortened one. Rebuild the host's log from the
         // transcript and broadcast a reset, or every client keeps rendering the turns the
         // rewind just discarded.
-        session.reloadFromStore?.();
+        // What the rebuild produced, next to what the CLI was asked for: a rewind that
+        // succeeds and a log that comes back unchanged look identical from the pane, and
+        // this is the line that tells them apart.
+        // The CLI's own answer on where the branch now ends, handed to THIS rebuild.
+        // Reading the file alone is not enough: the CLI answers `rewind_conversation`
+        // before it flushes the new `last-prompt` (~50ms measured, spike-leafLag.mjs), so
+        // a rebuild that reads straight away sees the pre-cut branch and hands the dropped
+        // turns back — the pane grew the new turn while the old ones stayed until
+        // something re-read the file later. The next reader (an F5, a hydrate) sees the
+        // pointer written and comes out right, which is exactly how it was reported.
+        const rebuilt = session.reloadFromStore?.(result.leaf || null);
+        logger.debug(`[ai] rewind applied: session=${sessionId} target=${target} leaf=${result.leaf || "-"} rebuiltLog=${rebuilt}`);
+        if (!rebuilt) logger.warn(`[ai] rewind applied but the log did not rebuild: session=${sessionId}`);
         // The span of the turn that produced the cut log describes turns the user just
         // discarded. Same reason as the resume path in aiSession.
         session.turnStartedAt = 0;

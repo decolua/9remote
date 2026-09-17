@@ -176,7 +176,9 @@ test("one door reads the CLI's store, and nothing asks whether the log looks thi
   // counted turns. Every drift showed as a pane that came back short on one door while
   // /resume — which never asked that question — showed the whole chat. The rule is gone.
   const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
-  assert.match(SESSION, /_rebuildFromStore\(sessionId\) \{/);
+  // `leafOverride` is the branch pointer a rewind just answered with, for the one rebuild
+  // that runs before the CLI has written it down — see claudeTranscript.liveTurns.
+  assert.match(SESSION, /_rebuildFromStore\(sessionId, leafOverride = null\) \{/);
   assert.match(SESSION, /return recovered\?\.length \? renumber\(capLog\(recovered\)\) : null;/);
   // No surviving "is it thinner?" comparison, in any of its drifted forms.
   assert.ok(!SESSION.includes("isFullerLog"), "the thin-log rule must be gone, not renamed");

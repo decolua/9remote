@@ -51,6 +51,13 @@ async function claudeSession(manager, id) {
       if (!pending) return false;
       proc.write(JSON.stringify({ requestId, answers }));
       return true;
+    },
+    resolvePermission(requestId, behavior, message) {
+      const pending = this.pendingRequests.get(requestId);
+      this.pendingRequests.delete(requestId);
+      if (!pending) return false;
+      proc.write(JSON.stringify({ requestId, behavior, message }));
+      return true;
     }
   };
   return { session, proc };
@@ -136,5 +143,41 @@ await test("pendingPermission is null on an engine that holds no gate", async ()
   assert.equal(session.pendingPermission(), null);
 });
 
+
+await test("a new prompt skips every gate the old turn left open", async () => {
+  // The reported bug: the user typed a prompt instead of answering, and the gate lived
+  // on in the host. pendingPermission kept reporting it, so every hydrate drew the card
+  // back and no tap could clear it — the answer reached no handler.
+  const manager = new AiManager();
+  const { session, proc } = await claudeSession(manager, "gate-prompt");
+  session.adapter.pendingRequests.set("req-9", { toolName: "AskUserQuestion", input: { questions: [] } });
+  assert.deepEqual(session.pendingPermission()?.requestId, "req-9");
+
+  session.sendPrompt("never mind, do this instead");
+
+  assert.equal(session.adapter.pendingRequests.size, 0, "the host holds no gate after the prompt");
+  assert.equal(session.pendingPermission(), null, "and reports none to a hydrating client");
+  assert.match(proc.written.join(""), /req-9/, "the CLI heard a decision, not silence");
+  // The skip is in the log BEFORE the prompt's own echo, or a replay draws the card
+  // under a turn that came after it.
+  const events = session.history.map((e) => e.event);
+  assert.ok(events.indexOf("permission_resolved") < events.indexOf("user_message"), "skip lands first");
+});
+
+await test("an answer already in flight is not overwritten by the next prompt", async () => {
+  // resolvePermission deletes the entry before writing, so a gate the user DID answer is
+  // gone from the map by the time any prompt arrives — it must not be denied after being
+  // allowed.
+  const manager = new AiManager();
+  const { session, proc } = await claudeSession(manager, "gate-answered-then-prompt");
+  session.adapter.pendingRequests.set("req-ok", { toolName: "AskUserQuestion", input: { questions: [] } });
+  assert.equal(session.resolveQuestion("req-ok", { Q: "A" }), true);
+  proc.written.length = 0;
+
+  session.sendPrompt("next thing");
+
+  assert.deepEqual(proc.written, [], "nothing was denied behind the answer");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail ? 1 : 0);
+if (fail) process.exit(1);
