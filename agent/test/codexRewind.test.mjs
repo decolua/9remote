@@ -9,6 +9,7 @@
 // Run: node agent/test/codexRewind.test.mjs
 import assert from "node:assert/strict";
 import { listRewindPoints, previewRewind, applyRewind } from "../features/ai/codexRewind.js";
+import { AiSession } from "../features/ai/aiSession.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -39,6 +40,31 @@ const turn = (id, text) => ({
   id, startedAt: 1789572919,
   items: [{ type: "userMessage", id: `${id}-u`, content: [{ type: "text", text }] }]
 });
+
+
+// Just enough of AiSession to drive `emitNormalized` on the REAL prototype — the init
+// branch that keeps the CLI's own thread name is the thing under test.
+function codexSession() {
+  const session = Object.create(AiSession.prototype);
+  session.id = "s-1";
+  session.engine = "codex";
+  session.cwd = "/w";
+  session.cliSessionId = "roll-1";
+  session.threadId = "t-1";
+  session.destroyed = false;
+  session.history = [];
+  session.seqCounter = 0;
+  session.isTurnRunning = false;
+  session.turnStartedAt = 0;
+  session.lastTurnMs = 0;
+  session.persistTimer = null;
+  session._pullAttachments = () => {};
+  session.refreshGoal = () => {};
+  session.flushSaveSnapshot = () => {};
+  session.scheduleSaveSnapshot = () => {};
+  session.onEvent = () => {};
+  return session;
+}
 
 await test("a thread's turns read back as rewind points, oldest first", async () => {
   const { session, asked } = fakeSession({
@@ -100,6 +126,29 @@ await test("a chat with no thread at all is refused rather than crashing", async
   assert.deepEqual(await listRewindPoints(bare), []);
   assert.equal((await applyRewind(bare, "t")).ok, false);
   assert.equal((await previewRewind(bare, "t")).ok, false);
+});
+
+
+// ── the CLI's own name for the chat ──
+//
+// `conversationTitle` can only read the rollout FILE, which holds the first prompt and
+// nothing else — so a thread renamed with codex's `/rename` (or in the TUI) kept its
+// opening words on the pane and on the terminal's tab. `init` is where the server's name
+// arrives, and the session has to remember it AND forget it when the conversation moves.
+
+await test("a name the CLI states is kept for the terminal to read", () => {
+  const session = codexSession();
+  session.emitNormalized("init", { threadId: "t-1", threadName: "Fix the parser" }, false);
+  assert.equal(session.threadTitle, "Fix the parser");
+});
+
+await test("a different conversation drops the old chat's name", () => {
+  // A `/clear` or a resume binds a NEW thread. Keeping the old name would retitle the
+  // terminal's tab after a chat the user has left.
+  const session = codexSession();
+  session.emitNormalized("init", { sessionId: "roll-1", threadId: "t-1", threadName: "Old chat" }, false);
+  session.emitNormalized("init", { sessionId: "roll-2", threadId: "t-2" }, false);
+  assert.equal(session.threadTitle, "", "the old name is not this conversation's");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

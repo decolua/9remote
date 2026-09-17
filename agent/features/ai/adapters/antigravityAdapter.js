@@ -353,6 +353,25 @@ export class AntigravityAdapter {
     this.stats.contextTokens = usage.input_tokens || 0;
   }
 
+  /**
+   * End the TURN. One CLI per turn here, so the turn's own process IS the turn — stopping
+   * it is what Stop/Esc means, and the next prompt spawns a fresh one. See the same method
+   * on opencodeAdapter: without it `AiSession.stop` had nothing to call and still reported
+   * the turn stopped.
+   */
+  interrupt() {
+    if (!this.isTurnRunning) return false;
+    this.isTurnRunning = false;
+    Promise.resolve(this.proc?.stop()).catch(() => {});
+    return true;
+  }
+
+  /** The fallback `AiSession.stop` reaches for. The daemon carrier is the one that has it. */
+  signal(sig = "SIGINT") {
+    if (typeof this.proc?.signal !== "function") return false;
+    try { this.proc.signal(sig); return true; } catch { return false; }
+  }
+
   stop() {
     this.isTurnRunning = false;
     // The daemon asks the CLI first and only kills it if it will not go, so a turn

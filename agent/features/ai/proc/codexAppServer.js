@@ -15,6 +15,9 @@
 import { JsonRpcClient } from "./jsonRpcClient.js";
 import { sandboxPolicyFor, approvalPolicyFor, collaborationModeFor, turnSettingsFor, BLOCKED_TEXT_RE, MODE_LABELS, nextModeUp } from "../codexSettings.js";
 import { elicitationQuestions } from "../elicitation.js";
+import { createLogger } from "../../../lib/logger.js";
+
+const logger = createLogger("codex-app-server");
 
 // `commandActions` type → the name the cards know. Same vocabulary as the rollout
 // reader's `parsed_cmd` map, because it is the same information from the same CLI.
@@ -53,14 +56,39 @@ const ALREADY_ROUTED_OR_STREAMING = new Set([
   "command/exec/outputDelta",
   "process/outputDelta",
   "fs/changed",
-  "thread/tokenUsage/updated"
+  "thread/tokenUsage/updated",
+  // The turn's AGGREGATE diff — one string spanning every file the turn touched. The pane
+  // keys a diff card by FILE (appendDiff replaces the entry with the same `file`), and the
+  // per-file cards are already produced by each fileChange item, so carrying this one
+  // through would overwrite them with a single unnamed blob. Routed and dropped, like the
+  // other records something else already drew.
+  "turn/diff/updated"
 ]);
 
 export class CodexAppServer {
-  constructor({ proc, cwd, onEvent, threadId = null, model = "", mode = null, sandbox = null, approvalPolicy = null, effort = null, personality = null, settings = null } = {}) {
+  constructor({ proc, cwd, onEvent, onInterruptSettled = null, threadId = null, model = "", mode = null, sandbox = null, approvalPolicy = null, effort = null, personality = null, settings = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
+    // Fired when OUR interrupt settles (the echo landed, or the request was refused) —
+    // the adapter's internal release, deliberately not an event the pane would draw.
+    this.onInterruptSettled = onInterruptSettled;
     this.threadId = threadId || null;
+    // The turn currently open on this thread, which `turn/interrupt` REQUIRES beside the
+    // thread id (`TurnInterruptParams = { threadId, turnId }`, read off the server's own
+    // generated bindings). Without it the server refuses the call, and an interrupt that
+    // is refused while looking like it was sent is how Stop appeared to do nothing at all.
+    this.turnId = null;
+    // Set when OUR turn/interrupt went out, so the server's own `turn/completed` echo of
+    // that stop can be told from a real ending. The session already emitted `stopped`
+    // when the request was written; the echo that follows would end the turn a second
+    // time — and if a queued prompt has started meanwhile, from the NEW turn's start
+    // mark ("Worked for 0s"). Consumed by the echo itself; a new turn/start must NOT
+    // clear it, because the server completes the interrupted turn before it reads the
+    // next one. Cleared on refusal too — no echo is coming then.
+    this._interrupted = false;
+    // The thread's own name, as the server states it. Read back on start (a resumed
+    // thread already has one) and kept current by `thread/name/updated`.
+    this.threadName = "";
     this.model = model || "";
     this.effort = effort || "";
     this.personality = personality || "";
@@ -96,13 +124,22 @@ export class CodexAppServer {
         // this one's. Most carry `threadId`; the ones that do not (`skills/changed`,
         // `account/updated`) are process-wide and belong to every chat equally.
         if (!this._mine(msg.params)) return;
+        // Under the server's own name, whole. The client's notice reader matches on that
+        // name directly (see harnessTasks.noticeFrom — it has a codex branch for
+        // `warning`, `error`, `model/rerouted` and the rest), so wrapping one in a
+        // `system` envelope would not read as "more routable", it would stop reading.
         this.onEvent?.("cli_event", { type: msg.method || "", subtype: "", record: msg.params || {} });
       }
     });
     this.isTurnRunning = false;
     this.closed = false;
-    // The open gates, keyed by the id an answer must carry. The session reads this to
-    // restore a permission card after a replay, so it holds the card's own shape.
+    // The open gates, keyed by the id an answer must carry — the STRING form, because
+    // that is what the client's card is keyed by and what it sends back. The raw value
+    // travels inside the entry: the server's `RequestId` is `string | number`, it numbers
+    // its own requests, and an answer has to go back as the TYPE it arrived. Measured
+    // against the real server: answering a numeric id as `"0"` leaves the turn hung
+    // forever — no further records, no `turn/completed`, and the pane spins on a gate it
+    // already answered. String ids (the ones WE mint for a refusal) are unaffected.
     this.gates = new Map();
     // Plan text as it streams, per item, so a delta can restate the whole plan so far —
     // the card renders `input.plan`, and a fragment of it is not a plan.
@@ -194,10 +231,25 @@ export class CodexAppServer {
     rpc.on("turn/completed", (p) => {
       if (!this._mine(p)) return;
       this.isTurnRunning = false;
+      // The turn is over, so the id that names it stops meaning anything: kept, the next
+      // Stop would interrupt a turn the server has already finished and be refused.
+      this.turnId = null;
       // Gates belong to the turn that asked them, and this one is over. A request left
       // here was abandoned — an interrupt, or the turn failing around it — and it comes
       // back from a replay as a question card whose answer reaches no server handler.
       this.gates.clear();
+      // The server echoing the turn WE stopped — the pane already drew `stopped` when
+      // turn/interrupt went out, so this completion carries no news, only a second
+      // ending (over a newer turn's start mark, when a queued prompt has since started).
+      // State above is still consumed; only the duplicate announcement is dropped.
+      // `onInterruptSettled` is the internal half the pane never sees: the adapter's own
+      // running flag only ever cleared on `turn_complete`/`error`, and swallowing those
+      // here left it stuck true — every prompt after an Esc was refused forever.
+      if (this._interrupted) {
+        this._interrupted = false;
+        this.onInterruptSettled?.();
+        return;
+      }
       const turn = p.turn || {};
       if (turn.status === "failed") {
         this.onEvent?.("error", { message: turn.error?.message || "Codex reported the turn as failed" });
@@ -244,6 +296,49 @@ export class CodexAppServer {
     // an MCP tool that needed an answer got a denial nobody asked for.
     rpc.on("mcpServer/elicitation/request", (p, id) => this._askElicitation(p, id));
 
+    // ── what the thread says about ITSELF ──
+    //
+    // Three records the server raises about the conversation rather than about a turn. Each
+    // one was reaching the pane as a passthrough record and being dropped, because the
+    // pane only draws the names it knows.
+
+    // The thread was renamed — by the TUI's `/rename`, by another client, or by the CLI
+    // itself. `conversationTitle` (agent/features/terminal/agentHistory.js) can only ever
+    // read the ROLLOUT file, which holds the first prompt and nothing else, so a rename
+    // never reached the chat's name or the terminal tab's.
+    rpc.on("thread/name/updated", (p) => {
+      if (!this._mine(p)) return;
+      // A record with no name states nothing — the server sends one to say "unchanged".
+      const name = String(p.threadName || "").trim();
+      if (!name) return;
+      this.threadName = name;
+      // NOT `...this.metadata`: this class holds none (the ADAPTER does), so spreading it
+      // published `{threadId, threadName}` and nothing else. A partial init is what the
+      // pane merges over what it has, so the loss was invisible — and every other field
+      // the adapter states is still on the wire from its own init.
+      this.onEvent?.("init", { threadId: this.threadId, threadName: name });
+    });
+
+    // A request the server was holding is no longer pending. The card keyed by that id has
+    // to go, and this is the only record that says so: unread, the pane sat on an
+    // Allow/Deny card for a CLI that had already moved on, and nothing but an F5 cleared
+    // it. Measured: the server sends it for EVERY gate, its own answer included.
+    //
+    // It does NOT clear the gate map — the answer path owns that. Doing it here too broke
+    // the ordinary case: answering a gate emits this record BEFORE the write is even
+    // flushed, so the entry was gone by the time the retry check looked for it, and a
+    // perfectly good answer was reported as "no longer waiting".
+    rpc.on("serverRequest/resolved", (p) => {
+      if (!this._mine(p)) return;
+      const requestId = String(p.requestId);
+      // Only one WE are still holding. This chat's own answer already cleared its entry
+      // and announced the resolution; a second event for it would be a duplicate, and one
+      // for a request this chat never saw (another thread's, or before this process) is
+      // not news at all.
+      if (!this.gates.has(requestId)) return;
+      this.onEvent?.("permission_resolved", { requestId, behavior: "dismissed" });
+    });
+
     rpc.onExit((info) => this._handleExit(info));
   }
 
@@ -259,14 +354,14 @@ export class CodexAppServer {
     this.isTurnRunning = true;
     const tool = kind === "patch" ? "apply_patch" : "command";
     const input = { ...params, command, path: params.path || "" };
-    this.gates.set(String(rpcId), { requestId: String(rpcId), toolName: tool, input });
+    this.gates.set(String(rpcId), { requestId: String(rpcId), rawId: rpcId, toolName: tool, input });
     this.onEvent?.("permission_request", { requestId: String(rpcId), tool, input, type: "permission" });
   }
 
   _askQuestion(params, rpcId) {
     this.isTurnRunning = true;
     const questions = params.questions || [];
-    this.gates.set(String(rpcId), { requestId: String(rpcId), toolName: "request_user_input", input: { questions } });
+    this.gates.set(String(rpcId), { requestId: String(rpcId), rawId: rpcId, toolName: "request_user_input", input: { questions } });
     // The pane's question card is reached through `permission_request`, the same door every
     // other gate takes — emitted as its own event name it reached no listener at all, so a
     // question the CLI was blocking on never appeared. `AskUserQuestion` is the tool name
@@ -299,12 +394,14 @@ export class CodexAppServer {
     }
     // An elicitation is ALSO a question, but its reply is the MCP one: a decision word and
     // a `content` object keyed by the schema's property names. Same card, different answer.
-    if (gate?.input?.kind === "elicitation") this.rpc.respond(requestId, {
+    // Same rule as resolvePermission: the type the request arrived with.
+    const rawId = gate?.rawId ?? requestId;
+    if (gate?.input?.kind === "elicitation") this.rpc.respond(rawId, {
       action: "accept",
       content: Object.fromEntries(Object.entries(out).map(([id, a]) => [id, a.answers[0]])),
       _meta: null
     });
-    else this.rpc.respond(requestId, { answers: out });
+    else this.rpc.respond(rawId, { answers: out });
     return true;
   }
 
@@ -322,7 +419,7 @@ export class CodexAppServer {
       message: params.message || "",
       serverName: params.serverName || ""
     };
-    this.gates.set(String(rpcId), { requestId: String(rpcId), toolName: "AskUserQuestion", input });
+    this.gates.set(String(rpcId), { requestId: String(rpcId), rawId: rpcId, toolName: "AskUserQuestion", input });
     this.onEvent?.("permission_request", {
       requestId: String(rpcId), tool: "AskUserQuestion", input, type: "question"
     });
@@ -343,7 +440,7 @@ export class CodexAppServer {
       permissions: params.permissions || {},
       cwd: params.cwd || this.cwd
     };
-    this.gates.set(String(rpcId), { requestId: String(rpcId), toolName: "request_permissions", input });
+    this.gates.set(String(rpcId), { requestId: String(rpcId), rawId: rpcId, toolName: "request_permissions", input });
     this.onEvent?.("permission_request", { requestId: String(rpcId), tool: "request_permissions", input, type: "permission" });
   }
 
@@ -474,8 +571,50 @@ export class CodexAppServer {
       return out;
     }
 
-    // An item THIS class does not know yet — the server declares 19 and the branches
-    // above draw 6. The pane is a re-render of the CLI's TUI, so the item still reaches
+    // An image the model GENERATED — distinct from `imageView`, which is one it looked at.
+    // It is a tool call that produced a file, so it draws as the tool row with the path it
+    // saved to, and a failed one says why instead of looking like it worked.
+    if (item.type === "imageGeneration") {
+      const saved = item.savedPath || "";
+      out.push({
+        event: "tool_start",
+        data: { id, name: "image_generation", status: done ? "done" : "running", input: { path: saved, file_path: saved, prompt: item.revisedPrompt || "" } }
+      });
+      if (!done) return out;
+      const failed = status === "failed" || Boolean(item.failure);
+      out.push({
+        event: "tool_result",
+        data: { id, name: "image_generation", output: failed ? "" : saved, error: failed ? (item.failure?.message || "Image generation failed") : "", status: failed ? "error" : "done" }
+      });
+      return out;
+    }
+
+    // The interruptible `clock.sleep` tool. A wait with a stated length is a step the turn
+    // took, and the row says how long — dropped, the pause it explains looked like a stall.
+    if (item.type === "sleep") {
+      out.push({
+        event: "tool_start",
+        data: { id, name: "sleep", status: "done", input: { duration_ms: item.durationMs ?? 0 } }
+      });
+      out.push({ event: "tool_result", data: { id, name: "sleep", output: "", error: "", status: "done" } });
+      return out;
+    }
+
+    // A context compaction. The record carries nothing but its own id, and the pane already
+    // has the line for it — `thread/compacted` (see the notification passthrough). Emitted
+    // under that same name and subtype so one compaction is one row, whichever door it
+    // arrived through; as a passthrough it had NO subtype, and the client's notice reader
+    // answers null for that, so a compaction the TUI prints as "Compacted" showed as
+    // nothing at all.
+    if (item.type === "contextCompaction") {
+      if (!done) return out;
+      out.push({ event: "cli_event", data: { type: "thread/compacted", subtype: "compacted", record: { id } } });
+      return out;
+    }
+
+    // An item THIS class does not know yet — the server declares 19 (`ThreadItem` in its
+    // own generated bindings) and the branches above draw 12 of them. The pane is a
+    // re-render of the CLI's TUI, so the item still reaches
     // it, whole and under the server's own name; the `done` guard is the same one the
     // exec transport applies, so an item announced and completed is one record, not two.
     //
@@ -521,6 +660,11 @@ export class CodexAppServer {
       : await this.rpc.request("thread/start", params, { timeoutMs: REQUEST_TIMEOUT_MS });
 
     this.threadId = res?.thread?.id || this.threadId;
+    // A RESUMED thread carries the name it was given — by `/rename`, or by an earlier
+    // chat. `conversationTitle` can only read the rollout FILE, which holds the first
+    // prompt and nothing else, so a rename never reached the pane or the terminal's tab.
+    const name = String(res?.thread?.name || "").trim();
+    if (name) this.threadName = name;
 
     // Whatever was picked while the handshake was in flight goes now, in one call.
     const held = this.pendingSettings;
@@ -627,6 +771,12 @@ export class CodexAppServer {
       // Repeated on the turn so a mode change lands even if the settings call was
       // refused: an option the user picked must not wait for the next chat.
       ...this._turnOverrides()
+    }).then((res) => {
+      // The turn's own id, which is what `turn/interrupt` needs. Taken from the ACK, not
+      // from the `turn/started` notification: the ack is what this call owns, so there is
+      // no window where a turn is running and this object does not know its id.
+      if (res?.turn?.id) this.turnId = res.turn.id;
+      return res;
     });
   }
 
@@ -641,9 +791,31 @@ export class CodexAppServer {
     return out;
   }
 
+  /** True while OUR interrupt is out and its echo has not landed — the stop window. */
+  get interrupting() {
+    return Boolean(this._interrupted);
+  }
+
   interrupt() {
-    if (!this.threadId || this.closed) return;
-    this.rpc.request("turn/interrupt", { threadId: this.threadId }, { timeoutMs: REQUEST_TIMEOUT_MS }).catch(() => {});
+    // Both ids are required by the server, and both are checked here rather than sent
+    // hopefully: a request the server refuses is indistinguishable from one that worked
+    // once it is behind a `.catch`, which is exactly how Stop looked like a no-op.
+    if (!this.threadId || !this.turnId || this.closed) return false;
+    this._interrupted = true;
+    this.rpc
+      .request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId }, { timeoutMs: REQUEST_TIMEOUT_MS })
+      // Logged, not swallowed: without this line a refused interrupt leaves the turn
+      // running and the only evidence is a pane that keeps answering after Stop. The
+      // flag goes with it — a refused request has no echo to consume it, and left set
+      // it would eat the NEXT turn's real completion.
+      .catch((e) => {
+        this._interrupted = false;
+        // Settled here too: no echo is coming, and the adapter's stuck flag would refuse
+        // every prompt after this one.
+        this.onInterruptSettled?.();
+        logger.warn(`[codex] turn/interrupt refused: ${e.message} (thread=${this.threadId} turn=${this.turnId})`);
+      });
+    return true;
   }
 
   /**
@@ -667,7 +839,9 @@ export class CodexAppServer {
         ? { permissions: gate.input.permissions || {}, scope: "turn" }
         : { permissions: {}, scope: "turn" })
       : (behavior === "allow" ? { decision: "accept" } : { decision: "decline" });
-    this.rpc.respond(requestId, answer);
+    // The RAW id, not the string the client sent: an answer must match the type the
+    // request arrived with, or the server never matches it up (see the gates map).
+    this.rpc.respond(gate?.rawId ?? requestId, answer);
     return true;
   }
 

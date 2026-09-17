@@ -127,11 +127,21 @@ export class ClaudeAdapter {
     this.toolCalls = new Map();
     this.turnStreamedText = "";
     this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 0 };
+    // Set when OUR interrupt went out, so the CLI's own `result` echo of that stop can be
+    // told from a real ending. The session already emitted `stopped` when the control
+    // request was written; the echo that follows would end the turn a second time — and
+    // if a queued prompt has started meanwhile, from the NEW turn's start mark ("Worked
+    // for 0s"). Consumed by the echo itself; a new prompt must NOT clear it, because the
+    // CLI answers the interrupt before it starts reading the next prompt.
+    this._interrupted = false;
     this.metadata = { model: "", sessionId: "", tools: [], skills: [], slashCommands: [] };
     // Set when the resume id was refused, so the caller can drop it from its snapshot
     // instead of retrying a conversation the CLI does not have.
     this.resumeRejected = false;
     this._initializedThisSpawn = false;
+    // A prompt being re-sent after the CLI was found dead. Held across the rebuild so a
+    // second refusal cannot start a second one.
+    this._respawning = false;
   }
 
   /**
@@ -188,6 +198,10 @@ export class ClaudeAdapter {
     this.turnStreamedText = "";
     this.resumeRejected = false;
     this._initializedThisSpawn = false;
+    // A stop whose echo never came — the CLI died between our interrupt and its answer.
+    // Kept through the respawn, the replayed history's old `result` would be eaten as
+    // that echo and a past turn would lose its ending in the pane.
+    this._interrupted = false;
     // Bind before starting: a line can arrive while start() is still awaiting, and a
     // handler attached afterwards would drop it.
     // Every line goes through the RPC client. It owns the correlation between a gate the
@@ -227,6 +241,10 @@ export class ClaudeAdapter {
       onMessage: (msg) => this.handleMessage(msg)
     });
     this.proc.onExit = (info) => this._handleExit(info);
+    // The daemon turning a write away is the only notice a dead CLI gives before its
+    // exit lands — and it is the one that proves the prompt never arrived. Bound here,
+    // beside onExit, so both carriers are wired at the same moment.
+    this.proc.onRefused = () => this._handleRefusal();
   }
 
   _args(mode, resumeSessionId) {
@@ -289,8 +307,33 @@ export class ClaudeAdapter {
     this.handleMessage(data);
   }
 
+  /**
+   * The daemon turned a write away: the child is gone.
+   *
+   * Deliberately NOT `_handleExit`. That one is the CLI's own obituary — it emits `exit`
+   * (which the pane paints as "the process died") and, when the id was never confirmed,
+   * sets `resumeRejected` and throws the conversation id away. Both are wrong here: the
+   * chat is about to be rebuilt ON that id, and a recovery nobody asked for must not
+   * report a failure on its way. What is shared with a real exit is the truth that
+   * nothing is running any more, so the gates go and the turn flag drops.
+   */
+  _handleRefusal() {
+    this.isTurnRunning = false;
+    this.pendingRequests.clear();
+    // A refusal always ends the recovery attempt that was in flight — whether it arrived
+    // for the ORIGINAL prompt (the rebuild below will retry once) or for the resend itself
+    // (which passes `retried` and so starts no second rebuild). Left set, it would be the
+    // last word for the rest of the chat's life: every later refusal returns early and the
+    // session goes quietly un-recoverable.
+    this._respawning = false;
+  }
+
   _handleExit({ code, error } = {}) {
     this.isTurnRunning = false;
+    // A real exit ends any recovery that was mid-flight: `_respawning` is what stops a
+    // second refusal from starting a second rebuild, and left set it would also stop the
+    // NEXT dead CLI — the chat silently un-recoverable from then on.
+    this._respawning = false;
     // A dead CLI cannot be waiting on anything; leaving the entries would keep the idle
     // watchdog stood down for a gate no process is holding.
     this.pendingRequests.clear();
@@ -371,6 +414,17 @@ export class ClaudeAdapter {
     }
 
     if (data.type === "result") {
+      // The CLI echoing the turn WE stopped. The pane already drew `stopped` when the
+      // control request went out; letting this through would end the turn again — over
+      // a newer turn's start mark when a queued prompt has since started (see the
+      // constructor note on `_interrupted`). State is still consumed: the CLI considers
+      // the turn over, and so do we.
+      if (this._interrupted) {
+        this._interrupted = false;
+        this.isTurnRunning = false;
+        this.pendingRequests.clear();
+        return;
+      }
       this.isTurnRunning = false;
       // A gate only ever belongs to the turn that asked it. The turn is over, so any
       // request still in the map was walked away from, killed by an interrupt, or is the
@@ -410,10 +464,18 @@ export class ClaudeAdapter {
       // The subtype and `is_error` travel with the end of the turn. `turn_complete` alone
       // says a turn ended; it does not say it ended BADLY, and a pane that only hears the
       // first cannot tell a failure from a success.
+      //
+      // `error_during_execution` with an empty `result` is the CLI reporting an INTERRUPT,
+      // not a failure: it is the subtype it emits when the user stops a turn (measured on
+      // every Stop/Esc — `turn failed: subtype=error_during_execution result=` throughout
+      // the agent log). Passed through, the pane drew "The turn ended in an error." over a
+      // turn the user ended themselves, which reads as a crash. A real failure always
+      // names itself in `result`, so that is what the flag is gated on.
+      const failed = Boolean(data.is_error) && !(data.subtype === "error_during_execution" && !String(data.result || "").trim());
       this.onEvent?.("turn_complete", {
         stats: this.stats,
         result: data.result,
-        isError: Boolean(data.is_error),
+        isError: failed,
         subtype: data.subtype || ""
       });
       return;
@@ -515,11 +577,58 @@ export class ClaudeAdapter {
   }
 
   sendPrompt(prompt, attachments = null) {
+    this._send(prompt, attachments, false);
+  }
+
+  _send(prompt, attachments, retried) {
     this.isTurnRunning = true;
     this.turnStreamedText = "";
-    // Through the client, so "how this CLI spells an outgoing message" lives in ONE place
-    // with everything else about its envelope.
-    this.rpc.notify("user", { message: { role: "user", content: buildContent(prompt, attachments) } });
+    // Re-run this prompt on the CLI that replaces a dead one. Only a REFUSAL earns that:
+    // the daemon turned the write away, so the bytes provably never arrived and sending
+    // them again cannot be a second turn. A real procExit never re-sends.
+    this.rpc.notify(
+      "user",
+      { message: { role: "user", content: buildContent(prompt, attachments) } },
+      () => { if (!retried) this._resendAfterRefusal(prompt, attachments); }
+    );
+  }
+
+  // The CLI died with this prompt still in hand: rebuild it and send the prompt again, so
+  // a chat whose process was killed from outside comes back on its own instead of sitting
+  // on a turn nothing is running. Rebuilt through the same door `start` always uses, which
+  // respawns with `--resume <this conversation>` — the session survives, the text arrives.
+  //
+  // ONCE per prompt. A CLI that dies again on the resend is a machine that cannot run it,
+  // and retrying forever would spin a spawn loop against the daemon — the user gets the
+  // error below instead, which is a thing they can act on.
+  //
+  // No `exit` is emitted on the way: an exit is what the pane renders as "the process died",
+  // and a recovery nobody had to ask for must not paint a failure over it. The rebuild is
+  // silent too — the session's `init` (which a `start` always emits) states the recovered
+  // conversation on its own, and a second event for it would be a second claim about it.
+  _resendAfterRefusal(prompt, attachments) {
+    if (this.resumeRejected || this._respawning) return;
+    this._respawning = true;
+    // Deferred, and outside the refusal's own call stack: the rebuild swallows the old
+    // `rpc` and rebinds `proc`, so it must not run inside a handler those own.
+    setTimeout(() => {
+      // Wrapped, not chained: `start` can throw SYNCHRONOUSLY (it rebuilds the RPC client
+      // before its first await), and inside a setTimeout that lands as an uncaught
+      // exception — which takes the whole agent down, not just this recovery.
+      Promise.resolve()
+        .then(() => this.start(this.currentMode, this.metadata.sessionId || null))
+        .then(
+          () => setTimeout(() => {
+            this._respawning = false;
+            this._send(prompt, attachments, true);
+          }, 0),
+          (e) => {
+            this._respawning = false;
+            // Nothing to recover with. Say so — a silent stop here is the stuck pane again.
+            this.onEvent?.("error", { message: `The CLI exited and could not be restarted: ${e.message}` });
+          }
+        );
+    }, 0);
   }
 
   resolvePermission(requestId, behavior, message = "") {
@@ -562,10 +671,35 @@ export class ClaudeAdapter {
    */
   interrupt() {
     try {
-      this.rpc.notify("control_request", {
+      // The client's own return: false when the carrier reports the write did not go out
+      // (the CLI is gone). Reported as it is, because the caller uses this to decide
+      // between a real stop and telling the user nothing could be stopped — and a `true`
+      // here against a dead pipe is exactly the lie that left the pane and the agent
+      // disagreeing about whether a turn was running.
+      const sent = this.rpc.notify("control_request", {
         request_id: `int-${Date.now()}`,
         request: { subtype: "interrupt", cancel_queued: true }
       });
+      if (sent) this._interrupted = true;
+      return sent;
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * Last resort when the control request could not be written — the CLI is wedged, or its
+   * pipe is gone. SIGINT reaches the carrier that owns the process; `LocalProc` and
+   * `DaemonProc` both take one. Reports whether the signal went out, for the same reason
+   * `interrupt` does: the caller tells the user the truth about what was stopped.
+   */
+  signal(sig = "SIGINT") {
+    if (typeof this.proc?.signal !== "function") return false;
+    try {
+      this.proc.signal(sig);
+      // SIGINT gets the same `result` echo a control request does — stdin can be dead
+      // while stdout still answers, so the swallow must arm here too.
+      this._interrupted = true;
       return true;
     } catch {
       return false;

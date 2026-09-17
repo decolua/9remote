@@ -363,6 +363,72 @@ await test("a real refusal reaches the pane as the card that offers a way out", 
   assert.equal(blocked.escalate.mode, "default", "and the way out is the first mode that can write");
 });
 
+
+// ── the records only a real server sends ──
+//
+// Both of these were reached by wiring a notification this class had never registered.
+// A stand-in can prove the mapping; only the real binary proves the server SENDS it, with
+// the field names the mapping reads.
+
+await test("a thread rename really arrives, with the name in `threadName`", async () => {
+  // `thread/name/set` is the TUI's `/rename`. The record it produces is the only place the
+  // new name exists — the rollout file keeps the first prompt and nothing else, which is
+  // why a renamed chat kept its opening words on the tab and in the pane.
+  const proc = childProc("codex", ["app-server"], workdir);
+  const events = [];
+  const server = new CodexAppServer({
+    proc, cwd: workdir, approvalPolicy: "never",
+    settings: { sandboxPolicy: { type: "dangerFullAccess" }, approvalPolicy: "never" },
+    onEvent: (e, d) => events.push([e, d])
+  });
+  await server.start();
+  try {
+    await server.rpc.request("thread/name/set", { threadId: server.threadId, name: "Renamed by the e2e" });
+    const deadline = Date.now() + 5000;
+    while (Date.now() < deadline && !events.some(([e, d]) => e === "init" && d.threadName)) {
+      await new Promise((r) => setTimeout(r, 50));
+    }
+  } finally {
+    await server.stop();
+  }
+  const named = events.filter(([e, d]) => e === "init" && d.threadName).map(([, d]) => d);
+  assert.ok(named.length > 0, `expected a name record, got ${JSON.stringify(events.map(([e]) => e))}`);
+  assert.equal(named.at(-1).threadName, "Renamed by the e2e");
+  assert.equal(named.at(-1).threadId, server.threadId);
+});
+
+await test("a passthrough record keeps the server's own name, un-enveloped", async () => {
+  // The client's notice reader matches on the record's OWN method name (`warning`,
+  // `error`, `model/rerouted`). The tempting "fix" is to wrap one in a `system` envelope,
+  // which reads as more routable and is in fact unreadable to it — measured: this file's
+  // old mapping answered null where the passthrough answers the line.
+  //
+  // Pinned on a record that a real turn ALWAYS produces, so this cannot pass vacuously:
+  // `thread/status/changed` streams for every turn on this binary.
+  const { events } = await runTurn("Say the word: ok");
+  const carried = events.filter(([e, d]) => e === "cli_event").map(([, d]) => d);
+  assert.ok(carried.length > 0, "a real turn produces passthrough records");
+  for (const c of carried) {
+    assert.ok(!c.subtype, `a passthrough record must not be re-typed: ${JSON.stringify(c)}`);
+    assert.ok(c.type.includes("/") || /^[a-z]/.test(c.type), `carried under a method name, got ${c.type}`);
+  }
+  // And the one that is always there proves the name survives intact.
+  assert.ok(carried.some((c) => c.type === "thread/status/changed"), "the thread's own status record");
+});
+// ── answering a gate: measured here, pinned in the unit suite ──
+//
+// The gate's request id is a NUMBER on this wire, and an answer has to go back as the type
+// it arrived. Measured on this binary, one prompt, one gate, only the answer's id type
+// differing:
+//
+//   answered as "0"  → no further records, no `turn/completed`  (the turn hangs)
+//   answered as  0   → `serverRequest/resolved` + `turn/completed`, the command runs
+//
+// That is `codexAppServer.test.mjs`'s job to hold (it needs no model and no gate), because
+// every way of raising a gate HERE is non-deterministic: asking the model to try something
+// forbidden depends on the model actually trying, and `thread/shellCommand` was measured to
+// run WITHOUT asking at all. A red-sometimes test teaches nothing.
+
 console.log(`\n${pass} passed, ${fail} failed`);
 fs.rmSync(workdir, { recursive: true, force: true });
 process.exit(fail === 0 ? 0 : 1);

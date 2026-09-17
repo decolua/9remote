@@ -248,6 +248,22 @@ test("a failed result keeps the failure, not just the end of the turn", () => {
   assert.equal(done[1].result, "Command failed");
 });
 
+test("an interrupted turn is not reported as a failure", () => {
+  // Stop/Esc makes the CLI answer with `error_during_execution` and an EMPTY result —
+  // measured on every interrupt in a real agent log (`turn failed: subtype=
+  // error_during_execution result=`). Passed through as a failure, the pane drew "The
+  // turn ended in an error." over a turn the user ended themselves, which reads as a
+  // crash. A real failure names itself in `result`; an interrupt has nothing to name.
+  const { of } = feeding([{
+    type: "result", subtype: "error_during_execution", is_error: true,
+    result: "", num_turns: 2, uuid: "u", session_id: "s"
+  }]);
+  const [done] = of("turn_complete");
+  assert.ok(done);
+  assert.equal(done[1].isError, false, "an interrupt is not a failure");
+  assert.equal(done[1].subtype, "error_during_execution", "the subtype still travels");
+});
+
 test("a successful result still reports itself as one", () => {
   const { of } = feeding([{ type: "result", subtype: "success", is_error: false, result: "ok", uuid: "u", session_id: "s" }]);
   const [done] = of("turn_complete");
@@ -360,6 +376,63 @@ test("a prompt and an interrupt go out in the CLI's own shape", () => {
   assert.equal(stop.type, "control_request");
   assert.equal(stop.request.subtype, "interrupt");
   assert.equal(stop.request.cancel_queued, true);
+});
+
+test("the CLI's own echo of our interrupt is swallowed", () => {
+  // The session emits `stopped` the moment the control request goes out. The CLI then
+  // answers the interrupt with a `result` of its own — a SECOND ending for the same
+  // turn. Let through after a queued prompt had started, it stamped that newer turn's
+  // span ("Worked for 0s") and killed its running flag. The echo must be consumed
+  // silently; the NEXT turn's result must still announce itself.
+  const events = [];
+  const proc = fakeProc();
+  const adapter = new ClaudeAdapter({ cwd: "/w", onEvent: (e, d) => events.push([e, d]), proc });
+  adapter._reset("default");
+
+  adapter.sendPrompt("turn a", null);
+  assert.equal(adapter.interrupt(), true);
+  // The echo of OUR stop: same record the CLI emits on every Esc.
+  proc.emit({ type: "result", subtype: "error_during_execution", is_error: true, result: "", uuid: "u1", session_id: "s" });
+  assert.equal(events.filter(([e]) => e === "turn_complete").length, 0, "the echo draws nothing");
+  assert.equal(adapter.isTurnRunning, false, "the adapter still knows the turn is over");
+
+  // The queued prompt goes in — the echo is gone, this one must end normally.
+  adapter.sendPrompt("turn b", null);
+  proc.emit({ type: "result", subtype: "success", is_error: false, result: "ok", uuid: "u2", session_id: "s" });
+  const done = events.filter(([e]) => e === "turn_complete");
+  assert.equal(done.length, 1, "the next turn's result still lands");
+});
+
+test("a stop whose echo never came does not eat the next spawn's history", () => {
+  // The CLI can die between our interrupt and its answer. The flag must not survive the
+  // respawn: the replacement replays the conversation, and a stale flag would swallow
+  // the first old `result` it sees — a past turn losing its ending in the pane.
+  const events = [];
+  const proc = fakeProc();
+  const adapter = new ClaudeAdapter({ cwd: "/w", onEvent: (e, d) => events.push([e, d]), proc });
+  adapter._reset("default");
+  adapter.sendPrompt("turn a", null);
+  assert.equal(adapter.interrupt(), true);
+
+  // The CLI dies here — no echo. The respawn rebuilds through _reset, then replays.
+  adapter._reset("default");
+  proc.emit({ type: "result", subtype: "success", is_error: false, result: "ok", uuid: "u1", session_id: "s" });
+  assert.equal(events.filter(([e]) => e === "turn_complete").length, 1, "a replayed result still ends its turn");
+});
+
+test("the SIGINT fallback arms the same echo swallow", () => {
+  // `stop` falls back to a signal when the write path is dead — and stdin dying does
+  // not kill stdout, so the CLI answers SIGINT with the same `result` echo. Unarmed,
+  // that echo would land as a real second ending.
+  const events = [];
+  const proc = fakeProc();
+  proc.signal = () => {};
+  const adapter = new ClaudeAdapter({ cwd: "/w", onEvent: (e, d) => events.push([e, d]), proc });
+  adapter._reset("default");
+
+  assert.equal(adapter.signal(), true);
+  proc.emit({ type: "result", subtype: "error_during_execution", is_error: true, result: "", uuid: "u1", session_id: "s" });
+  assert.equal(events.filter(([e]) => e === "turn_complete").length, 0, "the SIGINT echo draws nothing");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

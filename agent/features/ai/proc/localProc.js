@@ -53,7 +53,8 @@ export class LocalProc {
     });
   }
 
-  write(text) { this.child?.stdin?.write(String(text)); }
+  // A dead child's stdin is gone; saying so beats a write into the void (see jsonRpcClient._write).
+  write(text) { return Boolean(this.child?.stdin?.writable) && (this.child.stdin.write(String(text)), true); }
   closeStdin() { try { this.child?.stdin?.end(); } catch {} }
   signal(sig = "SIGINT") { try { this.child?.kill(sig); } catch {} }
   async stop() { try { this.child?.kill("SIGINT"); } catch {} }

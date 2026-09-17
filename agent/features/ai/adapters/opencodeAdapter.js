@@ -236,6 +236,27 @@ export class OpenCodeAdapter {
     }
   }
 
+  /**
+   * End the TURN. This engine runs one CLI per turn, so the turn's own process IS the
+   * turn — stopping it is what Stop/Esc means, and the next prompt spawns a fresh one.
+   *
+   * Without this the adapter exposed neither `interrupt` nor `signal`, so `AiSession.stop`
+   * had nothing to call and still reported the turn stopped: the pane cleared its flag
+   * while the CLI kept working, and the dot disagreed with the agent from then on.
+   */
+  interrupt() {
+    if (!this.isTurnRunning) return false;
+    this.isTurnRunning = false;
+    Promise.resolve(this.proc?.stop()).catch(() => {});
+    return true;
+  }
+
+  /** The fallback `AiSession.stop` reaches for. The daemon carrier is the one that has it. */
+  signal(sig = "SIGINT") {
+    if (typeof this.proc?.signal !== "function") return false;
+    try { this.proc.signal(sig); return true; } catch { return false; }
+  }
+
   stop() {
     this.isTurnRunning = false;
     // The daemon asks the CLI first and only kills it if it will not go, so a turn

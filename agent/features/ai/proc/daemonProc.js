@@ -19,6 +19,9 @@ export class DaemonProc {
     this.client = client;
     this.onLine = null;
     this.onExit = null;
+    // A write the daemon turned away because the child was already gone. Narrower than
+    // onExit: only this one proves the bytes never arrived, so only this one may re-send.
+    this.onRefused = null;
     this.dead = false;
     this.attached = false;
     this._lastLine = 0;
@@ -191,8 +194,35 @@ export class DaemonProc {
     return startResult(this._result(res.total, res.lines || [], res.oldest));
   }
 
+  /**
+   * A write the daemon REFUSED because the child was already gone.
+   *
+   * The daemon answers `{success:false, error:"Process not writable"}` for an exited CLI, and
+   * this used to hand that promise back to callers that never read it — so a prompt written
+   * into a dead pipe looked exactly like one that landed, and the chat spun on a turn no
+   * process was running. Reported through `onRefused` only: the bytes provably never arrived,
+   * which is what lets a caller re-send them, and it is NOT an exit — a reader that treats it
+   * as one tears down the very turn being recovered.
+   *
+   * Only an explicit refusal counts. A rejected call is the daemon being unreachable or slow,
+   * which says nothing about the child, and guessing "dead" from it would unsubscribe a
+   * perfectly live process.
+   */
   write(text) {
-    return this.client.procWrite(this.procId, Buffer.from(String(text)).toString("base64"));
+    if (this.dead) return false;
+    // Captured here, not read in the promise below: the answer comes back a round-trip
+    // later, and by then a second message may have installed its own callback — the
+    // refusal would then be reported to the wrong one.
+    const onRefused = this.onRefused;
+    this.client.procWrite(this.procId, Buffer.from(String(text)).toString("base64"))
+      .then((res) => {
+        if (res?.success) return;
+        this.dead = true;
+        this._unsubscribe();
+        onRefused?.({ code: null, error: res?.error || "Process not writable" });
+      })
+      .catch(() => {});
+    return true;
   }
 
   /** An engine whose CLI reads no stdin still gets it closed: a piped stdin that never

@@ -378,6 +378,66 @@ await test("a denial says so", async () => {
   assert.ok(JSON.stringify(answer.result).includes("decline"), `expected a denial, got ${JSON.stringify(answer.result)}`);
 });
 
+await test("an answer goes back with the id TYPE the request arrived with", async () => {
+  // The server's `RequestId` is `string | number` and it NUMBERS its own requests. A
+  // client's card is keyed by the string form (that is what travels on the wire), so
+  // answering with the string is the easy mistake — and it is fatal. Measured on the real
+  // server, one gate, only the answer's id type differing: answered as `"0"`, no further
+  // records and no `turn/completed` ever arrived (the turn hung); answered as `0`, the
+  // server sent `serverRequest/resolved` and `turn/completed` and ran the command.
+  const { proc, server, of } = await started();
+  proc.emit({ jsonrpc: "2.0", id: 7, method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
+  const [req] = of("permission_request");
+  assert.equal(req.requestId, "7", "the card is keyed by the string form, as the wire has it");
+  assert.equal(server.resolvePermission("7", "allow"), true);
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.strictEqual(answer.id, 7, "and the answer carries the NUMBER back");
+});
+
+await test("a string request id is answered as a string", async () => {
+  // The other half: ids this host mints (a client-issued request) are strings and must
+  // stay strings. Coercing everything to a number would break exactly these.
+  const { proc, server } = await started();
+  proc.emit({ jsonrpc: "2.0", id: "srv-9", method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
+  server.resolvePermission("srv-9", "allow");
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.strictEqual(answer.id, "srv-9");
+});
+
+await test("a user-input gate is answered on the raw id too", async () => {
+  const { proc, server } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: 12, method: "item/tool/requestUserInput",
+    params: { threadId: "t-1", questions: [{ id: "q1", header: "Pick", question: "Which?", options: [{ label: "A" }] }] }
+  });
+  assert.equal(server.resolveQuestion("12", { "Which?": "A" }), true);
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.strictEqual(answer.id, 12);
+});
+
+await test("the server's own resolved record does not eat the gate we are still holding", async () => {
+  // The server emits `serverRequest/resolved` for EVERY gate — its own answer included —
+  // and it arrives BEFORE the answer write is flushed. Clearing the map there too made the
+  // retry check report "no longer waiting" over an answer that had just been accepted.
+  const { proc, server, of } = await started();
+  proc.emit({ jsonrpc: "2.0", id: 21, method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
+  proc.emit({ jsonrpc: "2.0", method: "serverRequest/resolved", params: { threadId: "t-1", requestId: 21 } });
+  const [res] = of("permission_resolved");
+  assert.equal(res.requestId, "21", "the card is told to go");
+  assert.equal(res.behavior, "dismissed", "and not as if this app had allowed it");
+  // Still answerable: the resolution is the CLI's statement, not our answer.
+  assert.equal(server.resolvePermission("21", "allow"), true);
+  assert.strictEqual(JSON.parse(proc.written[proc.written.length - 1]).id, 21);
+});
+
+await test("a resolved record for a request we already answered says nothing twice", async () => {
+  const { proc, server, of } = await started();
+  proc.emit({ jsonrpc: "2.0", id: 22, method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
+  server.resolvePermission("22", "allow");
+  proc.emit({ jsonrpc: "2.0", method: "serverRequest/resolved", params: { threadId: "t-1", requestId: 22 } });
+  assert.equal(of("permission_resolved").length, 0, "one gate, one resolution");
+});
+
 await test("answering a gate twice is refused, so a stray answer cannot land", async () => {
   const { proc, server } = await started();
   proc.emit({ jsonrpc: "2.0", id: "srv-3", method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
@@ -422,9 +482,76 @@ await test("interrupt asks the server to stop the running turn", async () => {
   const p = server.sendPrompt("hi");
   proc.emit({ jsonrpc: "2.0", id: proc.sent("turn/start")[0].id, result: { turn: { id: "turn-1" } } });
   await p;
-  server.interrupt();
+  assert.equal(server.interrupt(), true);
   const it = proc.sent("turn/interrupt")[0];
   assert.equal(it.params.threadId, "t-1");
+  // BOTH ids, because the server's `TurnInterruptParams` is `{ threadId, turnId }` — the
+  // turn id is not optional. Asserting only the thread is what let Stop look like a no-op:
+  // the request went out, the server refused it for the missing field, and the `.catch`
+  // swallowed the refusal while the CLI kept answering.
+  assert.equal(it.params.turnId, "turn-1", "the turn id is required, not decoration");
+});
+
+await test("interrupt refuses when no turn is open, instead of sending a doomed request", async () => {
+  // A thread with nothing running has no turn to interrupt. Sending anyway gets a refusal
+  // the caller reads as success, which is how `AiSession.stop` came to clear the pane's
+  // turn flag over a CLI that never heard anything.
+  const { proc, server } = await started();
+  assert.equal(server.interrupt(), false);
+  assert.equal(proc.sent("turn/interrupt").length, 0, "nothing is sent for a turn that does not exist");
+});
+
+await test("the interrupt's landing is reported to its holder, not the pane", async () => {
+  // The adapter's running flag only ever cleared on `turn_complete`/`error`. Swallowing
+  // the echo (rightly) took those away from the pane — and wrongly took the flag's only
+  // release with them, so every prompt after an Esc was refused forever. The landing now
+  // has its own door: `onInterruptSettled`, internal, fired exactly once.
+  const settled = [];
+  const { proc, server, of } = await started({ onInterruptSettled: () => settled.push(true) });
+  const p = server.sendPrompt("hi");
+  proc.emit({ jsonrpc: "2.0", id: proc.sent("turn/start")[0].id, result: { turn: { id: "turn-1" } } });
+  await p;
+
+  assert.equal(server.interrupting, false, "nothing is in flight before a stop");
+  assert.equal(server.interrupt(), true);
+  assert.equal(server.interrupting, true, "the window is open while the echo is out");
+  proc.emit({
+    jsonrpc: "2.0", method: "turn/completed",
+    params: { threadId: "t-1", turn: { id: "turn-1", status: "interrupted" } }
+  });
+  assert.equal(settled.length, 1, "the holder hears the landing");
+  assert.equal(server.interrupting, false, "the window closed with the echo");
+  assert.equal(of("turn_complete").length, 0, "the pane does not hear it twice");
+});
+
+await test("the server's own echo of our interrupt is swallowed", async () => {
+  // The session emits `stopped` the moment turn/interrupt goes out. The server then
+  // completes the interrupted turn on its own — a SECOND ending for the same turn.
+  // Let through after a queued prompt had started, it stamped that newer turn's span
+  // ("Worked for 0s") and killed its running flag. The echo must be consumed silently;
+  // the NEXT turn's completion must still announce itself.
+  const { proc, server, of } = await started();
+  const p = server.sendPrompt("hi");
+  proc.emit({ jsonrpc: "2.0", id: proc.sent("turn/start")[0].id, result: { turn: { id: "turn-1" } } });
+  await p;
+  assert.equal(server.interrupt(), true);
+  proc.emit({
+    jsonrpc: "2.0", method: "turn/completed",
+    params: { threadId: "t-1", turn: { id: "turn-1", status: "interrupted" } }
+  });
+  assert.equal(of("turn_complete").length, 0, "the echo draws nothing");
+  assert.equal(server.isTurnRunning, false, "state is still consumed");
+  assert.equal(server.turnId, null, "the turn id is released for the next turn");
+
+  // The queued prompt goes in — the echo is gone, this one must end normally.
+  const p2 = server.sendPrompt("next");
+  proc.emit({ jsonrpc: "2.0", id: proc.sent("turn/start")[1].id, result: { turn: { id: "turn-2" } } });
+  await p2;
+  proc.emit({
+    jsonrpc: "2.0", method: "turn/completed",
+    params: { threadId: "t-1", turn: { id: "turn-2", status: "completed" } }
+  });
+  assert.equal(of("turn_complete").length, 1, "the next turn's completion still lands");
 });
 
 await test("a process that dies mid-turn ends the turn instead of hanging it", async () => {
@@ -590,11 +717,10 @@ await test("a prompt is never timed out by the request layer", async () => {
 
 await test("a notification nobody wired reaches the pane, under its own name", async () => {
   const { proc, of } = await started();
-  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { threadId: "t-1", diff: "@@ -1 +1 @@" } });
+  proc.emit({ jsonrpc: "2.0", method: "skills/changed", params: {} });
   const carried = of("cli_event");
   assert.equal(carried.length, 1, "an unrouted record must not vanish");
-  assert.equal(carried[0].type, "turn/diff/updated");
-  assert.equal(carried[0].record.diff, "@@ -1 +1 @@", "and it travels whole");
+  assert.equal(carried[0].type, "skills/changed");
 });
 
 await test("a record something already drew is not carried a second time", async () => {
@@ -683,9 +809,9 @@ await test("a notification for another chat does not leak into this one", async 
   // The wired handlers all guard on `_mine`; the passthrough must too, or a server
   // holding several threads draws one chat's records inside another's timeline.
   const { proc, of } = await started();
-  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { threadId: "t-OTHER", diff: "@@" } });
+  proc.emit({ jsonrpc: "2.0", method: "warning", params: { threadId: "t-OTHER", message: "someone else's" } });
   assert.equal(of("cli_event").length, 0, "another thread's record is not this chat's");
-  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { threadId: "t-1", diff: "@@" } });
+  proc.emit({ jsonrpc: "2.0", method: "warning", params: { threadId: "t-1", message: "ours" } });
   assert.equal(of("cli_event").length, 1, "its own still arrives");
 });
 
@@ -1036,6 +1162,206 @@ await test("a plan being written grows on screen instead of appearing finished",
   });
   const last = events.filter(([e]) => e === "tool_start").map(([, d]) => d.input.plan).at(-1);
   assert.equal(last, "the final plan\n");
+});
+
+
+// ── the records the pane was never told about ──
+//
+// The server declares 83 notifications and this class wired 17. Everything else fell to
+// the passthrough, which hands a record to the client under its own name — and the client
+// only DRAWS the names it knows. Five families were reaching it as nothing at all, each
+// measured on a real server (see the e2e for the two that need one).
+
+await test("a thread rename reaches the pane as the chat's own title", async () => {
+  // `conversationTitle` reads the ROLLOUT file, which only ever holds the FIRST prompt —
+  // so a thread renamed in the TUI (or by `/rename`) kept its old name everywhere. The
+  // server states the new one; nothing was listening.
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "thread/name/updated", params: { threadId: "t-1", threadName: "Fix the parser" } });
+  const [init] = of("init");
+  assert.equal(init.threadName, "Fix the parser");
+  assert.equal(init.threadId, "t-1");
+});
+
+await test("a rename with no name does not blank the title we have", async () => {
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "thread/name/updated", params: { threadId: "t-1", threadName: "Named" } });
+  proc.emit({ jsonrpc: "2.0", method: "thread/name/updated", params: { threadId: "t-1" } });
+  const inits = of("init");
+  assert.equal(inits.length, 1, "a nameless record states nothing, so it says nothing");
+});
+
+await test("a gate answered somewhere else closes the card here too", async () => {
+  // The server says when a request it was holding is resolved — by another client, or by
+  // the TUI. Unread, the card stayed on screen over a CLI that had moved on: the answer
+  // reached no handler, and only an F5 cleared it.
+  const { proc, server, of } = await started();
+  proc.emit({ jsonrpc: "2.0", id: "srv-9", method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
+  assert.equal(of("permission_request").length, 1, "the card is up");
+  proc.emit({ jsonrpc: "2.0", method: "serverRequest/resolved", params: { threadId: "t-1", requestId: "srv-9" } });
+  const [done] = of("permission_resolved");
+  assert.equal(done.requestId, "srv-9", "and answers for the id the card is keyed by");
+  // The map is deliberately NOT cleared here — see the test above: the answer path owns
+  // that, and doing it in both places reported a good answer as "no longer waiting".
+  assert.equal(server.gates.size, 1);
+});
+
+await test("a resolved request nobody asked about is ignored", async () => {
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "serverRequest/resolved", params: { threadId: "t-1", requestId: "never-seen" } });
+  assert.equal(of("permission_resolved").length, 0);
+});
+
+// ── a rewind this host did not run: NOT fixable from here ──
+//
+// `thread/revert` cuts the server's own store and does NOT rewrite the rollout file —
+// measured on a real server: 2 turns with 2 prompts in the rollout before the revert, 1
+// turn in the store and still 2 prompts in the rollout after it. The session's log is
+// built from the rollout, so a rebuild would hand back exactly the turns the user just
+// discarded. That is why there is no `conversation_reverted` handler: the correct fix is a
+// rewind path that reads `thread/turns/list` instead of the rollout, and half of one is
+// worse than none. Pinned so the tempting one is not re-added.
+
+await test("thread/reverted is passed through, not acted on", async () => {
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "thread/reverted", params: { threadId: "t-1" } });
+  // No reset, no rebuild — the pane's log is untouched, and the record travels as itself.
+  assert.equal(of("conversation_reset").length, 0);
+  assert.equal(of("conversation_reverted").length, 0);
+  const [ev] = of("cli_event");
+  assert.equal(ev?.type, "thread/reverted");
+});
+
+await test("the turn's aggregate diff is routed, not drawn as a second card per file", async () => {
+  // The pane keys diffs by FILE. This record is one diff across every file of the turn,
+  // so feeding it in would overwrite the per-file cards the fileChange items produce.
+  // It is routed (never passed through) and dropped.
+  const { proc, events } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { threadId: "t-1", turnId: "turn-1", diff: "diff --git a/a.txt b/a.txt\n--- a/a.txt\n+++ b/a.txt\n-old\n+new\n" } });
+  assert.equal(events.filter(([e]) => e === "diff").length, 0, "no diff card from the aggregate");
+  assert.equal(events.filter(([e]) => e === "cli_event").length, 0, "and it is not passed through either");
+});
+
+// ── the notices the client already knows how to draw ──
+//
+// `harnessTasks.noticeFrom` has a codex branch for `warning` / `guardianWarning` /
+// `configWarning` / `deprecationNotice` / `model/rerouted` / `error`, matched on the
+// notification's OWN name. The passthrough already carries that name, so these need no
+// wiring — pinned here because the tempting "fix" is to wrap one in a `system` envelope,
+// which reads as more routable and is in fact unreadable (measured: `noticeFrom("system",
+// {message:"…"})` is null, while `noticeFrom("warning", …)` is the line).
+
+await test("a codex warning arrives under the name the client's reader matches", async () => {
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "warning", params: { threadId: "t-1", message: "Stream disconnected - retrying (1/5)" } });
+  const [ev] = of("cli_event");
+  assert.equal(ev.type, "warning", "the record's own name, not an envelope");
+  assert.equal(ev.subtype, "");
+  assert.match(ev.record.message, /retrying/);
+});
+
+await test("an error keeps its thread id and its retry flag", async () => {
+  // `noticeFrom` reads `record.willRetry` to pick the level, and `threadId` is what keeps
+  // one chat's failure out of another's pane. Both travel whole, so both must survive.
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "error", params: { threadId: "t-1", turnId: "turn-1", willRetry: true, error: { message: "stream error", codexErrorInfo: null, additionalDetails: null } } });
+  const [ev] = of("cli_event");
+  assert.equal(ev.type, "error");
+  assert.equal(ev.record.willRetry, true);
+  assert.equal(ev.record.threadId, "t-1");
+});
+
+await test("a model reroute travels with both model names", async () => {
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "model/rerouted", params: { threadId: "t-1", turnId: "turn-1", fromModel: "gpt-5.6-sol", toModel: "gpt-5.5", reason: "capacity" } });
+  const [ev] = of("cli_event");
+  assert.equal(ev.type, "model/rerouted");
+  assert.equal(ev.record.fromModel, "gpt-5.6-sol");
+  assert.equal(ev.record.toModel, "gpt-5.5");
+});
+
+// ── hooks: reached, but not DRAWN ──
+//
+// `hook/started` / `hook/completed` already reach the pane through the passthrough, and
+// the pane draws nothing for them: its task model folds only records whose `type` is
+// `system` (harnessTasks.applyTaskRecord returns the list unchanged for any other), and
+// its notice reader has no branch for either name. A hook row is therefore a CLIENT-side
+// job — a reader for codex's `run` shape — not something this file can state its way into.
+// Pinned so the host is not "fixed" twice over for a row nobody renders.
+
+await test("a hook arrives whole, under the server's own name", async () => {
+  const { proc, of } = await started();
+  proc.emit({
+    jsonrpc: "2.0", method: "hook/completed",
+    params: {
+      threadId: "t-1", turnId: null,
+      run: { id: "hook-1", eventName: "sessionStart", status: "completed", entries: [{ kind: "info", text: "SessionStart hook ran" }] }
+    }
+  });
+  const [ev] = of("cli_event");
+  assert.equal(ev.type, "hook/completed");
+  // The params travel as-is, so the run is nested — the shape a client reader would open.
+  assert.equal(ev.record.run.id, "hook-1");
+  assert.equal(ev.record.run.status, "completed");
+  assert.match(ev.record.run.entries[0].text, /SessionStart hook ran/);
+});
+
+// ── items the pane drew nothing for ──
+
+await test("a context compaction is one line, not a raw JSON record", async () => {
+  // The server declares `contextCompaction` and this class drew 6 of its 19 item types.
+  // The seventh fell to the passthrough as `cli_event` with NO subtype — and the client's
+  // notice reader answers null for that, so a compaction the TUI prints as "Compacted"
+  // showed up as nothing at all.
+  const { proc, of } = await started();
+  proc.emit(itemCompleted({ type: "contextCompaction", id: "cc_1" }));
+  const [ev] = of("cli_event");
+  assert.equal(ev.type, "thread/compacted", "the record the pane's compaction line is written for");
+  assert.equal(ev.subtype, "compacted");
+});
+
+await test("an image the model generated draws as the file it was saved to", async () => {
+  const { proc, of } = await started();
+  proc.emit(itemCompleted({ type: "imageGeneration", id: "img_1", status: "completed", revisedPrompt: "a red square", result: "ok", failure: null, savedPath: "/w/out.png" }));
+  const [start] = of("tool_start");
+  assert.equal(start.name, "image_generation");
+  assert.equal(start.input.path, "/w/out.png");
+  assert.equal(of("tool_result").length, 1, "and the row closes");
+});
+
+await test("a failed image generation says so instead of looking done", async () => {
+  const { proc, of } = await started();
+  proc.emit(itemCompleted({ type: "imageGeneration", id: "img_2", status: "failed", revisedPrompt: null, result: "", failure: { message: "content policy" }, savedPath: null }));
+  const [res] = of("tool_result");
+  assert.equal(res.status, "error");
+  assert.match(res.error, /content policy/);
+});
+
+await test("a sleep is a row with its duration, not an unknown record", async () => {
+  const { proc, of } = await started();
+  proc.emit(itemCompleted({ type: "sleep", id: "sleep_1", durationMs: 5000 }));
+  const [start] = of("tool_start");
+  assert.equal(start.name, "sleep");
+  assert.equal(start.input.duration_ms, 5000);
+});
+
+// ── the id a gate is keyed by ──
+
+await test("an elicitation is keyed by the same id its answer closes", async () => {
+  // Measured, not reasoned about: an elicitation raised with a numeric id and one raised
+  // with a string id both land in the map under their STRING form (`"17"` and `"s-1"`),
+  // which is what the client's card carries and what it sends back. Pinned because the
+  // obvious "fix" — stringifying at the publish site — is a no-op here, and the id that
+  // DOES matter is the one the answer goes back on (see the test below).
+  const { proc, server, of } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: 17, method: "mcpServer/elicitation/request",
+    params: { threadId: "t-1", serverName: "srv", message: "Which one?", requestedSchema: { type: "object", properties: { pick: { type: "string", title: "Pick" } } } }
+  });
+  const [q] = of("permission_request");
+  assert.equal(q.requestId, "17", "the id an answer will carry");
+  assert.ok(server.gates.has("17"), "and the gate is filed under it");
+  assert.equal(server.resolveQuestion("17", { Pick: "A" }), true, "so the answer lands");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

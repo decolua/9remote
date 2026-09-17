@@ -49,6 +49,9 @@ export class CodexAdapter {
     this._restarting = false;
     // Prompts that arrived while the server was being replaced; drained once it is up.
     this._heldPrompts = [];
+    // One prompt held while OUR interrupt is landing — see sendPrompt. Sister of
+    // `_heldPrompts` (the restart window), with the same one-deep patience.
+    this._pendingAfterStop = null;
     // Turn-per-CLI: a process is born per turn. Under the daemon it outlives an agent
     // restart, and adopt() picks that turn back up.
     // An injected proc is the caller's (a test's); otherwise the transport decides —
@@ -309,6 +312,13 @@ export class CodexAdapter {
       proc: carrier,
       cwd: this.cwd,
       onEvent: (ev, data) => this._forward(ev, data),
+      // The interrupt's landing is the one ending this adapter never hears as an event
+      // (the pane-facing echo is swallowed in the app-server), so the flag release and
+      // the prompt held for that window both hang off this callback instead.
+      onInterruptSettled: () => {
+        this.isTurnRunning = false;
+        this._flushPendingAfterStop();
+      },
       threadId: this.activeThreadId,
       model: this.currentModel,
       effort: this.reasoningEffort,
@@ -467,8 +477,29 @@ export class CodexAdapter {
     return args;
   }
 
+  /** Send the prompt held through the stop window, once that window has closed. */
+  _flushPendingAfterStop() {
+    const held = this._pendingAfterStop;
+    this._pendingAfterStop = null;
+    if (!held) return;
+    // Same shape as the restart drain: a throw here has no caller to catch it, so it
+    // becomes the pane's error instead of an unhandled rejection.
+    try { this.sendPrompt(held.prompt, held.attachments); }
+    catch (err) { this.onEvent?.("error", { message: err.message }); }
+  }
+
   sendPrompt(prompt, attachments = null) {
     if (this.isTurnRunning) {
+      // A stop we sent is still landing: the turn ends the moment the server's echo
+      // arrives, and this prompt goes right after it — held for the width of that
+      // window, not refused into the user's face (the client drains its queue the
+      // instant `stopped` arrives, which is before the server has finished stopping).
+      if (this.persistent && this.appServer?.interrupting && !this._pendingAfterStop) {
+        // Raw, like `_heldPrompts`: the flush re-enters sendPrompt, which stages —
+        // staging here too would stage twice, and the second pass has no content.
+        this._pendingAfterStop = { prompt, attachments: attachments?.length ? attachments : null };
+        return;
+      }
       throw new Error("Codex turn is already running.");
     }
     // This transport has no per-turn fallback: `exec` here would be a SECOND writer on a
@@ -635,6 +666,44 @@ export class CodexAdapter {
   resolveQuestion(requestId, answers) {
     if (!this.appServer) return false;
     return this.appServer.resolveQuestion(requestId, answers);
+  }
+
+  /**
+   * End the TURN, not the chat — what Stop/Esc means. Returns whether anything was
+   * actually stopped, because the caller reports that to the user.
+   *
+   * This adapter had no `interrupt` at all, so `AiSession.stop()` found nothing to call,
+   * fell through to a `signal` that also did not exist, and emitted `stopped` anyway: the
+   * pane cleared its turn flag while the CLI kept running, and every later prompt queued
+   * behind a turn that had never ended. Both transports are covered here — the app-server
+   * holds the turn in a thread and takes its own `turn/interrupt` (the CLI ends the turn
+   * and keeps the conversation), while `exec` IS the turn's process, so ending it is
+   * ending the turn.
+   */
+  interrupt() {
+    if (this.persistent) {
+      // The server's own answer, not a guess: it needs BOTH the thread and the open turn,
+      // and only it knows whether a turn is really running. Returning `true` off a thread
+      // id alone was the same lie one layer down — `AiSession.stop` would report a turn
+      // stopped and clear the pane's flag over a CLI that never heard anything.
+      return Boolean(this.appServer?.interrupt());
+    }
+    this.isTurnRunning = false;
+    // Not awaited: `stop()` is reached from a synchronous path. The rejection is caught
+    // because a carrier that is already gone is the ordinary case here, not a failure.
+    Promise.resolve(this.proc?.stop()).catch(() => {});
+    return true;
+  }
+
+  /**
+   * Last resort when `interrupt()` could not be written — a SIGINT to whatever is running
+   * this chat. Only some carriers can take one (`AgentProc`, which exec runs on, has no
+   * `signal` at all), so this reports whether the signal went out rather than assuming it.
+   */
+  signal(sig = "SIGINT") {
+    const carrier = this.persistent ? this._activeCarrier() : this.proc;
+    if (typeof carrier?.signal !== "function") return false;
+    try { carrier.signal(sig); return true; } catch { return false; }
   }
 
   /**

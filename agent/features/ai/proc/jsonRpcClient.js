@@ -100,16 +100,44 @@ export class JsonRpcClient {
     return answer;
   }
 
-  /** A message that expects nothing back, in this CLI's own envelope. */
-  notify(method, params = {}) {
-    if (this.dead || this.closed) return;
-    this.proc.write(JSON.stringify(this._encodeNotification(method, params)) + "\n");
+  /**
+   * A message that expects nothing back, in this CLI's own envelope.
+   *
+   * `onRefused` is for the one failure a notification CAN have: a carrier that reports the
+   * write was turned away (the process is gone). Without it the caller had no way to learn
+   * its message reached nobody — a prompt written into a dead pipe looked exactly like one
+   * that landed, and the chat spun on a turn no process was running. Only refusals: a write
+   * that went out is never reported, since whether the turn succeeds is the CLI's business.
+   */
+  notify(method, params = {}, onRefused = null) {
+    if (this.dead || this.closed) {
+      onRefused?.();
+      return false;
+    }
+    return this._write(JSON.stringify(this._encodeNotification(method, params)) + "\n", onRefused);
   }
 
   /** Answer a request the SERVER sent, by its own id, in this CLI's own envelope. */
   respond(id, result) {
-    if (this.dead || this.closed) return;
-    this.proc.write(JSON.stringify(this._encodeResponse(id, result)) + "\n");
+    if (this.dead || this.closed) return false;
+    return this._write(JSON.stringify(this._encodeResponse(id, result)) + "\n");
+  }
+
+  /**
+   * The ONE place a line leaves this client, so the write's own outcome is read in one
+   * place. A carrier states a refusal either way: synchronously (`false` — a local child
+   * whose stdin is gone) or afterwards through `onRefused` (the daemon, which only learns
+   * the child has exited when it tries).
+   *
+   * `onRefused` is ASSIGNED, not merged: left over from an earlier message it would fire
+   * for a later one, and a permission answer refused on a dead pipe would re-send the
+   * prompt that had nothing to do with it.
+   */
+  _write(text, onRefused = null) {
+    this.proc.onRefused = onRefused;
+    const ok = this.proc.write(text) !== false;
+    if (!ok) onRefused?.();
+    return ok;
   }
 
   /** A handler, keyed by method. Its return value answers a server request, if any. */
