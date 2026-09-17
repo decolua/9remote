@@ -5,6 +5,7 @@ import { STORAGE_KEY, DEFAULT_THEME } from "@/shared/theme/themeConfig";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { GA_ID } from "@/shared/constants/analytics";
 import RotateOverlay from "@/shared/components/ui/RotateOverlay";
+import ScriptOnce from "@/shared/components/ui/ScriptOnce";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -65,17 +66,16 @@ const safeAreaScript = `window.handleSafeAreaInset=function(top,bottom){try{if(t
 
 export default function RootLayout({ children }) {
   return (
-    <html lang="en" suppressHydrationWarning>
+    <html lang="en" className="scroll-smooth scroll-pt-20" suppressHydrationWarning>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
-        <script key="theme-init" dangerouslySetInnerHTML={{ __html: themeInitScript }} />
-        <script key="safe-area-bridge" dangerouslySetInnerHTML={{ __html: safeAreaScript }} />
-        <script
-          key="sw-register"
-          dangerouslySetInnerHTML={{
-            __html: `if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(e){console.log('SW registration failed:',e);});});}`
-          }}
+        {/* ScriptOnce: theme-init still runs before paint (SSR HTML), no React 19 script warning */}
+        <ScriptOnce id="theme-init" html={themeInitScript} />
+        <ScriptOnce id="safe-area-bridge" html={safeAreaScript} />
+        <ScriptOnce
+          id="sw-register"
+          html={`if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(e){console.log('SW registration failed:',e);});});}`}
         />
         <ThemeProvider>{children}</ThemeProvider>
         <RotateOverlay />
