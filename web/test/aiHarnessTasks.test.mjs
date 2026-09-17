@@ -8,10 +8,12 @@
 // Run: cd web && node --import ./test/loader-alias.mjs test/aiHarnessTasks.test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { applyTaskRecord, foldTaskRecords, runningTasks } from "../features/ai/lib/harnessTasks.js";
+import { applyTaskRecord, foldTaskRecords, runningTasks, taskElapsedMs } from "../features/ai/lib/harnessTasks.js";
 import { reduceSessionEvents } from "../features/ai/hooks/useAiSession.js";
 import { useAiStore } from "../shared/stores/aiStore.js";
-import { runningAsync } from "../features/ai/lib/toolTree.js";
+import { runningAsync, taskActivity } from "../features/ai/lib/toolTree.js";
+import { describeActivity } from "../features/ai/lib/liveStatus.js";
+import { clockText } from "../features/ai/lib/taskClock.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -185,7 +187,11 @@ test("the live door lands exactly what the replay door does", () => {
   }
   const live = useAiStore.getState().bySession["parity"].harnessTasks;
   const replay = reduceSessionEvents(asLog(RECORDS), "claude").harnessTasks;
-  assert.deepEqual(live, replay, "two doors, one reader — they must not drift");
+  // A task's clock is stamped when each door folds the record, and the two folds are
+  // milliseconds apart — the mark is this client's own, so only the SHAPE can be shared.
+  // Compared without it, because a difference of 1ms is not the drift this test is for.
+  const withoutClock = (tasks) => tasks.map(({ startedAt, ...rest }) => rest);
+  assert.deepEqual(withoutClock(live), withoutClock(replay), "two doors, one reader — they must not drift");
 });
 
 test("a record the reader does not model is still carried through the replay", () => {
@@ -203,16 +209,22 @@ test("a task the CLI says is running is what the strip shows", () => {
     { taskId: "shell-1", toolUseId: "c1", status: "running", background: true, description: "build" },
     { taskId: "agent-1", toolUseId: "c2", status: "completed", background: false, description: "look" }
   ]);
-  // `taskId` rides along beside the row's own key: it is the name a stop must address,
-  // and on a harness row the two ids differ (tool call vs the id the CLI minted).
-  assert.deepEqual(rows, [{ kind: "shell", id: "c1", taskId: "shell-1", label: "build" }],
+  // The fields the strip keys on, only. The row also carries whatever else the record
+  // stated (a clock, a usage total), and pinning those here would make this test fail
+  // every time the strip learns to read one more.
+  const shape = ({ kind, id, taskId, label }) => ({ kind, id, taskId, label });
+  assert.deepEqual(rows.map(shape), [{ kind: "shell", id: "c1", taskId: "shell-1", label: "build" }],
     "the CLI's status decides, not a row that was handed off");
 });
 
 test("with no task set the row scan still answers, for engines that keep no model", () => {
   // codex and antigravity hand work off and never name it again — their row IS the model.
+  // And it carries NO clock: a tool row is stamped by nobody, and a duration measured from
+  // whenever the pane happened to look would be a number about this client, not the task.
   const messages = [{ tools: [{ id: "call_x", name: "Agent", status: "running", async: true, input: { description: "look" } }] }];
-  assert.deepEqual(runningAsync(messages, []), [{ kind: "agent", id: "call_x", label: "look" }]);
+  const rows = runningAsync(messages, []);
+  assert.deepEqual(rows.map(({ kind, id, label }) => ({ kind, id, label })), [{ kind: "agent", id: "call_x", label: "look" }]);
+  assert.equal(rows[0].startedAt, undefined, "a scan row states no start");
 });
 
 
@@ -428,6 +440,107 @@ test("a reset that states nothing (an older host) does not wipe the list", () =>
   ]);
   useAiStore.getState().setTaskRecords("older", undefined);
   assert.equal(useAiStore.getState().bySession["older"].harnessTasks.length, 1);
+});
+
+// ── the clock, and what a handed-off task is doing ──
+
+test("a task's clock counts from the age the host stated, not from this pane's arrival", () => {
+  // The harness states no start time; the host sends how long ago it LOGGED the record.
+  // An F5 mid-task must not restart the clock at zero — that is the whole point of it.
+  const before = Date.now();
+  const tasks = feed([["task_started", { task_id: "t-1", is_backgrounded: true, ageMs: 90_000 }]]);
+  const started = tasks[0].startedAt;
+  assert.ok(started >= before - 90_000 - 500 && started <= before - 90_000 + 500,
+    `expected a mark ~90s back, got ${before - started}ms`);
+  assert.ok(taskElapsedMs(tasks[0], before) >= 89_000, "and the elapsed reading agrees");
+});
+
+test("a live record (no age) starts its clock now", () => {
+  const before = Date.now();
+  const tasks = feed([["task_started", { task_id: "t-1", is_backgrounded: true }]]);
+  assert.ok(tasks[0].startedAt >= before && tasks[0].startedAt <= Date.now());
+});
+
+test("a re-announced task keeps the mark the pane has been counting from", () => {
+  // `background_tasks_changed` republishes the live set with no age, and restamping it
+  // there would restart a clock the reader has been watching for minutes.
+  const tasks = feed([
+    ["task_started", { task_id: "t-1", is_backgrounded: true, ageMs: 60_000 }],
+    ["background_tasks_changed", { tasks: [{ task_id: "t-1", task_type: "local_bash" }] }]
+  ]);
+  assert.ok(Date.now() - tasks[0].startedAt >= 59_000, "the original mark survives the republication");
+});
+
+test("a task the live set introduces gets a clock, from the record that introduced it", () => {
+  // A client that joined mid-task never saw the task_started — the set IS its first word.
+  const before = Date.now();
+  const tasks = feed([["background_tasks_changed", { ageMs: 30_000, tasks: [{ task_id: "t-9", description: "build" }] }]]);
+  assert.ok(before - tasks[0].startedAt >= 29_000);
+});
+
+test("a resumed task is not charged for the time it spent stopped", () => {
+  const stopped = feed([
+    ["task_started", { task_id: "t-1", is_backgrounded: true, ageMs: 10_000 }],
+    ["task_updated", { task_id: "t-1", patch: { status: "killed", end_time: 123 } }]
+  ]);
+  assert.equal(stopped[0].endedAt, 123, "a task that ended carries the mark it ended at");
+  const resumed = feed([
+    ["task_started", { task_id: "t-1", is_backgrounded: true, ageMs: 10_000 }],
+    ["task_updated", { task_id: "t-1", patch: { status: "killed", end_time: 123 } }],
+    ["task_updated", { task_id: "t-1", patch: { status: "running" } }]
+  ]);
+  assert.equal(resumed[0].endedAt, undefined, "running again means the end is gone");
+  assert.ok(Date.now() - resumed[0].startedAt < 5_000, "and the clock restarted from the resume");
+});
+
+test("what a task is doing is its deepest RUNNING call, not its first", () => {
+  const messages = [{
+    tools: [{
+      id: "call_a", name: "Agent", status: "running", input: { description: "look" },
+      children: [
+        { id: "c1", name: "Read", status: "done", input: { file_path: "/w/a.js" } },
+        { id: "c2", name: "Bash", status: "running", input: { command: "npm test", description: "Run the suite" } }
+      ]
+    }]
+  }];
+  assert.equal(taskActivity(messages, "call_a")?.id, "c2");
+  assert.equal(describeActivity(taskActivity(messages, "call_a")), "Run the suite");
+});
+
+test("a task with nothing running under it still shows its last call", () => {
+  // The harness can still call a task running after its last step reported done, and a
+  // blank "now" line there reads as a broken panel rather than as a task between steps.
+  const messages = [{
+    tools: [{ id: "call_a", name: "Agent", status: "running", input: {}, children: [{ id: "c1", name: "Read", status: "done", input: { file_path: "/w/a.js" } }] }]
+  }];
+  assert.equal(taskActivity(messages, "call_a")?.id, "c1");
+  assert.equal(describeActivity(taskActivity(messages, "call_a")), "Reading a.js");
+});
+
+test("a task whose card is outside this pane's log draws no activity, not a wrong one", () => {
+  assert.equal(taskActivity([], "call_missing"), null);
+  assert.equal(taskActivity([{ tools: [] }], ""), null);
+});
+
+test("the clock reads in the units a reader is watching", () => {
+  assert.equal(clockText(0), "0s");
+  assert.equal(clockText(9_400), "9s");
+  assert.equal(clockText(64_000), "1m 04s");
+  assert.equal(clockText(3_720_000), "1h 02m");
+});
+
+// The composer's model chip. The host resolves the CLI's own default model at connect
+// and puts it on the init event; a later init from an adapter that never learned a
+// model carries "" — that must not blank the one already shown (picking an effort used
+// to lose the model exactly this way).
+test("a later init with no model does not wipe the model the pane is showing", () => {
+  const log = [
+    { seq: 1, event: "init", data: { model: "glm/glm-5.3", skills: [] } },
+    { seq: 2, event: "init", data: { model: "", effort: "high" } },
+  ];
+  const { metadata } = reduceSessionEvents(log, "codex");
+  assert.equal(metadata.model, "glm/glm-5.3");
+  assert.equal(metadata.effort, "high");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

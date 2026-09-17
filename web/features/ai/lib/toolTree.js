@@ -41,9 +41,19 @@ export function runningAsync(messages = [], harnessTasks = []) {
         // meaningless anyway — nothing on the other side answers to a tool call id.
         id: t.toolUseId || t.taskId,
         taskId: t.taskId,
-        label: t.description || t.subagentType || "task"
+        label: t.description || t.subagentType || "task",
+        // The rest of the harness's own record, passed through for the reader that draws
+        // the row: the clock it counts from, what kind of task it is, and what it cost.
+        startedAt: t.startedAt,
+        taskType: t.taskType,
+        subagentType: t.subagentType,
+        usage: t.usage,
+        toolUseId: t.toolUseId
       }));
   }
+  // The scan has no clock to offer: a tool row is stamped by nobody (see harnessTasks —
+  // only the CLI's own records carry an age), and inventing one here would print a
+  // duration measured from whenever this pane happened to look.
   return scanRunningRows(messages);
 }
 
@@ -72,6 +82,53 @@ export function runningAgents(messages = [], harnessTasks = []) {
   return runningAsync(messages, harnessTasks)
     .filter((r) => r.kind === "agent")
     .map(({ id, label }) => ({ id, label }));
+}
+
+/**
+ * The tool row a handed-off task lives on, found by the `toolUseId` the CLI named.
+ *
+ * Returns null when the task is not in the log this pane holds (one announced before the
+ * replay window opens), which is a row that draws no activity rather than a wrong one.
+ */
+export function findTaskTool(messages = [], toolUseId = "") {
+  if (!toolUseId) return null;
+  let found = null;
+  const walk = (tools) => {
+    for (const t of tools || []) {
+      if (t?.id === toolUseId) {
+        found = t;
+        return true;
+      }
+      if (t?.children?.length && walk(t.children)) return true;
+    }
+    return false;
+  };
+  for (let i = messages.length - 1; i >= 0 && !found; i--) walk(messages[i]?.tools);
+  return found;
+}
+
+/**
+ * The call a handed-off task is inside RIGHT NOW — the "what is it doing" answer.
+ *
+ * The pane already has this: a sub-agent's calls are nested under the Agent card that
+ * spawned them, and a shell's command is the card itself. So the row is found by the
+ * `toolUseId`, then walked DOWN to the deepest running child — a sub-agent three calls
+ * deep is doing its fourth, not its first.
+ */
+export function taskActivity(messages = [], toolUseId = "") {
+  const node = findTaskTool(messages, toolUseId);
+  if (!node) return null;
+  // The deepest still-running call under it; when every step under it has reported done,
+  // the LAST of them — a task the harness still calls running is between steps, and an
+  // empty "now" line there reads as a broken panel rather than as a pause.
+  let leaf = node;
+  while (leaf.status === "running") {
+    const children = leaf.children || [];
+    const next = children.filter((c) => c?.status === "running").pop() || children[children.length - 1];
+    if (!next || next === leaf) break;
+    leaf = next;
+  }
+  return leaf;
 }
 
 // A turn ended, so nothing this tool had to say is still coming. A row left spinning

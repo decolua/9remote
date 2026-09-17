@@ -506,10 +506,8 @@ test("a persisted-output frame never reaches a queued prompt's row either", () =
 // the same test this file applies to the harness's `content`. Before the reader knew
 // them they arrived (via the passthrough) and drew nothing.
 
-test("a codex warning becomes a line, worded by the CLI", () => {
-  const n = noticeFrom("warning", { threadId: "t-1", message: "Stream error: retrying" });
-  assert.equal(n.content, "Stream error: retrying");
-  assert.equal(n.level, "warning");
+test("codex warnings stay out of the chat", () => {
+  assert.equal(noticeFrom("warning", { threadId: "t-1", message: "Stream error: retrying" }), null);
 });
 
 test("a codex error is read one level down, where its message lives", () => {
@@ -524,9 +522,8 @@ test("an error the CLI is retrying is not painted as a dead turn", () => {
   assert.equal(n.level, "warning");
 });
 
-test("a config warning joins its summary and details", () => {
-  const n = noticeFrom("configWarning", { summary: "unknown key", details: "line 4" });
-  assert.equal(n.content, "unknown key — line 4");
+test("a config warning stays out of the chat", () => {
+  assert.equal(noticeFrom("configWarning", { summary: "unknown key", details: "line 4" }), null);
 });
 
 test("a rerouted model is stated, not hidden", () => {
@@ -625,6 +622,23 @@ test("a spawn failure is the same row the harness's own errors use", () => {
   assert.equal(n.length, 1);
   assert.equal(n[0].level, "error");
   assert.match(n[0].content, /ENOENT/);
+});
+
+test("a refused prompt is a notice, not a turn ending", () => {
+  // The host turns a prompt away when the engine's turn is still running. Replay must
+  // not read that as the turn ending (session-1789642859582 replayed it as a
+  // forever-running phantom turn) — and the text rides the row, so an F5 still shows
+  // what never sent.
+  const out = reduceSessionEvents([
+    { event: "user_message", data: { text: "chào" } },
+    { event: "prompt_refused", data: { text: "bạn khỏe ko", reason: "Codex turn is already running." } }
+  ], "codex");
+  assert.equal(out.isTurnRunning, true, "the running turn keeps its flag through a refusal");
+  const rows = out.messages.filter((m) => m.role === "notice");
+  assert.equal(rows.length, 1, "the refusal draws exactly one row");
+  assert.equal(rows[0].subtype, "prompt_refused");
+  assert.match(rows[0].content, /Not sent/);
+  assert.match(rows[0].content, /bạn khỏe ko/);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

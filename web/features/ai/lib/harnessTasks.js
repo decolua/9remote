@@ -45,6 +45,22 @@ function collapsePersistedOutput(text) {
 /** A status the CLI will not move a task out of — the task is over. */
 export const TASK_ENDED = new Set(["completed", "failed", "killed", "stopped"]);
 
+/** How long a task has been running, from the marks the pane keeps on its own clock. */
+export const taskElapsedMs = (task, now = Date.now()) => (task?.startedAt ? Math.max(0, now - task.startedAt) : 0);
+
+/**
+ * The mark a task's clock counts from — the host states the task's AGE, never its start.
+ *
+ * A duration, not a timestamp: the two machines sit on different clocks, and subtracting
+ * one machine's mark from the other's prints the skew (same rule as AiSession.turnState's
+ * `elapsedMs`). A record that carries no age is one this client is watching arrive, so it
+ * starts now. Only ever WRITES the mark onto a task that has none: the harness re-announces
+ * a task without the field, and stamping it again would restart a clock the reader has
+ * been watching for minutes.
+ */
+const startedAtPatch = (ageMs, existing) =>
+  existing?.startedAt ? null : { startedAt: Date.now() - (Number.isFinite(ageMs) ? Math.max(0, ageMs) : 0) };
+
 /**
  * Where the running "Compacting…" row sits, or -1 when there is none.
  *
@@ -87,7 +103,8 @@ export function applyTaskRecord(tasks, type, subtype, record) {
         ...(record.tool_use_id ? { toolUseId: record.tool_use_id } : null),
         ...(record.description ? { description: record.description } : null),
         ...(record.subagent_type ? { subagentType: record.subagent_type } : null),
-        ...(record.task_type ? { taskType: record.task_type } : null)
+        ...(record.task_type ? { taskType: record.task_type } : null),
+        ...startedAtPatch(record.ageMs, tasks.find((t) => t.taskId === record.task_id))
       });
     }
     case "task_updated": {
@@ -108,6 +125,9 @@ export function applyTaskRecord(tasks, type, subtype, record) {
       // Deleted, not set to undefined: the key has to be GONE, or a `t.endedAt != null`
       // read on the other side still finds it.
       if (resumed) delete merged.endedAt;
+      // A task resumed after this client saw it start is running from where it left off —
+      // a mark left at its ORIGINAL start would print the pause as work.
+      if (resumed && next[at].endedAt) Object.assign(merged, startedAtPatch(record.ageMs, null));
       next[at] = merged;
       return next;
     }
@@ -148,7 +168,10 @@ export function applyTaskRecord(tasks, type, subtype, record) {
           background: true,
           status: "running",
           ...(t.description ? { description: t.description } : null),
-          ...(t.task_type ? { taskType: t.task_type } : null)
+          ...(t.task_type ? { taskType: t.task_type } : null),
+          // A client that joined mid-task gets the live set, not the history of it — so
+          // the record's own age is the only edge this clock can count from.
+          ...startedAtPatch(record.ageMs, next.find((x) => x.taskId === t.task_id))
         });
       }
       return next;
@@ -256,6 +279,7 @@ function compactFrom(record) {
  */
 export function noticeFrom(type, record) {
   if (!record) return null;
+  if (type === "warning" || type === "guardianWarning" || type === "configWarning" || type === "deprecationNotice") return null;
   // Codex says the same things under its own names, and it says them the same way: a
   // record whose whole point IS the sentence (`warning`, `warning`/`guardianWarning`,
   // a `configWarning`) is one the CLI means a person to read. Its errors nest one level

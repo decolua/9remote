@@ -167,5 +167,17 @@ test("reveal then collapse returns to the window", () => {
   assert.equal(hiddenCount(20, 3, revealed), 17);
 });
 
+// A call id the pane holds twice is one event applied twice (a live copy the hydrate
+// replayed) — React drew it as two children with one key. The first row is the record.
+test("the same call id in two segments becomes one row, not a duplicate key", () => {
+  const rows = buildTurnRows([
+    seg("a", { tools: [tool("call_x", "Bash", { command: "ls" })] }),
+    seg("b", { tools: [tool("call_x", "Bash", { command: "ls" })] })
+  ], "claude");
+  assert.equal(rows.filter((r) => r.kind === "tool").length, 1);
+  const ids = rows.map((r) => r.id);
+  assert.equal(new Set(ids).size, ids.length);
+});
+
 console.log(`\n${fail === 0 ? "✅ all passed" : "❌ FAILED"}, ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

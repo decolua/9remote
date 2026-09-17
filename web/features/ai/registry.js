@@ -384,6 +384,10 @@ export class CodexEngine extends AiEngine {
           // so it draws as the file card with its path. Measured in the rollouts on this
           // machine: 4 of these, drawn as the generic row before.
           view_image: "file",
+          // An image the model GENERATED (the server's `imageGeneration` item). Also a
+          // file, and the row's whole content is the path it was saved to. Unmapped, it
+          // fell to the generic card and printed the raw input object.
+          image_generation: "file",
           todo_list: "task",
           web_search: "search",
           // `search` is a codex tool name on the wire (from parsed_cmd) AND a category;

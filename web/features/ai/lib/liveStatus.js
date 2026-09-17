@@ -6,6 +6,29 @@
 
 import { getToolCategory } from "../registry";
 
+/** What a handed-off task is doing, in the two words a strip row has room for. */
+export function describeActivity(tool, engine = "claude") {
+  if (!tool?.name) return "";
+  const { name, input = {} } = tool;
+  const path = baseName(input.file_path || input.path);
+  switch (getToolCategory(engine, name)) {
+    case "bash":
+      return clip(input.description || input.command || "shell", MAX_DETAIL);
+    case "file":
+      return clip(`${/^(list|list_dir|ls)$/i.test(name) ? "Listing" : "Reading"} ${path}`, MAX_DETAIL);
+    case "search":
+      return clip([input.pattern ? `"${input.pattern}"` : input.query || input.url || "", path ? `in ${path}` : ""].filter(Boolean).join(" "), MAX_DETAIL);
+    case "diff":
+      return clip(`${/^(Write|write_to_file)$/i.test(name) ? "Writing" : "Editing"} ${baseName(input.file || input.path) || argOf(input)}`, MAX_DETAIL);
+    case "agent":
+      return clip(input.description || argOf(input) || "sub-agent", MAX_DETAIL);
+    case "plan":
+      return clip(baseName(input.path) || name, MAX_DETAIL);
+    default:
+      return clip([toolLabel(name), argOf(input)].filter(Boolean).join(" "), MAX_DETAIL);
+  }
+}
+
 // Longest detail worth showing before it pushes the token readout off the row.
 const MAX_DETAIL = 60;
 

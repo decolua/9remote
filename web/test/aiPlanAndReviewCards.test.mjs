@@ -27,6 +27,9 @@ test("claude's plan-mode pair is unchanged", () => {
 
 test("a codex review draws as a review, not as plan mode", () => {
   assert.equal(getToolCategory("codex", "enteredReviewMode"), "review");
+  // An image the model GENERATED (the server's `imageGeneration` item). A file row, and
+  // the row's whole content is the path it was saved to; unmapped it printed raw JSON.
+  assert.equal(getToolCategory("codex", "image_generation"), "file");
   assert.equal(getToolCategory("codex", "exitedReviewMode"), "review");
 });
 

@@ -52,6 +52,10 @@ export function visibleTools(engine, tools, diffs) {
  */
 export function buildTurnRows(messages = [], engine = "claude") {
   const rows = [];
+  // The same call id in two segments is one event applied twice (a live copy the hydrate
+  // replayed), not two calls — a CLI tool_use id is unique per call, so the first row is
+  // the record and the repeat is dropped here, at the one door every path reads through.
+  const seenToolIds = new Set();
   for (const m of messages) {
     // A line the harness asked for (see harnessTasks.noticeFrom). Not a step and not
     // prose: the CLI is telling the reader something, so it keeps its own place in the
@@ -78,7 +82,10 @@ export function buildTurnRows(messages = [], engine = "claude") {
       // A question still running is owned by the pinned card above the composer;
       // an answered one is a row, since the host's output is the only record of it.
       if (getToolCategory(engine, t.name) === "question" && t.status === "running") continue;
-      rows.push({ kind: "tool", id: t.id || `${m.id}-t${i}`, tool: t, engine });
+      const id = t.id || `${m.id}-t${i}`;
+      if (seenToolIds.has(id)) continue;
+      seenToolIds.add(id);
+      rows.push({ kind: "tool", id, tool: t, engine });
     }
 
     for (let i = 0; i < (m.diffs?.length || 0); i++) {
