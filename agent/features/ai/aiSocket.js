@@ -289,7 +289,7 @@ function defaultModelFor(engine) {
 // The effort the CLI would run with on its own. Published for display only, exactly
 // like defaultModelFor: forcing it into argv would override a project-level setting.
 function defaultEffortFor(engine) {
-  return resolveDefaultEffort(engine) || "";
+  return resolveDefaultEffort(engine) || (engine === "codex" ? "xhigh" : "");
 }
 
 // Connect-time metadata: skills, MCP servers, the host's own model catalog, and the
@@ -424,7 +424,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       // read the machine's config on its own path.
       const spawnOptions = {
         ...(resumeId ? { ...options, cliSessionId: resumeId } : options),
-        defaultModel: defaultModelFor(engine)
+        defaultModel: defaultModelFor(engine),
+        defaultEffort: options.defaultEffort || defaultEffortFor(engine)
       };
       const session = manager.createSession(sessionId, engine, cwd, { ...spawnOptions, mock });
       let releaseCreate;

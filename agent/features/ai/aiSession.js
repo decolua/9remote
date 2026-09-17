@@ -451,7 +451,7 @@ export class AiSession {
     this.model = snap?.model || options.model || "";
     // Reasoning effort the session runs with. Empty means "the CLI's own config decides"
     // — the composer falls back to reading that, so it never shows a level nobody chose.
-    this.effort = snap?.effort || options.effort || "";
+    this.effort = snap?.effort || options.effort || (this.engine === AI_ENGINES.CODEX ? (options.defaultEffort || "xhigh") : "");
     // Restored so a reload keeps the mode the user picked (codex/opencode run a fresh
     // CLI per turn, so the mode has to be re-sent with every prompt). A session the
     // host has never seen starts at the engine's own default mode, sent by the client.
@@ -526,8 +526,8 @@ export class AiSession {
         this.adapter = mine;
         // Mode is re-sent on every rebuild: the CLI is spawned fresh per turn, and the
         // stored mode is what a reload or a /clear must restore.
-        if (this.permissionMode || this.options.model || this.options.effort || this.options.sandbox || this.options.flags) {
-          mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
+        if (this.permissionMode || this.options.model || this.options.effort || this.effort || this.options.sandbox || this.options.flags) {
+          mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
         }
         return this._startManaged(mine, mode);
       case AI_ENGINES.OPENCODE:

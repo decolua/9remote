@@ -61,7 +61,7 @@ export class CodexAdapter {
     this.activeThreadId = threadId || null;
     this.isTurnRunning = false;
     this.currentModel = model || "";
-    this.reasoningEffort = "medium";
+    this.reasoningEffort = "xhigh";
     this.sandboxMode = "workspace-write";
     // The composer sends `mode`; without this it was dropped and every turn ran at the
     // default policy, so switching modes changed nothing.
