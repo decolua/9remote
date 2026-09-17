@@ -14,11 +14,10 @@ import { migrateGroupsToWorkspaces, assignOrphanSessions } from "./workspaceMigr
 import { setupSessionHandlers, syncAutoNames } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
-import { reconcileClaudeEnv, autoEnableInstalledHooks } from "./hookManager.js";
+import { reconcileClaudeEnv, autoEnableInstalledHooks, reconcileCodexTrust } from "./hookManager.js";
 import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
@@ -238,6 +237,10 @@ export async function initializeTerminal() {
   try { reconcileClaudeEnv(); } catch {}
   // Auto-enable notify hooks for every installed AI tool (claude/codex/opencode)
   try { autoEnableInstalledHooks(); } catch {}
+  // Codex runs no hook it holds no trusted hash for, so the handlers just written would
+  // sit there doing nothing. Its app-server computes them (measured ~90ms), and this is
+  // fire-and-forget: a chat opened meanwhile is no worse off than before this existed.
+  reconcileCodexTrust().catch(() => {});
   // The CLI configs mirror the artifact setting — reconcile them, since a token
   // change or a fresh install leaves them stale (or missing) after a hook run.
   try { syncMcpConfig(); } catch {}

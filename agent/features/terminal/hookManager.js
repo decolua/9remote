@@ -5,6 +5,7 @@
 import os from "os";
 import fs from "fs";
 import path from "path";
+import { spawn } from "child_process";
 import { SERVER_PORT, PATHS as APP_PATHS, CLAUDE_SCROLLBACK_ENV, AI_TOOLS } from "../../lib/constants.js";
 import { writeJsonAtomic } from "../../lib/atomicFile.js";
 import { hookSessionIdKeys } from "./agentCatalog.js";
@@ -26,6 +27,7 @@ const envDir = (envVar, ...fallback) => {
 const PATHS = {
   claude: () => homeSub(".claude", "settings.json"),
   codex: () => homeSub(".codex", "config.toml"),
+  codexHooks: () => homeSub(".codex", "hooks.json"),
   codexScript: () => homeSub(".codex", "9remote-notify.sh"),
   opencode: () => homeSub(".config", "opencode", "plugin", `${OPENCODE_PLUGIN_MARK}.js`),
   grok: () => path.join(envDir("GROK_HOME", ".grok"), "hooks", "9remote.json"),
@@ -289,71 +291,268 @@ function makeYamlBlockHook(tool, { begin, end, items }) {
   };
 }
 
-// ─── Kind: toml-codex — single notify slot; wrapper script parses stdin JSON ─
-// Codex `notify` receives JSON on stdin with a `type` field; map it to our 3 types.
-const CODEX_BLOCK_RE = /# 9Remote notification\nnotify\s*=.*\n?/g;
-const CODEX_SAVED_PREFIX = "# 9Remote-saved: ";
-const CODEX_ACTIVE_NOTIFY_RE = /^notify\s*=\s*(\[[^\n]*\])\s*$/m;
-function splitCodexHead(content) {
-  const idx = content.search(/^\[/m);
-  return idx === -1 ? [content, ""] : [content.slice(0, idx), content.slice(idx)];
+// ─── Kind: hooks-json-codex — codex 0.154's own hook file, plus the trust it needs ──
+//
+// Codex 0.154 added ~/.codex/hooks.json with claude's vocabulary (UserPromptSubmit /
+// PreToolUse / PostToolUse / Stop / PermissionRequest, payload on stdin carrying
+// `session_id`). The legacy `notify` slot it replaces is not a substitute: it fires ONE
+// event — `agent-turn-complete` — and passes its JSON on argv[2] rather than stdin, so a
+// wrapper reading stdin sees nothing and can only ever report `done`. That is why a codex
+// terminal's tab never showed `working`.
+//
+// A handler here does not run until codex holds a trusted sha256 for it, kept in
+// config.toml under [hooks.state."<path>:<event>:<groupIdx>:<handlerIdx>"]. Those keys
+// address the handler by its POSITION, so ours lands at the index it actually has — the
+// user's own groups in the file are neither moved nor touched — and the hash itself is
+// codex's to compute, read back over its app-server `hooks/list` RPC. Deriving it here
+// would be a guess against an undocumented format that fails silently on a codex update.
+const CODEX_HOOK_EVENTS = {
+  UserPromptSubmit: "working", PreToolUse: "working", PostToolUse: "working",
+  Stop: "done", PermissionRequest: "blocked",
+};
+// Same camelCase → snake_case codex spells its own event names in a trust key.
+const CODEX_EVENT_KEY = (ev) => ev.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+const CODEX_EVENT_OF_KEY = Object.fromEntries(
+  Object.keys(CODEX_HOOK_EVENTS).map((ev) => [CODEX_EVENT_KEY(ev), ev])
+);
+const CODEX_STATE_HEAD = /^\[hooks\.state\."(?<key>[^"]+)"\]$/m;
+// How long codex gets to answer `hooks/list`. It is a whole app-server handshake, and
+// the caller is an install path — not a request anyone is waiting on byte-for-byte.
+const CODEX_APP_SERVER_TIMEOUT_MS = 15000;
+
+/** One `hooks/list` round trip against codex's app-server, as [{key, hash}]. */
+function codexHookList(bin) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(bin, ["app-server"], { stdio: ["pipe", "pipe", "ignore"] });
+    } catch {
+      return resolve([]);
+    }
+    let buf = "";
+    let done = false;
+    const finish = (out) => {
+      if (done) return;
+      done = true;
+      clearTimeout(timer);
+      try { child.kill(); } catch {}
+      resolve(out);
+    };
+    const timer = setTimeout(() => finish([]), CODEX_APP_SERVER_TIMEOUT_MS);
+    child.on("error", () => finish([]));
+    child.on("exit", () => finish([]));
+    child.stdout.on("data", (d) => {
+      buf += d;
+      let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i);
+        buf = buf.slice(i + 1);
+        if (!line.trim()) continue;
+        let msg;
+        try { msg = JSON.parse(line); } catch { continue; }
+        // `hooks/list` is asked for as soon as the handshake answers — a fixed delay
+        // would be dead time on every run, and the request is only valid after initialize.
+        if (msg.id === 1) {
+          child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "hooks/list", params: {} }) + "\n");
+          continue;
+        }
+        if (msg.id !== 2) continue;
+        const rows = [];
+        for (const cwd of msg.result?.data || []) {
+          for (const h of cwd.hooks || []) {
+            if (h.currentHash) rows.push({ key: h.key, hash: h.currentHash });
+          }
+        }
+        finish(rows);
+        return;
+      }
+    });
+    child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: { name: "9remote", version: "1" } } }) + "\n");
+  });
 }
-function buildCodexNotifyScript() {
-  // Map codex event → 9remote type. agent-turn-complete→done, reasoning/streaming→working, input→blocked.
-  return `#!/bin/sh
-# 9Remote codex notify wrapper — maps codex events to 9remote status types.
-input=$(cat 2>/dev/null || echo "")
-t="done"
-case "$input" in
-  *agent-turn-complete*|*turn-complete*) t="done" ;;
-  *input-request*|*input_required*|*approval*) t="blocked" ;;
-  *agent-reasoning*|*agent-message*|*agent-streaming*|*reasoning*) t="working" ;;
-esac
-command -v curl >/dev/null 2>&1 && curl -s --connect-timeout 1 --max-time 2 "${NOTIFY_URL}?type=$t&sessionId=$NINE_REMOTE_SESSION_ID&tool=codex" > /dev/null 2>&1
-`;
+
+// codex answers hashes as "sha256:<hex>"; the TOML value is that same string, so it is
+// stored verbatim rather than re-prefixed — a second prefix would be a wrong hash.
+const codexHashValue = (hash) => (/^sha256:/.test(hash) ? hash : `sha256:${hash}`);
+
+// Every handler in a hooks file, tagged with the key codex addresses it by. `path` is
+// spelled exactly as it will appear in the key, so the caller passes the same file path
+// it wrote.
+function codexHandlersIn(filePath) {
+  const hooks = readJsonFile(filePath).hooks || {};
+  const out = [];
+  for (const [ev, groups] of Object.entries(hooks)) {
+    if (!Array.isArray(groups)) continue;
+    groups.forEach((group, gi) => {
+      (group?.hooks || []).forEach((h, hi) => {
+        if (typeof h?.command !== "string") return;
+        out.push({ key: `${filePath}:${CODEX_EVENT_KEY(ev)}:${gi}:${hi}`, event: ev, command: h.command });
+      });
+    });
+  }
+  return out;
 }
+
+// Replace the [hooks.state."<key>"] tables in the TOML head, one line each. A whole-file
+// TOML rewrite is not on the table here — the file holds every other setting the user
+// has — so a targeted line replace is used, and entries we are not asked about are kept
+// byte for byte (they belong to whoever trusted them: a plugin, a managed config).
+function upsertCodexTrust(filePath, entries) {
+  const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
+  const lines = content.split("\n");
+  const out = [];
+  const remaining = new Map();
+  for (const e of entries) remaining.set(e.key, codexHashValue(e.hash));
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(CODEX_STATE_HEAD);
+    const next = lines[i + 1] || "";
+    if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
+    const hash = remaining.get(match.groups.key);
+    // Not ours to touch — kept as it stands, header and value together.
+    if (hash === undefined) { out.push(lines[i], next); i++; continue; }
+    remaining.delete(match.groups.key);
+    out.push(lines[i], `trusted_hash = "${hash}"`);
+    i++;
+  }
+  for (const [key, hash] of remaining) {
+    if (out.length && out[out.length - 1] !== "") out.push("");
+    out.push(`[hooks.state."${key}"]`, `trusted_hash = "${hash}"`);
+  }
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, out.join("\n"), "utf8");
+}
+
+/**
+ * Make codex trust every hook THIS agent wrote, by asking codex itself for the hash.
+ *
+ * Call it after the hooks file has been written and before the CLI is next used; the
+ * handlers do not run until the hashes land. Returns the keys codex did not answer for —
+ * an empty answer means nothing was written, and the caller is told rather than left with
+ * a hook that silently never fires.
+ *
+ * @param {{run?: (bin: string) => Promise<Array<{key: string, hash: string}>>, bin?: string}} [deps]
+ */
+export async function reconcileCodexHookTrust({ run = codexHookList, bin = BINARIES.codex } = {}) {
+  const hooksPath = PATHS.codexHooks();
+  const reported = await run(bin);
+  const byKey = new Map(reported.map((r) => [r.key, r.hash]));
+  const ours = codexHandlersIn(hooksPath).filter((h) => h.command.includes("&tool=codex"));
+  const entries = [];
+  const missing = [];
+  for (const h of ours) {
+    const hash = byKey.get(h.key);
+    if (hash) entries.push({ key: h.key, hash });
+    else missing.push(h.key);
+  }
+  // An answer that named nothing means codex could not be asked at all; writing an empty
+  // set would only strip the table, so the file is left alone.
+  if (!reported.length) return { entries: [], missing, skipped: true };
+  upsertCodexTrust(PATHS.codex(), entries);
+  return { entries, missing, skipped: false };
+}
+
+// Remove the trust entries a disable just orphaned.
+//
+// `goneKeys` are the keys our handlers OCCUPIED BEFORE the removal, not after it: every
+// key is positional, and taking a group out renumbers whatever followed it. Looking the
+// survivors up afterwards would drop the trust of a foreign group that shifted into the
+// slot we vacated — the user's own hook would then stop running because we tidied up.
+// Keys are `path:event:groupIdx:handlerIdx`, so everything at our group index and beyond
+// is affected by the shift and cannot be reasoned about from the file alone; only our own
+// keys are ours to remove.
+function dropCodexTrust(filePath, goneKeys) {
+  if (!fs.existsSync(filePath) || !goneKeys.size) return;
+  const lines = fs.readFileSync(filePath, "utf8").split("\n");
+  const out = [];
+  for (let i = 0; i < lines.length; i++) {
+    const match = lines[i].match(CODEX_STATE_HEAD);
+    const next = lines[i + 1] || "";
+    if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
+    if (!goneKeys.has(match.groups.key)) { out.push(lines[i], next); i++; continue; }
+    // Ours, and its handler is gone — drop the table with its value. A blank line left
+    // behind is tidied in the same pass.
+    i++;
+    if (out[out.length - 1] === "") out.pop();
+  }
+  fs.writeFileSync(filePath, out.join("\n"), "utf8");
+}
+
+// The legacy `notify` slot an older agent wrote into config.toml. It cannot report
+// `working` on any codex version (see above), so it is not kept even as a fallback: it
+// would only write a second, redundant `done` per turn. Removed once, on enable, so a
+// user upgrading does not carry the dead block forever.
+const CODEX_LEGACY_BLOCK_RE = /# 9Remote notification\nnotify\s*=.*\n?/g;
+const CODEX_LEGACY_SAVED_RE = /^# 9Remote-saved: (notify\s*=.*)$/m;
+
+function dropLegacyCodexNotify() {
+  const scriptPath = PATHS.codexScript();
+  const filePath = PATHS.codex();
+  if (fs.existsSync(filePath)) {
+    const content = fs.readFileSync(filePath, "utf8");
+    let next = content.replace(CODEX_LEGACY_BLOCK_RE, "");
+    // The line we commented over goes back — but only if it is really the user's. An
+    // enable that ran while our own notify was in the slot saved OUR line as theirs, and
+    // restoring that would leave config.toml pointing at a script this same call deletes.
+    const saved = next.match(CODEX_LEGACY_SAVED_RE);
+    if (saved && !saved[1].includes(scriptPath)) next = next.replace(CODEX_LEGACY_SAVED_RE, "$1");
+    else if (saved) next = next.replace(/^# 9Remote-saved: notify\s*=.*\n?/m, "");
+    // Idempotent, and not gated on the block: an earlier run of this cleanup already took
+    // the block out and left the restored line behind.
+    next = next.replace(/^notify\s*=\s*\[[^\n]*9remote-notify\.sh[^\n]*\]\s*\n?/m, "");
+    if (next !== content) fs.writeFileSync(filePath, next, "utf8");
+  }
+  if (fs.existsSync(scriptPath)) { try { fs.unlinkSync(scriptPath); } catch {} }
+}
+
 const codexHook = {
+  // Writes the handlers only; the trust they need is a separate step, because it costs an
+  // app-server round trip and belongs to ONE run per boot rather than one per tool — see
+  // autoEnableInstalledHooks. A caller wanting a hook that actually fires calls
+  // reconcileCodexHookTrust() after this.
   enable() {
-    const filePath = PATHS.codex();
-    const dir = path.dirname(filePath);
-    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
-
-    // Write the wrapper script
-    const scriptPath = PATHS.codexScript();
-    fs.writeFileSync(scriptPath, buildCodexNotifyScript(), "utf8");
-    try { fs.chmodSync(scriptPath, 0o755); } catch {}
-
-    let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
-    content = content.replace(CODEX_BLOCK_RE, "");
-    let [head, rest] = splitCodexHead(content);
-
-    // Preserve the user's existing top-level notify (commented) so we don't lose it on disable
-    const match = head.match(CODEX_ACTIVE_NOTIFY_RE);
-    if (match) head = head.replace(CODEX_ACTIVE_NOTIFY_RE, `${CODEX_SAVED_PREFIX}$&`);
-
-    const block = `# 9Remote notification\nnotify = ["bash", ${JSON.stringify(scriptPath)}, "9remote"]\n`;
-    if (head.length && !head.endsWith("\n")) head += "\n";
-    fs.writeFileSync(filePath, head + block + rest, "utf8");
+    const filePath = PATHS.codexHooks();
+    const settings = readJsonFile(filePath);
+    const hooks = { ...(settings.hooks || {}) };
+    for (const [key, type] of Object.entries(CODEX_HOOK_EVENTS)) {
+      hooks[key] = [...(hooks[key] || []).filter((g) => !isOwnCodexGroup(g)), buildCodexGroup(type)];
+    }
+    settings.hooks = hooks;
+    writeJsonFile(filePath, settings);
+    dropLegacyCodexNotify();
     return { success: true };
   },
   disable() {
-    const filePath = PATHS.codex();
+    const filePath = PATHS.codexHooks();
+    // Read the keys our handlers hold BEFORE the file changes — see dropCodexTrust.
+    const goneKeys = new Set(codexHandlersIn(filePath).filter((h) => h.command.includes("&tool=codex")).map((h) => h.key));
     if (fs.existsSync(filePath)) {
-      let content = fs.readFileSync(filePath, "utf8");
-      content = content.replace(CODEX_BLOCK_RE, "");
-      content = content.replace(new RegExp(`^${CODEX_SAVED_PREFIX}(notify\\s*=.*)$`, "m"), "$1");
-      let [head, rest] = splitCodexHead(content);
-      if (rest && head.length && !head.endsWith("\n")) head += "\n";
-      fs.writeFileSync(filePath, head + rest, "utf8");
+      const settings = readJsonFile(filePath);
+      if (settings.hooks) {
+        for (const key of Object.keys(CODEX_HOOK_EVENTS)) {
+          settings.hooks[key] = (settings.hooks[key] || []).filter((g) => !isOwnCodexGroup(g));
+          if (settings.hooks[key].length === 0) delete settings.hooks[key];
+        }
+        if (Object.keys(settings.hooks).length === 0) delete settings.hooks;
+      }
+      writeJsonFile(filePath, settings);
     }
-    const scriptPath = PATHS.codexScript();
-    if (fs.existsSync(scriptPath)) fs.unlinkSync(scriptPath);
+    dropCodexTrust(PATHS.codex(), goneKeys);
     return { success: true };
   },
   isEnabled() {
-    return fs.existsSync(PATHS.codex()) && fs.readFileSync(PATHS.codex(), "utf8").includes("# 9Remote notification");
+    const hooks = readJsonFile(PATHS.codexHooks()).hooks || {};
+    return Object.keys(CODEX_HOOK_EVENTS).every((k) => (hooks[k] || []).some(isOwnCodexGroup));
   },
 };
+
+function isOwnCodexGroup(group) {
+  return (group?.hooks || []).some((h) => typeof h.command === "string" && h.command.includes("&tool=codex"));
+}
+
+function buildCodexGroup(type) {
+  return { hooks: [{ type: "command", command: buildCurlCmd(type, "codex", { sessionId: true }), timeout: SEC(STOP_MS) }] };
+}
+
 
 // ─── Kind: js-plugin-opencode — JS plugin emitting per-event fetch ──────────
 function buildOpencodePlugin() {
@@ -556,8 +755,7 @@ export function disableToolHook(tool) {
     return hook.disable(PATHS[tool]());
   } catch (e) {
     return { success: false, error: e.message };
-  }
-}
+  }}
 
 // Reports enabled only when EVERY event the registry declares is present.
 // (A tool with a legacy partial install — e.g. only Stop/Notification, no working events — is NOT fully enabled.)
@@ -592,9 +790,28 @@ export function autoEnableInstalledHooks() {
   const result = {};
   for (const tool of SUPPORTED_TOOLS) {
     if (!isToolInstalled(tool)) continue;
-    try { result[tool] = enableToolHook(tool).success; } catch { result[tool] = false; }
+    try {
+      const r = enableToolHook(tool);
+      result[tool] = r.success && !r.untrusted?.length;
+    } catch { result[tool] = false; }
   }
   return result;
+}
+
+// Codex runs no hook it holds no trusted hash for, so the handlers just written would sit
+// there doing nothing. Its own app-server computes those hashes; this asks it, once, for
+// every installed codex — a no-op when there is none, and when codex needs no trust at all
+// (an older build answers nothing).
+export async function reconcileCodexTrust() {
+  if (!isToolInstalled("codex")) return null;
+  try {
+    const { missing } = await reconcileCodexHookTrust();
+    if (missing.length) console.warn(`⚠️  codex hooks written but not trusted: ${missing.length} — run codex and trust them`);
+    return missing.length ? { untrusted: missing.length } : { untrusted: 0 };
+  } catch (e) {
+    console.warn(`⚠️  codex hook trust failed: ${e.message}`);
+    return { error: e.message };
+  }
 }
 
 export function getHookStatus() {
