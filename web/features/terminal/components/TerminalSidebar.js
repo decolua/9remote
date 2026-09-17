@@ -549,6 +549,21 @@ function TerminalSidebar({
           className="fixed z-[70] menu-popover p-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
           style={{ left: ctxPos.left, top: ctxPos.top }}
         >
+          {/* Only a yellow terminal has something to mark read; typing/giving it a prompt
+              does the same thing, this is the explicit door. First, amber: it clears the
+              badge the user came here for. */}
+          {sessionStatus[ctxMenu.sessionId]?.state === "done" && (
+            <button
+              onClick={() => {
+                vibrate();
+                useNotificationStore.getState().clearNotification(ctxMenu.sessionId);
+                setCtxMenu(null);
+              }}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-amber-500 hover:bg-amber-500/10 rounded-[6px] flex items-center gap-2"
+            >
+              <Check size={13} /> {t("sessions.markRead")}
+            </button>
+          )}
           <button
             onClick={() => startRename(ctxMenu.sessionId)}
             className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
@@ -567,20 +582,6 @@ function TerminalSidebar({
           >
             <ImageIcon size={13} className="flex-shrink-0" /> {t("menu.terminalBackground")}
           </button>
-          {/* Only a yellow terminal has something to mark read; typing/giving it a prompt
-              does the same thing, this is the explicit door. */}
-          {sessionStatus[ctxMenu.sessionId]?.state === "done" && (
-            <button
-              onClick={() => {
-                vibrate();
-                useNotificationStore.getState().clearNotification(ctxMenu.sessionId);
-                setCtxMenu(null);
-              }}
-              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
-            >
-              <Check size={13} /> {t("sessions.markRead")}
-            </button>
-          )}
           {sessionStatus[ctxMenu.sessionId]?.conversationId && (
             <button
               onClick={() => {
