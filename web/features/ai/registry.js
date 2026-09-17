@@ -40,6 +40,18 @@ const DEFAULT_TOOL_MAP = Object.freeze({
   Glob: "search",
 });
 
+// A task's status as the strip and the modal switch on it. Only these three exist in the
+// UI, and engines spell them differently — codex's own `TurnPlanStepStatus` says
+// `inProgress` where Claude says `in_progress`. Normalized at the parse door so ONE
+// spelling reaches the components, which is what keeps a running step from drawing as a
+// pending dot.
+const TODO_STATUS = Object.freeze({
+  inProgress: "in_progress",
+  in_progress: "in_progress",
+  pending: "pending",
+  completed: "completed",
+});
+
 // Shared permission-mode icons, picked by strictness so every engine's mode list
 // reads the same: ask → edit freely → read-only → no gate. Names come from Icon.js.
 const PERMISSION_ICONS = Object.freeze({
@@ -258,7 +270,10 @@ export class AiEngine {
           taskId: String(i + 1),
           subject: String(t.content).trim(),
           activeForm: t.activeForm || "",
-          status: t.status || "pending",
+          // One spelling on the wire, because the strip and the modal switch on it. Codex
+          // states its plan as `inProgress` (the server's own `TurnPlanStepStatus`), and
+          // that row drew as a pending dot beside work already under way.
+          status: TODO_STATUS[t.status] || t.status || "pending",
         })),
     };
   }
@@ -356,11 +371,18 @@ export class CodexEngine extends AiEngine {
           search: "search",
           // Codex's sub-agents (collab_tool_call). `wait` is antigravity's own tool name
           // too, so it is scoped here rather than in the shared defaults.
+          // The list is the server's own `CollabAgentTool` union, all nine of it: the
+          // four without an entry here fell to the generic card, so an agent being
+          // steered mid-flight drew as an anonymous tool call.
           spawn_agent: "agent",
           wait: "agent",
           resume_agent: "agent",
           send_input: "agent",
           close_agent: "agent",
+          send_message: "agent",
+          followup_task: "agent",
+          interrupt_agent: "agent",
+          list_agents: "agent",
         },
         // Model ids and their supported reasoning tiers come from the host's own codex
         // catalog (`modelOptions` in the init event); these are only the fallback for a

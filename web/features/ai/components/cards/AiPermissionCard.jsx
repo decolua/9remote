@@ -3,6 +3,7 @@
 import { memo, useState } from "react";
 import { Shield, Check, X, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { permissionGrantText } from "../../lib/permissionGrant";
 
 export const AiPermissionCard = memo(function AiPermissionCard({
   requestId = "",
@@ -14,7 +15,12 @@ export const AiPermissionCard = memo(function AiPermissionCard({
   const [customMsg, setCustomMsg] = useState("");
   const [showInput, setShowInput] = useState(false);
 
-  const command = input?.command || input?.path || JSON.stringify(input || {});
+  // A permission GRANT (codex asking for more than the thread opened with) has no command
+  // to show: what it wants is a profile — network, or paths outside the sandbox — and the
+  // CLI's own sentence about why. Printed as those lines, because the raw JSON of a
+  // profile is a wall of nulls nobody can decide on. Every other gate keeps its command.
+  const command = permissionGrantText(input)
+    || input?.command || input?.path || JSON.stringify(input || {});
 
   const handleAllow = () => {
     vibrate();

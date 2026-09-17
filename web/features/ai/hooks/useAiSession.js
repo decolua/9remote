@@ -1175,7 +1175,10 @@ export function useAiSession({
       if (!preview && (!res || !res.ok)) retryNow();
       if (!res) return { ok: false, error: "The host did not answer in time." };
       if (!res.ok) return res;
-      // Re-submit the edited text as the first prompt of the rewound conversation.
+      // Re-submit the edited text as the first prompt of the rewound conversation. This
+      // is the feature, not a convenience: the rewind drops the turn, and the edited
+      // version is what replaces it. `res.prefillText` is the CLI's own copy of the turn
+      // that went — identical here, and there for a caller with no text of its own.
       if (!preview && newText) {
         b.emit("ai:prompt", { sessionId, message: newText, cwd: workspacePath });
       }

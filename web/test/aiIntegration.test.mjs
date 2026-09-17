@@ -119,6 +119,13 @@ await test("tool map covers every engine's real tool names", () => {
   assert.equal(getToolCategory("codex", "command_execution"), "bash");
   assert.equal(getToolCategory("codex", "file_change"), "diff");
   assert.equal(getToolCategory("codex", "todo_list"), "task");
+  // Every name in the server's own `CollabAgentTool` union draws as an agent, not as the
+  // generic card: four of the nine used to fall through, so an agent being steered
+  // mid-flight read as an anonymous tool call.
+  for (const name of ["spawn_agent", "send_input", "resume_agent", "wait", "close_agent",
+                      "send_message", "followup_task", "interrupt_agent", "list_agents"]) {
+    assert.equal(getToolCategory("codex", name), "agent", `codex ${name} is a sub-agent call`);
+  }
   assert.equal(getToolCategory("opencode", "patch"), "diff");
   assert.equal(getToolCategory("opencode", "todowrite"), "task");
   assert.equal(getToolCategory("opencode", "task"), "agent");
