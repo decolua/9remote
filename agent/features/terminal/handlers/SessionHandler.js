@@ -69,7 +69,12 @@ async function nameOneSession(io, sessions, sessionId) {
   // The engine, not the surface: a chat UI session records "claude-ui", which is no
   // store's id — the transcript source is keyed by engine.
   const engine = engineFromAgent(conv.agent) || conv.agent;
-  let title = conversationTitle(engine, conv.id, cwd);
+  // The CLI's OWN name for this conversation, when it stated one — codex's
+  // `thread/name/updated`, kept on the live session. It outranks the transcript scan
+  // below, which can only ever read the rollout file's first prompt: a thread renamed
+  // with `/rename` (or in the TUI) would otherwise keep its opening words forever.
+  const named = globalAiManager.getSession(sessionId)?.threadTitle;
+  let title = named || conversationTitle(engine, conv.id, cwd);
   if (!title) {
     await listAgentSessions({ cwd, fresh: true });
     title = conversationTitle(engine, conv.id, cwd);

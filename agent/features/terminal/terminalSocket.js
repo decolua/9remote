@@ -18,6 +18,7 @@ import { reconcileClaudeEnv, autoEnableInstalledHooks, reconcileCodexTrust } fro
 import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
+import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
