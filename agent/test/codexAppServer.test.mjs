@@ -118,6 +118,33 @@ await test("effort and personality ride the thread's own params", async () => {
 
 // ── turns ──
 
+// `/review` is a COMMAND of this server, not prose. Sent as a prompt it merely asks the
+// model to review something ("Không có gì để review" on a clean tree); the server's own
+// `review/start` runs the review, which is what the TUI's /review does — measured, it
+// emits enteredReviewMode -> command -> exitedReviewMode.
+await test("/review calls review/start instead of asking the model to do one", async () => {
+  const { proc, server } = await started();
+  const p = server.sendPrompt("/review");
+  const rv = proc.sent("review/start")[0];
+  assert.ok(rv, "the review RPC went out");
+  assert.equal(rv.params.threadId, "t-1");
+  assert.deepEqual(rv.params.target, { type: "uncommittedChanges" }, "the target the TUI reviews");
+  assert.equal(proc.sent("turn/start").length, 0, "and it is not ALSO sent as a prompt");
+  proc.emit({ jsonrpc: "2.0", id: rv.id, result: { turn: { id: "turn-r" }, reviewThreadId: "t-1" } });
+  await p;
+});
+
+await test("a prompt that merely starts with /review is still a prompt", async () => {
+  // Only the bare command routes; "/review the parser" is prose by any reading.
+  const { proc, server } = await started();
+  const p = server.sendPrompt("/review the parser");
+  assert.equal(proc.sent("review/start").length, 0);
+  const ts = proc.sent("turn/start")[0];
+  assert.ok(ts, "it went out as a turn");
+  proc.emit({ jsonrpc: "2.0", id: ts.id, result: { turn: { id: "turn-2" } } });
+  await p;
+});
+
 await test("a prompt is a turn/start carrying the text as a UserInput", async () => {
   const { proc, server } = await started();
   const p = server.sendPrompt("hello");
@@ -689,9 +716,11 @@ await test("entering and leaving review draw as the review's own card", async ()
     params: { threadId: "t-1", item: { type: "exitedReviewMode", id: "rv_2", review: "look for missing tests" } }
   });
   const names = events.filter(([e]) => e === "tool_start").map(([, d]) => d.name);
-  assert.deepEqual(names, ["EnterPlanMode", "ExitPlanMode"], "the pair the plan card knows");
+  // Under the CLI's OWN names: mapping them onto Claude's plan-mode pair made the pane say
+  // "Plan Mode Activated", about the wrong engine, for a code review.
+  assert.deepEqual(names, ["enteredReviewMode", "exitedReviewMode"]);
   const [entered] = events.filter(([e]) => e === "tool_start").map(([, d]) => d);
-  assert.equal(entered.input.reason, "look for missing tests", "and the review is what it says");
+  assert.equal(entered.input.review, "look for missing tests", "and the review is what it says");
 });
 
 // ── the gate nobody registered ──
@@ -925,6 +954,53 @@ await test("a plan that states nothing is not a task row", async () => {
   const { proc, events } = await started();
   proc.emit({ jsonrpc: "2.0", method: "turn/plan/updated", params: { threadId: "t-1", turnId: "turn-1", plan: [] } });
   assert.equal(events.filter(([e]) => e === "tool_start").length, 0);
+});
+
+// ── a refusal under a narrow sandbox ──
+//
+// Codex has no structured refusal event on EITHER transport — it says so in prose
+// ("I can't create X because this workspace is read-only"). The exec transport has always
+// turned that into a card offering the mode that would allow the action; the app-server,
+// which is the DEFAULT transport, showed the sentence and no way out of it.
+
+await test("a refusal under a narrow sandbox offers the mode that would allow it", async () => {
+  const { proc, events } = await started({ mode: "readOnly" });
+  proc.emit({
+    jsonrpc: "2.0", method: "item/completed",
+    params: {
+      threadId: "t-1",
+      item: {
+        type: "agentMessage", id: "m1",
+        text: "I can't create that file because this workspace is read-only."
+      }
+    }
+  });
+  const [blocked] = events.filter(([e]) => e === "blocked").map(([, d]) => d);
+  assert.ok(blocked, "the card that says what to do about it");
+  assert.equal(blocked.engine, "codex");
+  assert.equal(blocked.escalate.mode, "default", "the first mode that can write");
+  assert.equal(blocked.escalate.label, "Default");
+  assert.match(blocked.message, /read-only/);
+});
+
+await test("an ordinary reply is not read as a refusal", async () => {
+  // The pattern needs a refusal VERB beside the reason: a bare "read-only" also appears in
+  // a sentence that merely describes a file, and offering escalation for that is noise.
+  const { proc, events } = await started({ mode: "readOnly" });
+  proc.emit({
+    jsonrpc: "2.0", method: "item/completed",
+    params: { threadId: "t-1", item: { type: "agentMessage", id: "m2", text: "a.txt is read-only here, and I read it fine." } }
+  });
+  assert.equal(events.filter(([e]) => e === "blocked").length, 0, "reading a file is not a refusal");
+});
+
+await test("a chat already at full access is offered nothing to escalate to", async () => {
+  const { proc, events } = await started({ mode: "fullAccess" });
+  proc.emit({
+    jsonrpc: "2.0", method: "item/completed",
+    params: { threadId: "t-1", item: { type: "agentMessage", id: "m3", text: "I cannot write outside the workspace." } }
+  });
+  assert.equal(events.filter(([e]) => e === "blocked").length, 0, "there is no mode above the top");
 });
 
 await test("the plan's own status spelling reaches the strip as in_progress", async () => {

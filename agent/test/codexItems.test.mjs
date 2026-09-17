@@ -169,5 +169,56 @@ test("codex sends one whole reasoning item, after the message it explains", () =
   assert.deepEqual(more, [], "a reasoning item is announced with no text, so there is nothing to send yet");
 });
 
+// ── items the rollout keeps but the mapper used to drop ──
+//
+// Measured across the rollouts on this machine: 4 `ImageView` and one review pair. The
+// mapper knew `ImageView` but had no branch for it, so a replayed image row fell to the
+// generic card; the review pair it did not know AT ALL, so opening a chat that reviewed
+// code showed no trace of the review while the live pane had drawn it.
+
+test("an image the agent looked at replays as a file row", () => {
+  const [start, result] = codexItemEvents({
+    item: { type: "ImageView", id: "i1", path: "file:///w/screen.png" },
+    status: "completed"
+  });
+  assert.equal(start.event, "tool_start");
+  assert.equal(start.data.name, "view_image");
+  assert.equal(start.data.input.path, "file:///w/screen.png");
+  assert.equal(result.event, "tool_result");
+
+  // The ROLLOUT's shape, which the tests above never used: an `item_completed` envelope
+  // with no `status` anywhere. Reading only `status` left every item type that has no such
+  // field (imageView, the review pair, todo_list) with a `tool_start` and NO result — a
+  // card that opened and never closed on a reopened chat, while the live door closed it.
+  const rollout = codexItemEvents({ type: "item_completed", item: { type: "ImageView", id: "i2", path: "file:///w/b.png" } });
+  assert.equal(rollout.length, 2, "the envelope alone says the item is over");
+  assert.equal(rollout[1].event, "tool_result");
+  assert.equal(rollout[1].data.status, "done");
+});
+
+test("a review replays as the review's own pair, with what it reviewed", () => {
+  // The rollout's real record: a tagged target and a hint the TUI prints.
+  const [entered] = codexItemEvents({
+    item: { type: "EnteredReviewMode", id: "rv1", target: { type: "uncommittedChanges" }, user_facing_hint: "current changes" },
+    status: "completed"
+  });
+  assert.equal(entered.data.name, "enteredReviewMode", "the live stream's spelling, so one card serves both doors");
+  assert.equal(entered.data.input.review, "current changes");
+
+  const [exited] = codexItemEvents({
+    item: { type: "ExitedReviewMode", id: "rv2", target: { type: "uncommittedChanges" }, user_facing_hint: "current changes" },
+    status: "completed"
+  });
+  assert.equal(exited.data.name, "exitedReviewMode");
+});
+
+test("a review with no hint still says what it looked at", () => {
+  const [entered] = codexItemEvents({
+    item: { type: "EnteredReviewMode", id: "rv3", target: { type: "uncommittedChanges" } },
+    status: "completed"
+  });
+  assert.equal(entered.data.input.review, "uncommitted changes", "the target tag is the phrase");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

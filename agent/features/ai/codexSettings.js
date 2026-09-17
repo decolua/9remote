@@ -44,6 +44,35 @@ const MODE_TO_APPROVAL = {
 
 const DEFAULT_MODE = "default";
 
+// The strictest mode is at the bottom and the loosest at the top. The step after
+// `readOnly` is the first WRITING mode, not `readOnly` itself — offering a mode that
+// cannot write would fail again for the same reason.
+const MODE_LADDER = [["plan", "readOnly"], "default", "fullAccess"];
+
+/** How each mode is named to a person. Shared with the exec transport's refusal card. */
+export const MODE_LABELS = { plan: "Plan", readOnly: "Read Only", default: "Default", fullAccess: "Full Access" };
+
+/** The mode that would let a blocked action through, or null when already at the top. */
+export function nextModeUp(current) {
+  for (let i = 0; i < MODE_LADDER.length; i++) {
+    const step = MODE_LADDER[i];
+    if (Array.isArray(step) ? step.includes(current) : step === current) return MODE_LADDER[i + 1] ?? null;
+  }
+  return null;
+}
+
+/**
+ * Codex reports a refusal as plain assistant text ("I can't create X because this
+ * workspace is read-only"), never as a structured event — on BOTH transports. Matching
+ * that text is the only signal there is, so the pattern needs a refusal verb beside the
+ * reason: a bare "read-only" would also match an ordinary sentence about a file.
+ *
+ * Shared rather than duplicated because the two transports must agree on what a refusal
+ * looks like: the card is the same card, and a pattern that drifted would make one
+ * transport offer the way out and the other silently not.
+ */
+export const BLOCKED_TEXT_RE = /(?:can(?:not|'t|not)\s+(?:create|write|edit|modify|delete)|unable to\s+(?:create|write|edit|modify)|permission denied|operation not permitted|not permitted to|(?:workspace|sandbox)\s+is\s+read-?only|outside the (?:workspace|sandbox))/i;
+
 // A feature name becomes part of a config override (`features.<name>=true`), so anything
 // that could close that expression or start another is refused rather than escaped —
 // there is no legitimate name that needs a quote, a space or an `=`.

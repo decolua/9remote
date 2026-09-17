@@ -67,7 +67,15 @@ const ITEM_CATEGORY = Object.freeze({
   TodoList: "todo_list",
   web_search: "web_search",
   WebSearch: "web_search",
-  ImageView: "view_image"
+  ImageView: "view_image",
+  imageView: "view_image",
+  // Code review, which the rollout writes in PascalCase and the live stream in camelCase.
+  // The tool name is the CATEGORY (not a normal name) so both spellings land on the review
+  // card — the client maps `enteredReviewMode`/`EnteredReviewMode` to it in the registry.
+  EnteredReviewMode: "enteredReviewMode",
+  enteredReviewMode: "enteredReviewMode",
+  ExitedReviewMode: "exitedReviewMode",
+  exitedReviewMode: "exitedReviewMode"
 });
 
 // The name the client sees for one command. Codex runs EVERY built-in through one shell
@@ -123,6 +131,11 @@ export function codexItemEvents(payload, recorded = null) {
     // that already exists announce an id and nothing else.
     : tool === "collab_tool_call" ? (item.prompt ? { subagent_type: item.tool, prompt: item.prompt } : {})
     : tool === "todo_list" ? { todos: item.items || item.todos || [] }
+    // An image it looked at: a READ, and the path is the whole content of the call.
+    : tool === "view_image" ? { path: item.path || "", file_path: item.path || "" }
+    // A review, which the CLI states as what it is reviewing — the TUI prints this hint.
+    : tool === "enteredReviewMode" || tool === "exitedReviewMode"
+      ? { review: item.user_facing_hint || item.review || reviewTarget(item.target) }
     : { path: item.path || "" };
 
   // The name is the item's own tool name where it has one (an MCP call, a spawned agent),
@@ -133,7 +146,12 @@ export function codexItemEvents(payload, recorded = null) {
   // Codex opens a tool with one event and closes it with another. The live stream says
   // which by its envelope (`item.started` / `item.completed`, and the item carries no
   // status of its own); the rollout has only the completed item and says so on the item.
-  const done = payload?.status === "completed" || item.status === "completed";
+  // Three ways the two doors say "this item is over": the live stream passes a `status`
+  // argument, an item may carry its own `status`, and the ROLLOUT wraps it in an
+  // `item_completed` envelope with neither. Reading only the first two left every item
+  // type that has no `status` field (`imageView`, the review pair, `todo_list`) with its
+  // `tool_start` and no `tool_result` — a card that never closes on a reopened chat.
+  const done = payload?.status === "completed" || payload?.type === "item_completed" || item.status === "completed";
   const events = [toolStart({ id: item.id, name, input })];
   if (!done) return events;
 
@@ -189,6 +207,19 @@ export function codexItemEvents(payload, recorded = null) {
 function commandLine(command) {
   if (Array.isArray(command)) return command.join(" ");
   return command || "";
+}
+
+/**
+ * What a review is looking at, as the CLI states it: a tagged union from the rollout
+ * (`{type:"uncommittedChanges"}`, a base branch, a commit). The card wants a phrase, and
+ * the tag is the phrase — `uncommittedChanges` is the only variant seen on this machine
+ * (one run), so the rest fall back to whatever string the record carries.
+ */
+function reviewTarget(target) {
+  if (!target || typeof target !== "object") return "";
+  const type = target.type || "";
+  if (type === "uncommittedChanges") return "uncommitted changes";
+  return target.branch || target.commit || target.sha || type || "";
 }
 
 // The command line the card prints. Codex runs every command through a login shell —

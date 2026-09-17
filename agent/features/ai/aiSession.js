@@ -243,6 +243,11 @@ function capEvent(event, data) {
   return capDeep(data);
 }
 
+// A gate walked away from reads the same to the CLI on either door — the client's own
+// skip wording, so "Skip" on the card and "send a prompt instead" say one thing.
+const SKIP_BEHAVIOR = "deny";
+const SKIP_MESSAGE = "User skipped this request";
+
 // A stored seq is a position, and positions move: compaction folds deltas and the event
 // cap sheds the head, so a snapshot can hold seqs that repeat or run backwards. The
 // client's scroll-up walks `e.seq >= before` and stops at the first such event, hiding
@@ -636,11 +641,11 @@ export class AiSession {
    * (two counted events, one counted turns), and each drift showed as a pane that came
    * back short on one door while /resume showed the whole chat.
    */
-  _rebuildFromStore(sessionId) {
+  _rebuildFromStore(sessionId, leafOverride = null) {
     // The id reaches the CLI as argv and the filesystem as a path segment; each reader
     // validates it itself, and a client-supplied resume id is checked before it is
     // stored (see RESUME_ID_RE).
-    const recovered = recoverFromTranscript(this.engine, this.cwd, sessionId);
+    const recovered = recoverFromTranscript(this.engine, this.cwd, sessionId, leafOverride);
     return recovered?.length ? renumber(capLog(recovered)) : null;
   }
 
@@ -659,9 +664,14 @@ export class AiSession {
   // the log this host has been accumulating. Rebuild from that store and broadcast a
   // reset, or every client keeps rendering the turns the rewind just discarded.
   // Returns false when the engine keeps no transcript to rebuild from.
-  reloadFromStore() {
+  reloadFromStore(leafOverride = null) {
     if (!this.cliSessionId) return false;
-    const log = this._rebuildFromStore(this.cliSessionId);
+    // `leafOverride` is a rewind's own answer about where the branch now ends, used for
+    // this one rebuild. Without it the file is read in the ~50ms before the CLI writes the
+    // new pointer down, the pre-cut branch is what comes back, and the pane is handed the
+    // turns the rewind just dropped — the reported "it adds a message and keeps the old
+    // ones until something re-reads the file later" (see claudeTranscript.liveTurns).
+    const log = this._rebuildFromStore(this.cliSessionId, leafOverride);
     if (!log) return false;
     this._adoptLog(log);
     return true;
@@ -830,6 +840,13 @@ export class AiSession {
     // records take earlier seqs than `turn_complete`, so the client applies them in order
     // and never drops the turn's ending as an "already applied" lower seq.
     if (TURN_END_EVENTS.has(event)) this._pullAttachments();
+    // The same beat, for the same reason: `/goal` is typed as a PROMPT, so it lands in
+    // the CLI's own state during the turn — and the goal was only ever read on `init`.
+    // Setting one from the composer therefore changed nothing on screen until an F5. Read
+    // here, at the turn's end, which is when the CLI has finished recording it.
+    if (TURN_END_EVENTS.has(event) && this.engine === AI_ENGINES.CODEX && this.threadId) {
+      this.refreshGoal(this.threadId);
+    }
 
     // A seq on every event is what lets a hydrating client drop the live events it
     // already replayed, and what marks where its scroll-up window ends. It is a counter,
@@ -1160,6 +1177,14 @@ export class AiSession {
 
     this.lastPrompt = prompt;
     this.isTurnRunning = true;
+    // A new prompt ends every gate the old turn left open. The user typing IS them moving
+    // on, and the client cannot do this alone: it skips the card it can see, while the
+    // host holds the request itself — and an unanswered one comes back from a replay as a
+    // live card (see pendingPermission) whose answer reaches no handler, so the pane stuck
+    // on it until the next reload dropped it. Sent as a skip, so the CLI hears a decision
+    // rather than silence, and only when a gate really is open. Before `isTurnRunning`
+    // above, or the CLI reads the skip as an answer to the turn being replaced.
+    this.skipOpenGates();
     // The echoed message carries the attachment names so every client can render them
     // under the bubble — the base64 never rides the replay log.
     this.emitNormalized("user_message", { text: prompt, attachments: attachmentMeta(attachments) });
@@ -1207,6 +1232,27 @@ export class AiSession {
     if (handled === false) return false;
     this.emitNormalized("permission_resolved", { requestId, behavior: "allow" });
     return true;
+  }
+
+  /**
+   * Every gate the CLI is holding right now, answered as a skip and broadcast.
+   *
+   * The client skips the card it can see when the user sends a prompt instead of
+   * answering; this is the same decision taken where the gate actually lives. Without it
+   * the request outlives the turn that opened it, `pendingPermission` keeps reporting it,
+   * and every hydrate puts a card back that nobody can clear — the reported symptom was
+   * a question the user answered with no effect, still on screen after every F5.
+   *
+   * The message is the client's own skip wording, so both doors read the same to the CLI.
+   */
+  skipOpenGates() {
+    const map = this.adapter?.pendingRequests;
+    if (!map?.size) return 0;
+    let skipped = 0;
+    for (const requestId of [...map.keys()]) {
+      if (this.resolvePermission(requestId, SKIP_BEHAVIOR, SKIP_MESSAGE)) skipped++;
+    }
+    return skipped;
   }
 
   setOptions(opts) {

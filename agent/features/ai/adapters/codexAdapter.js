@@ -8,19 +8,10 @@ import * as daemonClient from "../../terminal/ptyDaemonClient.js";
 import { readCodexFileChanges, readCodexParsedCommands } from "../transcript.js";
 import { codexItemEvents, isCodexFileChange, isCodexToolItem } from "../codexItems.js";
 import { CodexAppServer } from "../proc/codexAppServer.js";
-import { spawnArgsFor } from "../codexSettings.js";
+import { spawnArgsFor, BLOCKED_TEXT_RE, MODE_LABELS, nextModeUp } from "../codexSettings.js";
 import { createLogger } from "../../../lib/logger.js";
 
 const logger = createLogger("ai");
-
-// Codex reports a refusal as plain assistant text ("I can't create X because this
-// workspace is read-only"), not a structured event. Matching that text is the only
-// signal available; it is deliberately narrow to avoid flagging normal replies.
-// Codex reports a refusal as plain assistant text ("I can't create X because this
-// workspace is read-only"), not a structured event. Matching that text is the only
-// signal available, so the pattern requires a refusal verb next to the reason —
-// a bare "read-only" would also match an ordinary sentence describing a file.
-const BLOCKED_TEXT_RE = /(?:can(?:not|'t|not)\s+(?:create|write|edit|modify|delete)|unable to\s+(?:create|write|edit|modify)|permission denied|operation not permitted|not permitted to|(?:workspace|sandbox)\s+is\s+read-?only|outside the (?:workspace|sandbox))/i;
 
 // Composer permission mode → codex sandbox policy. The CLI has no single "mode" flag:
 // what a mode means is decided by how much the sandbox allows. These mirror the TUI's
@@ -37,22 +28,6 @@ const MODE_TO_SANDBOX = {
 const PLAN_MODE_ARG = ["-c", 'collaboration_mode="plan"'];
 
 // Widening ladder: a blocked action is resolved by the next mode up. Plan sits at the
-// bottom — it is the strictest. The step after it is the first *writing* mode, not
-// Read Only, which cannot write at all: offering Read Only there would just fail again.
-const MODE_LADDER = [["plan", "readOnly"], "default", "fullAccess"];
-const MODE_LABELS = { plan: "Plan", readOnly: "Read Only", default: "Default", fullAccess: "Full Access" };
-
-/** The mode that would let a blocked action through, or null when already at the top. */
-function nextModeUp(current) {
-  for (let i = 0; i < MODE_LADDER.length; i++) {
-    const step = MODE_LADDER[i];
-    if (Array.isArray(step) ? step.includes(current) : step === current) {
-      return MODE_LADDER[i + 1] ?? null;
-    }
-  }
-  return null;
-}
-
 export class CodexAdapter {
   constructor({ cwd, onEvent, proc = null, threadId = null, model = "", hostSessionId = null, transport = null } = {}) {
     this.cwd = cwd || process.cwd();
@@ -512,6 +487,10 @@ export class CodexAdapter {
     // and the server carries the mode/sandbox it was opened with.
     if (this.persistent && this.appServer) {
       this.isTurnRunning = true;
+      // `/review` is handled inside app-server.sendPrompt, which routes it to the
+      // server's own `review/start`. The exec transport below has no such call — a chat
+      // forced onto it (`NREMOTE_CODEX_TRANSPORT=exec`) sends the text as prose, which is
+      // the honest behaviour for a one-process-per-turn CLI that offers no review RPC.
       // Attachments ride as `localImage` entries; a file is named in the text for the
       // agent to read (the server takes no file input).
       this.appServer.sendPrompt(prompt, staged).catch((err) => {

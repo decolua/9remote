@@ -62,5 +62,32 @@ await test("reading the last goal walks backwards past unrelated events", () => 
   assert.equal(s.lastRecordedGoalKey(), "second|paused");
 });
 
+// ── when the goal is re-read ──
+//
+// `/goal` is typed into the composer as a PROMPT, so the CLI records it during the turn.
+// The goal used to be read only on `init`, which meant setting one changed nothing on
+// screen until an F5 — the pane kept showing the goal it had.
+
+await test("the goal is re-read when a turn ends, not only on init", async () => {
+  // The CLI is asked at the turn's end; this test drives that beat with a stand-in reader.
+  const s = new AiSession({ id: "goal-beat", engine: "codex", cwd: "/tmp", options: {}, onEvent: () => {} });
+  s.threadId = "t-1";
+  const calls = [];
+  s.refreshGoal = (id) => { calls.push(id); return Promise.resolve(); };
+  s.emitNormalized("turn_complete", { stats: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls, ["t-1"], "a finished turn asks the CLI what the goal is now");
+});
+
+await test("another engine's turn does not ask codex for a goal", async () => {
+  const s = new AiSession({ id: "goal-other", engine: "claude", cwd: "/tmp", options: {}, onEvent: () => {} });
+  s.threadId = "t-2";
+  const calls = [];
+  s.refreshGoal = (id) => { calls.push(id); return Promise.resolve(); };
+  s.emitNormalized("turn_complete", { stats: {} });
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(calls, [], "the goal RPC is codex's alone");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

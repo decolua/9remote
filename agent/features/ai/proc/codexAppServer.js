@@ -13,7 +13,7 @@
 // Shapes here are read off the server's own generated bindings (`codex app-server
 // generate-ts`), not guessed.
 import { JsonRpcClient } from "./jsonRpcClient.js";
-import { sandboxPolicyFor, approvalPolicyFor, collaborationModeFor, turnSettingsFor } from "../codexSettings.js";
+import { sandboxPolicyFor, approvalPolicyFor, collaborationModeFor, turnSettingsFor, BLOCKED_TEXT_RE, MODE_LABELS, nextModeUp } from "../codexSettings.js";
 import { elicitationQuestions } from "../elicitation.js";
 
 // `commandActions` type → the name the cards know. Same vocabulary as the rollout
@@ -159,6 +159,20 @@ export class CodexAppServer {
       if (!this._mine(p)) return;
       const item = p.item || {};
       if (item.type === "reasoning") return;
+      // A refusal under a narrow sandbox arrives as PROSE — codex has no structured
+      // refusal event on either transport. Surface it as the card that offers the mode
+      // which would allow the action, the same one the exec transport draws. Without
+      // this the default transport showed the sentence and no way out of it.
+      if (item.type === "agentMessage" && item.text && BLOCKED_TEXT_RE.test(item.text)) {
+        const next = nextModeUp(this.permissionMode);
+        if (next) {
+          this.onEvent?.("blocked", {
+            engine: "codex",
+            message: item.text,
+            escalate: { mode: next, label: MODE_LABELS[next] }
+          });
+        }
+      }
       // The ENVELOPE is the status for every item that has none of its own: the server
       // declares items without a `status` field (`webSearch`, `plan`, `imageView`,
       // `contextCompaction`), and reading only the item left each of them announced and
@@ -180,6 +194,10 @@ export class CodexAppServer {
     rpc.on("turn/completed", (p) => {
       if (!this._mine(p)) return;
       this.isTurnRunning = false;
+      // Gates belong to the turn that asked them, and this one is over. A request left
+      // here was abandoned — an interrupt, or the turn failing around it — and it comes
+      // back from a replay as a question card whose answer reaches no server handler.
+      this.gates.clear();
       const turn = p.turn || {};
       if (turn.status === "failed") {
         this.onEvent?.("error", { message: turn.error?.message || "Codex reported the turn as failed" });
@@ -414,20 +432,17 @@ export class CodexAppServer {
     }
 
     // Entering and leaving code review are two items the CLI declares, and the pair is one
-    // happening: a review with the text it was asked to perform. Drawn as the review's own
-    // card rather than two anonymous rows — the same shape Claude's plan-mode card gives
-    // its enter/exit pair, which is the card this vocabulary already has.
+    // happening: a review with the text it was asked to perform. Named as the review's own
+    // tool, so it draws the review's own card — mapping these onto Claude's plan-mode pair
+    // made the pane say "Plan Mode Activated", about the wrong engine, for a review.
     if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") {
       out.push({
         event: "tool_start",
-        data: {
-          id, name: item.type === "enteredReviewMode" ? "EnterPlanMode" : "ExitPlanMode",
-          status: "done", input: { reason: item.review || "" }
-        }
+        data: { id, name: item.type, status: "done", input: { review: item.review || "" } }
       });
       out.push({
         event: "tool_result",
-        data: { id, name: item.type === "enteredReviewMode" ? "EnterPlanMode" : "ExitPlanMode", output: "", error: "", status: "done" }
+        data: { id, name: item.type, output: "", error: "", status: "done" }
       });
       return out;
     }
@@ -475,6 +490,8 @@ export class CodexAppServer {
   _handleExit(info) {
     if (this.closed) return;
     this.isTurnRunning = false;
+    // Nothing is left to answer a gate on a server that is gone.
+    this.gates.clear();
     this.onEvent?.("error", { message: `Codex app-server exited (code ${info?.code ?? "?"})` });
     this.onEvent?.("turn_complete", { stats: {} });
   }
@@ -593,6 +610,17 @@ export class CodexAppServer {
     if (this.closed) return Promise.reject(new Error("Codex app-server has been closed"));
     if (this.isTurnRunning) return Promise.reject(new Error("Codex turn is already running."));
     this.isTurnRunning = true;
+    // `/review` is a COMMAND of this server, not prose: `review/start` runs the review
+    // (measured — it emits the enteredReviewMode -> command -> exitedReviewMode trio),
+    // while the same text sent as a prompt just asks the model to review something and
+    // gets an apology when the tree is clean. `target` is the server's union; uncommitted
+    // changes are what the TUI's own /review looks at.
+    if (String(prompt).trim() === "/review") {
+      return this.rpc.request("review/start", {
+        threadId: this.threadId,
+        target: { type: "uncommittedChanges" }
+      });
+    }
     return this.rpc.request("turn/start", {
       threadId: this.threadId,
       input: this._turnInput(prompt, attachments),

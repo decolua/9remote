@@ -65,13 +65,16 @@ fs.writeFileSync(path.join(workdir, "a.txt"), "hello world\n");
 fs.writeFileSync(path.join(workdir, "b.txt"), "second file\n");
 
 // Drives one prompt through a real server and returns everything it emitted, in order.
-async function runTurn(prompt, { timeoutMs = 120000 } = {}) {
+async function runTurn(prompt, { timeoutMs = 120000, mode = null } = {}) {
   const proc = childProc("codex", ["app-server"], workdir);
   const events = [];
   const server = new CodexAppServer({
     proc, cwd: workdir,
     // Nothing is being asked; a gate left open would hang the turn.
-    sandbox: "danger-full-access", approvalPolicy: "never",
+    // `mode` narrows the SANDBOX (the refusal test needs one that cannot write); the
+    // default stays wide so every other test can do its work.
+    ...(mode ? { mode } : { sandbox: "danger-full-access" }),
+    approvalPolicy: "never",
     onEvent: (e, d) => events.push([e, d])
   });
 
@@ -338,6 +341,26 @@ await test("thread/revert keeps the prefix, in the same thread", async () => {
   } finally {
     await server.stop();
   }
+});
+
+// ── a refusal under a narrow sandbox ──
+//
+// The default transport showed the refusal sentence and no way out of it. Codex has no
+// structured refusal event, so the only signal is the prose — which is what this proves
+// actually arrives, from a real binary, on a sandbox that really cannot write.
+
+await test("a real refusal reaches the pane as the card that offers a way out", async () => {
+  const before = fs.existsSync(path.join(workdir, "out.txt"));
+  const { of } = await runTurn(
+    "Create a file named out.txt containing hello, using a shell command. Then reply DONE.",
+    { mode: "readOnly" }
+  );
+  assert.equal(before, false, "the scratch file must not exist to begin with");
+  assert.equal(fs.existsSync(path.join(workdir, "out.txt")), false, "a read-only sandbox really did refuse it");
+  const [blocked] = of("blocked");
+  assert.ok(blocked, `the refusal must surface as a card — got events: ${of("delta").length} deltas, ${of("cli_event").length} records`);
+  assert.equal(blocked.engine, "codex");
+  assert.equal(blocked.escalate.mode, "default", "and the way out is the first mode that can write");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
