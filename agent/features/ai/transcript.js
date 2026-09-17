@@ -528,9 +528,15 @@ function tailFromLastUser(events) {
   return slice.map((e, i) => ({ ...e, seq: i + 1 }));
 }
 
-/** Engine-dispatched transcript reader; null when the store has nothing for this id. */
-export function recoverFromTranscript(engine, cwd, sessionId) {
-  if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId);
+/**
+ * Engine-dispatched transcript reader; null when the store has nothing for this id.
+ *
+ * `leafOverride` is claude-only and reaches its reader alone: it is the branch pointer a
+ * rewind just answered with, for a rebuild that must not wait for the CLI to write it out
+ * (see claudeTranscript.liveTurns). The other engines have no such pointer.
+ */
+export function recoverFromTranscript(engine, cwd, sessionId, leafOverride = null) {
+  if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId, 1, leafOverride);
   if (engine === "codex") return recoverFromCodexTranscript(cwd, sessionId);
   if (engine === "opencode") return recoverFromOpencodeTranscript(cwd, sessionId);
   if (engine === "antigravity") return recoverFromAntigravityTranscript(cwd, sessionId);

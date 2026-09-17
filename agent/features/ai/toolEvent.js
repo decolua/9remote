@@ -16,7 +16,7 @@ export function toolStart({ id, name, input = {}, parentToolUseId = null }) {
 }
 
 /** What a tool call returned. A non-empty `error` is what makes the card a failure. */
-export function toolResult({ id, name, output = "", error = "", parentToolUseId = null }) {
+export function toolResult({ id, name, output = "", error = "", parentToolUseId = null, ...rest }) {
   const failed = Boolean(error);
   return {
     event: "tool_result",
@@ -26,6 +26,11 @@ export function toolResult({ id, name, output = "", error = "", parentToolUseId 
       output: failed ? "" : output,
       error: failed ? error : "",
       status: failed ? "error" : "done",
+      // Anything the caller knows that this function cannot derive: `async`/`handle`, and
+      // a `running` status for work that outlives its call. Spread LAST so a caller's
+      // status wins — a launch ack is not a result, and hardcoding `done` here is what
+      // made the replay door close a Monitor's row the instant it opened.
+      ...rest,
       ...(parentToolUseId ? { parentToolUseId } : {})
     }
   };
@@ -54,13 +59,17 @@ export function toolResult({ id, name, output = "", error = "", parentToolUseId 
 const ACK_PATTERNS = [
   /Async agent launched successfully[^]*?agentId:\s*([A-Za-z0-9_-]+)/i,
   /Command running in background with ID:\s*([A-Za-z0-9_-]+)/i,
+  // `Monitor` watches a command and returns at once: "Monitor started (task b301ffx4j,
+  // timeout 600000ms). You will be notified on each event." Measured on this machine: 44
+  // of these, every one closing its row immediately while the task it named kept running.
+  /Monitor started \(task\s+([A-Za-z0-9_-]+)/i,
 ];
 
 // Only these can hand work off and return early. The gate is the tool NAME, not the
 // output alone: a result that merely CONTAINS an ack — a Read of a file that quotes one —
 // otherwise marks that row as live work forever (verified against a real log: two `Read`
 // results matched the shell pattern exactly that way).
-const LAUNCHER_TOOLS = new Set(["Agent", "Task", "Bash"]);
+const LAUNCHER_TOOLS = new Set(["Agent", "Task", "Bash", "Monitor"]);
 
 /** The handle an async launch ack names, or null when this result is an ordinary one. */
 export function asyncHandle(output = "", name = "") {

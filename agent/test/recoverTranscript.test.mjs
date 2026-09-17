@@ -73,7 +73,12 @@ fs.writeFileSync(path.join(dir, `${EDIT_ID}.jsonl`), [
   call("t2", "Write", { file_path: "/repo/b.txt", content: "hi\nthere" }),
   result("t2", "File created successfully at: /repo/b.txt"),
   call("t3", "Edit", { file_path: "/repo/c.txt", old_string: "x", new_string: "y" }),
-  result("t3", "The user doesn't want to proceed with this tool use.")
+  // `is_error: true`, the way the CLI writes a refusal — every one of the 193 refusals on
+  // this machine carries it. The fixture used to omit the flag and lean on the phrase
+  // alone, which is what kept a text-matching rule alive in the reader: an output that
+  // merely QUOTES the phrase (35 of those, one of them a grep over this very file) was
+  // read as a refusal. `result(...)` takes the flag as its third arg.
+  result("t3", "The user doesn't want to proceed with this tool use.", true)
 ].join("\n"));
 
 const edits = recover(elsewhere, EDIT_ID);
@@ -186,7 +191,11 @@ assert.equal(ocResults[0].error, "", "both keys always, empty on the other side"
 // then answers from the cut conversation. A replay that walks the whole file hands the
 // dropped turns back, so the pane draws what the rewind just removed — which is what it
 // did, both for a rewind done here and for one done in the TUI.
-const REWIND_ID = "cccccccc-dddd-eeee-ffff-000000000000";
+// Its own id as well: an id shared with another fixture in this file is harmless HERE
+// (both files sit in the same directory, so the by-id lookup lands on the right one), but
+// it is the same trap that made the task fixture above read the wrong transcript. One id
+// per file, always.
+const REWIND_ID = "99999999-8888-7777-6666-555555555555";
 const rec = (uuid, parent, text) => JSON.stringify({
   type: "user", uuid, parentUuid: parent, message: { role: "user", content: [{ type: "text", text }] }
 });
@@ -245,7 +254,11 @@ const TASK_ID = "a2b292cd45a42d6da";
 const TOOL_USE = "toolu_01Km3Bv5R6d76cGsh7r3oQBp";
 const dir2 = path.join(projectsDir, "-tmp-taskprobe");
 fs.mkdirSync(dir2, { recursive: true });
-const TASK_ID_CONV = "bbbbbbbb-cccc-dddd-eeee-ffffffffffff";
+// Its own id, NOT the one above: two transcripts under the same id make `findTranscript`,
+// which scans the projects dir by id, return whichever directory it happens to read first.
+// The task fixture then read the interrupt fixture's file — and this test failed on a
+// transcript it never wrote (2 user messages where it expected 1).
+const TASK_ID_CONV = "11111111-2222-3333-4444-555555555555";
 fs.writeFileSync(path.join(dir2, `${TASK_ID_CONV}.jsonl`), [
   JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "spawn an agent" }] }, isSidechain: false }),
   JSON.stringify({
@@ -283,6 +296,68 @@ assert.equal(done[0].data.record.task_id, TASK_ID);
 assert.equal(done[0].data.record.tool_use_id, TOOL_USE);
 assert.equal(done[0].data.record.status, "completed");
 assert.equal(done[0].data.type, "system", "the harness's own type, not a name of our own");
+
+// ── work that outlives the call it was launched by, replayed ──
+//
+// The LIVE door reads a launch ack as "still running" (claudeAdapter, via asyncHandle);
+// this door did not, so an F5 during a running Monitor/sub-agent/background shell closed
+// the row while the work went on — the strip and the shell chip showed it finished. One
+// rule, both doors: the reader is the same `asyncHandle` the adapter uses.
+const ASYNC_ID = "77777777-6666-5555-4444-333333333333";
+const ASYNC_TOOL = "toolu_monitor_1";
+fs.writeFileSync(path.join(dir, `${ASYNC_ID}.jsonl`), [
+  JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "watch the sweep" }] } }),
+  JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: ASYNC_TOOL, name: "Monitor", input: { command: "until …" } }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: ASYNC_TOOL, content: [{ type: "text", text: "Monitor started (task b301ffx4j, timeout 600000ms). You will be notified on each event." }] }] } })
+].join("\n"));
+
+const live = recover(elsewhere, ASYNC_ID);
+const [monitor] = live.filter((e) => e.event === "tool_result").map((e) => e.data);
+assert.equal(monitor.name, "Monitor");
+assert.equal(monitor.status, "running", "a handed-off task is not finished");
+assert.equal(monitor.async, true);
+assert.equal(monitor.handle, "b301ffx4j", "and the handle it named survives the replay");
+
+// An ordinary result is untouched by the rule: it is done the moment it lands.
+const PLAIN_TOOL = "toolu_plain_1";
+fs.writeFileSync(path.join(dir, `${ASYNC_ID}.jsonl`), [
+  JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: PLAIN_TOOL, name: "Bash", input: { command: "ls" } }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: PLAIN_TOOL, content: [{ type: "text", text: "a.txt" }] }] } })
+].join("\n"));
+const [ordinary] = recover(elsewhere, ASYNC_ID).filter((e) => e.event === "tool_result").map((e) => e.data);
+assert.equal(ordinary.status, "done");
+assert.equal(ordinary.async, undefined);
+
+// ── a 15KB frame the CLI wrote to talk to itself ──
+//
+// `<persisted-output>` says the real output went to a file. The live door collapses it to
+// the path (claudeAdapter); this door passed the frame through WHOLE, so reopening a chat
+// redrew the entire XML block. 132 transcripts on this machine carry one.
+const PERSIST_TOOL = "toolu_persist_1";
+const FRAME = "<persisted-output>\nOutput too large (2MB). Full output saved to: /tmp/tool-results/abc.txt\nPreview (first 2KB): junk…\n</persisted-output>";
+fs.writeFileSync(path.join(dir, `${ASYNC_ID}.jsonl`), [
+  JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: PERSIST_TOOL, name: "Bash", input: { command: "cat big" } }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: PERSIST_TOOL, content: [{ type: "text", text: FRAME }] }] } })
+].join("\n"));
+const [persisted] = recover(elsewhere, ASYNC_ID).filter((e) => e.event === "tool_result").map((e) => e.data);
+assert.match(persisted.output, /saved to: \/tmp\/tool-results\/abc\.txt/, "the path survives");
+assert.doesNotMatch(persisted.output, /<persisted-output>/, "the frame does not");
+assert.doesNotMatch(persisted.output, /Preview/, "nor the preview dump");
+
+// The refusal rule, stated as a property: a result that merely QUOTES the refusal phrase
+// is not one. All 35 such records on this machine are ordinary outputs (a grep over the
+// reader's own source was one of them), and the text rule that read them as refusals was
+// removed for it.
+const QUOTE_ID = "88888888-7777-6666-5555-444444444444";
+const QUOTE_TOOL = "toolu_quote_1";
+fs.writeFileSync(path.join(dir, `${QUOTE_ID}.jsonl`), [
+  JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: QUOTE_TOOL, name: "Edit", input: { file_path: "/repo/d.txt", old_string: "a", new_string: "b" } }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: QUOTE_TOOL, content: [{ type: "text", text: "claudeTranscript.js:119:const RE = /doesn't want to proceed|Request interrupted/i;" }] }] } })
+].join("\n"));
+const quoted = recover(elsewhere, QUOTE_ID);
+const [quoteResult] = quoted.filter((e) => e.event === "tool_result").map((e) => e.data);
+assert.equal(quoteResult.status, "done", "quoting the phrase is not a refusal");
+assert.equal(quoted.filter((e) => e.event === "diff").length, 1, "and its diff is drawn");
 
 fs.rmSync(home, { recursive: true, force: true });
 console.log("recoverTranscript: ok");

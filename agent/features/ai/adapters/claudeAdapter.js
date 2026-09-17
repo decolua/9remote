@@ -51,7 +51,16 @@ function buildContent(prompt, attachments) {
  * harness talking to itself; the path is what a reader can act on, and the file holds the
  * rest. The CLI's own TUI does the same fold.
  */
-function collapsePersisted(text) {
+/**
+ * A `<persisted-output>` frame as the path it saved to.
+ *
+ * The frame is a 15KB notice saying the real output went to a file; the file is the useful
+ * part and the preview inside is a duplicate of it. Exported because BOTH doors need it:
+ * the live one collapses as it emits, and the replay read the frame whole until a
+ * reopen was found drawing the entire XML block (132 transcripts on this machine carry
+ * one).
+ */
+export function collapsePersisted(text) {
   const s = String(text || "");
   if (!s.startsWith("<persisted-output>")) return text;
   const m = /saved to: (\S+)/.exec(s);
@@ -363,6 +372,13 @@ export class ClaudeAdapter {
 
     if (data.type === "result") {
       this.isTurnRunning = false;
+      // A gate only ever belongs to the turn that asked it. The turn is over, so any
+      // request still in the map was walked away from, killed by an interrupt, or is the
+      // model's own call sitting in a transcript ahead of the prompt — and every one of
+      // them is unanswerable now. Kept, they came back from a replay as a live question
+      // card: the user tapped an option, the CLI had no such request, and the pane stayed
+      // stuck on a card that could never clear until the next F5 dropped it.
+      this.pendingRequests.clear();
       if (data.total_cost_usd) {
         this.stats.totalCost += Number(data.total_cost_usd) || 0;
       }

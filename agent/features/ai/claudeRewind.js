@@ -21,7 +21,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { CLAUDE_SESSION_ID_RE, isClaudeInjectedTurn } from "./claudeTranscript.js";
+import { CLAUDE_SESSION_ID_RE, isTypedTurn, textOf, liveTranscript } from "./claudeTranscript.js";
 
 // Overridable so a test can point at its own projects tree: the real one is the user's
 // whole chat history, and a lookup scans every project directory for the id.
@@ -30,6 +30,11 @@ const projectsDir = () => process.env.NREMOTE_CLAUDE_PROJECTS_DIR || path.join(o
 /**
  * The session's transcript file, found by id rather than by cwd: the CLI records it
  * under the directory it was STARTED in, and the terminal may have cd'd away since.
+ *
+ * `projectsDir()` is overridable (see above) so a test can point at its own tree; the
+ * path confinement the other reader does is not repeated here because this one is only
+ * ever handed a uuid already validated by CLAUDE_SESSION_ID_RE, and it never joins a
+ * caller-supplied directory into the path.
  */
 export function findTranscript(cliSessionId) {
   if (!cliSessionId || !CLAUDE_SESSION_ID_RE.test(cliSessionId)) return null;
@@ -43,47 +48,18 @@ export function findTranscript(cliSessionId) {
   return null;
 }
 
-const parseLines = (file) => {
-  const out = [];
-  let raw;
-  try { raw = fs.readFileSync(file, "utf8"); } catch { return out; }
-  for (const line of raw.split("\n")) {
-    if (!line.trim()) continue;
-    try { out.push(JSON.parse(line)); } catch {}
-  }
-  return out;
-};
-
-/** Text of a user record, whether the CLI stored it as a string or a content block. */
-const userText = (record) => {
-  const content = record?.message?.content;
-  if (typeof content === "string") return content;
-  if (Array.isArray(content)) {
-    const block = content.find((b) => b?.type === "text");
-    return block?.text || "";
-  }
-  return "";
-};
-
-/**
- * A record the user typed: not a sub-agent's turn, not a tool result, and not one of the
- * messages the CLI writes into the transcript under the user's role (see
- * isClaudeInjectedTurn).
- *
- * This is the only filter left in 9Remote's hands, which makes it the one place the two
- * sides can disagree: the client counts turns from the end of its own log, and a turn
- * this drops but the log kept makes EVERY index after it off by one. A wrong index is no
- * longer silently destructive — the CLI answers `stale_target` — but it is still the one
- * thing here worth measuring against a real transcript.
- */
-const isUserTurn = (record) =>
-  record?.type === "user" && !record.isSidechain && Boolean(userText(record)) && !isClaudeInjectedTurn(record);
-
 /**
  * The user turns a rewind can land on, oldest first.
  *
- * Only records carrying a uuid count: that uuid is what the control requests take, and
- * a tool-result record is the CLI's own bookkeeping, not a turn the user asked for.
+ * Reads the transcript through `liveTranscript`, so the list holds exactly the turns the
+ * pane draws: a turn a rewind already dropped is still in the file, and offering it here
+ * named a turn by a position the pane does not have — every index below it landed one turn
+ * too far down, which showed up as "only the newest message can be rewound". It also sent
+ * the CLI a turn it no longer holds, which answers `target_not_found` and looks, from the
+ * pane, like nothing happened at all.
+ *
+ * "A turn" is `isTypedTurn`, the reader's own test, for the same reason: a tool result is
+ * stored as a `user` record too, and counting one shifts every index under it.
  *
  * No files per point: what a rewind would touch is answered by the CLI itself, for the
  * turn actually picked (`rewind_files` with `dry_run`), rather than guessed here for
@@ -92,12 +68,16 @@ const isUserTurn = (record) =>
 export function listRewindPoints(cliSessionId) {
   const file = findTranscript(cliSessionId);
   if (!file) return [];
+  const { lines, live } = liveTranscript(file);
   const points = [];
-  for (const record of parseLines(file)) {
-    if (!isUserTurn(record) || !record.uuid) continue;
+  for (const line of lines) {
+    let record;
+    try { record = JSON.parse(line); } catch { continue; }
+    if (!record.uuid || !isTypedTurn(record)) continue;
+    if (live && !live.has(record.uuid)) continue;
     points.push({
       messageId: record.uuid,
-      text: userText(record).slice(0, 200),
+      text: textOf(record).slice(0, 200),
       createdAt: record.timestamp || null
     });
   }

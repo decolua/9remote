@@ -5,8 +5,8 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { isInjectedTurn } from "../terminal/agentHistory.js";
-import { buildEditDiff, DIFF_TOOL_NAMES } from "./adapters/claudeAdapter.js";
-import { toolStart, toolResult } from "./toolEvent.js";
+import { buildEditDiff, DIFF_TOOL_NAMES, collapsePersisted } from "./adapters/claudeAdapter.js";
+import { toolStart, toolResult, asyncHandle } from "./toolEvent.js";
 
 // `cliSessionId` can originate from a client (a /resume choice), so it is untrusted:
 // only a plain id is accepted — the first character may not be "-" (argv would read it
@@ -79,6 +79,10 @@ function taskNotificationFrom(record) {
  */
 export function isClaudeInjectedTurn(record) {
   if (record.isMeta || record.turnCompanion) return true;
+  // The compaction's own summary, filed under the user role as a 15KB "turn". It is the
+  // harness talking to itself, and the row that says what the compaction cost is drawn
+  // from the `compact_boundary` beside it — the summary itself is nothing a pane shows.
+  if (record.isCompactSummary) return true;
   return CLAUDE_INJECTED_ORIGINS.includes(record.origin?.kind);
 }
 
@@ -113,11 +117,6 @@ function findTranscript(cwd, cliSessionId) {
   return fs.existsSync(resolved) ? resolved : null;
 }
 
-// A tool the user refused at the gate. The transcript keeps no "denied" flag, so the
-// refusal is only visible in the result's text — and without this an edit that never
-// landed would replay as a diff card, which the live path never draws.
-const DENIED_RESULT_RE = /doesn't want to proceed|Request interrupted by user for tool use/i;
-
 // Claude keeps the edit as old/new strings on the CALL, so the same builder the live
 // adapter uses turns it back into the patch the card parses. Keyed by tool_use id, like
 // the adapter's `toolCalls` — a result carries the id and nothing else.
@@ -131,14 +130,22 @@ const DIFF_TOOL_SET = new Set(DIFF_TOOL_NAMES);
  * writing. `branchedThrough` needs the SAME answer: counting a tool result as a turn put
  * the cut in the middle of the turn before it and dropped that turn's own answer.
  */
-const textOf = (record) => {
+export const textOf = (record) => {
   const content = record?.message?.content;
   if (typeof content === "string") return content;
   if (Array.isArray(content)) return content.find((c) => c.type === "text")?.text || "";
   return "";
 };
-const isTypedTurn = (record) =>
-  record.type === "user" && !record.isSidechain && !isClaudeInjectedTurn(record) && Boolean(textOf(record));
+export const isTypedTurn = (record) => {
+  const text = textOf(record);
+  // `isInjectedTurn` is the reader's LAST word on a turn and has to be this function's too:
+  // it drops the interrupt notes, image placeholders and `<persisted-output>` frames the
+  // CLI files under the user role. Without it the rewind list counted turns the pane never
+  // drew, so every index below one aimed past the turn the user picked — measured on 25
+  // real transcripts, 20 of them disagreed.
+  return record.type === "user" && !record.isSidechain && !isClaudeInjectedTurn(record)
+    && Boolean(text) && !isInjectedTurn(text);
+};
 
 /**
  * Where the conversation the CLI would answer from ENDS, in this file.
@@ -151,29 +158,42 @@ const isTypedTurn = (record) =>
  * the whole of "the pane came back with the turns the rewind just removed" (and it happens
  * to a chat rewound in the TUI too, not only to one rewound from here).
  *
- * What it returns is the LAST uuid still on that branch, and the rule for using it is
- * deliberately one-sided: drop turns that come AFTER it, keep everything before it.
+ * It returns the set of turn uuids that are still on that branch, minus any it has to
+ * assume about — see the compaction note.
  *
- * Not "keep only what the branch can reach", though that is what this walks. A
- * `compact_boundary` record has no `parentUuid`, so the walk stops dead at every
- * compaction — measured on one real session: 6 turns reachable out of 133, i.e. it hid the
- * entire pre-compaction history. Compaction also leaves its dropped turns EARLIER in the
- * file than the live branch, so the one-sided rule never looks at them.
+ * NOT a line range, though that is much simpler and was what this did first. A rewind can
+ * leave the branch NON-CONTIGUOUS in the file: measured on a real session rewound a few
+ * times, the live turns were the first and the last, with five dead ones between them.
+ * "Keep everything before the newest live turn" therefore kept all five — they were offered
+ * in the rewind list, and picking one got `target_not_found` from the CLI, which is the
+ * whole of "rewinding an earlier prompt does nothing".
  *
- * Returns null when the file names no leaf, so a caller falls back to replaying it whole.
+ * A `compact_boundary` record has no `parentUuid`, so the walk stops dead at every
+ * compaction and the turns above it are neither live nor dead by this test. They are kept:
+ * they were never rewindable anyway (the CLI has no checkpoint above a compaction), and
+ * folding them into "dead" would erase the conversation's own history from the pane.
  */
-function branchedThrough(lines) {
-  let leaf = null;
+function liveTurns(lines, leafOverride = null) {
+  let leaf = leafOverride;
+  // A `leafOverride` is a pointer the caller knows but the file has not been written with
+  // yet — the CLI answers `rewind_conversation` with `precedingAssistantUuid` BEFORE it
+  // flushes the new `last-prompt`, measured at ~50ms behind the answer (see
+  // spike-leafLag.mjs). A rebuild that reads in that window sees the pre-cut branch and
+  // hands the dropped turns straight back, which is the pane showing "an extra message at
+  // the end and the old ones still there" until something re-reads the file later.
+  let lastPointer = -1;   // the line of the newest `last-prompt` — see below
   const byUuid = new Map();
-  const turns = [];   // { index, uuid } — a turn, and the line it starts at
+  const at = new Map();   // uuid → the line it is on
+  const turns = [];
   for (const [index, line] of lines.entries()) {
     if (!line.trim()) continue;
     let d;
     try { d = JSON.parse(line); } catch { continue; }
-    if (d.type === "last-prompt" && d.leafUuid) leaf = d.leafUuid;
+    if (d.type === "last-prompt" && d.leafUuid) { if (!leafOverride) leaf = d.leafUuid; lastPointer = index; }
     if (!d.uuid) continue;
     byUuid.set(d.uuid, d);
-    if (isTypedTurn(d)) turns.push({ index, uuid: d.uuid });
+    at.set(d.uuid, index);
+    if (isTypedTurn(d)) turns.push(d.uuid);
   }
   if (!leaf || !turns.length) return null;
 
@@ -182,43 +202,89 @@ function branchedThrough(lines) {
     onBranch.add(cur);
     cur = byUuid.get(cur).parentUuid;
   }
-  // The newest turn the branch can still reach. Everything after it is what a rewind
-  // dropped (or a branch the user abandoned); nothing before it is ever in question.
-  let last = -1;
-  for (let i = turns.length - 1; i >= 0; i--) {
-    if (onBranch.has(turns[i].uuid)) { last = i; break; }
+  if (!onBranch.size) return null;
+
+  // The walk only classifies part of the file, and the two ends it cannot see are kept:
+  //
+  //   - ABOVE where it reached. It dies at a `compact_boundary`, which carries no parent,
+  //     so the history before a compaction is neither live nor dead by this test. Calling
+  //     it dead would erase the conversation's own past from the pane; it was never
+  //     rewindable anyway.
+  //   - BELOW the newest `last-prompt`. That record is how the CLI writes the pointer
+  //     down, and it does not write one per turn: measured on a real session, two turns
+  //     (`sửa nội dung thành kkk`, `thành ccc`) sat BELOW the last pointer while the CLI
+  //     itself still held them — it answered `unseen_later_turn` for a target older than
+  //     them, proving it knew. Treating them as dropped is what made an edited prompt come
+  //     back as "the turns vanished but my text did not take".
+  //
+  // Both are the same idea: outside what the pointer can speak for, believe the file.
+  //
+  // NOT while an override is in force. That exception exists because a pointer written
+  // late cannot speak for turns below it; an override is a pointer the CALLER just
+  // received from the CLI itself, so it speaks for everything, and the turns below it are
+  // exactly the ones the rewind dropped.
+  let firstReached = Infinity;
+  for (const uuid of onBranch) firstReached = Math.min(firstReached, at.get(uuid) ?? Infinity);
+
+  const live = new Set();
+  for (const uuid of turns) {
+    const line = at.get(uuid) ?? -1;
+    if (onBranch.has(uuid) || (leafOverride ? false : (line < firstReached || line > lastPointer))) live.add(uuid);
   }
-  if (last === -1) return null;
-  // The line to stop AT is the next turn's — not this turn's own. A turn's answer and the
-  // tool results it caused are written AFTER its uuid, so stopping on the uuid would keep
-  // the prompt and throw the reply away, which draws as a question still being answered.
-  return turns[last + 1] ? turns[last + 1].index : null;
+  return live;
 }
 
-export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
+/**
+ * The transcript with every turn a rewind dropped removed.
+ *
+ * The ONE place the leaf rule is applied, so every reader of this file agrees on which
+ * turns exist. It has to be shared: `listRewindPoints` names turns by their position from
+ * the end, the pane counts positions in what it RENDERS, and a list offering a turn the
+ * pane does not draw aims every index below it one turn too far down.
+ *
+ * Takes a path (not lines) because both callers already hold one, and reading the file
+ * twice per request is cheaper than the drift between two copies of this rule.
+ */
+export function liveTranscript(file, leafOverride = null) {
+  let lines;
+  try { lines = fs.readFileSync(file, "utf8").trim().split("\n"); } catch { return { lines: [], live: null }; }
+  return { lines, live: liveTurns(lines, leafOverride) };
+}
+
+/**
+ * @param {string|null} leafOverride  The branch pointer to read the file AS IF it had
+ *   already been written, for a rebuild that runs in the window where the CLI has answered
+ *   a rewind but not yet flushed the new `last-prompt` — see liveTurns. Null reads the
+ *   file's own pointer, which is what every other caller wants.
+ */
+export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1, leafOverride = null) {
   if (!cwd || !cliSessionId) return null;
   if (!CLAUDE_SESSION_ID_RE.test(cliSessionId)) return null;
   const resolved = findTranscript(cwd, cliSessionId);
   if (!resolved) return null;
 
   try {
-    const lines = fs.readFileSync(resolved, "utf8").trim().split("\n");
-    // The turn a rewind stopped at, if one did — see branchedThrough. Everything past it
-    // is a turn the CLI no longer holds.
-    const cutAt = branchedThrough(lines);
+    // The same rule the rewind list reads, so the pane and the turns it offers cannot
+    // drift apart — see liveTranscript.
+    const { lines, live } = liveTranscript(resolved, leafOverride);
     const events = [];
     // Tool calls awaiting their result, by tool_use id — see DIFF_TOOL_SET.
     const toolCalls = new Map();
     let seq = startSeq;
+    let cut = false;   // set when the walk passes a turn the branch no longer holds
 
-    for (const [index, line] of lines.entries()) {
+    for (const line of lines) {
       if (!line.trim()) continue;
-      // Past the line a rewind stopped at, the rest of the file is turns the CLI has
-      // dropped: skipped whole, not just their turn records — a tool result or a diff
-      // belonging to one would otherwise draw on its own, orphaned.
-      if (cutAt !== null && index >= cutAt) break;
       try {
         const d = JSON.parse(line);
+        // A turn a rewind dropped takes its own answer with it. Everything the CLI wrote
+        // while that turn ran sits after it in the file, so from the first dropped turn to
+        // the next LIVE one nothing is drawn — otherwise the pane shows an answer with no
+        // question above it. A dropped turn's records are not a contiguous block (the cuts
+        // interleave — see liveTurns), which is why this follows the turns rather than a
+        // single cut point.
+        if (live && isTypedTurn(d)) cut = !live.has(d.uuid);
+        if (cut) continue;
         // A task notification is read BEFORE the injection guard drops it: it is not a
         // turn, but it is the only place the transcript records that a task ended, and a
         // replayed conversation that loses it shows a sub-agent still running forever.
@@ -233,16 +299,44 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
         // turn is the harness's own writing, and a log rebuilt with one ends on a user
         // turn — which every reader takes to mean a turn is still running.
         if (d.type === "user" && d.message && !d.isSidechain && !isClaudeInjectedTurn(d)) {
-          const textBlock = (d.message.content || []).find((c) => c.type === "text");
-          if (textBlock && textBlock.text && !isInjectedTurn(textBlock.text)) {
-            events.push({ seq: seq++, event: "user_message", data: { text: textBlock.text } });
+          // Through `textOf`, not `content.find`: the CLI writes a typed turn EITHER as a
+          // content-block array or as a plain string, and 27 of one real session's 27 turns
+          // were the string form. `.find` on a string throws, the catch below swallows the
+          // whole record, and the pane came back with no prompts at all — while the rewind
+          // list, which read the same file its own way, still offered them.
+          const text = textOf(d);
+          if (text && !isInjectedTurn(text)) {
+            events.push({ seq: seq++, event: "user_message", data: { text } });
           }
-          const toolResults = (d.message.content || []).filter((c) => c.type === "tool_result");
+          // A tool result is a `user` record too, and only ever the array form.
+          const content = Array.isArray(d.message.content) ? d.message.content : [];
+          const toolResults = content.filter((c) => c.type === "tool_result");
           for (const tr of toolResults) {
             const output = typeof tr.content === "string" ? tr.content : JSON.stringify(tr.content);
-            const isError = Boolean(tr.is_error) || DENIED_RESULT_RE.test(output);
+            // The text of the result, for the two rules that must read what a PERSON
+            // would see rather than the envelope: a `<persisted-output>` frame starts at
+            // character 0 of the TEXT, and inside the JSON array it is quoted — so
+            // matching against the serialized form never fires. Same extraction the
+            // transcript reader uses for a turn's own text (see textOf).
+            const resultText = typeof tr.content === "string"
+              ? tr.content
+              : (tr.content || []).map((c) => (typeof c === "string" ? c : c?.text || "")).join("");
+            // `is_error` is the whole answer, on both doors. This door used to ALSO match
+            // the refusal phrase in the text, while the live door matched only the flag —
+            // so one record could be an error on a reload and a done card live. Measured
+            // over every transcript on this machine: 193 refusals carry `is_error: true`,
+            // and all 35 results that mention the phrase WITHOUT the flag are ordinary
+            // outputs that merely quote it (a grep over this file's own source was one).
+            // A text rule here therefore only ever added false errors.
+            const isError = Boolean(tr.is_error);
             const call = toolCalls.get(tr.tool_use_id);
             toolCalls.delete(tr.tool_use_id);
+            // A launch ack is not a result — the CLI returns the instant a sub-agent, a
+            // background shell or a Monitor is handed off, naming a handle it reports on
+            // later. The LIVE door has always read it that way (claudeAdapter), and this
+            // one did not: a replayed log closed the row, so an F5 during a running task
+            // showed it finished while the work went on. Same rule, same reader.
+            const async = isError ? null : asyncHandle(output, call?.name || "");
             events.push({
               seq: seq++,
               ...toolResult({
@@ -251,8 +345,14 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1) {
                 // answers. Without it a replayed task row was never parsed: the client's
                 // task reader is keyed on the tool name.
                 name: call?.name || "",
-                output,
-                error: isError ? output : ""
+                // A 15KB `<persisted-output>` frame collapses to the path it saved to —
+                // the same rule the live door applies, so a reopened chat shows the line
+                // the pane showed live rather than the whole XML block.
+                output: isError ? output : collapsePersisted(resultText),
+                error: isError ? output : "",
+                // `running`, not `done`, for the work that outlives the call — and the
+                // handle rides along so a later record can settle it.
+                ...(async ? { status: "running", async: true, handle: async.id } : null)
               })
             });
             // Same rule as the live path: a rejected edit never reached the disk, so it
