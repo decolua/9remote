@@ -14,6 +14,7 @@
 // generate-ts`), not guessed.
 import { JsonRpcClient } from "./jsonRpcClient.js";
 import { sandboxPolicyFor, approvalPolicyFor, collaborationModeFor, turnSettingsFor } from "../codexSettings.js";
+import { elicitationQuestions } from "../elicitation.js";
 
 // `commandActions` type → the name the cards know. Same vocabulary as the rollout
 // reader's `parsed_cmd` map, because it is the same information from the same CLI.
@@ -32,6 +33,28 @@ const ACTION_NAMES = { read: "read", listFiles: "list_files", search: "search" }
 // kept running the turn, and the next prompt would be refused — a state that diverges
 // silently, which is worse than a call that visibly waits.
 const REQUEST_TIMEOUT_MS = 15000;
+
+// Notifications the passthrough must NOT carry, because something already did: the ones
+// wired above (`item/agentMessage/delta`, the reasoning deltas, token usage) would be
+// drawn twice, and the rest are per-CHUNK streams — an output delta arrives once per
+// write, so carrying them buries the conversation in the replay window the way Claude's
+// telemetry did (807% of one window, measured).
+const ALREADY_ROUTED_OR_STREAMING = new Set([
+  "item/agentMessage/delta",
+  "item/plan/delta",
+  "item/reasoning/summaryTextDelta",
+  "item/reasoning/summaryPartAdded",
+  "item/reasoning/textDelta",
+  "item/commandExecution/outputDelta",
+  "item/commandExecution/terminalInteraction",
+  "item/fileChange/outputDelta",
+  "item/fileChange/patchUpdated",
+  "item/mcpToolCall/progress",
+  "command/exec/outputDelta",
+  "process/outputDelta",
+  "fs/changed",
+  "thread/tokenUsage/updated"
+]);
 
 export class CodexAppServer {
   constructor({ proc, cwd, onEvent, threadId = null, model = "", mode = null, sandbox = null, approvalPolicy = null, effort = null, personality = null, settings = null } = {}) {
@@ -61,12 +84,29 @@ export class CodexAppServer {
     };
     this.pendingSettings = {};
 
-    this.rpc = new JsonRpcClient(proc);
+    // The unregistered half of the protocol comes here instead of nowhere: the server
+    // declares 83 notifications and this class wires 7, so a record nobody routed used to
+    // disappear without a log or an error. The pane re-renders the CLI's own TUI, so it
+    // still has to REACH it, whole and under the server's own name — see the fallthrough
+    // in _wire's caller. `_itemEvents` covers the item vocabulary the same way.
+    this.rpc = new JsonRpcClient(proc, {
+      onMessage: (msg) => {
+        if (ALREADY_ROUTED_OR_STREAMING.has(msg.method)) return;
+        // Same rule the wired handlers follow: a notification for another chat is not
+        // this one's. Most carry `threadId`; the ones that do not (`skills/changed`,
+        // `account/updated`) are process-wide and belong to every chat equally.
+        if (!this._mine(msg.params)) return;
+        this.onEvent?.("cli_event", { type: msg.method || "", subtype: "", record: msg.params || {} });
+      }
+    });
     this.isTurnRunning = false;
     this.closed = false;
     // The open gates, keyed by the id an answer must carry. The session reads this to
     // restore a permission card after a replay, so it holds the card's own shape.
     this.gates = new Map();
+    // Plan text as it streams, per item, so a delta can restate the whole plan so far —
+    // the card renders `input.plan`, and a fragment of it is not a plan.
+    this.planText = new Map();
     this._wire();
   }
 
@@ -92,6 +132,20 @@ export class CodexAppServer {
       this.onEvent?.("delta", { text: p.delta || "" });
     });
 
+    // A plan being WRITTEN, one piece at a time. The server's own note says to treat these
+    // as a preview — the completed item is the authority — which is exactly how the card
+    // uses them: the text grows here and is replaced by the whole thing when the item
+    // completes. Without this a plan appeared only once it was already finished.
+    rpc.on("item/plan/delta", (p) => {
+      if (!this._mine(p)) return;
+      this.isTurnRunning = true;
+      this.planText.set(p.itemId, (this.planText.get(p.itemId) || "") + (p.delta || ""));
+      this.onEvent?.("tool_start", {
+        id: p.itemId, name: "update_plan", status: "running",
+        input: { plan: this.planText.get(p.itemId) }
+      });
+    });
+
     rpc.on("item/started", (p) => {
       if (!this._mine(p)) return;
       const item = p.item || {};
@@ -105,7 +159,12 @@ export class CodexAppServer {
       if (!this._mine(p)) return;
       const item = p.item || {};
       if (item.type === "reasoning") return;
-      for (const ev of this._itemEvents(item, item.status)) this._emit(ev);
+      // The ENVELOPE is the status for every item that has none of its own: the server
+      // declares items without a `status` field (`webSearch`, `plan`, `imageView`,
+      // `contextCompaction`), and reading only the item left each of them announced and
+      // never completed — a row that spun forever, and for the passthrough no record at
+      // all. `item.status` still wins where the item states one (`failed`, `declined`).
+      for (const ev of this._itemEvents(item, item.status || "completed")) this._emit(ev);
     });
 
     rpc.on("thread/tokenUsage/updated", (p) => {
@@ -128,6 +187,23 @@ export class CodexAppServer {
       this.onEvent?.("turn_complete", { stats: {} });
     });
 
+    // The turn's plan, restated whole every time it moves — which is exactly the task
+    // list the pane's strip renders, in the CLI's own vocabulary (`pending` /
+    // `inProgress` / `completed`, `step`). This transport had NO todo item at all: the
+    // exec stream's `todo_list` does not exist here, and `turn/plan/updated` was reaching
+    // the pane as a raw record nothing drew. So the strip stayed empty for a whole plan.
+    rpc.on("turn/plan/updated", (p) => {
+      if (!this._mine(p)) return;
+      const todos = (p.plan || []).map((s) => ({ content: s.step || "", status: s.status || "pending" }));
+      if (!todos.length) return;
+      this.onEvent?.("tool_start", {
+        id: `plan-${p.turnId || "turn"}`,
+        name: "todo_list",
+        status: "running",
+        input: { todos, ...(p.explanation ? { explanation: p.explanation } : null) }
+      });
+    });
+
     // The gates. Registered so the client routes them here rather than refusing them —
     // but the handler answers NOTHING: the CLI stays blocked until the user decides, and
     // an auto-answer would be the app approving on their behalf. The id is the JSON-RPC
@@ -138,6 +214,17 @@ export class CodexAppServer {
     rpc.on("item/commandExecution/requestApproval", (p, id) => this._askPermission(p, id, "exec"));
     rpc.on("item/fileChange/requestApproval", (p, id) => this._askPermission(p, id, "patch"));
     rpc.on("item/tool/requestUserInput", (p, id) => this._askQuestion(p, id));
+    // Asking for MORE than the thread was opened with — network, or a path outside the
+    // sandbox. Unregistered, this one was auto-refused by the client's own refusal path
+    // with nobody told: the CLI asked, the app said no on the user's behalf, and the turn
+    // carried on without the access it needed. It is a gate like any other, so it gets a
+    // card and waits.
+    rpc.on("item/permissions/requestApproval", (p, id) => this._askPermissionGrant(p, id));
+    // An MCP server asking the user something (`elicitation/create` in the MCP spec). It is
+    // a question like any other — the schema's properties ARE the questions — and it goes
+    // through the same card. Unregistered, the client refused it on the user's behalf, so
+    // an MCP tool that needed an answer got a denial nobody asked for.
+    rpc.on("mcpServer/elicitation/request", (p, id) => this._askElicitation(p, id));
 
     rpc.onExit((info) => this._handleExit(info));
   }
@@ -162,7 +249,84 @@ export class CodexAppServer {
     this.isTurnRunning = true;
     const questions = params.questions || [];
     this.gates.set(String(rpcId), { requestId: String(rpcId), toolName: "request_user_input", input: { questions } });
-    this.onEvent?.("question", { requestId: String(rpcId), questions });
+    // The pane's question card is reached through `permission_request`, the same door every
+    // other gate takes — emitted as its own event name it reached no listener at all, so a
+    // question the CLI was blocking on never appeared. `AskUserQuestion` is the tool name
+    // that door switches on (see AiPaneView), and the questions ride in `input` where the
+    // card reads them; this CLI's fields are the ones that card already wants
+    // (`question`, `options[].label`).
+    this.onEvent?.("permission_request", {
+      requestId: String(rpcId), tool: "AskUserQuestion", input: { questions }, type: "question"
+    });
+  }
+
+  /**
+   * Answer a `request_user_input` gate.
+   *
+   * The reply is the server's own `ToolRequestUserInputResponse`: `{answers: {<question
+   * id>: {answers: [<text>]}}}` — keyed by the question's ID, each answer a LIST. The card
+   * hands back the labels keyed by the question's TEXT (that is what every engine's card
+   * does), so the ids are looked up here. An answer for a question nobody asked is
+   * dropped rather than sent: the server validates the keys and refuses the whole reply.
+   */
+  resolveQuestion(requestId, answers = {}) {
+    if (!requestId) return false;
+    const gate = this.gates.get(String(requestId));
+    if (!this.gates.delete(String(requestId))) return false;
+    const byText = new Map((gate?.input?.questions || []).map((q) => [q.question, q.id]));
+    const out = {};
+    for (const [key, value] of Object.entries(answers || {})) {
+      const id = byText.get(key) || key;
+      if (!byText.size || [...byText.values()].includes(id)) out[id] = { answers: [String(value)] };
+    }
+    // An elicitation is ALSO a question, but its reply is the MCP one: a decision word and
+    // a `content` object keyed by the schema's property names. Same card, different answer.
+    if (gate?.input?.kind === "elicitation") this.rpc.respond(requestId, {
+      action: "accept",
+      content: Object.fromEntries(Object.entries(out).map(([id, a]) => [id, a.answers[0]])),
+      _meta: null
+    });
+    else this.rpc.respond(requestId, { answers: out });
+    return true;
+  }
+
+  /**
+   * An MCP server's `elicitation/create`: it states its ask as a JSON Schema, which
+   * `elicitationQuestions` turns into the question shape the card renders. The reply is
+   * MCP's own (`{action, content}`), not this server's — see `resolveQuestion`.
+   */
+  _askElicitation(params, rpcId) {
+    this.isTurnRunning = true;
+    const questions = elicitationQuestions(params);
+    const input = {
+      kind: "elicitation",
+      questions,
+      message: params.message || "",
+      serverName: params.serverName || ""
+    };
+    this.gates.set(String(rpcId), { requestId: String(rpcId), toolName: "AskUserQuestion", input });
+    this.onEvent?.("permission_request", {
+      requestId: String(rpcId), tool: "AskUserQuestion", input, type: "question"
+    });
+  }
+
+  /**
+   * More access than the thread opened with: `permissions` is the profile being asked for
+   * (`network`, `fileSystem`), and `reason` is the CLI's own sentence about why. It is a
+   * permission gate — the same card, the same Allow/Deny — so it lands in the same map and
+   * answers through `resolvePermission`. The difference is only the REPLY's shape: this one
+   * states what was granted, not a bare decision (see `resolvePermission`).
+   */
+  _askPermissionGrant(params, rpcId) {
+    this.isTurnRunning = true;
+    const input = {
+      kind: "permission_grant",
+      reason: params.reason || "",
+      permissions: params.permissions || {},
+      cwd: params.cwd || this.cwd
+    };
+    this.gates.set(String(rpcId), { requestId: String(rpcId), toolName: "request_permissions", input });
+    this.onEvent?.("permission_request", { requestId: String(rpcId), tool: "request_permissions", input, type: "permission" });
   }
 
   /**
@@ -175,7 +339,10 @@ export class CodexAppServer {
    */
   _itemEvents(item, status) {
     const id = item.id;
-    const done = status === "completed" || status === "failed" || status === "declined";
+    // `interrupted` belongs here and is a status of its own in the server's bindings
+    // (`CollabAgentToolCallStatus` is the one that has it). Left out, an agent the user
+    // interrupted stayed announced and never completed — a row that spun forever.
+    const done = status === "completed" || status === "failed" || status === "declined" || status === "interrupted";
     const out = [];
 
     if (item.type === "commandExecution") {
@@ -225,11 +392,83 @@ export class CodexAppServer {
     }
 
     if (item.type === "plan") {
-      out.push({ event: "tool_start", data: { id, name: "update_plan", status: done ? "done" : "running", input: { plan: item.text || "" } } });
+      // The item is the authority on the text, so a streamed preview is replaced by it
+      // rather than appended to (the server says the two need not even match).
+      const text = item.text || this.planText.get(id) || "";
+      if (done) this.planText.delete(id);
+      out.push({ event: "tool_start", data: { id, name: "update_plan", status: done ? "done" : "running", input: { plan: text } } });
       if (done) out.push({ event: "tool_result", data: { id, name: "update_plan", output: "", error: "", status: "done" } });
       return out;
     }
 
+    // An image the agent looked at — a screenshot it took, or a file it read. It is a
+    // READ, so it draws as the file card with the path, which is what the TUI shows.
+    // Measured in the rollouts on this machine: 3 of these, drawn by nothing before.
+    if (item.type === "imageView") {
+      out.push({
+        event: "tool_start",
+        data: { id, name: "view_image", status: done ? "done" : "running", input: { path: item.path || "", file_path: item.path || "" } }
+      });
+      if (done) out.push({ event: "tool_result", data: { id, name: "view_image", output: "", error: "", status: "done" } });
+      return out;
+    }
+
+    // Entering and leaving code review are two items the CLI declares, and the pair is one
+    // happening: a review with the text it was asked to perform. Drawn as the review's own
+    // card rather than two anonymous rows — the same shape Claude's plan-mode card gives
+    // its enter/exit pair, which is the card this vocabulary already has.
+    if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") {
+      out.push({
+        event: "tool_start",
+        data: {
+          id, name: item.type === "enteredReviewMode" ? "EnterPlanMode" : "ExitPlanMode",
+          status: "done", input: { reason: item.review || "" }
+        }
+      });
+      out.push({
+        event: "tool_result",
+        data: { id, name: item.type === "enteredReviewMode" ? "EnterPlanMode" : "ExitPlanMode", output: "", error: "", status: "done" }
+      });
+      return out;
+    }
+
+    if (item.type === "collabAgentToolCall") {
+      // The sub-agent, as the item the CLI declares: `prompt` is the brief and
+      // `agentsStates` its own read on how it went — an errored one carries `message`
+      // while a healthy one is a bare status. Names come out in the snake_case the
+      // engine registry maps (`spawnAgent` → `spawn_agent`), which is also how the exec
+      // transport spells the same call, so both doors draw one card.
+      const name = item.tool ? item.tool.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`) : "agent";
+      out.push({
+        event: "tool_start",
+        data: { id, name, status: done ? "done" : "running", input: item.prompt ? { subagent_type: item.tool, prompt: item.prompt } : {} }
+      });
+      if (!done) return out;
+      const errored = Object.values(item.agentsStates || {}).find((s) => (s?.status || s) === "errored");
+      // `agentsStates` is the CLI's own read on the agent, and it is the more specific
+      // answer when the two disagree: recorded on a real run, an agent with no credentials
+      // reads `completed` on the item while its state says `errored`.
+      const failed = status === "failed" || status === "interrupted" || Boolean(errored);
+      out.push({
+        event: "tool_result",
+        data: {
+          id, name, status: failed ? "error" : "done", output: "",
+          error: failed ? (errored?.message || `Codex reported ${item.tool} as ${status}`) : ""
+        }
+      });
+      return out;
+    }
+
+    // An item THIS class does not know yet — the server declares 19 and the branches
+    // above draw 6. The pane is a re-render of the CLI's TUI, so the item still reaches
+    // it, whole and under the server's own name; the `done` guard is the same one the
+    // exec transport applies, so an item announced and completed is one record, not two.
+    //
+    // Two items are excluded because something else already drew them: `agentMessage`
+    // streams as `item/agentMessage/delta`, and `userMessage` is the prompt the pane
+    // prints when it is sent — carrying either again would show it twice.
+    if (item.type === "agentMessage" || item.type === "userMessage") return out;
+    if (done) out.push({ event: "cli_event", data: { type: item.type || "", subtype: status || "", record: item } });
     return out;
   }
 
@@ -389,8 +628,18 @@ export class CodexAppServer {
    */
   resolvePermission(requestId, behavior, message = "") {
     if (!requestId) return false;
+    const gate = this.gates.get(String(requestId));
     if (!this.gates.delete(String(requestId))) return false;
-    this.rpc.respond(requestId, behavior === "allow" ? { decision: "accept" } : { decision: "decline" });
+    // A permission GRANT answers with what it granted, not with a decision — the two
+    // response shapes are the server's, and sending a `decision` to this one is a refusal
+    // it cannot read. Allow echoes back the profile that was asked for, for this turn
+    // only: a wider scope would quietly outlive the thing that needed it.
+    const answer = gate?.input?.kind === "permission_grant"
+      ? (behavior === "allow"
+        ? { permissions: gate.input.permissions || {}, scope: "turn" }
+        : { permissions: {}, scope: "turn" })
+      : (behavior === "allow" ? { decision: "accept" } : { decision: "decline" });
+    this.rpc.respond(requestId, answer);
     return true;
   }
 

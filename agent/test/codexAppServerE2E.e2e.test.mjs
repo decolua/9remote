@@ -240,6 +240,106 @@ await test("without the flag that same feature is off, so the test above means s
   }
 });
 
+// ── the records a turn does NOT draw, and the ones it must still deliver ──
+//
+// The unit tests drive a fake proc, so they prove the mapping. These prove what the real
+// server actually sends, which is the half the fake cannot know: an unrouted notification
+// never reaches the pane at all, and there is no error anywhere to say so.
+
+await test("a notification nobody wired reaches the pane, from the real server", async () => {
+  // The server declares 83 of these and the class wires 7. Measured on the first turn of
+  // a real server: `thread/started`, `turn/started`, `thread/settings/updated`, a
+  // `deprecationNotice` and a `warning` all arrived and all were dropped on the floor.
+  const { of } = await runTurn("Reply with exactly: OK");
+  const carried = of("cli_event").map((d) => d.type);
+  assert.ok(carried.length > 0, "a real turn must produce records, not nothing");
+  assert.ok(carried.includes("turn/started"),
+    `the turn's own start is a record the pane can draw — got ${JSON.stringify(carried)}`);
+  // And every one of them travels whole, under its own name.
+  const [first] = of("cli_event");
+  assert.ok(first.record && typeof first.record === "object", "the record arrives, not a summary of it");
+});
+
+await test("the per-chunk streams do not flood the pane", async () => {
+  // The other half of the rule, and the one that has to be MEASURED rather than assumed:
+  // carried raw, the first turn alone was 7.3KB of records against a 32KB replay window,
+  // for a turn whose readable content was one word.
+  //
+  // What matters is the PER-TURN cost, since that is what multiplies: the first turn also
+  // carries the thread's own opening state (`thread/started` alone is 1.2KB), which a long
+  // chat pays once. So the measurement is turn two — the steady state — folded through the
+  // session's own log, which is where the window is cut.
+  const { events } = await runTurn("Reply with exactly: OK");
+  const { AiSession } = await import("../features/ai/aiSession.js");
+  const { replayWindow } = await import("../features/ai/aiEventSlice.js");
+  const { AI_REPLAY_BYTES } = await import("../features/ai/constants.js");
+
+  const s = new AiSession({ id: `e2e-${Date.now()}`, engine: "codex", cwd: workdir, options: { mock: true } });
+  s.onEvent = () => {};
+  // The thread's opening state, then the turn: the same two beats the real log holds.
+  s.emitNormalized("cli_event", { type: "thread/started", subtype: "", record: { thread: { id: "t-1" } } });
+  for (const [event, data] of events) s.emitNormalized(event, data);
+
+  const carried = s.history.filter((e) => e.event === "cli_event");
+  const kept = new Set(carried.map((e) => e.data.type));
+  // The beats nobody replays are gone from the log entirely — that is what keeps the
+  // window for the conversation. `hook/*` alone was 5KB of it, per turn, forever.
+  for (const beat of ["hook/started", "hook/completed", "account/rateLimits/updated",
+                      "thread/status/changed", "mcpServer/startupStatus/updated",
+                      "rawResponseItem/completed", "fs/changed"]) {
+    assert.ok(!kept.has(beat), `${beat} is a live beat, not history`);
+  }
+  // What the CLI DOES write down is still there, and the window reaches it.
+  const bytes = Buffer.byteLength(JSON.stringify(carried));
+  assert.ok(bytes < AI_REPLAY_BYTES / 4,
+    `a turn's records must leave the ${AI_REPLAY_BYTES}-byte window to the conversation — carried ${bytes} bytes`);
+  const { events: window } = replayWindow(s.history, AI_REPLAY_BYTES);
+  assert.ok(window.some((e) => e.event === "delta"), "the answer is in the window the client is sent");
+});
+
+// ── the rewind, on a real thread ──
+//
+// The claim the support table makes is "codex CAN rewind": `thread/revert` replaces this
+// thread's own history with the prefix before one turn, keeping the SAME thread id. Both
+// halves of that were only ever checked by hand (a spike script); this runs it end to end,
+// because getting the direction wrong would delete the wrong half of a conversation.
+
+await test("thread/revert keeps the prefix, in the same thread", async () => {
+  const proc = childProc("codex", ["app-server"], workdir);
+  const server = new CodexAppServer({
+    proc, cwd: workdir, sandbox: "danger-full-access", approvalPolicy: "never", onEvent: () => {}
+  });
+  const turns = async () => ((await server.rpc.request("thread/turns/list", {
+    threadId: server.threadId, limit: 20, sortDirection: "asc", itemsView: "summary"
+  }))?.data || []).map((t) => t.id);
+  const runOne = async (word) => {
+    await server.sendPrompt(`Reply with exactly: ${word}`);
+    const deadline = Date.now() + 120000;
+    for (let i = 0; i < 1200; i++) {
+      if (!server.isTurnRunning) break;
+      if (Date.now() > deadline) throw new Error("turn timed out");
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  };
+  await server.start();
+  try {
+    const before = server.threadId;
+    await runOne("ONE");
+    await runOne("TWO");
+    const ids = await turns();
+    assert.ok(ids.length >= 2, `expected two turns, got ${ids.length}`);
+
+    // Cut before the SECOND turn: one turn must survive, and it must be the FIRST one.
+    await server.rpc.request("thread/revert", { threadId: before, beforeTurnId: ids[1] }, { timeoutMs: 15000 });
+    const after = await turns();
+    assert.equal(after.length, 1, "the prefix is what survives a rewind");
+    assert.equal(after[0], ids[0], "and it is the EARLIEST turn — the direction matters");
+    assert.equal(server.threadId, before, "the thread is the same one: no fork, no second conversation");
+  } finally {
+    await server.stop();
+  }
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 fs.rmSync(workdir, { recursive: true, force: true });
 process.exit(fail === 0 ? 0 : 1);

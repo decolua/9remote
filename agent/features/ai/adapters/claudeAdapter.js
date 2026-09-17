@@ -9,6 +9,11 @@ import { stageAttachment } from "../aiAttachment.js";
 import { LocalProc } from "../proc/localProc.js";
 import { decodeLine } from "../proc/daemonProc.js";
 import { claudeBin } from "../constants.js";
+
+// A control request that reads or rewrites a conversation: the CLI may be mid-turn, and
+// a cut of a 200-turn session is not instant. The client's own timeout is opt-in for
+// exactly this reason — see JsonRpcClient.request.
+const REWIND_CONTROL_TIMEOUT_MS = 60000;
 import { asyncHandle } from "../toolEvent.js";
 import { JsonRpcClient } from "../proc/jsonRpcClient.js";
 
@@ -198,6 +203,16 @@ export class ClaudeAdapter {
       }),
       // Outgoing messages this CLI spells as its own `type`, not as JSON-RPC methods.
       encodeNotification: (method, params) => ({ type: method, ...params }),
+      // A control request is the same spelling, with an id of our own and the payload
+      // nested under `request` — the shape its own `control_request` records use.
+      encodeRequest: (id, method, params) => ({ type: method, request_id: id, request: params }),
+      // The answer carries the id INSIDE `response`, so the envelope's own fields say
+      // nothing about which request it settles.
+      decodeResponse: (m) => ({
+        id: m.type === "control_response" ? (m.response?.request_id ?? null) : null,
+        error: m.response?.subtype === "error" ? (m.response.error || "request failed") : null,
+        result: m.response?.subtype === "error" ? null : m.response?.response
+      }),
       // The client hands back a parsed object, which is exactly what the parser takes —
       // no re-serializing a line just to parse it again.
       onMessage: (msg) => this.handleMessage(msg)
@@ -558,6 +573,55 @@ export class ClaudeAdapter {
       return true;
     } catch {
       return false;
+    }
+  }
+
+  /**
+   * Cut the conversation at `targetUuid`, in the CLI's own memory.
+   *
+   * The target is the turn that GOES — the opposite of what the transcript-rewriting path
+   * used to compute — and the CLI answers with the text of that turn (`prefillText`) so
+   * it can be put back in the composer. `lastSeenUuid` is the newest turn the caller has
+   * seen, and is not optional: without it the CLI cannot tell "the user wants this" from
+   * "the client is behind and would discard turns it never rendered", and refuses.
+   *
+   * `interrupt_if_running` lets the CLI deal with a turn in flight rather than the cut
+   * landing half-applied; a refusal comes back as `{rewound:false, reason}` rather than
+   * throwing.
+   */
+  async rewindConversation(targetUuid, lastSeenUuid) {
+    try {
+      const res = await this.rpc.request("control_request", {
+        subtype: "rewind_conversation",
+        target_message_uuid: targetUuid,
+        last_seen_user_message_uuid: lastSeenUuid || targetUuid,
+        interrupt_if_running: true
+      }, { timeoutMs: REWIND_CONTROL_TIMEOUT_MS });
+      return res || { error: "The CLI answered nothing." };
+    } catch (e) {
+      return { error: e.message };
+    }
+  }
+
+  /**
+   * Put the files back the way they were at `uuid` — the same work `--rewind-files`
+   * does, without spawning a second CLI. `dryRun` is the preview: it answers what would
+   * change and changes nothing.
+   *
+   * `uuid` is the FIRST turn that goes, the same one `rewindConversation` takes: undoing
+   * a turn's writes means undoing its own as well as everything after it (measured — a
+   * turn that created a file, rewound to itself, leaves the file gone).
+   */
+  async rewindFiles(uuid, { dryRun = false } = {}) {
+    try {
+      const res = await this.rpc.request("control_request", {
+        subtype: "rewind_files",
+        user_message_id: uuid,
+        dry_run: dryRun
+      }, { timeoutMs: REWIND_CONTROL_TIMEOUT_MS });
+      return res || { error: "The CLI answered nothing." };
+    } catch (e) {
+      return { error: e.message };
     }
   }
 

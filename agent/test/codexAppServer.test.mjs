@@ -365,9 +365,12 @@ await test("a user-input gate becomes the question card the app already renders"
     params: { threadId: "t-1", turnId: "turn-1", itemId: "i1", isBlocking: true, autoResolutionMs: null,
       questions: [{ id: "q1", header: "Pick", question: "Which one?", options: [{ label: "A", description: "" }] }] }
   });
-  const [q] = of("question");
+  // Through `permission_request`, NOT its own event name: the card lives on the gate door
+  // (see AiPaneView), and an event nobody listens for is a question nobody ever sees.
+  const [q] = of("permission_request");
   assert.equal(q.requestId, "srv-4");
-  assert.equal(q.questions[0].question, "Which one?");
+  assert.equal(q.tool, "AskUserQuestion");
+  assert.equal(q.input.questions[0].question, "Which one?");
 });
 
 // ── resume, interrupt, and a process that dies ──
@@ -548,6 +551,415 @@ await test("a prompt is never timed out by the request layer", async () => {
   assert.equal(server.isTurnRunning, true, "an unanswered ack must not look like a dead turn");
   proc.emit({ jsonrpc: "2.0", id: ts.id, result: { turn: { id: "turn-1" } } });
   await p;
+});
+
+// ── the records nobody wired ──
+//
+// The server declares 83 notifications and this class wires a handful. Before the seam,
+// everything else hit `handler?.()` with no handler and was GONE: no log, no error, no
+// missing pixel. The pane re-renders the CLI's own TUI, so a record it cannot draw must
+// still arrive — that is what Claude got first (33 of its 39 shapes were being dropped)
+// and what these three tests hold codex to.
+
+await test("a notification nobody wired reaches the pane, under its own name", async () => {
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { threadId: "t-1", diff: "@@ -1 +1 @@" } });
+  const carried = of("cli_event");
+  assert.equal(carried.length, 1, "an unrouted record must not vanish");
+  assert.equal(carried[0].type, "turn/diff/updated");
+  assert.equal(carried[0].record.diff, "@@ -1 +1 @@", "and it travels whole");
+});
+
+await test("a record something already drew is not carried a second time", async () => {
+  const { proc, of } = await started();
+  // The answer streams as deltas; carrying the whole message after them would show it twice.
+  proc.emit({ jsonrpc: "2.0", method: "item/agentMessage/delta", params: { threadId: "t-1", delta: "hi" } });
+  // One per write. Carrying these is how Claude's replay window filled with telemetry.
+  proc.emit({ jsonrpc: "2.0", method: "item/commandExecution/outputDelta", params: { threadId: "t-1", delta: "x" } });
+  assert.equal(of("cli_event").length, 0, "neither belongs in the timeline");
+});
+
+await test("a sub-agent item is drawn as a card, not lost", async () => {
+  const { proc, events } = await started();
+  const item = {
+    type: "collabAgentToolCall", id: "ca_1", tool: "spawnAgent", status: "inProgress",
+    prompt: "look at the parser", agentsStates: {}
+  };
+  proc.emit({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t-1", item } });
+  proc.emit({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t-1", item: { ...item, status: "completed" } } });
+  const starts = events.filter(([e]) => e === "tool_start").map(([, d]) => d);
+  // Two events, ONE card: the card is keyed by the item id, and the completion restates
+  // the same id — the shape every other branch here already produces (a command does the
+  // same, and `appendTool` upserts on the id rather than opening a second row).
+  assert.equal(new Set(starts.map((s) => s.id)).size, 1, "one card, however many times it is restated");
+  assert.equal(starts[0].status, "running", "and it opens while the agent runs");
+  assert.equal(starts[0].name, "spawn_agent", "the registry's spelling, so the card matches");
+  assert.equal(starts[0].input.prompt, "look at the parser");
+  assert.equal(events.filter(([e]) => e === "tool_result").length, 1, "and it closes once");
+});
+
+await test("an item type this class does not draw still reaches the pane", async () => {
+  const { proc, of } = await started();
+  // `subAgentActivity` is a bare progress beat for an agent (`started`, `interacted`, …)
+  // with no card of its own, so it is the honest example of "carried, not drawn".
+  const item = { type: "subAgentActivity", id: "sa_1", kind: "interacted", agentThreadId: "t-2", agentPath: "agent-1" };
+  proc.emit({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t-1", item } });
+  const carried = of("cli_event");
+  assert.equal(carried.length, 1, "the pane is a re-render of the CLI, not a summary of it");
+  assert.equal(carried[0].type, "subAgentActivity");
+  assert.equal(carried[0].record.kind, "interacted");
+});
+
+await test("an announcement of a drawn item is not carried early", async () => {
+  // `item/started` fires for EVERY item. A record carried on the way in and again on the
+  // way out would draw it twice; only the completion is the record.
+  const { proc, of } = await started();
+  const item = { type: "contextCompaction", id: "cc_1" };
+  proc.emit({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t-1", item } });
+  assert.equal(of("cli_event").length, 0, "nothing to say yet");
+  proc.emit({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t-1", item } });
+  assert.equal(of("cli_event").length, 1, "and now there is");
+});
+
+await test("an interrupted agent is closed, not left spinning", async () => {
+  // `interrupted` is a status of the server's own bindings and it is NOT `completed`:
+  // a user who hit Stop had an agent that stopped. Left out of the done set, its row
+  // stayed announced and no completion ever followed — a spinner over finished work.
+  const { proc, events } = await started();
+  const item = {
+    type: "collabAgentToolCall", id: "ca_2", tool: "spawnAgent", status: "inProgress",
+    prompt: "long job", agentsStates: {}
+  };
+  proc.emit({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t-1", item } });
+  proc.emit({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t-1", item: { ...item, status: "interrupted" } } });
+  const [result] = events.filter(([e]) => e === "tool_result").map(([, d]) => d);
+  assert.ok(result, "an interrupted agent still closes its row");
+  assert.equal(result.status, "error", "and says it did not finish");
+});
+
+await test("an agent whose own state says errored is a failure, whatever the item says", async () => {
+  // Recorded on a real run: with no credentials the item reads `completed` while
+  // `agentsStates` holds the truth (`errored` + the message). Trusting the item painted
+  // a green row over an agent that never ran.
+  const { proc, events } = await started();
+  const item = {
+    type: "collabAgentToolCall", id: "ca_3", tool: "wait", status: "completed", prompt: null,
+    agentsStates: { "thread-1": { status: "errored", message: "404 No active credentials" } }
+  };
+  proc.emit({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t-1", item } });
+  const [result] = events.filter(([e]) => e === "tool_result").map(([, d]) => d);
+  assert.equal(result.status, "error");
+  assert.match(result.error, /404 No active credentials/);
+});
+
+await test("a notification for another chat does not leak into this one", async () => {
+  // The wired handlers all guard on `_mine`; the passthrough must too, or a server
+  // holding several threads draws one chat's records inside another's timeline.
+  const { proc, of } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { threadId: "t-OTHER", diff: "@@" } });
+  assert.equal(of("cli_event").length, 0, "another thread's record is not this chat's");
+  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { threadId: "t-1", diff: "@@" } });
+  assert.equal(of("cli_event").length, 1, "its own still arrives");
+});
+
+await test("an image the agent looked at is a file row, not a raw record", async () => {
+  // Found in the rollouts on this machine: 3 `ImageView` items, drawn by nothing. They are
+  // reads, and the file card is the row a read already has.
+  const { proc, events } = await started();
+  proc.emit({
+    jsonrpc: "2.0", method: "item/completed",
+    params: { threadId: "t-1", item: { type: "imageView", id: "iv_1", path: "/tmp/shot.png" } }
+  });
+  const [start] = events.filter(([e]) => e === "tool_start").map(([, d]) => d);
+  assert.equal(start.name, "view_image");
+  assert.equal(start.input.path, "/tmp/shot.png");
+  const [result] = events.filter(([e]) => e === "tool_result").map(([, d]) => d);
+  assert.equal(result.status, "done");
+  assert.equal(events.filter(([e]) => e === "cli_event").length, 0, "and it is not also a raw record");
+});
+
+await test("entering and leaving review draw as the review's own card", async () => {
+  const { proc, events } = await started();
+  proc.emit({
+    jsonrpc: "2.0", method: "item/completed",
+    params: { threadId: "t-1", item: { type: "enteredReviewMode", id: "rv_1", review: "look for missing tests" } }
+  });
+  proc.emit({
+    jsonrpc: "2.0", method: "item/completed",
+    params: { threadId: "t-1", item: { type: "exitedReviewMode", id: "rv_2", review: "look for missing tests" } }
+  });
+  const names = events.filter(([e]) => e === "tool_start").map(([, d]) => d.name);
+  assert.deepEqual(names, ["EnterPlanMode", "ExitPlanMode"], "the pair the plan card knows");
+  const [entered] = events.filter(([e]) => e === "tool_start").map(([, d]) => d);
+  assert.equal(entered.input.reason, "look for missing tests", "and the review is what it says");
+});
+
+// ── the gate nobody registered ──
+//
+// The client refuses an unhandled server request ITSELF (`unhandled server request: …`),
+// which is better than hanging the CLI and worse than asking the user: the app answered
+// on their behalf, and nothing anywhere said so. Probed against the server's own
+// `ServerRequest` union — 10 requests, 5 of which were unregistered.
+
+await test("a request for more permissions is a gate, not an auto-refusal", async () => {
+  const { proc, of } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "s-grant", method: "item/permissions/requestApproval",
+    params: { threadId: "t-1", reason: "needs the network to install", permissions: { network: { enabled: true } } }
+  });
+  const [gate] = of("permission_request");
+  assert.ok(gate, "the user is asked instead of refused");
+  assert.equal(gate.requestId, "s-grant");
+  assert.equal(gate.tool, "request_permissions");
+  assert.match(gate.input.reason, /needs the network/);
+  // Nothing was written back: the CLI stays blocked until the user decides.
+  assert.equal(proc.sent("item/permissions/requestApproval").length, 0, "no answer on the user's behalf");
+});
+
+await test("allowing a permission grant answers with what was granted", async () => {
+  // The two response shapes are the server's: a decision (`accept`) for an approval, a
+  // granted PROFILE for this one. Sending the wrong one is a refusal it cannot read.
+  const { proc, server } = await started();
+  const params = { threadId: "t-1", reason: "install deps", permissions: { network: { enabled: true } } };
+  proc.emit({ jsonrpc: "2.0", id: "s-grant", method: "item/permissions/requestApproval", params });
+  assert.equal(server.resolvePermission("s-grant", "allow"), true);
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.deepEqual(answer.result.permissions, { network: { enabled: true } });
+  assert.equal(answer.result.scope, "turn", "for this turn, not the whole session");
+});
+
+await test("denying a permission grant grants nothing", async () => {
+  const { proc, server } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "s-grant", method: "item/permissions/requestApproval",
+    params: { threadId: "t-1", reason: "install deps", permissions: { network: { enabled: true } } }
+  });
+  server.resolvePermission("s-grant", "deny");
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.deepEqual(answer.result.permissions, {});
+  assert.equal(answer.result.decision, undefined, "not the decision shape — that is the other gate");
+});
+
+await test("an ordinary approval still answers with a decision", async () => {
+  // The fix above must not change the gate that already worked.
+  const { proc, server } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "s-exec", method: "item/commandExecution/requestApproval",
+    params: { threadId: "t-1", command: ["ls"], cwd: "/w" }
+  });
+  server.resolvePermission("s-exec", "allow");
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.equal(answer.result.decision, "accept");
+  assert.equal(answer.result.permissions, undefined);
+});
+
+// ── a question the CLI is blocking on ──
+//
+// The server declares `item/tool/requestUserInput` and this class registered it, but it
+// announced the gate on its OWN event name (`question`) — which no client listens for. The
+// card is reached through `permission_request`, the door every other gate takes, so a
+// question the CLI was waiting on never appeared and the turn sat there forever.
+
+await test("a question reaches the pane through the gate door every card knows", async () => {
+  const { proc, of } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "q1", method: "item/tool/requestUserInput",
+    params: {
+      threadId: "t-1", isBlocking: true,
+      questions: [{
+        id: "q_a", header: "Pick", question: "Which one?", isOther: false, isSecret: false,
+        options: [{ label: "A", description: "first" }, { label: "B", description: "second" }]
+      }]
+    }
+  });
+  const [gate] = of("permission_request");
+  assert.ok(gate, "the pane is told, on the door its question card is on");
+  assert.equal(gate.tool, "AskUserQuestion", "the tool name that card switches on");
+  assert.equal(gate.requestId, "q1");
+  // The questions ride in `input`, which is where AiQuestionCard reads them from.
+  assert.equal(gate.input.questions[0].question, "Which one?");
+  assert.equal(gate.input.questions[0].options[0].label, "A");
+  assert.equal(proc.written.length >= 0 && proc.sent("item/tool/requestUserInput").length, 0,
+    "nothing is answered on the user's behalf");
+});
+
+await test("an answer is keyed by the question's ID, which is what the server validates", async () => {
+  // The card hands back labels keyed by the question TEXT — that is the shape every
+  // engine's card produces. This server wants `{<id>: {answers: [...]}}`, and it refuses
+  // a reply whose keys it does not recognise.
+  const { proc, server } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "q1", method: "item/tool/requestUserInput",
+    params: {
+      threadId: "t-1",
+      questions: [{ id: "q_a", question: "Which one?", options: [{ label: "A" }, { label: "B" }] }]
+    }
+  });
+  assert.equal(server.resolveQuestion("q1", { "Which one?": "B" }), true);
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.deepEqual(answer.result, { answers: { q_a: { answers: ["B"] } } });
+});
+
+await test("an answer for a question nobody asked is not sent", async () => {
+  const { proc, server } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "q1", method: "item/tool/requestUserInput",
+    params: { threadId: "t-1", questions: [{ id: "q_a", question: "Which one?", options: [] }] }
+  });
+  server.resolveQuestion("q1", { "Some other question": "x", "Which one?": "A" });
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.deepEqual(Object.keys(answer.result.answers), ["q_a"], "only the question that was asked");
+});
+
+await test("answering a question the CLI already moved past is refused", async () => {
+  // Same rule as a permission gate: a stale answer would be a stray response on the pipe
+  // and reported success for an answer nobody received.
+  const { server } = await started();
+  assert.equal(server.resolveQuestion("nobody", { q: "a" }), false);
+});
+
+// ── an MCP server asking the user something ──
+//
+// `elicitation/create` is MCP's way for a server to ask, and it states the ask as a JSON
+// Schema rather than a question list. Unregistered here, the client refused it on the
+// user's behalf — an MCP tool that needed an answer got a denial nobody was shown.
+
+await test("an elicitation becomes the same question card, from its schema", async () => {
+  const { proc, of } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "el-1", method: "mcpServer/elicitation/request",
+    params: {
+      threadId: "t-1", serverName: "node_repl", mode: "form", message: "Pick one",
+      requestedSchema: {
+        type: "object", required: ["env"],
+        properties: {
+          env: { type: "string", enum: ["dev", "prod"], title: "Environment" },
+          note: { type: "string", description: "Anything to add?" }
+        }
+      }
+    }
+  });
+  const [gate] = of("permission_request");
+  assert.ok(gate, "the user is asked, not refused");
+  assert.equal(gate.tool, "AskUserQuestion");
+  const [env, note] = gate.input.questions;
+  assert.equal(env.question, "Environment", "a titled enum is a question with choices");
+  assert.deepEqual(env.options.map((o) => o.label), ["dev", "prod"]);
+  assert.equal(env.required, true);
+  // A free string has no choices, which is exactly what the card's text box is for.
+  assert.equal(note.isOther, true);
+  assert.equal(note.options, null);
+});
+
+await test("the other enum families read too, including multi-select", async () => {
+  // Each of these is a real spelling in the MCP schema: `oneOf` with titles, and the
+  // multi-select variants that nest the choices under `items`.
+  const { proc, of } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "el-2", method: "mcpServer/elicitation/request",
+    params: {
+      threadId: "t-1", serverName: "s", mode: "form", message: "",
+      requestedSchema: {
+        type: "object",
+        properties: {
+          one: { type: "string", oneOf: [{ const: "a", title: "Alpha" }, { const: "b", title: "Beta" }] },
+          many: { type: "array", items: { anyOf: [{ const: "x", title: "X" }] } }
+        }
+      }
+    }
+  });
+  const [gate] = of("permission_request");
+  const [one, many] = gate.input.questions;
+  assert.deepEqual(one.options.map((o) => o.label), ["Alpha", "Beta"]);
+  assert.deepEqual(many.options.map((o) => o.label), ["X"]);
+  assert.equal(many.multiSelect, true, "an array property is the toggle list");
+});
+
+await test("the elicitation's answer is MCP's own shape, not this server's", async () => {
+  // `{action, content}` keyed by the schema's property names — not `{answers: {id: {…}}}`.
+  const { proc, server } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: "el-3", method: "mcpServer/elicitation/request",
+    params: {
+      threadId: "t-1", serverName: "s", mode: "form", message: "",
+      requestedSchema: { type: "object", properties: { env: { type: "string", enum: ["dev", "prod"], title: "Environment" } } }
+    }
+  });
+  assert.equal(server.resolveQuestion("el-3", { Environment: "prod" }), true);
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.equal(answer.result.action, "accept");
+  assert.deepEqual(answer.result.content, { env: "prod" }, "keyed by the property name");
+  assert.equal(answer.result.answers, undefined, "not the other gate's shape");
+});
+
+// ── the turn's plan IS the task strip ──
+//
+// This transport has no `todo_list` item at all — it states the plan as
+// `turn/plan/updated`, whole, every time a step moves. Nothing drew it, so the strip
+// stayed empty for an entire plan while the CLI was visibly working through one.
+
+await test("a turn plan arrives as the task list the strip renders", async () => {
+  const { proc, events } = await started();
+  proc.emit({
+    jsonrpc: "2.0", method: "turn/plan/updated",
+    params: {
+      threadId: "t-1", turnId: "turn-1", explanation: "start with the parser",
+      plan: [
+        { step: "read the parser", status: "completed" },
+        { step: "patch it", status: "inProgress" },
+        { step: "run the tests", status: "pending" }
+      ]
+    }
+  });
+  const [plan] = events.filter(([e]) => e === "tool_start").map(([, d]) => d);
+  assert.ok(plan, "the plan reaches the pane");
+  // `todo_list` is the tool name the registry maps to the task shape, and the input is
+  // exactly what `_parseReplaceAllTodos` reads — so the strip fills by the same road
+  // every other engine's checklist takes.
+  assert.equal(plan.name, "todo_list");
+  assert.equal(plan.input.todos.length, 3);
+  assert.equal(plan.input.todos[1].content, "patch it");
+});
+
+await test("a plan that states nothing is not a task row", async () => {
+  const { proc, events } = await started();
+  proc.emit({ jsonrpc: "2.0", method: "turn/plan/updated", params: { threadId: "t-1", turnId: "turn-1", plan: [] } });
+  assert.equal(events.filter(([e]) => e === "tool_start").length, 0);
+});
+
+await test("the plan's own status spelling reaches the strip as in_progress", async () => {
+  // The strip and the modal switch on `in_progress`; this server says `inProgress`
+  // (`TurnPlanStepStatus`), and that row drew as a PENDING dot beside work already
+  // under way. Normalized at the parse door, which is the one place both doors read.
+  const { parseEngineTaskEvent } = await import("../../web/features/ai/registry.js");
+  const parsed = parseEngineTaskEvent("codex", "todo_list", {
+    todos: [{ content: "patch it", status: "inProgress" }, { content: "done", status: "completed" }]
+  }, "plan-t1", []);
+  assert.deepEqual(parsed.todos.map((t) => t.status), ["in_progress", "completed"]);
+});
+
+await test("a plan being written grows on screen instead of appearing finished", async () => {
+  // `item/plan/delta` is the plan as it is WRITTEN, and the server says its fragments need
+  // not even match the completed text. So the card is fed the whole text so far on each
+  // delta — a fragment is not a plan — and the completed item replaces it when it lands.
+  const { proc, events } = await started();
+  const delta = (d) => proc.emit({
+    jsonrpc: "2.0", method: "item/plan/delta",
+    params: { threadId: "t-1", turnId: "turn-1", itemId: "pl_1", delta: d }
+  });
+  delta("1. read the parser\n");
+  delta("2. patch it\n");
+  const plans = events.filter(([e]) => e === "tool_start").map(([, d]) => d.input.plan);
+  assert.equal(plans[0], "1. read the parser\n", "the first piece shows at once");
+  assert.equal(plans[1], "1. read the parser\n2. patch it\n", "and the next restates the whole plan");
+  assert.equal(events.filter(([e]) => e === "tool_start")[0][1].name, "update_plan");
+  // The item's own text is the authority: it replaces the preview, not extends it.
+  proc.emit({
+    jsonrpc: "2.0", method: "item/completed",
+    params: { threadId: "t-1", item: { type: "plan", id: "pl_1", text: "the final plan\n" } }
+  });
+  const last = events.filter(([e]) => e === "tool_start").map(([, d]) => d.input.plan).at(-1);
+  assert.equal(last, "the final plan\n");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

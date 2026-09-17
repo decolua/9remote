@@ -22,11 +22,15 @@ export class JsonRpcClient {
    * @param {function} [opts.encodeError]    (id, message) → the refusal object to write.
    * @param {function} [opts.onMessage]      Anything that is none of the three kinds.
    * @param {function} [opts.encodeNotification] (method, params) → the object to write.
+   * @param {function} [opts.encodeRequest]  (id, method, params) → the object to write.
+   * @param {function} [opts.decodeResponse] Message → { id, error, result }, for a CLI
+   *   whose answer does not put them where JSON-RPC does.
    */
   constructor(proc, {
     extractId = defaultId, extractMethod = defaultMethod,
     encodeResponse = defaultEncodeResponse, encodeError = defaultEncodeError,
-    encodeNotification = defaultEncodeNotification, onMessage = null
+    encodeNotification = defaultEncodeNotification, encodeRequest = defaultEncodeRequest,
+    decodeResponse = defaultDecodeResponse, onMessage = null
   } = {}) {
     this.proc = proc;
     this._extractId = extractId;
@@ -34,6 +38,8 @@ export class JsonRpcClient {
     this._encodeResponse = encodeResponse;
     this._encodeError = encodeError;
     this._encodeNotification = encodeNotification;
+    this._encodeRequest = encodeRequest;
+    this._decodeResponse = decodeResponse;
     this._onMessage = onMessage;
 
     this._nextId = 1;
@@ -88,7 +94,7 @@ export class JsonRpcClient {
         pending.settle(pending.reject, new Error(`${method} timed out after ${timeoutMs}ms`));
       }, timeoutMs);
     }
-    this.proc.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+    this.proc.write(JSON.stringify(this._encodeRequest(id, method, params)) + "\n");
     // An answer that was already waiting for this request was held; hand it over now.
     this._drainEarly();
     return answer;
@@ -139,7 +145,7 @@ export class JsonRpcClient {
     if (!text) return;
     let msg;
     try { msg = JSON.parse(text); } catch { return; }
-    const id = this._extractId(msg);
+    const { id } = this._decodeResponse(msg);
     const method = this._extractMethod(msg);
     // A response is one with an id and no method (JSON-RPC's own rule, same as _receive).
     if (method == null && id != null && !this._pending.has(id)) {
@@ -170,7 +176,11 @@ export class JsonRpcClient {
     // A response to something we asked. An id nobody is waiting on is dropped: it can
     // only be a late answer to a request that already timed out or was cancelled.
     if (method == null) {
-      const pending = id != null ? this._pending.get(id) : null;
+      // Claude states the id inside the answer, not on the envelope, so the id above is
+      // not the one to look up — see decodeResponse. Both hooks are read here so a
+      // caller that only overrides one still gets the correlation right.
+      const answer = this._decodeResponse(msg);
+      const pending = answer.id != null ? this._pending.get(answer.id) : (id != null ? this._pending.get(id) : null);
       if (!pending) {
         // Not a response we asked for — and, for a CLI that does not speak JSON-RPC, not a
         // response at all. Claude's records are `{type:"assistant"|"stream_event"|…}` with
@@ -179,8 +189,8 @@ export class JsonRpcClient {
         this._onMessage?.(msg);
         return;
       }
-      if (msg.error) pending.settle(pending.reject, new Error(msg.error.message || "request failed"));
-      else pending.settle(pending.resolve, msg.result);
+      if (answer.error) pending.settle(pending.reject, new Error(answer.error.message || answer.error || "request failed"));
+      else pending.settle(pending.resolve, answer.result);
       return;
     }
 
@@ -208,8 +218,13 @@ export class JsonRpcClient {
       return;
     }
 
-    // A plain notification. Unknown methods are ignored so a newer server cannot crash us.
-    handler?.(msg.params || {});
+    // A plain notification. An unknown method is handed to the caller rather than
+    // ignored: the server's protocol is larger than what this client registers, and a
+    // record nobody routed used to vanish without a log or an error — the same silent
+    // hole Claude had, where 33 of its 39 record shapes were being dropped. A newer
+    // server cannot crash us either way; the handler is still optional.
+    if (handler) handler(msg.params || {});
+    else this._onMessage?.(msg);
   }
 
   _handleExit(info) {
@@ -248,5 +263,7 @@ export class JsonRpcClient {
 const defaultEncodeResponse = (id, result) => ({ jsonrpc: "2.0", id, result });
 const defaultEncodeError = (id, message) => ({ jsonrpc: "2.0", id, error: { code: -32601, message } });
 const defaultEncodeNotification = (method, params) => ({ jsonrpc: "2.0", method, params });
+const defaultEncodeRequest = (id, method, params) => ({ jsonrpc: "2.0", id, method, params });
+const defaultDecodeResponse = (msg) => ({ id: msg.id ?? null, error: msg.error, result: msg.result });
 const defaultId = (msg) => (msg.id === undefined ? null : msg.id);
 const defaultMethod = (msg) => (typeof msg.method === "string" ? msg.method : null);

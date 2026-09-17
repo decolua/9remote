@@ -240,6 +240,17 @@ await test("a notification still reaches its handler, not onMessage", () => {
   assert.deepEqual(seen, [], "a known notification is routed to its handler");
 });
 
+await test("a notification nobody registered reaches the caller instead of vanishing", () => {
+  // The server declares 83 methods and a client registers a handful. Before this, the
+  // rest hit `handler?.()` with no handler and were gone — no log, no error, nothing to
+  // notice. Claude lost 33 of 39 record shapes that way.
+  const proc = fakeProc();
+  const seen = [];
+  const rpc = new JsonRpcClient(proc, { onMessage: (m) => seen.push(m.method) });
+  proc.emit({ jsonrpc: "2.0", method: "turn/diff/updated", params: { diff: "@@" } });
+  assert.deepEqual(seen, ["turn/diff/updated"], "an unrouted notification is carried");
+});
+
 await test("without the seam, nothing changes for codex", () => {
   const { proc, rpc } = setup();
   assert.doesNotThrow(() => proc.emit({ jsonrpc: "2.0", id: 999, result: {} }));
@@ -379,6 +390,58 @@ await test("a long-running turn is not timed out by the request layer", async ()
   await new Promise((r) => setTimeout(r, 80));
   proc.emit({ jsonrpc: "2.0", id: proc.last().id, result: { turn: { id: "turn-1" } } });
   assert.deepEqual(await p, { turn: { id: "turn-1" } });
+});
+
+// ── a CLI whose envelope is not JSON-RPC ──
+//
+// Claude spells both directions its own way: the request nests its payload under
+// `request` with an id under `request_id`, and the ANSWER carries that id inside
+// `response`, not on the envelope. Neither is correlatable with the JSON-RPC defaults,
+// which is the whole reason the two hooks exist.
+
+const claudeSpelling = {
+  encodeRequest: (id, method, params) => ({ type: method, request_id: id, request: params }),
+  decodeResponse: (m) => ({
+    id: m.type === "control_response" ? (m.response?.request_id ?? null) : null,
+    error: m.response?.subtype === "error" ? (m.response.error || "request failed") : null,
+    result: m.response?.subtype === "error" ? null : m.response?.response
+  })
+};
+
+await test("a request is written in this CLI's own envelope", async () => {
+  const { proc, rpc } = setup(claudeSpelling);
+  rpc.request("control_request", { subtype: "rewind_files", user_message_id: "u1" });
+  assert.deepEqual(proc.last(), {
+    type: "control_request",
+    request_id: 1,
+    request: { subtype: "rewind_files", user_message_id: "u1" }
+  });
+});
+
+await test("its answer resolves the request, with the id read from the body", async () => {
+  const { proc, rpc } = setup(claudeSpelling);
+  const p = rpc.request("control_request", { subtype: "rewind_files", user_message_id: "u1" });
+  proc.emit({ type: "control_response", response: { subtype: "success", request_id: proc.last().request_id, response: { canRewind: true } } });
+  assert.deepEqual(await p, { canRewind: true });
+});
+
+await test("a refused control request rejects with the CLI's own reason", async () => {
+  const { proc, rpc } = setup(claudeSpelling);
+  const p = rpc.request("control_request", { subtype: "rewind_conversation" });
+  proc.emit({ type: "control_response", response: { subtype: "error", request_id: proc.last().request_id, error: "stale target" } });
+  await assert.rejects(() => p, /stale target/);
+});
+
+// A refusal is about the REQUEST, not the transport: the conversation records that keep
+// arriving must still reach the pane, or a rewind that failed would blank the chat.
+await test("the conversation still flows through onMessage around a control answer", async () => {
+  const seen = [];
+  const { proc, rpc } = setup({ ...claudeSpelling, onMessage: (m) => seen.push(m.type) });
+  const p = rpc.request("control_request", { subtype: "rewind_files" });
+  proc.emit({ type: "assistant", message: { content: [] } });
+  proc.emit({ type: "control_response", response: { subtype: "success", request_id: proc.last().request_id, response: {} } });
+  await p;
+  assert.deepEqual(seen, ["assistant"]);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

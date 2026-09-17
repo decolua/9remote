@@ -649,6 +649,16 @@ export class CodexAdapter {
   }
 
   /**
+   * Answer a question the CLI is blocking on. Only the app-server can ask one (the exec
+   * transport has no way to), so a chat on that transport has nothing to answer — the
+   * `false` that comes back is the honest answer, and it keeps the card on screen.
+   */
+  resolveQuestion(requestId, answers) {
+    if (!this.appServer) return false;
+    return this.appServer.resolveQuestion(requestId, answers);
+  }
+
+  /**
    * End this chat's server and return when it is actually gone.
    *
    * Awaiting matters here rather than being tidiness: the carriers kill a child process,
