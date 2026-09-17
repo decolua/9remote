@@ -11,7 +11,8 @@ export const ModelModal = memo(function ModelModal({
   models = [],
   onClose,
   onSelectModel,
-  onSelectEffort
+  onSelectEffort,
+  isTurnRunning = false
 }) {
   // The model whose tiers the effort row lists. Defaults to the running model, but a
   // pick moves it — the tiers belong to whatever model is about to run.
@@ -70,12 +71,14 @@ export const ModelModal = memo(function ModelModal({
               <button
                 key={effort}
                 type="button"
+                disabled={isTurnRunning}
                 onClick={() => handlePickEffort(effort)}
                 className={`px-2.5 py-1 rounded-brand text-[11px] font-mono border transition-colors ${
                   currentEffort === effort
                     ? "border-brand-500 bg-brand-500/10 text-brand-400"
                     : "border-border-subtle bg-surface-2/30 text-text-muted hover:text-text hover:bg-surface-2"
-                }`}
+                } disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent`}
+                title={isTurnRunning ? "Cannot change effort while turn is running" : undefined}
               >
                 {effort}
               </button>
@@ -91,9 +94,10 @@ export const ModelModal = memo(function ModelModal({
           return (
             <div
               key={m.id}
-              onClick={() => handlePick(m.id)}
+              onClick={isTurnRunning ? undefined : () => handlePick(m.id)}
               data-selected={isSelected}
-              className="modal-row"
+              className={`modal-row ${isTurnRunning ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
+              title={isTurnRunning ? "Cannot change model while turn is running" : undefined}
             >
               <div className="min-w-0 flex-1">
                 <div className="text-xs font-semibold text-text flex items-center gap-1.5">

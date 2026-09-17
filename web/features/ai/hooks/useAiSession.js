@@ -13,7 +13,7 @@ import { collectOlderPage } from "../lib/olderPaging";
 import { createRetryLadder, shouldApplyHydrateAck } from "../lib/hydrateRetry";
 import { isAlreadyApplied } from "../lib/seqDedupe";
 import { termLog } from "@/shared/utils/termLog";
-import { RECOVER_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
+import { RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { RESOLVE_ACK_TIMEOUT_MS } from "../constants";
 
 // The CLI reports skills as bare id strings; the agent-side scan reports objects.
@@ -52,6 +52,11 @@ function alreadySaid(messages, text) {
   const last = messages[messages.length - 1];
   return Boolean(last && last.role === "assistant" && String(last.content || "").trim().endsWith(said));
 }
+
+// A prompt the host turned away (a busy engine). The text rides the row so an F5 still
+// shows what never sent; the live door draws the same sentence as the replay.
+const refusedNoticeContent = (data) =>
+  data?.text ? `Not sent — ${data.reason || "the turn is still running"}: ${data.text}` : data?.reason || "Not sent";
 
 // Pure reducer that transforms an event log into a complete session snapshot in RAM
 // in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
@@ -97,7 +102,10 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         // init that carries no skills must not wipe the ones already discovered.
         const incoming = normalizeSkills(data?.skills);
         const skills = incoming.length > 0 ? incoming : metadata.skills;
-        metadata = { ...metadata, ...(data || {}), skills };
+        // Nor the model: an adapter that never learned one publishes "" (the CLI's own
+        // config decides), which blanked the chip the connect metadata had just filled.
+        const { model: initModel, ...initRest } = data || {};
+        metadata = { ...metadata, ...initRest, skills, ...(initModel ? { model: initModel } : {}) };
         break;
       }
       case "goal":
@@ -307,6 +315,15 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
           content: data?.message || "AI process failed"
         });
         break;
+      case "prompt_refused":
+        // The host turned this prompt away (a busy engine). Not a turn ending and no
+        // live row — the turn that IS running keeps its flag, and the text rides the
+        // notice so a reload still shows what never sent.
+        messages.push({
+          id: `n-${++msgSeq}`, role: "notice", subtype: "prompt_refused", level: "error",
+          content: refusedNoticeContent(data)
+        });
+        break;
       case "conversation_reset":
         messages.length = 0;
         tasks.length = 0;
@@ -386,7 +403,8 @@ export function useAiSession({
   sessionId,
   engine = "claude",
   workspacePath = "",
-  bus = null
+  bus = null,
+  isVisible = true
 }) {
   const busRef = useRef(bus);
   useEffect(() => {
@@ -458,7 +476,11 @@ export function useAiSession({
               return known?.description ? { ...s, description: known.description } : s;
             })
           : current;
-        setMetadata(sid, { ...data, skills });
+        // Same rule as the replay reducer: an init with no model is not news, so the
+        // empty one an adapter publishes when the CLI's config decides must not blank
+        // the model the connect metadata already put on the chip.
+        const { model: initModel, ...initRest } = data || {};
+        setMetadata(sid, { ...initRest, skills, ...(initModel ? { model: initModel } : {}) });
         break;
       }
       case "goal":
@@ -571,6 +593,14 @@ export function useAiSession({
         });
         finishTurn(sid, null, data?.turnMs);
         break;
+      case "prompt_refused":
+        // Deliberately NOT a finishTurn: the running turn never accepted this prompt,
+        // so its flag must survive the refusal (see the replay door's same case).
+        useAiStore.getState().addNotice(sid, {
+          subtype: "prompt_refused", level: "error",
+          content: refusedNoticeContent(data)
+        });
+        break;
       case "conversation_reset":
         // The reset arrives after the ack that hydrated this same log (the host broadcasts
         // it alongside the replay), so it restates that log's turn state with it — the span
@@ -648,6 +678,15 @@ export function useAiSession({
   // The session whose round last owned the gate, so a re-run for the SAME session
   // (workspacePath resolving late) cannot open it a second time.
   const gateSessionRef = useRef(null);
+
+  const isVisibleRef = useRef(isVisible);
+  useEffect(() => {
+    isVisibleRef.current = isVisible;
+  }, [isVisible]);
+
+  const pendingRecoverRef = useRef(null);
+  const peekDebounceRef = useRef(null);
+  const peekDeadlineRef = useRef(null);
 
   const clearHydrateRetry = useCallback(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -923,6 +962,51 @@ export function useAiSession({
     }, RECOVER_DEBOUNCE_MS);
   }, [hydrateNow]);
 
+  // Check whether host has newer events before doing a full destructive hydrate
+  const peekSeqCheck = useCallback(() => {
+    if (!bus || !sessionId) return;
+    if (!isVisibleRef.current) {
+      pendingRecoverRef.current = "visible";
+      return;
+    }
+    if (!useConnectionStore.getState().connected) return;
+    if (hydratingRef.current) return;
+    if (peekDebounceRef.current) return;
+    peekDebounceRef.current = setTimeout(() => {
+      peekDebounceRef.current = null;
+      if (!isVisibleRef.current || hydratingRef.current) return;
+      // A peek nobody answers (an older agent without the handler, or every carrier
+      // zombie on a mobile resume) must not leave the pane stale: fall back to the
+      // full hydrate, whose own ladder keeps re-asking. A late ack after the deadline
+      // still runs its comparison — requestHydrate is debounced, so the worst case
+      // is a no-op, never a second round.
+      let answered = false;
+      const deadline = setTimeout(() => {
+        if (answered) return;
+        termLog("ai-hydrate", "peekSeq: no ack → full hydrate");
+        requestHydrate();
+      }, PEEK_TIMEOUT_MS);
+      peekDeadlineRef.current = deadline;
+      bus.emit("ai:peekSeq", { sessionId }, (res) => {
+        answered = true;
+        clearTimeout(deadline);
+        peekDeadlineRef.current = null;
+        if (!res?.ok || typeof res.seq !== "number") {
+          requestHydrate();
+          return;
+        }
+        const lastSeq = appliedSeqRef.current;
+        const currentTurnRunning = Boolean(useAiStore.getState().bySession[sessionId]?.isTurnRunning);
+        if (res.seq === lastSeq && Boolean(res.isTurnRunning) === currentTurnRunning) {
+          termLog("ai-hydrate", "peekSeq: nothing missed", { seq: lastSeq });
+          return;
+        }
+        termLog("ai-hydrate", "peekSeq: state changed", { fromSeq: lastSeq, toSeq: res.seq, turn: res.isTurnRunning });
+        requestHydrate();
+      });
+    }, RECOVER_DEBOUNCE_MS);
+  }, [bus, sessionId, requestHydrate]);
+
   // The ladder's timer re-asks through the door, so an automatic retry keeps the same
   // spacing. A tap is the user saying "now": drop the pending rung and ask immediately —
   // otherwise the pane would spin for another 6s over a request the user already made.
@@ -944,9 +1028,11 @@ export function useAiSession({
   // find the gate shut and buffer every live event forever.
   useEffect(() => () => {
     if (hydrateDebounceRef.current) clearTimeout(hydrateDebounceRef.current);
+    if (peekDebounceRef.current) clearTimeout(peekDebounceRef.current);
+    if (peekDeadlineRef.current) clearTimeout(peekDeadlineRef.current);
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
     if (releaseTimerRef.current) clearTimeout(releaseTimerRef.current);
-    hydrateDebounceRef.current = retryTimerRef.current = releaseTimerRef.current = null;
+    hydrateDebounceRef.current = peekDebounceRef.current = peekDeadlineRef.current = retryTimerRef.current = releaseTimerRef.current = null;
     hydratingRef.current = false;
     pendingLiveRef.current = [];
   }, []);
@@ -980,6 +1066,16 @@ export function useAiSession({
     return hydrateNow();
   }, [sessionId, hydrateNow, clearHydrateRetry]);
 
+  // Resume recovery and visibility: only check seq if visible; hidden panes defer.
+  useEffect(() => {
+    if (!isVisible) return;
+    const pending = pendingRecoverRef.current;
+    if (!pending) return;
+    pendingRecoverRef.current = null;
+    if (pending === "reconnect") requestHydrate();
+    else peekSeqCheck();
+  }, [isVisible, requestHydrate, peekSeqCheck]);
+
   // Backgrounded-then-resumed, and carrier rejoin (the same triggers the terminal
   // recovers on). A live app that never remounts has no other path: the store is not
   // persisted, so events lost while the carrier was down stay lost until the pane is
@@ -990,20 +1086,27 @@ export function useAiSession({
     // Online is the door's own check, so a resume while offline needs no branch here —
     // the `connected` effect below asks once there is someone to answer.
     const onVisible = () => {
-      if (!document.hidden) requestHydrate();
+      if (!document.hidden) peekSeqCheck();
+    };
+    const onConnect = () => {
+      if (!isVisibleRef.current) {
+        pendingRecoverRef.current = "reconnect";
+        return;
+      }
+      requestHydrate();
     };
     // Page Lifecycle `resume`: Chrome Android wakes a frozen tab without firing a
     // visibilitychange (the same gap pmWatchers covers on the transport side). bfcache
     // restores need nothing extra — those do fire visibilitychange.
-    bus.on("connect", requestHydrate);
+    bus.on("connect", onConnect);
     document.addEventListener("visibilitychange", onVisible);
     document.addEventListener("resume", onVisible);
     return () => {
-      bus.off("connect", requestHydrate);
+      bus.off("connect", onConnect);
       document.removeEventListener("visibilitychange", onVisible);
       document.removeEventListener("resume", onVisible);
     };
-  }, [bus, sessionId, requestHydrate]);
+  }, [bus, sessionId, peekSeqCheck, requestHydrate]);
 
   // The carrier coming back is a trigger in its own right, not just a prelude to the
   // bus "connect" above. That event only fires on a rejoin the PM judges worthwhile
@@ -1019,7 +1122,13 @@ export function useAiSession({
   useEffect(() => {
     const was = wasConnectedRef.current;
     wasConnectedRef.current = connected;
-    if (connected && !was) requestHydrate();
+    if (connected && !was) {
+      if (!isVisibleRef.current) {
+        pendingRecoverRef.current = "reconnect";
+        return;
+      }
+      requestHydrate();
+    }
   }, [connected, requestHydrate]);
 
   // 2. Subscribe to AI bus events
@@ -1110,11 +1219,9 @@ export function useAiSession({
   const sendPrompt = useCallback(
     (text, { force = false, attachments = null } = {}) => {
       if (!text && !attachments?.length) return;
-      // Read the turn state live, not from this render's closure: the queue drain
-      // calls us right after stop(), while the memoized closure still says running —
-      // bailing on that stale flag silently dropped the queued prompt.
-      // `force` is for host-side commands (/clear): they reset state on the host and
-      // must work even mid-turn, unlike a prompt the CLI would have to queue.
+      // The pane holds its own queue for a busy turn (Composer), so this is called only
+      // when the turn it saw has ended. `force` is for host-side commands (/clear), which
+      // reset state on the host and must work even mid-turn.
       if (!force) {
         const running = useAiStore.getState().bySession[sessionId]?.isTurnRunning;
         if (running) return;
@@ -1177,8 +1284,12 @@ export function useAiSession({
   const stop = useCallback(() => {
     const b = busRef.current || useConnectionStore.getState().bus;
     b?.emit("ai:stop", { sessionId });
-    setTurnRunning(sessionId, false);
-  }, [sessionId, setTurnRunning]);
+    // Deliberately NOT clearing isTurnRunning here. The host ends the turn and broadcasts
+    // `stopped` with the span it measured (`turnMs`) — lowering the flag locally first made
+    // the pane see the falling edge before that number arrived, so it froze the summary
+    // from its own clock and printed "Worked for 0s" over a turn that had just run for
+    // minutes. One door: the host ends the turn, the client only renders it.
+  }, [sessionId]);
 
   // Stop ONE background task. Fire and forget like the host side: the CLI reports the
   // stop as a `task_notification`, which is what settles the row — an optimistic local

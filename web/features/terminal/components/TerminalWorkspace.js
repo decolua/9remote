@@ -355,6 +355,7 @@ function TerminalWorkspace({
             sessionName={session?.name}
             bus={activeBus}
             fileBus={activeFileBus}
+            isVisible={isVisible}
             isFocused={isFocused}
             isDesktop={isDesktop}
             bgIndex={bgIndex}

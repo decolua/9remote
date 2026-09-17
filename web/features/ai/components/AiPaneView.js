@@ -60,6 +60,7 @@ export const AiPaneView = memo(function AiPaneView({
   sessionName = "",
   bus = null,
   fileBus = null,
+  isVisible = true,
   isFocused = false,
   isDesktop = true,
   bgIndex = 0,
@@ -78,7 +79,8 @@ export const AiPaneView = memo(function AiPaneView({
     sessionId,
     engine,
     workspacePath,
-    bus
+    bus,
+    isVisible
   });
 
   // Manual re-pull of the host log. The turn ends up wherever the host says it is,
@@ -93,6 +95,7 @@ export const AiPaneView = memo(function AiPaneView({
   }, [reload]);
 
   const activePermission = useAiStore((s) => s.bySession[sessionId]?.activePermission);
+  const isTurnRunning = Boolean(useAiStore((s) => s.bySession[sessionId]?.isTurnRunning));
   const gateError = useAiStore((s) => s.bySession[sessionId]?.gateError);
   const activeBlocked = useAiStore((s) => s.bySession[sessionId]?.activeBlocked);
   const metadata = useAiStore((s) => s.bySession[sessionId]?.metadata) || DEFAULT_METADATA;
@@ -337,7 +340,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {/* Running sub-agents, same idea one level down: their cards scroll out of view
           while the work they are doing is still going. */}
-      <AiAgentStrip sessionId={sessionId} onStopTask={stopTask} />
+      <AiAgentStrip sessionId={sessionId} engine={engine} onStopTask={stopTask} />
 
       {/* Scrollable Message List */}
       <AiMessagesList
@@ -448,6 +451,7 @@ export const AiPaneView = memo(function AiPaneView({
           currentModel={metadata.model}
           currentEffort={metadata.effort || ""}
           models={metadata.modelOptions?.length ? metadata.modelOptions : engineConfig.models}
+          isTurnRunning={isTurnRunning}
           onClose={() => setActiveModal(null)}
           onSelectModel={handleSelectModel}
           onSelectEffort={(effort) => emitOptions({ effort })}

@@ -175,7 +175,7 @@ export function onBinary(pm, msg) {
 // `ai:create` rides along because the host treats a repeat as a hydrate, not a spawn
 // (the session is already live, or the in-flight create is awaited) — and it is the
 // one request whose loss leaves a chat pane empty with no other way back.
-const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces", "bg:get", "bg:list", "ai:create"]);
+const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces", "bg:get", "bg:list", "ai:create", "ai:peekSeq"]);
 
 // Short ack timeout — if ack doesn't arrive, RTC is likely zombie (open but bytes lost).
 // Safe reads retry once over WS immediately (the UI recovers in ~5s, no restart);

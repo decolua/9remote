@@ -66,6 +66,10 @@ export const Composer = memo(function Composer({
   const [text, setText] = useState("");
   // Messages sent while a turn is running. A list, not a single slot: sending a second
   // one used to overwrite the first with no sign anything was lost.
+  //
+  // NOT persisted, deliberately: an item can carry a staged image as base64, and
+  // localStorage holds a few MB in total — one photo would fill it and the write would
+  // fail. Unsent text is worth keeping, but not at the cost of the draft mechanism itself.
   const [queue, setQueue] = useState(EMPTY_ARRAY);
   const [historyIdx, setHistoryIdx] = useState(-1);
   // Whatever was in the box before the first ArrowUp — ArrowDown past the newest entry
@@ -159,6 +163,14 @@ export const Composer = memo(function Composer({
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
+
+  // Close model/tier popovers if a turn starts running
+  useEffect(() => {
+    if (isTurnRunning) {
+      setModelMenuOpen(false);
+      setTierMenuOpen(false);
+    }
+  }, [isTurnRunning]);
 
   // Autosize textarea — lower minimum height for a compact input
   useEffect(() => {
@@ -333,10 +345,14 @@ export const Composer = memo(function Composer({
     onSend?.(trimmed, {
       attachments: pending.map(({ name, type, content }) => ({ filename: name, type, content }))
     });
-  }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias]);
+  }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias, setQueue]);
 
-  // Dispatch one queued item: a shell command goes to the terminal, anything else to
-  // the agent. Attachments are converted the same way a directly-sent prompt's are.
+  // Dispatch one item that has ALREADY been decided: it sat in the queue because a turn
+  // was running, and now it is its turn to go. No `force` — this is reached from the
+  // falling edge below, so the store has genuinely moved on and the running guard passes
+  // on its own. Forcing it would let a prompt start before the previous turn's `stopped`
+  // had been applied, and that event measures its span from the CURRENT turn's start mark:
+  // the new prompt reset it a moment earlier, so the old turn summarised as "Worked for 0s".
   const dispatchQueued = useCallback((item) => {
     if (item.text.startsWith("!")) {
       onRunShell?.(item.text.slice(1).trim());
@@ -359,17 +375,17 @@ export const Composer = memo(function Composer({
     const [next, ...rest] = queueRef.current;
     setQueue(rest);
     dispatchQueued(next);
-  }, [isTurnRunning, dispatchQueued]);
+  }, [isTurnRunning, dispatchQueued, setQueue]);
 
-  // Stop the turn and hand the queue's head to the fresh turn instead of waiting.
+  // Stop the turn. The queue is NOT drained here: the item goes out when the host says the
+  // turn ended (the falling edge above), which is also what the previous turn's `turnMs`
+  // rides on. Dispatching from this handler started the next prompt before that number
+  // arrived, and it was then measured against the new turn's start mark — "Worked for 0s"
+  // over a turn that had run for minutes.
   const handleStopClick = useCallback(() => {
     vibrate();
     onStop?.();
-    if (queue.length === 0) return;
-    const [next, ...rest] = queue;
-    setQueue(rest);
-    setTimeout(() => dispatchQueued(next), 70);
-  }, [onStop, queue, dispatchQueued]);
+  }, [onStop]);
 
   // Dispatch a picked slash command by its declared action. The action lives in
   // the engine registry, so this switch never needs an engine-specific branch.
@@ -410,7 +426,7 @@ export const Composer = memo(function Composer({
     }
     // Unknown/local action → leave the token in the box for the user to complete.
     textareaRef.current?.focus();
-  }, [onOpenModal, onSend, isTurnRunning, onModeChange]);
+  }, [onOpenModal, onSend, isTurnRunning, onModeChange, setQueue]);
 
   const selectMenuItem = useCallback((item) => {
     vibrate();
@@ -436,6 +452,10 @@ export const Composer = memo(function Composer({
     }
     // A submenu command opens a second-level list instead of dispatching.
     if (item.action === "submenu" && Array.isArray(item.subOptions) && item.subOptions.length > 0) {
+      if (isTurnRunning && (item.optionKey === "effort" || item.optionKey === "variant")) {
+        setText("");
+        return;
+      }
       setSubmenuCmd(item);
       setSelectedIdx(0);
       setMenuOpen(true);
@@ -713,41 +733,50 @@ export const Composer = memo(function Composer({
           <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
             {menuType === "/" ? "Slash Commands & Skills" : "Files in repo (@)"}
           </div>
-          {menuItems.map((item, idx) => (
-            <div
-              key={item.name}
-              data-menu-item="true"
-              onClick={() => selectMenuItem(item)}
-              onMouseEnter={() => setSelectedIdx(idx)}
-              className={`px-2 py-1 rounded-brand flex items-center justify-between text-xs cursor-pointer ${
-                idx === selectedIdx ? "bg-surface-2 text-text font-medium" : "text-text-muted hover:text-text"
-              }`}
-            >
-              <div className="flex items-center gap-2 truncate">
-                {item.isSkill ? (
-                  <Zap size={12} className="text-warning shrink-0" />
-                ) : menuType === "/" ? (
-                  <Terminal size={12} className="text-accent shrink-0" />
-                ) : (
-                  <FileCode size={12} className="text-accent shrink-0" />
-                )}
-                <span className="font-mono text-xs text-text">{item.name}</span>
-                {item.isSkill && (
-                  <span className="text-[9px] px-1 rounded bg-warning/15 text-warning font-mono">
-                    skill
+          {menuItems.map((item, idx) => {
+            const isBlocked = isTurnRunning && (
+              item.name === "/model" ||
+              (item.action === "submenu" && (item.optionKey === "effort" || item.optionKey === "variant"))
+            );
+            return (
+              <div
+                key={item.name}
+                data-menu-item="true"
+                onClick={isBlocked ? undefined : () => selectMenuItem(item)}
+                onMouseEnter={() => setSelectedIdx(idx)}
+                className={`px-2 py-1 rounded-brand flex items-center justify-between text-xs ${
+                  isBlocked
+                    ? "opacity-40 cursor-not-allowed"
+                    : idx === selectedIdx ? "bg-surface-2 text-text font-medium cursor-pointer" : "text-text-muted hover:text-text cursor-pointer"
+                }`}
+                title={isBlocked ? "Cannot change while turn is running" : undefined}
+              >
+                <div className="flex items-center gap-2 truncate">
+                  {item.isSkill ? (
+                    <Zap size={12} className="text-warning shrink-0" />
+                  ) : menuType === "/" ? (
+                    <Terminal size={12} className="text-accent shrink-0" />
+                  ) : (
+                    <FileCode size={12} className="text-accent shrink-0" />
+                  )}
+                  <span className="font-mono text-xs text-text">{item.name}</span>
+                  {item.isSkill && (
+                    <span className="text-[9px] px-1 rounded bg-warning/15 text-warning font-mono">
+                      skill
+                    </span>
+                  )}
+                  {item.action === "submenu" && (
+                    <ChevronUp size={11} className="text-text-muted shrink-0 rotate-90" />
+                  )}
+                </div>
+                {item.description && (
+                  <span className="text-[10px] text-text-muted truncate ml-2 max-w-[50%]">
+                    {item.description}
                   </span>
                 )}
-                {item.action === "submenu" && (
-                  <ChevronUp size={11} className="text-text-muted shrink-0 rotate-90" />
-                )}
               </div>
-              {item.description && (
-                <span className="text-[10px] text-text-muted truncate ml-2 max-w-[50%]">
-                  {item.description}
-                </span>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
@@ -920,9 +949,10 @@ export const Composer = memo(function Composer({
             <div ref={modelMenuRef} className="relative min-w-0 flex items-center gap-1">
               <button
                 type="button"
+                disabled={isTurnRunning}
                 onClick={() => { setModelMenuOpen((v) => !v); setTierMenuOpen(false); }}
-                className="min-w-0 px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
-                title="Select model (/model)"
+                className="min-w-0 px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                title={isTurnRunning ? "Cannot change model while turn is running" : "Select model (/model)"}
               >
                 <img src={agentIconUrl(`${engine}-ui`)} alt="" className={`w-3.5 h-3.5 object-contain shrink-0 ${AGENT_ICON_CLS}`} />
                 {/* dir=rtl keeps the tail visible when the id is too long, so the
@@ -973,9 +1003,10 @@ export const Composer = memo(function Composer({
                 <>
                   <button
                     type="button"
+                    disabled={isTurnRunning}
                     onClick={() => { setTierMenuOpen((v) => !v); setModelMenuOpen(false); }}
-                    className="shrink-0 px-1 py-0.5 rounded text-[10px] uppercase tracking-wide font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer"
-                    title={`Select ${tierSpec?.optionKey || "effort"}`}
+                    className="shrink-0 px-1 py-0.5 rounded text-[10px] uppercase tracking-wide font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
+                    title={isTurnRunning ? `Cannot change ${tierSpec?.optionKey || "effort"} while turn is running` : `Select ${tierSpec?.optionKey || "effort"}`}
                   >
                     {displayTier || "—"}
                   </button>
