@@ -12,6 +12,7 @@ import path from "path";
 const PERSISTENCE_MODE = "daemon";
 const PASTE_KEY = "\x16"; // Ctrl+V — tell the CLI to read the OS clipboard
 const RESUME_EXIT_MS = 2000; // wait for claude to exit before relaunching the conversation
+const CLEAR_LINE = process.platform === "win32" ? "\x1b" : "\x05\x15";
 
 // Keystrokes arrive piecemeal, so rebuild the current line to spot agent launch
 // lines (modal send is one chunk, hand typing is many). Capped so a running TUI
@@ -132,7 +133,8 @@ export function setupInputHandlers(socket, sessions) {
       if (session.pty) session.pty.write(data);
     };
     send("\x03\x03"); // Ctrl+C x2 — exit the running TUI
-    setTimeout(() => send(`${line}\r`), RESUME_EXIT_MS);
+    // Clear any leaked terminal responses or dirty chars on the prompt before typing resume line
+    setTimeout(() => send(`${CLEAR_LINE}${line}\r`), RESUME_EXIT_MS);
   });
 
   socket.on("upload-file", ({ sessionId, filename, size, content }) => {

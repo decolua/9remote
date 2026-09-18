@@ -16,7 +16,7 @@ const logger = createLogger("sessionMode");
 // How long a CLI is given to exit before the other surface takes the conversation over:
 // in one direction the resume line is typed into the shell, in the other the chat's own
 // process binds the same conversation. Both want the old CLI gone first.
-const CLI_EXIT_MS = 1000;
+const CLI_EXIT_MS = 1200;
 // Engines whose CLI is daemon-owned, so the chat UI can drive it. Must list exactly
 // the ids the web registry gives a `ui:` entry — an engine missing here is refused a
 // switch, one listed without a registry entry renders as a plain terminal.
@@ -24,6 +24,9 @@ const UI_ENGINES = new Set(["claude", "codex"]);
 // Whose id a session carries when status has not recorded the surface yet: only the
 // chat engines resolve here, and claude is the one every host has.
 const FALLBACK_ENGINE = "claude";
+
+// Clear line sequence: Esc on Windows (cmd/powershell), Ctrl+E + Ctrl+U on Unix
+const CLEAR_LINE = process.platform === "win32" ? "\x1b" : "\x05\x15";
 
 // The conversation this terminal holds, or the one its live chat session is actually
 // running when status has not caught up yet. A terminal switched into the UI records
@@ -117,6 +120,7 @@ function leaveUi(sessionId, session, conv) {
     : (agentById(engine)?.cmd || engine);
   if (!line) return;
   exitTui(sessionId, session);
-  setTimeout(() => sendTerminalInput(sessionId, session, `${line}\r`), CLI_EXIT_MS);
+  // Clear any leaked terminal responses or dirty chars on the prompt
+  setTimeout(() => sendTerminalInput(sessionId, session, `${CLEAR_LINE}${line}\r`), CLI_EXIT_MS);
   logger.debug(`session ${sessionId} → terminal (${engine} ${conv?.id || "fresh"})`);
 }
