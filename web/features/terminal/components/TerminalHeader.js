@@ -552,10 +552,8 @@ function TerminalHeader({
               onClick={() => {
                 vibrate();
                 const id = tabMenu.sessionId;
-                // A chat UI keeps its conversation on the host, not in a PTY: point the AI
-                // session at the id instead of typing a CLI resume line into a shell.
                 if (agentBySession[id]?.endsWith("-ui")) {
-                  busRef?.current?.emit("ai:options", { sessionId: id, options: { resume: sessionStatus[id]?.conversationId } });
+                  busRef?.current?.emit("ai:restart", { sessionId: id });
                 } else {
                   busRef?.current?.emit("session-resume", { sessionId: id });
                 }
@@ -563,7 +561,7 @@ function TerminalHeader({
               }}
               className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
             >
-              <RotateCw size={13} /> {t("sessions.resumeSession")}
+              <RotateCw size={13} /> {agentBySession[tabMenu.sessionId]?.endsWith("-ui") ? (t("sessions.restartAi") || "Restart AI") : t("sessions.resumeSession")}
             </button>
           )}
           {/* Swap this terminal between the chat UI and the agent CLI in it. The host owns

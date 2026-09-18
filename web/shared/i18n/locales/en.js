@@ -233,6 +233,7 @@ export default {
     deleteMessage: "Are you sure you want to delete \"{name}\"?",
     editName: "Edit name",
     resumeSession: "Resume session",
+    restartAi: "Restart AI",
     markRead: "Mark as read",
     openAsUi: "Open as chat UI",
     openAsTerminal: "Open as terminal",

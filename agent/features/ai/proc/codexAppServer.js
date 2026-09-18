@@ -228,6 +228,11 @@ export class CodexAppServer {
       });
     });
 
+    rpc.on("turn/started", (p) => {
+      if (!this._mine(p)) return;
+      if (p.turn?.id) this.turnId = p.turn.id;
+    });
+
     rpc.on("turn/completed", (p) => {
       if (!this._mine(p)) return;
       this.isTurnRunning = false;

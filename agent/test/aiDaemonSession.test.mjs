@@ -394,5 +394,14 @@ test("a destroyed chat cannot come back from its own stop event", () => {
     "the session must leave the registry before the async stop starts");
 });
 
+test("session.restart resets running state and unbinds adapter before stop", () => {
+  const SESSION = fs.readFileSync(path.join(root, "agent/features/ai/aiSession.js"), "utf8");
+  assert.match(SESSION, /async restart\(\) \{/);
+  assert.match(SESSION, /this\.adapter = null;/);
+  assert.match(SESSION, /this\.isTurnRunning = false;/);
+  assert.match(SESSION, /this\.refreshFromStore\(\);/);
+  assert.match(SOCKET, /socket\.on\(AI_SOCKET_EVENTS\.RESTART/);
+});
+
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

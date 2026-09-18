@@ -9,7 +9,6 @@ import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
-import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { isMac } from "@/features/terminal/constants/shortcuts";
@@ -109,9 +108,9 @@ export const Composer = memo(function Composer({
     removeAttachment, handleFileUpload, handleAttachPaste
   } = useAttachments({ bus: useConnectionStore((s) => s.bus), sessionId });
 
-  // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
-  const [voiceLang, setVoiceLang] = useVoiceLang(locale);
-  const [voiceLangOpen, setVoiceLangOpen] = useState(false);
+  // Voice dictation language: persisted, defaults to the UI locale. Set in the
+  // voice settings modal (Plugins → Voice input).
+  const [voiceLang] = useVoiceLang(locale);
   const voice = useVoiceInput({
     lang: localeToSpeechLang(voiceLang),
     onText: (txt) => setText(txt),
@@ -529,6 +528,7 @@ export const Composer = memo(function Composer({
       }
       if (isTurnRunning) {
         e.preventDefault();
+        console.log("[TEMP DIAGNOSTIC] Esc → stop", { sessionId });
         handleStopClick();
         return;
       }
@@ -830,19 +830,6 @@ export const Composer = memo(function Composer({
         </div>
       )}
 
-      {/* While dictating, the language is one tap away — same affordance as the terminal */}
-      {voice.supported && voice.listening && (
-        <button
-          type="button"
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => setVoiceLangOpen(true)}
-          title={t("voice.language")}
-          className="mb-1 px-2 py-0.5 rounded bg-surface-2 shadow text-[10px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
-        >
-          {voiceLang}
-        </button>
-      )}
-
       {/* Main Composer Box — Transparent, compact height */}
       <div className="relative rounded-brand border border-border-subtle/80 bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
         {/* Staged attachments — image thumbnails, or a name chip for other files */}
@@ -1058,7 +1045,7 @@ export const Composer = memo(function Composer({
             </label>
 
             {/* Dictate into the box, same engine the terminal input uses */}
-            {voice.supported && (
+            {voice.active && (
               <button
                 type="button"
                 onMouseDown={(e) => e.preventDefault()}
@@ -1123,13 +1110,6 @@ export const Composer = memo(function Composer({
         onClose={() => setHistoryOpen(false)}
       />
 
-      {/* Dictation language picker — only reachable while dictating, like the terminal */}
-      <VoiceLangModal
-        isOpen={voiceLangOpen}
-        value={voiceLang}
-        onSelect={setVoiceLang}
-        onClose={() => setVoiceLangOpen(false)}
-      />
     </div>
   );
 });

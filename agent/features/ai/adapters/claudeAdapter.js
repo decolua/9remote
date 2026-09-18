@@ -161,8 +161,10 @@ export class ClaudeAdapter {
    * this agent has not parsed. `alive: false` means there is nothing to adopt.
    */
   async adopt(from = 0, epoch = null) {
+    const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
+    const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
     this._reset(this.currentMode);
-    const fetch = await this.proc.attach(from, epoch);
+    const fetch = await this.proc.attach(f, ep);
     // A live process is NOT a running turn: this CLI holds ONE process for the whole
     // conversation and sits idle between turns, so `alive` would leave the flag stuck
     // true for the rest of the chat's life — a rewind then refuses with "stop the

@@ -390,14 +390,27 @@ export class CodexAdapter {
    * that ended while nobody was watching is replayed too — every line it printed is
    * in the daemon's buffer, so the chat shows the answer instead of a blank pane.
    */
-  async adopt({ from = 0, epoch = null } = {}) {
-    const fetch = await this.proc.attach({ from, epoch });
+  async adopt(from = 0, epoch = null) {
+    if (this.persistent) {
+      // The app-server is a stateful JSON-RPC session that cannot be adopted across
+      // process boundaries without re-initialization. Stop any orphan daemon proc
+      // and let _startManaged call start() to resume the thread cleanly via JSON-RPC.
+      const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
+      const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
+      const fetch = await this.proc.attach(f, ep);
+      if (fetch?.alive) {
+        await this.proc.stop();
+      }
+      this.isTurnRunning = false;
+      return { alive: false, lines: [] };
+    }
+    const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
+    const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
+    const fetch = await this.proc.attach(f, ep);
     if (!fetch.lines?.length && !fetch.alive) return fetch;
     this._bind();
     // The turn's process is the turn: while it lives, the chat is still working.
     this.isTurnRunning = fetch.alive;
-    // The gap is healed by the session (it owns the conversation id and the log), so
-    // the lines are handed over before the held ones are released.
     this.fetched = fetch;
     return fetch;
   }
@@ -681,11 +694,18 @@ export class CodexAdapter {
    * ending the turn.
    */
   interrupt() {
+    // TEMP DIAGNOSTIC (esc-stop)
+    logger.info(`[TEMP DIAGNOSTIC] codex interrupt persistent=${this.persistent} thread=${this.activeThreadId || "-"} turn=${this.appServer?.turnId || "-"} transport=${this.transport || "-"}`);
     if (this.persistent) {
       // The server's own answer, not a guess: it needs BOTH the thread and the open turn,
       // and only it knows whether a turn is really running. Returning `true` off a thread
       // id alone was the same lie one layer down — `AiSession.stop` would report a turn
       // stopped and clear the pane's flag over a CLI that never heard anything.
+      const willInterrupt = Boolean(this.appServer?.threadId && this.appServer?.turnId && !this.appServer?.closed);
+      if (!willInterrupt) {
+        this.isTurnRunning = false;
+        if (this.appServer) this.appServer.isTurnRunning = false;
+      }
       return Boolean(this.appServer?.interrupt());
     }
     this.isTurnRunning = false;
@@ -703,7 +723,12 @@ export class CodexAdapter {
   signal(sig = "SIGINT") {
     const carrier = this.persistent ? this._activeCarrier() : this.proc;
     if (typeof carrier?.signal !== "function") return false;
-    try { carrier.signal(sig); return true; } catch { return false; }
+    try {
+      carrier.signal(sig);
+      this.isTurnRunning = false;
+      if (this.appServer) this.appServer.isTurnRunning = false;
+      return true;
+    } catch { return false; }
   }
 
   /**

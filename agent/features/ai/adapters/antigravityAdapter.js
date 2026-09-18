@@ -1,7 +1,10 @@
 // Adapter for the Antigravity CLI (`agy`) using --output-format stream-json.
 import { getExtendedEnv } from "./env.js";
 import { AgentProc } from "../proc/agentProc.js";
+import { createLogger } from "../../../lib/logger.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
+
+const logger = createLogger("ai");
 
 // `agy` has no `--permission-mode` flag: the gate is either on or bypassed. Plan mode
 // is the CLI's own read-only mode (`--mode plan`), so that is what it maps to.
@@ -46,6 +49,40 @@ function normalizeParameters(parameters) {
     out[PARAM_ALIASES[key] || key] = value;
   }
   return out;
+}
+
+// Edit tools whose input carries the change itself, so the turn draws a diff card —
+// the same fold claude's adapter does for Edit/Write. Arg names are the CLI's own,
+// read off real transcripts (write_to_file {TargetFile, CodeContent};
+// replace_file_content {TargetFile, TargetContent, ReplacementContent}) and read here
+// AFTER normalizeParameters, so the live stream and the transcript recovery share it.
+//
+// The LIVE stream strips the content args (verified on 1.2.2: write_to_file carries
+// TargetFile alone, both on ACTIVE and DONE) — only the transcript keeps them. A diff
+// without its content would be an empty card hiding the tool row, so a stripped input
+// answers null: live keeps the tool row, and a reopen (full args) swaps in the card.
+// ponytail: sed_file/multi_replace_file_content have no recorded run to verify shapes
+// against — add them when a real transcript shows their arg names.
+const DIFF_TOOLS = new Set(["write_to_file", "replace_file_content"]);
+
+export function antigravityEditDiff(name, input = {}) {
+  if (!DIFF_TOOLS.has(name)) return null;
+  const file = input.file_path || "";
+  if (!file) return null;
+  if (name === "write_to_file") {
+    if (!input.CodeContent) return null;
+    return { file, name, patch: "", content: String(input.CodeContent) };
+  }
+  if (!input.TargetContent && !input.ReplacementContent) return null;
+  // A trailing newline would add an empty +/- line that reads as a real change.
+  const lines = [];
+  const add = (text, sign) => {
+    const body = String(text ?? "").replace(/\n$/, "");
+    if (body) lines.push(...body.split("\n").map((l) => `${sign}${l}`));
+  };
+  add(input.TargetContent, "-");
+  add(input.ReplacementContent, "+");
+  return { file, name, patch: lines.join("\n"), content: "" };
 }
 
 export class AntigravityAdapter {
@@ -124,8 +161,10 @@ export class AntigravityAdapter {
    * that ended while nobody was watching is replayed too — every line it printed is
    * in the daemon's buffer, so the chat shows the answer instead of a blank pane.
    */
-  async adopt({ from = 0, epoch = null } = {}) {
-    const fetch = await this.proc.attach({ from, epoch });
+  async adopt(from = 0, epoch = null) {
+    const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
+    const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
+    const fetch = await this.proc.attach(f, ep);
     if (!fetch.lines?.length && !fetch.alive) return fetch;
     this._bind();
     // The turn's process is the turn: while it lives, the chat is still working.
@@ -309,6 +348,9 @@ export class AntigravityAdapter {
 
     if (step.state === "DONE") {
       this.onEvent?.("tool_result", { id, name, output: info.output ?? "", status: "done" });
+      // Only a change that LANDED is a diff; a denied one is the tool row it already is.
+      const diff = antigravityEditDiff(name, input);
+      if (diff) this.onEvent?.("diff", diff);
       return;
     }
 
@@ -360,9 +402,13 @@ export class AntigravityAdapter {
    * the turn stopped.
    */
   interrupt() {
+    // TEMP DIAGNOSTIC (esc-stop)
+    logger.info(`[TEMP DIAGNOSTIC] agy interrupt turnRunning=${this.isTurnRunning} conv=${this.activeConversationId || "-"} proc=${this.proc?.constructor?.name || "none"}`);
     if (!this.isTurnRunning) return false;
     this.isTurnRunning = false;
-    Promise.resolve(this.proc?.stop()).catch(() => {});
+    Promise.resolve(this.proc?.stop())
+      .then((r) => logger.info(`[TEMP DIAGNOSTIC] agy proc.stop → ${JSON.stringify(r ?? null).slice(0, 80)}`))
+      .catch((e) => logger.warn(`[TEMP DIAGNOSTIC] agy proc.stop refused: ${e.message}`));
     return true;
   }
 

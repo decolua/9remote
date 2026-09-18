@@ -190,5 +190,37 @@ await test("a non-SUCCESS result surfaces as an error", () => {
   assert.equal(of("error")[0][1].message, "quota exhausted");
 });
 
+await test("a landed write_to_file draws a diff card when the args are whole, under the CLI's own names", () => {
+  // Arg names read off a real transcript: TargetFile / CodeContent. The live stream
+  // strips the content (verified on 1.2.2), so it is the replay door that feeds this.
+  const { of } = replay([
+    step({ step_index: 2, state: "DONE", step_type: "tool", tool_name: "write_to_file", tool_info: { parameters: { TargetFile: "/tmp/a.js", CodeContent: "hello" } } })
+  ]);
+  const [diff] = of("diff");
+  assert.deepEqual(diff[1], { file: "/tmp/a.js", name: "write_to_file", patch: "", content: "hello" });
+});
+
+await test("the live stream's stripped args draw NO diff — an empty card must not hide the tool row", () => {
+  // Recorded from a real turn: live write_to_file carries TargetFile alone, on both
+  // ACTIVE and DONE. The tool row stays; a reopen swaps in the diff card.
+  const { of } = replay([
+    step({ step_index: 2, state: "ACTIVE", step_type: "tool", tool_name: "write_to_file", tool_info: { parameters: { TargetFile: "/tmp/a.js" } } }),
+    step({ step_index: 2, state: "DONE", step_type: "tool", tool_name: "write_to_file", tool_info: { parameters: { TargetFile: "/tmp/a.js" } } })
+  ]);
+  assert.equal(of("tool_result").length, 1);
+  assert.equal(of("diff").length, 0);
+});
+
+await test("a landed replace_file_content draws its -/+ lines, and a denied one does not", () => {
+  const { of } = replay([
+    step({ step_index: 3, state: "DONE", step_type: "tool", tool_name: "replace_file_content", tool_info: { parameters: { TargetFile: "/tmp/a.js", TargetContent: "old\n", ReplacementContent: "new" } } }),
+    step({ step_index: 4, state: "ERROR", step_type: "tool", tool_name: "replace_file_content", tool_info: { parameters: { TargetFile: "/tmp/b.js", TargetContent: "x", ReplacementContent: "y" }, error: { message: "user denied permission" } } })
+  ]);
+  const [diff] = of("diff");
+  assert.equal(diff[1].file, "/tmp/a.js");
+  assert.equal(diff[1].patch, "-old\n+new"); // the trailing \n must not become an empty line
+  assert.equal(of("diff").length, 1); // the denied edit stays a tool row
+});
+
 console.log(`=== ${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);
