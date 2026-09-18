@@ -4,16 +4,9 @@
 
 import { CHANNELS, FILE_TRANSFER } from "@/shared/constants/transport";
 import { encodeFileFrame, decodeFileFrame } from "@/shared/transport/fileFrame";
+import { emitAck } from "@/features/mobile/hooks/useMobileDevices";
 import { AckTracker } from "./ackTrackerWeb";
 import { ConflictResolver } from "./conflict";
-
-// Promisify a bus emit-with-callback (last arg fn → ack).
-function emitAck(bus, event, payload) {
-  return new Promise((resolve) => {
-    if (!bus) { resolve({ success: false, error: "Not connected" }); return; }
-    bus.emit(event, payload, (res) => resolve(res || { success: false, error: "No response" }));
-  });
-}
 
 function planChunks(size, chunkSize) {
   if (size <= 0) return [];

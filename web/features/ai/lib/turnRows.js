@@ -19,9 +19,15 @@ const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todo
 // Must match the diff-emitting tool names in the agent adapters: every tool the host
 // turns into a diff row has to be hidden here, or the file shows twice. All four claude
 // tools name their target, and NotebookEdit uses `notebook_path` rather than `file_path`;
-// codex's own name comes from the CLI's item type.
-const DIFF_TOOL_NAMES = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "file_change"]);
-const editTarget = (input = {}) => input.file_path || input.notebook_path || input.path || "";
+// codex's own name comes from the CLI's item type; opencode's edit/write and
+// antigravity's write_to_file/replace_file_content build their diffs in the adapters.
+const DIFF_TOOL_NAMES = new Set([
+  "Edit", "Write", "MultiEdit", "NotebookEdit", "file_change",
+  "edit", "write", "write_to_file", "replace_file_content"
+]);
+// opencode names it `filePath` (1.18 schema), antigravity's adapter normalizes to
+// `file_path` — read every spelling the wire actually carries.
+const editTarget = (input = {}) => input.file_path || input.notebook_path || input.path || input.filePath || input.file || "";
 
 /** The tool row a diff replaces, by file — shared with `buildTurnRows`'s dedupe. */
 export const editsFile = (t, path) =>

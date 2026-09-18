@@ -6,14 +6,17 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, AGENT_ICON_CLS, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
-import { SHORTCUTS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
+import { isMac } from "@/features/terminal/constants/shortcuts";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
 import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 
-// The quick-create chord (create from last prefs, no modal) hinted at in the title bar
-const NEW_TERMINAL_SHORTCUT = SHORTCUTS.find((s) => s.id === "newTerminal");
+// Temporarily disabled AI UIs on the new-terminal modal
+const DISABLED_AI_UIS = new Set(["opencode-ui", "antigravity-ui"]);
+
+const QUICK_KEYS_MAC = ["⌥", "⇧", "↵"];
+const QUICK_KEYS_PC = ["Ctrl", "⇧", "↵"];
 
 const TAB_DEFS = [
   { id: "new", icon: Terminal, labelKey: "terminal.newTerminal" },
@@ -77,6 +80,8 @@ export default function NewTerminalModal({
     requestAnimationFrame(() => nameRef.current?.focus());
   }, []);
 
+  const quickKeys = isMac() ? QUICK_KEYS_MAC : QUICK_KEYS_PC;
+
   // Bring the restored pick into view once, after detection populates the list.
   // Not per-render: re-scrolling on every keystroke would fight the user's scroll.
   useEffect(() => {
@@ -86,13 +91,15 @@ export default function NewTerminalModal({
   }, [agentClis, agentId]);
 
   // Combine built-in AI UI options with detected agent CLIs
+  const visibleAiUis = AI_UI_OPTIONS.filter((u) => !DISABLED_AI_UIS.has(u.id));
   const allAgents = (agentClis || []).flatMap((a) => {
-    const ui = AI_UI_OPTIONS.find((u) => u.aiEngine === a.id);
+    const ui = visibleAiUis.find((u) => u.aiEngine === a.id);
     return ui ? [a, ui] : a;
   });
-  for (const u of AI_UI_OPTIONS) if (!allAgents.includes(u)) allAgents.push(u);
+  for (const u of visibleAiUis) if (!allAgents.includes(u)) allAgents.push(u);
   const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
-  const options = [null, ...allAgents];
+  // Slot 1 is plain terminal; slot 2 is kept empty so Claude CLI & UI align on row 2, Codex on row 3
+  const options = [null, { empty: true }, ...allAgents];
   const canSkip = !agent?.isAiUi && canSkipPermissions(agent);
   // The agent's own skip-mode token, e.g. --yolo / GOOSE_MODE=auto — null for plain shells
   const skipFlag = agent?.yolo
@@ -105,9 +112,12 @@ export default function NewTerminalModal({
     const delta = { ArrowRight: 1, ArrowLeft: -1, ArrowDown: 2, ArrowUp: -2 }[e.key];
     if (delta === undefined) return;
     e.preventDefault();
-    const next = Math.max(0, Math.min(options.length - 1, index + delta));
+    let next = index + delta;
+    if (options[next]?.empty) next += delta > 0 ? 1 : -1;
+    next = Math.max(0, Math.min(options.length - 1, next));
+    if (options[next]?.empty) return;
     pick(options[next]);
-    listRef.current?.querySelectorAll("[role=radio]")[next]?.focus();
+    listRef.current?.querySelector(`[data-index="${next}"]`)?.focus();
   };
 
   // Agent tabs default to "<Agent> <n>" so two Claude terminals stay tellable apart;
@@ -211,14 +221,6 @@ export default function NewTerminalModal({
             ) : (
               <h2 id="newTerminalTitle" className="flex-1 text-sm font-semibold text-text">{t("terminal.newTerminal")}</h2>
             )}
-            {/* The chord is a pointer-device affordance; a phone has no way to press it */}
-            {NEW_TERMINAL_SHORTCUT && !showHistory && (
-              <span className="hidden sm:inline-flex items-center gap-1 shrink-0 self-center" aria-hidden="true">
-                {shortcutKeys(NEW_TERMINAL_SHORTCUT).map((key) => (
-                  <kbd key={key} className={SHORTCUT_KEY_CLS}>{key}</kbd>
-                ))}
-              </span>
-            )}
             <button onClick={onClose} aria-label={t("common.cancel")} className="text-text-muted hover:text-text shrink-0 self-center">
               <X size={18} />
             </button>
@@ -257,6 +259,9 @@ export default function NewTerminalModal({
           className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 pb-1 grid grid-cols-2 gap-1.5 content-start"
         >
           {options.map((a, i) => {
+            if (a?.empty) {
+              return <div key="__empty_spacer" aria-hidden="true" className="pointer-events-none select-none" />;
+            }
             const active = (a?.id || "") === (agent?.id || "");
             return (
               <button
@@ -269,13 +274,25 @@ export default function NewTerminalModal({
                 onDoubleClick={() => submit(a)}
                 onKeyDown={(e) => onGridKey(e, i)}
                 data-picked={active}
-                className={`flex items-center gap-2 px-2.5 py-2 rounded-brand text-left transition-colors min-w-0 ${
+                data-index={i}
+                className={`flex items-center gap-2 px-2.5 py-2 rounded-brand text-left transition-colors min-w-0 outline-none focus:outline-none focus:ring-0 ${
                   active ? "bg-brand-500/15 text-text" : "text-text-muted hover:bg-surface-2 hover:text-text"
                 }`}
               >
                 <AgentAvatar agent={a} />
                 <span className="flex-1 text-sm font-medium truncate">{a ? a.label : t("terminal.plainShell")}</span>
-                {active && <Check size={14} className="text-brand-400 shrink-0" />}
+                {active && (
+                  <>
+                    <span className="hidden sm:inline-flex items-center gap-0.5 shrink-0 select-none">
+                      {quickKeys.map((k) => (
+                        <kbd key={k} className="inline-flex items-center justify-center px-1 py-0.5 text-[10px] font-mono leading-none rounded bg-surface-2 border border-border-subtle text-text-muted">
+                          {k}
+                        </kbd>
+                      ))}
+                    </span>
+                    <Check size={14} className="text-brand-400 shrink-0 sm:hidden" />
+                  </>
+                )}
               </button>
             );
           })}
@@ -321,6 +338,12 @@ export default function NewTerminalModal({
               value={name}
               placeholder={defaultName}
               onInput={(e) => setName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "ArrowUp") {
+                  e.preventDefault();
+                  listRef.current?.querySelector("[data-picked=true]")?.focus();
+                }
+              }}
               className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
             />
           </div>

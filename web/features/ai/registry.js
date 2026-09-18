@@ -483,12 +483,14 @@ export class OpenCodeEngine extends AiEngine {
         icon: "Zap",
         color: "#8b5cf6",
       },
+      ui: { id: "opencode-ui", label: "OpenCode UI", short: "OpenCode UI" },
       overrides: {
         tools: {
           bash: "bash",
           edit: "diff",
           write: "diff",
           patch: "diff",
+          apply_patch: "diff",
           read: "file",
           task: "agent",
           todowrite: "task",
@@ -498,7 +500,6 @@ export class OpenCodeEngine extends AiEngine {
           list: "search",
           view: "file",
         },
-        features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
         // Model ids come from the host's own `opencode models` catalog (`modelOptions`
         // in the init event); opencode ships no fixed list to fall back on.
         models: [],
@@ -542,6 +543,7 @@ export class AntigravityEngine extends AiEngine {
         icon: "Globe",
         color: "#4285f4",
       },
+      ui: { id: "antigravity-ui", label: "Antigravity UI", short: "Antigravity UI" },
       overrides: {
         // `agy` tool names, as reported in step_update.tool_name.
         tools: {

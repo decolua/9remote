@@ -19,7 +19,7 @@ export function describeActivity(tool, engine = "claude") {
     case "search":
       return clip([input.pattern ? `"${input.pattern}"` : input.query || input.url || "", path ? `in ${path}` : ""].filter(Boolean).join(" "), MAX_DETAIL);
     case "diff":
-      return clip(`${/^(Write|write_to_file)$/i.test(name) ? "Writing" : "Editing"} ${baseName(input.file || input.path) || argOf(input)}`, MAX_DETAIL);
+      return clip(`${/^(Write|write_to_file)$/i.test(name) ? "Writing" : "Editing"} ${baseName(input.file_path || input.filePath || input.file || input.path) || argOf(input)}`, MAX_DETAIL);
     case "agent":
       return clip(input.description || argOf(input) || "sub-agent", MAX_DETAIL);
     case "plan":
@@ -115,7 +115,10 @@ export function describeLive({ connected = true, hydrating = false, retryStatus 
       case "diff": {
         // The category is "file was modified"; Write creates, the rest rewrite in place.
         const creating = /^(Write|write_to_file)$/i.test(name);
-        return { verb: creating ? "Writing" : "Editing", detail: clip(baseName(input.file || input.path) || argOf(input), MAX_DETAIL), tone: "wait" };
+        // Same key ladder as turnRows' editTarget — opencode sends filePath, its adapter
+        // normalizes to file_path, claude sends file_path.
+        const file = input.file_path || input.filePath || input.file || input.path;
+        return { verb: creating ? "Writing" : "Editing", detail: clip(baseName(file) || argOf(input), MAX_DETAIL), tone: "wait" };
       }
       case "agent": {
         const steps = activeTool.children?.length || 0;

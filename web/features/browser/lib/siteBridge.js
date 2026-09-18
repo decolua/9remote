@@ -103,9 +103,11 @@ function onProxyMessage(event) {
 }
 
 export async function initSiteBridge(sock) {
-  // Subscribe on every call — bus.on is Set-backed, so re-adds are free
+  // Off-first: the bus handler list is array-backed, a bare re-on would stack
+  // a duplicate onChunk on every BrowserView remount.
   if (sock) {
     bus = sock;
+    bus.off?.("site:httpChunk", onChunk);
     bus.on?.("site:httpChunk", onChunk);
   }
   if (!initiated && typeof window !== "undefined") {
