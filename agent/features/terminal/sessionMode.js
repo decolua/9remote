@@ -4,6 +4,7 @@
 import * as daemonClient from "./ptyDaemonClient.js";
 import { globalAiManager } from "../ai/aiManager.js";
 import { resumeCommand } from "./agentHistory.js";
+import { agentById } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
 import {
@@ -15,12 +16,10 @@ const logger = createLogger("sessionMode");
 // How long a CLI is given to exit before the other surface takes the conversation over:
 // in one direction the resume line is typed into the shell, in the other the chat's own
 // process binds the same conversation. Both want the old CLI gone first.
-const CLI_EXIT_MS = 2000;
+const CLI_EXIT_MS = 1000;
 // Engines whose CLI is daemon-owned, so the chat UI can drive it. Must list exactly
 // the ids the web registry gives a `ui:` entry — an engine missing here is refused a
 // switch, one listed without a registry entry renders as a plain terminal.
-// codex is listed for the surface bookkeeping (setSessionMode on an already-UI
-// session, re-recording a lost mode); the daemon-driven branch itself is claude-only.
 const UI_ENGINES = new Set(["claude", "codex"]);
 // Whose id a session carries when status has not recorded the surface yet: only the
 // chat engines resolve here, and claude is the one every host has.
@@ -32,8 +31,9 @@ const FALLBACK_ENGINE = "claude";
 function resolveConversation(sessionId) {
   const conv = getConversation(sessionId);
   if (conv?.id) return conv;
-  const id = globalAiManager.getSession(sessionId)?.cliSessionId;
-  return id ? { agent: engineFromAgent(getSessionAgent(sessionId)) || FALLBACK_ENGINE, id } : null;
+  const aiSession = globalAiManager.getSession(sessionId);
+  const id = aiSession?.cliSessionId || aiSession?.threadId;
+  return id ? { agent: engineFromAgent(getSessionAgent(sessionId) || aiSession?.engine) || FALLBACK_ENGINE, id } : null;
 }
 
 export async function setSessionMode(sessionId, mode, { sessions, io } = {}) {
@@ -41,46 +41,53 @@ export async function setSessionMode(sessionId, mode, { sessions, io } = {}) {
   if (!session) return { success: false, error: "Session not found" };
   if (mode !== MODE.UI && mode !== MODE.TERMINAL) return { success: false, error: "Invalid mode" };
   const conv = resolveConversation(sessionId);
-  if (!conv) return { success: false, error: "No conversation in this terminal" };
 
-  const current = engineFromAgent(getSessionAgent(sessionId) || conv.agent);
-  if (!UI_ENGINES.has(current)) return { success: false, error: `${current} has no chat UI` };
+  const current = engineFromAgent(getSessionAgent(sessionId) || conv?.agent || session.agent);
+  if (!current || !UI_ENGINES.has(current)) return { success: false, error: `${current || "Session"} has no chat UI` };
 
   const agentId = mode === MODE.UI ? `${current}-ui` : current;
-  // Already on this surface. The conversation is re-recorded anyway: a switch whose
-  // record was lost would otherwise leave the pane on an empty chat for good.
-  if (conv.agent.endsWith("-ui") === (mode === MODE.UI)) {
-    logger.debug(`session ${sessionId} already ${mode}, re-recording ${conv.id}`);
-    setConversationId(sessionId, agentId, conv.id, "resume");
+  if ((session.agent || conv?.agent || "").endsWith("-ui") === (mode === MODE.UI)) {
+    logger.debug(`session ${sessionId} already ${mode}`);
+    if (conv?.id) setConversationId(sessionId, agentId, conv.id, "resume");
     return { success: true };
   }
 
-  logger.info(`session ${sessionId}: ${mode} ← ${conv.agent} ${conv.id}`);
+  logger.info(`session ${sessionId}: ${mode} ← ${conv?.agent || session.agent} ${conv?.id || "fresh"}`);
   // Set the surface first: it clears any conversation belonging to another CLI, and
   // the re-record below is what restores it — under the surface now running it.
   setSessionAgent(sessionId, agentId);
   session.agent = agentId;
-  // The CLI on the surface being left has to go: it holds this conversation, and the
-  // surface coming up resumes the same one. Two CLIs on one conversation write the same
-  // transcript twice.
-  if (mode === MODE.UI) enterUi(sessionId, session);
-  else leaveUi(sessionId, session, conv);
-  // Records the conversation against the new surface, so the history row lights up
-  // and reopening it lands on the same one.
-  setConversationId(sessionId, agentId, conv.id, "resume");
-  // Broadcast, not io.emit: clients listen on the per-connection bus, which the
-  // raw socket would bypass entirely.
+
+  if (mode === MODE.UI) {
+    enterUi(sessionId, session);
+    await new Promise((r) => setTimeout(r, 400));
+  } else {
+    leaveUi(sessionId, session, conv);
+  }
+
+  if (conv?.id) {
+    setConversationId(sessionId, agentId, conv.id, "resume");
+  }
+
   broadcast(io, "sessionAgentChanged", { sessionId, agent: agentId });
   return { success: true };
 }
 
-// Ctrl+C x2 into the PTY — how the TUI exits. Only worth sending to a terminal the
-// daemon is actually running and a client has joined: an unjoined one has nothing
-// listening, and a non-daemon session has no PTY behind it.
+function sendTerminalInput(sessionId, session, input) {
+  if (session?.daemon && daemonClient.isConnected()) {
+    daemonClient.sendInput(sessionId, input);
+    return true;
+  }
+  if (session?.pty) {
+    session.pty.write(input);
+    return true;
+  }
+  return false;
+}
+
+// Ctrl+C x2 into the PTY — how the TUI exits.
 function exitTui(sessionId, session) {
-  if (!session.daemon || !daemonClient.isConnected()) return false;
-  daemonClient.sendInput(sessionId, "\x03\x03");
-  return true;
+  return sendTerminalInput(sessionId, session, "\x03\x03");
 }
 
 // The chat's own CLI, which the daemon runs as a managed process. Stopping it is a
@@ -104,17 +111,12 @@ function leaveUi(sessionId, session, conv) {
   // Leaving the UI would strand a CLI process on the host holding this conversation
   // while a second one resumes it.
   stopChatCli(sessionId);
-  // conv.agent still names the surface ("codex-ui") when the mode came back from a
-  // record; resumeCommand only knows engine ids, and would answer null.
-  const line = resumeCommand(engineFromAgent(conv.agent), conv.id, true);
-  // Nothing to relaunch the conversation with, so the TUI stays where it is — a bare
-  // shell with no way back is worse than a CLI the next switch can move.
+  const engine = engineFromAgent(conv?.agent || session.agent);
+  const line = conv?.id
+    ? resumeCommand(engine, conv.id, true)
+    : (agentById(engine)?.cmd || engine);
   if (!line) return;
-  // Same exit-and-resume a layout change already does: the TUI hard-wraps at launch
-  // width, so the only true re-render is the CLI's own resume line. This is a
-  // keystroke into a live shell, so whether the terminal is up is asked of the host,
-  // not assumed — an unjoined terminal has nothing listening.
-  if (!exitTui(sessionId, session)) return;
-  setTimeout(() => daemonClient.sendInput(sessionId, `${line}\r`), CLI_EXIT_MS);
-  logger.debug(`session ${sessionId} → terminal (${conv.agent} ${conv.id})`);
+  exitTui(sessionId, session);
+  setTimeout(() => sendTerminalInput(sessionId, session, `${line}\r`), CLI_EXIT_MS);
+  logger.debug(`session ${sessionId} → terminal (${engine} ${conv?.id || "fresh"})`);
 }

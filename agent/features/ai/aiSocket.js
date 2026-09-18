@@ -323,9 +323,10 @@ function emitConnectMetadata(session, engine) {
 // conversation's agent over the session's own, so "claude" here would restore a
 // chat as a plain terminal on the next boot.
 function mirrorAiConversation(sessionId, event, data, engine) {
-  if (event !== "init" || !data?.sessionId) return;
-  if (!SESSION_ID_RE.test(data.sessionId)) return;
-  setConversationId(sessionId, getSessionAgent(sessionId) || engine, data.sessionId, "hook");
+  if (event !== "init") return;
+  const convId = data?.sessionId || data?.threadId;
+  if (!convId || !SESSION_ID_RE.test(convId)) return;
+  setConversationId(sessionId, getSessionAgent(sessionId) || engine, convId, "hook");
 }
 
 // The CLI named this conversation. Ask for a rename through the seam the terminal layer

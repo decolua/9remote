@@ -192,9 +192,10 @@ function TerminalSidebar({
 
   // The switch door: which surface this terminal is on, and whether the host may be
   // asked to move it right now (same rule as the tab menu).
-  const ctxAsUi = agentBySession[ctxMenu?.sessionId]?.endsWith("-ui");
+  const ctxAgent = agentBySession[ctxMenu?.sessionId] || sessionStatus[ctxMenu?.sessionId]?.tool || allSessions.find((s) => s.id === ctxMenu?.sessionId)?.agent;
+  const ctxAsUi = ctxAgent?.endsWith("-ui");
   const ctxConversationId = sessionStatus[ctxMenu?.sessionId]?.conversationId;
-  const ctxSwitchable = isChatEngine(agentBySession[ctxMenu?.sessionId]) && !!ctxConversationId;
+  const ctxSwitchable = isChatEngine(ctxAgent);
   const ctxSwitchReady = ctxSwitchable && SWITCHABLE_STATES.has(sessionStatus[ctxMenu?.sessionId]?.state || "idle");
 
   // Rename prompt (shared modal — same UX as tab header and session list)

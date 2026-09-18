@@ -27,10 +27,8 @@ import { GITHUB_REPO_URL } from "@/shared/constants/github";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 
-// Engines a terminal can be swapped into the chat UI. Only Claude: the host moves the
-// conversation between surfaces through its daemon, which speaks Claude's stream
-// protocol alone. ponytail: add codex/opencode here once their streams move there too.
-const UI_SWITCHABLE_ENGINES = new Set(["claude"]);
+// Engines a terminal can be swapped into the chat UI.
+const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex"]);
 // A turn in flight owns the conversation: the host would have to move it out from under
 // a running CLI. Only a settled terminal (idle, or a finished turn) may switch.
 export const SWITCHABLE_STATES = new Set(["idle", "done"]);
@@ -103,8 +101,9 @@ function TerminalHeader({
   // asked to move it right now. The conversation is the host's precondition — a claude tab
   // that has not started one yet has nothing to move — and status only carries a state
   // while a turn is running or just finished, so a missing entry reads as idle.
-  const tabAsUi = agentBySession[tabMenu.sessionId]?.endsWith("-ui");
-  const tabSwitchable = isChatEngine(agentBySession[tabMenu.sessionId]) && !!sessionStatus[tabMenu.sessionId]?.conversationId;
+  const tabAgent = agentBySession[tabMenu.sessionId] || sessionStatus[tabMenu.sessionId]?.tool || sessions.find((s) => s.id === tabMenu.sessionId)?.agent;
+  const tabAsUi = tabAgent?.endsWith("-ui");
+  const tabSwitchable = isChatEngine(tabAgent);
   const tabSwitchReady = tabSwitchable && SWITCHABLE_STATES.has(sessionStatus[tabMenu.sessionId]?.state || "idle");
   const [tabDeleteConfirm, setTabDeleteConfirm] = useState({ isOpen: false, sessionId: null, sessionName: "" });
   // Tab rename prompt (shared modal; inline input lost the iOS gesture window for focus)
