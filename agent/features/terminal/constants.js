@@ -36,7 +36,8 @@
 //      process and relays its numbered lines; the agent parses them, owns the chat log
 //      and the snapshot, and re-attaches after a restart. Changing an engine's protocol
 //      no longer touches this file at all.
-export const DAEMON_VERSION = "68";
+// v70: daemon Kv store for state persistence across restarts, normalized attach/adopt.
+export const DAEMON_VERSION = "70";
 
 // Where pasted/attached files are staged before being handed to a CLI. Lives here,
 // not in ptyHelper, because the daemon needs it too — ptyHelper pulls in agent-side

@@ -151,6 +151,11 @@ export class DaemonProc {
    * `alive: false` means the turn ended while no agent was watching.
    */
   async attach(from = 0, epoch = null) {
+    if (typeof from === "object" && from !== null) {
+      epoch = from.epoch ?? null;
+      from = from.from ?? 0;
+    }
+    from = Number(from) || 0;
     // The reader's watermark is the baseline the gap is measured against, so it has to
     // be set before the answer is interpreted — the same rule `start` follows.
     this._lastLine = from;

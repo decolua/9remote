@@ -18,6 +18,7 @@ import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
 import { getLastOutputAt, touchOutput, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
 import { TURN_END_EVENTS } from "./aiStatus.js";
+import { saveAiPreference } from "./models.js";
 import { PATHS } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
 
@@ -359,6 +360,10 @@ function insertByIndex(events, carried) {
   return out;
 }
 
+// The daemon KV key for a chat's own carried state. The daemon holds the process,
+// so it holds the process's facts too; the agent keeps only this key.
+const kvKey = (id) => `ai:${id}`;
+
 export class AiSession {
   constructor({ id, engine, cwd, options = {}, onEvent }) {
     this.id = id;
@@ -386,6 +391,10 @@ export class AiSession {
     this.goalKey = null;
 
     const snap = loadSessionSnapshot(id, engine);
+    // The caller's options win over the snapshot's — a fresh create names its own
+    // intent — but the picks the snapshot carries (variant, sandbox, flags) survive
+    // the restart that lost this RAM copy. See saveSnapshot for the family.
+    this.options = { ...(snap?.options || {}), ...options };
     // Where the transcript was last read to, for the attachments stream-json never sends.
     // A byte offset, not a line count: the file is append-only and can be megabytes.
     //
@@ -448,10 +457,10 @@ export class AiSession {
     this.persisting = false;
     this.persistAgain = false;
     this.persistTimer = null;
-    this.model = snap?.model || options.model || "";
+    this.model = snap?.model || options.model || options.defaultModel || "";
     // Reasoning effort the session runs with. Empty means "the CLI's own config decides"
     // — the composer falls back to reading that, so it never shows a level nobody chose.
-    this.effort = snap?.effort || options.effort || (this.engine === AI_ENGINES.CODEX ? (options.defaultEffort || "xhigh") : "");
+    this.effort = snap?.effort || options.effort || options.defaultEffort || (this.engine === AI_ENGINES.CODEX ? "xhigh" : "");
     // Restored so a reload keeps the mode the user picked (codex/opencode run a fresh
     // CLI per turn, so the mode has to be re-sent with every prompt). A session the
     // host has never seen starts at the engine's own default mode, sent by the client.
@@ -482,6 +491,86 @@ export class AiSession {
 
     if (!options.mock) {
       this.ready = this.initAdapter();
+      this._restoreFromDaemonKv();
+    }
+  }
+
+  _saveKvState(running = this.isTurnRunning) {
+    if (!daemonClient.isConnected()) return;
+    daemonClient.kvSet(kvKey(this.id), {
+      engine: this.engine,
+      stats: this.adapter?.stats || null,
+      turn: {
+        running,
+        startedAt: this.turnStartedAt || null,
+        lastTurnMs: this.lastTurnMs || 0
+      },
+      lastPrompt: this.lastPrompt || "",
+      threadTitle: this.threadTitle || "",
+      carried: cliEventsOf(this.history)
+    }).catch(() => {});
+  }
+
+  /**
+   * Carry the daemon's copy of this chat's state back in after an agent restart.
+   *
+   * The counters seed the adapter as they were; the turn marker is a VOTE, not a
+   * verdict — a turn the agent marked running may have finished while the agent
+   * was down, so the marker only counts beside a process the daemon still holds.
+   * The adopt path stays the judge; the KV is the memory beside it.
+   */
+  async _restoreFromDaemonKv() {
+    if (!daemonClient.isConnected()) return;
+    try {
+      const saved = await daemonClient.kvGet(kvKey(this.id));
+      if (!saved) return;
+      if (saved.stats && this.adapter?.stats) {
+        // Only UNTOUCHED counters take the value: the adapter may already be
+        // counting a replayed turn, and a late read must not walk it back.
+        for (const [k, v] of Object.entries(saved.stats)) {
+          if (typeof v === "number" && !this.adapter.stats[k]) this.adapter.stats[k] = v;
+        }
+      }
+      if (saved.lastPrompt && !this.lastPrompt) {
+        this.lastPrompt = saved.lastPrompt;
+      }
+      if (saved.threadTitle && !this.threadTitle) {
+        this.threadTitle = saved.threadTitle;
+      }
+      if (saved.turn?.running) {
+        let isAlive = false;
+        if (this.engine === AI_ENGINES.OPENCODE) {
+          try {
+            const active = await this.adapter?.server?.activeSessions?.();
+            isAlive = active?.[this.cliSessionId]?.type !== "idle";
+          } catch {}
+        } else {
+          const held = await daemonClient.procList();
+          const procs = Array.isArray(held) ? held : held?.procs;
+          isAlive = (procs || []).some((proc) => (proc.procId === this.id || proc.id === this.id) && proc.alive !== false);
+        }
+        if (isAlive) {
+          this.isTurnRunning = true;
+          this.turnStartedAt = saved.turn.startedAt || Date.now();
+        }
+        logger.info(`[TEMP DIAGNOSTIC] kv restore ${this.id} engine=${this.engine} turnRunning=${saved.turn.running} isAlive=${isAlive}`);
+      }
+      if (Array.isArray(saved.carried) && saved.carried.length) {
+        const existingIds = new Set(this.history.map((e) => e.data?.record?.task_id || e.data?.id).filter(Boolean));
+        const missing = saved.carried
+          .map((item, idx) => (item?.e ? item : { e: item, i: idx }))
+          .filter(({ e }) => {
+            const id = e?.data?.record?.task_id || e?.data?.id;
+            return !id || !existingIds.has(id);
+          });
+        if (missing.length) {
+          this.history = renumber(mergeCarried(missing, this.history));
+          this.seqCounter = this.history.length;
+        }
+      }
+    } catch {
+      // The KV is a cache. The transcripts remain the authority a rebuild can
+      // always fall back to — losing this read loses nothing final.
     }
   }
 
@@ -507,6 +596,7 @@ export class AiSession {
         // and calling start() afterwards would spawn a second process. Both paths
         // honour the resumed conversation id (or /resume silently starts a new one)
         // and the session's own permission mode (or it falls back to the CLI default).
+        if (this.model) mine.metadata.model = this.model;
         if (this.effort) mine.effort = this.effort;
         return this._startManaged(mine, mode);
       case AI_ENGINES.CODEX:
@@ -600,7 +690,7 @@ export class AiSession {
     // it runs on the app-server transport. Asking the adapter instead of the engine name
     // is what lets codex change transports without this line knowing.
     if (!adapter.persistent && this.engine !== AI_ENGINES.CLAUDE) return null;
-    const fetch = await adapter.start(mode, this.cliSessionId);
+    const fetch = await adapter.start(mode, this.cliSessionId || this.threadId);
     this._replay(fetch);
     return fetch;
   }
@@ -816,13 +906,17 @@ export class AiSession {
       // their metadata.model to a human label when nothing is configured; sending that
       // as a model id 404s the provider. Configured models always come from setOptions.
       if (data?.model && !MODEL_LABELS.has(data.model)) this.model = data.model;
+      if (data?.effort) this.effort = data.effort;
       // The thread id is what codex's goal RPC keys on, so it is only worth looking a
       // goal up once it is known — and it changes with a resume, so re-read on each init.
       if (this.engine === AI_ENGINES.CODEX && data?.threadId) this.refreshGoal(data.threadId);
       // The server's own name for this thread, kept where `conversationTitle` looks. That
       // reader can only see the rollout FILE — the first prompt — so a thread renamed with
       // `/rename`, or in the CLI's TUI, kept its old name on the tab and in the pane.
-      if (data?.threadName) this.threadTitle = String(data.threadName).trim();
+      if (data?.threadName) {
+        this.threadTitle = String(data.threadName).trim();
+        this._saveKvState();
+      }
     }
     // A sub-agent's tool calls are nested under the Agent/Task card that spawned them,
     // so the live path would have to nest them on arrival anyway. Record and broadcast
@@ -834,7 +928,10 @@ export class AiSession {
     // A log record carries how long ago it was logged, so the pane can put a task's clock
     // on ITS own clock without the two machines ever comparing marks (see taskRecords).
     // Live records are stamped as they pass, so theirs is zero by definition.
-    if (event === "cli_event" && CARRIED_CLI_SUBTYPES.has(data?.subtype)) data = { ...data, ageMs: 0 };
+    if (event === "cli_event" && CARRIED_CLI_SUBTYPES.has(data?.subtype)) {
+      data = { ...data, ageMs: 0 };
+      this._saveKvState();
+    }
     // Stamped on the way out, so every writer that ends a turn (/clear, /resume, a rewind)
     // is covered without repeating the bookkeeping in each of them.
     const now = Date.now();
@@ -918,6 +1015,7 @@ export class AiSession {
       this.history = compactEvents(this.history);
       this.flushSaveSnapshot();
       this.applyPendingOptions();
+      this._saveKvState(false);
     }
   }
 
@@ -1112,6 +1210,10 @@ export class AiSession {
         effort: this.effort,
         permissionMode: this.permissionMode,
         createdAt: this.createdAt,
+        // Every other pick the composer/config modal ever sent (opencode's variant,
+        // codex's sandbox, engine flags) — the same "user's own picks" family as the
+        // named fields above, kept whole rather than one field at a time.
+        options: this.options,
         // Where in the CLI's own output stream this log ends, and which process that
         // stream belonged to. A restarted agent re-attaches and asks for everything
         // after it, which is what makes a turn that kept running while it was down
@@ -1215,6 +1317,8 @@ export class AiSession {
       return;
     }
     this.isTurnRunning = true;
+    this.turnStartedAt = Date.now();
+    this._saveKvState(true);
     // A new prompt ends every gate the old turn left open. The user typing IS them moving
     // on, and the client cannot do this alone: it skips the card it can see, while the
     // host holds the request itself — and an unanswered one comes back from a replay as a
@@ -1301,6 +1405,10 @@ export class AiSession {
     if (rest?.mode) this.permissionMode = rest.mode;
     // Same for the reasoning effort, which the init event publishes for the composer.
     if (rest?.effort) this.effort = rest.effort;
+    if (rest?.model) this.model = rest.model;
+    if (rest?.model || rest?.effort) {
+      saveAiPreference(this.engine, { model: this.model, effort: this.effort });
+    }
     // Resuming a past conversation moves the thread/session id this session holds,
     // so a reload keeps talking to the resumed one.
     if (resume) {
@@ -1336,7 +1444,7 @@ export class AiSession {
     // and must not throw away the answer they are watching.
     if (this.isTurnRunning) {
       this.restartPending = true;
-      if (rest?.mode || rest?.effort || resume) this.flushSaveSnapshot();
+      if (rest?.mode || rest?.effort || rest?.model || resume) this.flushSaveSnapshot();
       return;
     }
     // Forward only the validated id; the adapter must never see an unvalidated value.
@@ -1347,8 +1455,8 @@ export class AiSession {
     // forever — the chat went silent with no error.
     const fetch = this.adapter?.setOptions?.({ ...opts, resume });
     if (fetch?.then) fetch.then((f) => this._replay(f));
-    // effort/mode are snapshot state: a reload or /clear rebuild must restore them.
-    if (rest?.mode || rest?.effort || resume) this.flushSaveSnapshot();
+    // effort/mode/model are snapshot state: a reload or /clear rebuild must restore them.
+    if (rest?.mode || rest?.effort || rest?.model || resume) this.flushSaveSnapshot();
   }
 
   // A change deferred while a turn was running, applied the moment it ends.
@@ -1371,6 +1479,8 @@ export class AiSession {
     // its conversation) alive. A signal is only the fallback when it cannot be written.
     const sent = this.adapter?.interrupt?.();
     const signalled = sent ? false : this.adapter?.signal?.("SIGINT");
+    // TEMP DIAGNOSTIC (esc-stop): what the stop actually reached, per engine.
+    logger.info(`[TEMP DIAGNOSTIC] session.stop engine=${this.engine} hasInterrupt=${typeof this.adapter?.interrupt} sent=${sent} signalled=${signalled} turnRunning=${this.isTurnRunning} cliSession=${this.cliSessionId || "-"}`);
     // An engine that could do NEITHER has not stopped anything, and saying it did is worse
     // than saying nothing: the pane clears its turn flag, the next prompt queues behind a
     // turn the CLI is still running, and the dot disagrees with the agent — the whole
@@ -1392,6 +1502,40 @@ export class AiSession {
    */
   stopTask(taskId) {
     return this.adapter?.stopTask?.(taskId) || false;
+  }
+
+  /**
+   * Unstick and reboot the AI engine adapter without touching the terminal PTY.
+   * Disconnects handlers immediately so exit/data events from the dying process
+   * cannot race the new one, stops the old process, creates a fresh adapter on the
+   * same conversation/thread id, and broadcasts conversation_reset from transcripts.
+   */
+  async restart() {
+    this.clearAllAsyncWatchdogs();
+    this.isTurnRunning = false;
+    this.turnStartedAt = 0;
+    this.lastTurnMs = 0;
+    this.skipOpenGates();
+
+    const oldAdapter = this.adapter;
+    this.adapter = null;
+    if (oldAdapter) {
+      try {
+        await Promise.resolve(oldAdapter.stop?.());
+      } catch {}
+    }
+
+    if (this.managed) {
+      this.proc = new DaemonProc({ procId: this.id });
+    }
+    this.ready = this.initAdapter();
+    await this.ready;
+
+    this.refreshFromStore();
+    this.emitNormalized("stopped", {});
+    this._saveKvState(false);
+    this.flushSaveSnapshot();
+    return true;
   }
 
   destroy() {

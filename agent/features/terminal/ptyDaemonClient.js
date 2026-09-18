@@ -29,7 +29,7 @@ const DAEMON_SCRIPT_DIST = path.join(__dirname, "ptyDaemon.cjs");
 // Local modules the daemon imports by relative path. The dev-mode runtime copy has
 // to carry every one of them: a missing file is not a degraded daemon, it is one
 // that dies at import — and the AI chat silently falls back to a separate session.
-const DAEMON_LOCAL_MODULES = ["constants.js", "bufferSlice.js", "daemonRouter.js", "daemonRoutes.js"];
+const DAEMON_LOCAL_MODULES = ["constants.js", "bufferSlice.js", "daemonRouter.js", "daemonRoutes.js", "daemonKv.js"];
 
 // Runtime copy location — daemon runs from here so it never locks files
 // inside node_modules/9remote. That lock is what makes `npm i -g 9remote@latest`
@@ -622,6 +622,23 @@ export async function initDaemonClient() {
 /**
  * Check if connected
  */
+/**
+ * The daemon's per-process KV. Values are the chat's own state (token counters,
+ * the turn marker); keys are the agent's session ids.
+ */
+export async function kvSet(key, value) {
+  return await call("kv.set", { key, value });
+}
+
+export async function kvGet(key) {
+  const result = await call("kv.get", { key });
+  return result?.value ?? null;
+}
+
+export async function kvDel(key) {
+  return await call("kv.del", { key });
+}
+
 export function isConnected() {
   return connected;
 }

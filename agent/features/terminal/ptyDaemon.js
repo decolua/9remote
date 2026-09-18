@@ -13,6 +13,7 @@ import { spawn } from "child_process";
 import pty from "node-pty";
 import { resolveShell, buildShellArgs, DAEMON_VERSION } from "./constants.js";
 import { createRouter } from "./daemonRouter.js";
+import { createKvStore, kvRoutes } from "./daemonKv.js";
 import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
 
 // Socket path. NREMOTE_HOME keeps the daemon's own state inside the root the client
@@ -214,9 +215,10 @@ const PROC_MAX_LINE = 256 * 1024;
 const PROC_KILL_GRACE_MS = 3000;
 
 function procLinesSince(proc, from = 0) {
+  const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
   const out = [];
   for (const l of proc.lines) {
-    if (l.n > from) out.push({ n: l.n, enc: "b64", data: l.data.toString("base64") });
+    if (l.n > f) out.push({ n: l.n, enc: "b64", data: l.data.toString("base64") });
   }
   return out;
 }
@@ -301,6 +303,8 @@ function createProc(procId, { bin, args = [], cwd, env } = {}) {
 }
 
 function attachProc(procId, from = 0) {
+  if (typeof from === "object" && from !== null) from = from.from ?? 0;
+  from = Number(from) || 0;
   const proc = procs.get(procId);
   if (!proc) return { success: false, error: "Process not found" };
   // Attaching never starts anything: the running process IS the session, and a
@@ -516,8 +520,10 @@ function checkSessionForegroundProcess(session, sessionId) {
 // `client` is the socket that asked; `answer` replies on its requestId. Routes whose
 // table entry has no `reply` are fire-and-forget (terminal input/resize) — they call
 // neither, and an ack for them would be pure overhead on the typing hot path.
+const kvStore = createKvStore(500);
+
 const router = createRouter({
-  deps: { sessions, procs, send, broadcast, DAEMON_VERSION },
+  deps: { sessions, procs, send, broadcast, DAEMON_VERSION, kv: kvStore },
   send
 });
 
@@ -664,6 +670,7 @@ const procRoutes = {
 
 router.register("terminal", terminalRoutes);
 router.register("proc", procRoutes);
+router.register("kv", kvRoutes);
 // Every route the table promises must exist here, or an agent waits out a timeout for
 // an answer that can never come. Failing at boot is the only cheap way to catch it.
 router.assertComplete();

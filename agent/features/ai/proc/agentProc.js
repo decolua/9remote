@@ -103,12 +103,14 @@ export class AgentProc {
    * while no agent was watching — which is not a loss: every line it printed is in the
    * daemon's buffer, so the turn is replayed whole.
    */
-  async attach({ from = 0, epoch = null } = {}) {
+  async attach(from = 0, epoch = null) {
+    const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
+    const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
     this.exitNotified = false;
     this.killed = false;
     this._subscribe();
     this._openHold();
-    const res = await this.client.procAttach(this.procId, from);
+    const res = await this.client.procAttach(this.procId, f);
     if (!res.success) {
       this._unsubscribe();
       return { alive: false, ...startResult() };
@@ -117,9 +119,9 @@ export class AgentProc {
     // Line numbers belong to the PROCESS, not the chat. A stored watermark only means
     // anything against the process it was taken from — a later turn is a new process
     // numbering from 1 again, and skipping its head would cut the answer in half.
-    const same = epoch != null && res.epoch === epoch;
+    const same = ep != null && res.epoch === ep;
     const all = res.lines || [];
-    const lines = same ? all.filter((l) => l.n > from) : all;
+    const lines = same ? all.filter((l) => l.n > f) : all;
     const first = lines[0]?.n ?? res.oldest ?? null;
     const missed = same || first == null ? 0 : Math.max(0, first - 1);
     this.lineNo = all.at(-1)?.n ?? res.total ?? 0;

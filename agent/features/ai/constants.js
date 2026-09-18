@@ -22,11 +22,13 @@ export const AI_SOCKET_EVENTS = {
   QUESTION: "ai:question",
   STOP: "ai:stop",
   STOP_TASK: "ai:stopTask",
-  RESET: "ai:reset",
+  RESTART: "ai:restart",
   OPTIONS: "ai:options",
   DESTROY: "ai:destroy",
   LIST: "ai:list",
   REWIND: "ai:rewind",
+  FILES: "ai:files",
+  DOCTOR: "ai:doctor",
   EVENT: "ai:event"
 };
 

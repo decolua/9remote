@@ -425,7 +425,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       const spawnOptions = {
         ...(resumeId ? { ...options, cliSessionId: resumeId } : options),
         defaultModel: defaultModelFor(engine),
-        defaultEffort: options.defaultEffort || defaultEffortFor(engine)
+        defaultEffort: defaultEffortFor(engine) || options.defaultEffort
       };
       const session = manager.createSession(sessionId, engine, cwd, { ...spawnOptions, mock });
       let releaseCreate;
@@ -469,7 +469,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         }
         if (!session) {
           // cwd rides along so the raced session lands in the right directory, not $HOME
-          session = manager.createSession(sessionId, "claude", cwd || process.cwd(), { defaultModel: defaultModelFor("claude") });
+          session = manager.createSession(sessionId, "claude", cwd || process.cwd(), {
+            defaultModel: defaultModelFor("claude"),
+            defaultEffort: defaultEffortFor("claude")
+          });
           await session.ready;
         }
       }
@@ -522,8 +525,11 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   socket.on(AI_SOCKET_EVENTS.STOP, async ({ sessionId }, cb) => {
     try {
       const session = manager.getSession(sessionId);
+      // TEMP DIAGNOSTIC (esc-stop): did the client's stop arrive, and for which engine.
+      logger.info(`[TEMP DIAGNOSTIC] ai:stop recv session=${sessionId} found=${Boolean(session)} engine=${session?.engine || "-"} turnRunning=${session?.isTurnRunning}`);
       if (session) {
-        session.stop();
+        const stopped = session.stop();
+        logger.info(`[TEMP DIAGNOSTIC] ai:stop → session.stop()=${stopped} engine=${session.engine}`);
         // The session emits `stopped`, which the table already calls idle — this is only
         // here for a stop that never reaches an event.
         broadcastAiStatus?.(sessionId, "idle", session.engine);
@@ -572,7 +578,21 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     }
   });
 
-  socket.on("ai:files", ({ workspace, query, limit = 25 }, cb) => {
+  socket.on(AI_SOCKET_EVENTS.RESTART, async ({ sessionId }, cb) => {
+    try {
+      const session = manager.getSession(sessionId);
+      if (session) {
+        await session.restart();
+        broadcastAiStatus?.(sessionId, "idle", session.engine);
+      }
+      cb?.({ ok: true });
+    } catch (err) {
+      logger.error(`[ai] restart failed: ${err.message}`);
+      cb?.({ ok: false, error: err.message });
+    }
+  });
+
+  socket.on(AI_SOCKET_EVENTS.FILES, ({ workspace, query, limit = 25 }, cb) => {
     try {
       const files = searchRepoFiles(workspace, query, limit);
       cb?.({ ok: true, files });
@@ -584,7 +604,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   // Run the engine CLI's health command on the host. Uses the static doctor spec,
   // so a session is neither required nor created (constructing one would spawn a
   // real CLI process just to read a command name).
-  socket.on("ai:doctor", async ({ sessionId, engine = "claude", cwd }, cb) => {
+  socket.on(AI_SOCKET_EVENTS.DOCTOR, async ({ sessionId, engine = "claude", cwd }, cb) => {
     try {
       const res = await runEngineDoctor(engine, cwd || process.cwd());
       cb?.(res);

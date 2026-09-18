@@ -31,6 +31,12 @@ export const ROUTES = {
   "proc.signal": { reply: "procSignalResult", coalesce: null },
   "proc.stop": { reply: "procStopResult", coalesce: null },
   "proc.list": { reply: "procListResult", coalesce: null },
+  // No coalesce here, deliberately: the slot would be shared (a kv.set carries no
+  // session id), and two chats writing near-simultaneously would collapse into one
+  // — the second value silently replacing the first.
+  "kv.set": { reply: "kvSetResult", coalesce: null },
+  "kv.get": { reply: "kvGetResult", coalesce: null },
+  "kv.del": { reply: "kvDelResult", coalesce: null },
 };
 
 // Wire names shipped before the router existed. A new daemon has to keep answering
@@ -54,6 +60,9 @@ export const ALIASES = {
   procSignal: "proc.signal",
   procStop: "proc.stop",
   procList: "proc.list",
+  kvSet: "kv.set",
+  kvGet: "kv.get",
+  kvDel: "kv.del",
 };
 
 /** Wire name → route key, or null when nothing serves it. */
