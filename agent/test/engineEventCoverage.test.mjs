@@ -39,7 +39,7 @@ function emitWith(Adapter, record) {
 // add fields to records they already send, and a new `type` alongside them.
 const UNKNOWN = {
   codex: { type: "thread.something_new", thread_id: "t-1", payload: { detail: "future" } },
-  opencode: { type: "session.something_new", properties: { sessionID: "s-1" } },
+  opencode: { type: "session.next.something_new", data: { sessionID: "ses_1", detail: "future" } },
   antigravity: { event: "something_new", detail: "future" }
 };
 
@@ -55,8 +55,8 @@ test("opencode: a record no branch claims is carried, not dropped", () => {
   const events = emitWith(OpenCodeAdapter, UNKNOWN.opencode);
   const carried = events.filter(([e]) => e === "cli_event");
   assert.equal(carried.length, 1);
-  assert.equal(carried[0][1].type, "session.something_new");
-  assert.equal(carried[0][1].record.properties.sessionID, "s-1");
+  assert.equal(carried[0][1].type, "session.next.something_new");
+  assert.equal(carried[0][1].record.detail, "future", "and whole");
 });
 
 test("antigravity: a record no branch claims is carried, not dropped", () => {
@@ -79,10 +79,9 @@ test("codex: a record a branch handles is not also passed through", () => {
 });
 
 test("opencode: a record a branch handles is not also passed through", () => {
-  // The shape this adapter parses is flat: `type` on the record itself (`"text"`,
-  // `"tool_use"`, `"step_finish"`). An outer SDK envelope like `message.part.updated` is
-  // NOT one it knows — and it is exactly the kind of thing that should be carried.
-  const events = emitWith(OpenCodeAdapter, { type: "text", part: { text: "hi" } });
+  // The serve bus spells it session.next.text.delta — the branch streams it, and
+  // nothing may be carried on top of what was already drawn.
+  const events = emitWith(OpenCodeAdapter, { type: "session.next.text.delta", data: { sessionID: "ses_1", textID: "t-0", delta: "hi" } });
   assert.ok(events.length > 0, "the branch ran");
   assert.equal(events.filter(([e]) => e === "cli_event").length, 0);
 });
@@ -119,5 +118,57 @@ test("one record produces one carried event, never a stream of them", () => {
   }
 });
 
-console.log(`\n${pass} passed, ${fail} failed`);
-if (fail) process.exitCode = 1;
+// ── opencode: the events the serve bus actually writes (recorded on 1.18.31) ──
+
+// The parser keeps call state across a turn, so these feed ONE adapter, unlike
+// emitWith which hands every record a fresh one.
+function emitAll(envelopes) {
+  const events = [];
+  const adapter = new OpenCodeAdapter({ cwd: "/tmp", onEvent: (e, d) => events.push([e, d]) });
+  for (const envelope of envelopes) adapter.handleEvent(envelope);
+  return events;
+}
+
+const ocTool = (callID, tool, input, status = "success") => [
+  { type: "session.next.tool.input.started", data: { sessionID: "ses_1", callID, name: tool } },
+  { type: "session.next.tool.called", data: { sessionID: "ses_1", callID, tool, input } },
+  status === "success"
+    ? { type: "session.next.tool.success", data: { sessionID: "ses_1", callID, content: [{ type: "text", text: "ok" }] } }
+    : { type: "session.next.tool.failed", data: { sessionID: "ses_1", callID, error: { type: "unknown", message: "boom" } } }
+];
+
+test("opencode: a provider failure draws as an error", () => {
+  // The bus has no session.error — a failed provider turn is session.next.step.failed.
+  const [first] = emitWith(OpenCodeAdapter, {
+    type: "session.next.step.failed",
+    data: { sessionID: "ses_1", assistantMessageID: "msg_1", error: { type: "unknown", message: "No provider configured" } }
+  });
+  assert.equal(first[0], "error");
+  assert.equal(first[1].message, "No provider configured");
+});
+
+test("opencode: a landed edit draws a diff card from its own old/new strings", () => {
+  // The v2 edit tools name the target `path` (the CLI's run mode named it `filePath`).
+  const events = emitAll(ocTool("c1", "edit", { path: "/tmp/a.js", oldString: "old\n", newString: "new" }));
+  const diff = events.find(([e]) => e === "diff");
+  assert.deepEqual(diff[1], { file: "/tmp/a.js", name: "edit", patch: "-old\n+new", content: "" });
+  assert.equal(events.filter(([e]) => e === "diff").length, 1);
+});
+
+test("opencode: a landed write draws a content diff, a failed edit draws none", () => {
+  const write = emitAll(ocTool("c2", "write", { path: "/tmp/new.js", content: "hello" }));
+  assert.deepEqual(write.find(([e]) => e === "diff")[1], { file: "/tmp/new.js", name: "write", patch: "", content: "hello" });
+  const failed = emitAll(ocTool("c3", "edit", { path: "/tmp/a.js", oldString: "x", newString: "y" }, "failed"));
+  assert.equal(failed.filter(([e]) => e === "diff").length, 0);
+});
+
+test("opencode: a tool whose input never arrived draws no empty card", () => {
+  // If the bus ever drops the input events, the tool row must stay — an empty
+  // diff card hiding it is worse than the row.
+  const events = emitWith(OpenCodeAdapter, {
+    type: "session.next.tool.success",
+    data: { sessionID: "ses_1", callID: "c4", content: [{ type: "text", text: "ok" }] }
+  });
+  assert.equal(events.filter(([e]) => e === "tool_result").length, 1);
+  assert.equal(events.filter(([e]) => e === "diff").length, 0);
+});

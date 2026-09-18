@@ -1,77 +1,119 @@
-// Adapter for OpenCode CLI using run --format json --thinking
-import { getExtendedEnv } from "./env.js";
+// Adapter for the OpenCode server: one shared `opencode serve`, spoken to over HTTP.
+//
+// The turn is no longer a CLI process (`opencode run` re-emitted the same bus at
+// completion only — the pane watched a spinner until everything landed at once).
+// The server's own event bus streams what its TUI renders: text and reasoning as
+// deltas, a tool the moment its input starts forming. One server per machine
+// (see opencodeServer.js — the rewind path already depends on it), every chat a
+// session on it; the bus is machine-global, so envelopes are filtered by session.
+//
+// ponytail: no interactive permission card yet — no recording of permission on
+// the v2 bus exists on this machine; wire it when one does. Out-of-workspace
+// actions fail as tool errors until then.
 import { AgentProc } from "../proc/agentProc.js";
-import { stageAttachment } from "../aiAttachment.js";
-import { opencodePartEvents } from "../opencodePart.js";
+import { createLogger } from "../../../lib/logger.js";
+import { stageAttachment, stagedPaths } from "../aiAttachment.js";
+import * as opencodeServer from "../opencodeServer.js";
+import { createOpencodeBusParser } from "../opencodeBus.js";
 
-// eslint-disable-next-line no-control-regex
-const ANSI_RE = /\[[0-9;]*m/g;
-const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
-
-// `opencode run` rejects an empty message outright ("You must provide a message or a
-// command"), and an attachment-only prompt has none — the files ride as --file flags.
-// The composer allows a picture with no caption, so the turn needs something to send.
+// The v2 prompt endpoint rejects an empty message; an attachment-only turn has
+// no caption, so it needs something to send.
 const ATTACHMENT_ONLY_PROMPT = "See the attached file.";
 
+// The prompt body the v2 protocol takes: {prompt: {text, files?}}. The v2 server
+// does not read file paths — an image must ride as a data: URL or the model never
+// sees it. Other files stay paths in the text (the model reads them itself), the
+// same handover agy takes.
+function buildPromptBody(promptText, staged) {
+  const images = (staged || []).filter((a) => a.kind === "image");
+  const text = [stagedPaths(staged), promptText].filter(Boolean).join(" ")
+    || (images.length ? ATTACHMENT_ONLY_PROMPT : "");
+  return {
+    prompt: {
+      text,
+      ...(images.length
+        ? { files: images.map((a) => ({ uri: `data:${a.mediaType};base64,${a.data}` })) }
+        : {})
+    }
+  };
+}
+
+const logger = createLogger("ai");
+
 export class OpenCodeAdapter {
-  constructor({ cwd, onEvent, proc = null, sessionId = null, model = "", hostSessionId = null } = {}) {
+  constructor({ cwd, onEvent, proc = null, sessionId = null, model = "", hostSessionId = null, server = null } = {}) {
+    // The server module, injectable so a test can stand in for the real one.
+    this.server = server || opencodeServer;
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
-    this.hostSessionId = hostSessionId;
-    // Turn-per-CLI: a process is born per turn. Under the daemon it outlives an agent
-    // restart, and adopt() picks that turn back up.
+    // The daemon carrier is kept for adopt() only: a chat reopened after an agent
+    // restart still asks it for a process to reattach. This engine runs none —
+    // the shared server outlives turns — so the answer is always "nothing alive".
     this.proc = proc || new AgentProc({ procId: "" });
+    this.hostSessionId = hostSessionId;
     this.activeSessionId = sessionId || null;
     this.isTurnRunning = false;
     this.currentModel = model || "";
     this.currentVariant = "medium";
-    // Permission mode from the composer. In non-interactive `run` mode opencode has no
-    // way to prompt: it auto-rejects anything outside the workspace and only says so on
-    // stderr, so without `--auto` the user sees a silent failure and no permission card.
     this.permissionMode = "default";
-    // Runtime flags chosen in the Config modal, appended to every run.
+    // Config-modal toggles, kept on metadata for the modal to read back. The run
+    // mode they drove (--pure, --print-logs) is gone with the per-turn CLI; the
+    // server has no equivalent to send.
     this.flags = [];
     this.stats = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTurns: 0 };
-    // Empty model means "CLI default" — never a label. This metadata is echoed back by
-    // the session and later fed to `-m`, so a display string here would be sent to the
-    // CLI as a real model id.
+    // Empty model means "CLI default" — never a label: this value is sent to the
+    // server as a real model id.
     this.metadata = { model: this.currentModel, sessionId: this.activeSessionId || "", permissionMode: this.permissionMode, variant: this.currentVariant };
+    this.bus = null;         // {close} — the SSE subscription
+    this.parser = null;      // bus envelopes → the pane's events
+    this._interrupted = false;
   }
 
   setOptions({ model, variant, mode, resume, flags }) {
+    let modelChanged = false;
     if (model) {
       this.currentModel = model;
       this.metadata.model = model;
+      modelChanged = true;
     }
     if (variant) {
       this.currentVariant = variant;
-      // Published so the composer can show the running tier beside the model, the way
-      // claude and codex already do through this same field.
       this.metadata.variant = variant;
+      modelChanged = true;
     }
-    // The composer sends `mode`; it used to be dropped here, so switching to Auto had
-    // no effect on the CLI at all.
+    if (modelChanged) this._applyModel();
     if (mode) {
       this.permissionMode = mode;
       this.metadata.permissionMode = mode;
     }
-    // Resume a past session: the next turn runs `opencode run -s <id>`.
-    if (resume) {
+    if (resume && resume !== this.activeSessionId) {
       this.activeSessionId = resume;
       this.metadata.sessionId = resume;
     }
-    // Config-modal flags: map the boolean toggles to real argv tokens. The booleans
-    // are also kept on metadata, because that is what the modal reads back when it is
-    // reopened — without them it would show defaults and revert a previous choice.
     if (flags && typeof flags === "object") {
-      const next = [];
-      if (flags.pure) next.push("--pure");
-      if (flags.printLogs) next.push("--print-logs");
-      this.flags = next;
       this.metadata.pure = Boolean(flags.pure);
       this.metadata.printLogs = Boolean(flags.printLogs);
     }
     this.onEvent?.("init", { ...this.metadata });
+  }
+
+  // Point the server's session at the chosen model/variant. A model id without a
+  // provider prefix is not addressable on this API — the CLI's own config decides.
+  // Resolves when the server has answered (or refused): a prompt sent before this
+  // lands races the model pick and can run the machine's default instead.
+  async _applyModel() {
+    if (!this.activeSessionId || !this.currentModel) return;
+    const parts = this.currentModel.split("/");
+    if (parts.length < 2) return;
+    try {
+      await this.server.setSessionModel(this.activeSessionId, {
+        id: parts.slice(1).join("/"),
+        providerID: parts[0],
+        ...(this.currentVariant ? { variant: this.currentVariant } : {})
+      });
+    } catch (e) {
+      this.onEvent?.("error", { message: `Could not set the OpenCode model: ${e.message}` });
+    }
   }
 
   // The CLI's own health command. Static so it resolves without spawning a process.
@@ -80,187 +122,155 @@ export class OpenCodeAdapter {
   }
 
   /**
-   * Re-attach to the turn the daemon is still running after an agent restart. A turn
-   * that ended while nobody was watching is replayed too — every line it printed is
-   * in the daemon's buffer, so the chat shows the answer instead of a blank pane.
+   * Re-attach after an agent restart. The daemon has no process for this engine —
+   * but the shared server may still be running this chat's turn from before the
+   * restart. Adopt that too: subscribe the bus now and ask the server which
+   * sessions are live, so the pane rejoins a running answer instead of showing
+   * idle while the turn streams into nobody — and the next prompt steers into
+   * it mid-flight.
    */
-  async adopt({ from = 0, epoch = null } = {}) {
-    const fetch = await this.proc.attach({ from, epoch });
-    if (!fetch.lines?.length && !fetch.alive) return fetch;
-    this._bind();
-    // The turn's process is the turn: while it lives, the chat is still working.
-    this.isTurnRunning = fetch.alive;
-    // The gap is healed by the session (it owns the conversation id and the log), so
-    // the lines are handed over before the held ones are released.
-    this.fetched = fetch;
+  async adopt(from = 0, epoch = null) {
+    const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
+    const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
+    const fetch = await this.proc.attach(f, ep);
+    if (this.activeSessionId) {
+      this._ensureBus();
+      try {
+        const active = await this.server.activeSessions();
+        const state = active?.[this.activeSessionId];
+        if (state && state.type !== "idle") {
+          this.isTurnRunning = true;
+          logger.info(`[TEMP DIAGNOSTIC] oc adopt → turn still running on server (${this.activeSessionId})`);
+        }
+      } catch {
+        // The server's own answer is a convenience; the bus subscription above
+        // already carries the turn if one is running.
+      }
+    }
     return fetch;
   }
 
-  // Handlers bind to the process that owns them, and the same process can carry a
-  // second turn later — so this is idempotent, not a one-shot wiring.
-  _bind() {
-    this.proc.onLine = (line) => this.feed(line);
-    this.proc.onExit = ({ code, error }) => {
-      this.isTurnRunning = false;
-      if (error) this.onEvent?.("error", { message: error });
-      else this.onEvent?.("turn_complete", { stats: this.stats, exitCode: code });
-    };
+  /** Lines a daemon buffer might still hold from a pre-server turn. There are none. */
+  feed() {}
+
+  _ensureParser() {
+    if (!this.parser) {
+      this.parser = createOpencodeBusParser({
+        onEvent: (event, data) => this._onBusEvent(event, data),
+        stats: this.stats
+      });
+    }
   }
 
-  /** Parse one raw line from the CLI. stderr rides the same stream — the daemon
-   *  relays both — so a permission refusal is recognized here, not by which pipe it
-   *  came from. */
-  feed(line) {
-    if (!String(line).trim()) return;
-    let data;
-    try {
-      data = JSON.parse(line);
-    } catch {
-      // Non-interactive `run` cannot prompt, so a permission refusal arrives as plain
-      // stderr text. Forwarded as `ansi` it was invisible (the chat has no handler for
-      // that event), which is why a blocked write looked like nothing happened at all.
-      if (/permission requested|auto-rejecting/i.test(line)) {
-        // Strip the CLI ANSI colour codes — this text is rendered as markdown, not a terminal
-        const clean = stripAnsi(line).trim();
-        // A structured `blocked` event drives a card with a mode-escalation button.
-        this.onEvent?.("blocked", {
-          engine: "opencode",
-          message: `OpenCode blocked this action — it needs permission outside the workspace:\n\n${clean}`,
-          escalate: { mode: "auto", label: "Auto" }
-        });
-        return;
+  _ensureBus() {
+    if (this.bus) return;
+    this._ensureParser();
+    this.bus = this.server.subscribeBus((envelope) => {
+      const data = envelope?.data;
+      if (!data || data.sessionID !== this.activeSessionId) return;
+      // The model the server actually runs is worth the chip even when it was
+      // picked outside this pane (a resumed chat, the TUI beside it).
+      if (envelope.type === "session.next.step.started" && data.model?.id) {
+        const full = data.model.providerID ? `${data.model.providerID}/${data.model.id}` : data.model.id;
+        if (full !== this.metadata.model) {
+          this.metadata.model = full;
+          this.currentModel = full;
+          this.onEvent?.("init", { ...this.metadata });
+        }
       }
-      this.onEvent?.("ansi", { chunk: line + "\r\n" });
+      this.parser.handle(envelope);
+    });
+  }
+
+  /** One bus envelope by hand — the test door for recorded turns. */
+  handleEvent(envelope) {
+    this._ensureParser();
+    this.parser.handle(envelope);
+  }
+
+  _onBusEvent(event, data) {
+    // TEMP DIAGNOSTIC (esc-stop): the turn's own edges, as the server bus told them.
+    if (event === "turn_complete" || event === "error" || event === "tool_result") {
+      logger.info(`[TEMP DIAGNOSTIC] oc bus ${event} subtype=${data?.subtype || "-"} turnRunning=${this.isTurnRunning} interrupted=${this._interrupted}`);
+    }
+    // The echo of a stop WE asked for is not a failure — the pane drew `stopped`
+    // when the interrupt went out, and this error would paint a crash over it.
+    // Consumed silently: interrupt() already ended the turn, and a turn_complete
+    // here could land on the NEXT turn's watch and kill its running flag.
+    if (event === "error" && this._interrupted) {
+      this._interrupted = false;
+      this.isTurnRunning = false;
+      logger.info("[TEMP DIAGNOSTIC] oc bus swallowed interrupted echo");
       return;
     }
-    this.handleEvent(data);
+    if (event === "turn_complete" || event === "error") this.isTurnRunning = false;
+    this.onEvent?.(event, data);
   }
 
-  sendPrompt(prompt, attachments = null) {
+  sendPrompt(promptText, attachments = null) {
     if (this.isTurnRunning) {
       throw new Error("OpenCode turn is already running.");
     }
-
-    const staged = attachments?.length ? attachments.map(stageAttachment) : null;
-    // Every attachment rides as `--file=`: opencode reads it straight into the model's
-    // context, where a path in the text only makes it reach for Read — and that call is
-    // auto-rejected for the upload dir, since it sits outside the workspace (verified;
-    // an image handed over as a bare path failed the same way). The files are therefore
-    // kept out of the text, which carries the caption alone.
-    // The flag must come AFTER the positional message and carry its `=`: verified
-    // against the CLI, where it before the prompt is parsed as a second message and the
-    // space-separated form (`--file <path>`) hangs the run.
-    const files = (staged || []).filter((a) => a.path).map((a) => a.path);
     this.isTurnRunning = true;
-    const args = ["run", "--format", "json", "--thinking"];
-
-    if (this.activeSessionId) {
-      args.push("-s", this.activeSessionId);
-    }
-    if (this.currentModel) {
-      args.push("-m", this.currentModel);
-    }
-    if (this.currentVariant) {
-      args.push("--variant", this.currentVariant);
-    }
-    // `run` is non-interactive: it cannot raise a permission prompt, so anything outside
-    // the workspace is auto-rejected unless we pass this. Auto mode is the user saying
-    // "don't ask" — without the flag the request just fails silently.
-    if (this.permissionMode === "auto") {
-      args.push("--auto");
-    }
-    args.push(...this.flags);
-    args.push(prompt || (files.length ? ATTACHMENT_ONLY_PROMPT : ""));
-    for (const file of files) args.push(`--file=${file}`);
-
-    this._bind();
-    this.proc.start({
-      bin: "opencode",
-      args,
-      cwd: this.cwd,
-      env: getExtendedEnv({ hostSessionId: this.hostSessionId })
-    }).then(
-      // commit feeds what the CLI printed before the handlers were live, releases the
-      // lines held during the handshake, then closes stdin. See DaemonProc.start.
-      (started) => started.commit((line) => this.feed(line)),
-      (err) => {
-        this.isTurnRunning = false;
-        this.onEvent?.("error", { message: err.message });
+    this._interrupted = false;
+    const staged = attachments?.length ? attachments.map(stageAttachment) : null;
+    Promise.resolve().then(async () => {
+      if (!this.activeSessionId) {
+        const session = await this.server.createSession(this.cwd);
+        if (this._interrupted) return;
+        if (!session?.id) throw new Error("The opencode server created no session.");
+        this.activeSessionId = session.id;
+        this.metadata.sessionId = session.id;
+        this.onEvent?.("init", { ...this.metadata });
       }
-    );
-  }
-
-  handleEvent(data) {
-    if (data.sessionID && !this.activeSessionId) {
-      this.activeSessionId = data.sessionID;
-      this.metadata.sessionId = data.sessionID;
-      this.onEvent?.("init", { ...this.metadata });
-    }
-
-    const type = data.type;
-    if (type === "text") {
-      this.onEvent?.("delta", { text: data.part?.text || data.text || "" });
-    } else if (type === "reasoning" || type === "thinking") {
-      this.onEvent?.("thinking", { text: data.part?.text || data.text || "" });
-    } else if (type === "tool_use" || type === "tool_call") {
-      // Real shape is `{type:"tool_use", part:{tool, callID, state:{status,input,output}}}`.
-      // The part inline in the envelope is the same object, so the mapper is handed
-      // whichever is there — and that part is ALSO the row the transcript reader loads out
-      // of the CLI's own database, which is why a reopened chat shows the calls again.
-      for (const ev of opencodePartEvents(data.part || data)) this.onEvent?.(ev.event, ev.data);
-    } else if (type === "tool_result") {
-      this.onEvent?.("tool_result", {
-        id: data.callID || data.id,
-        name: data.tool,
-        output: data.output || data.result
-      });
-    } else if (type === "step_finish") {
-      // Tokens ride on `part.tokens`; the top level carries none, so the old
-      // `data.tokens` test never matched and every session reported zero usage.
-      const tokens = data.part?.tokens || data.tokens;
-      if (tokens) {
-        this.stats.inputTokens += tokens.input || 0;
-        this.stats.outputTokens += tokens.output || 0;
-        this.stats.reasoningTokens = (this.stats.reasoningTokens || 0) + (tokens.reasoning || 0);
-        // The sum above bills the whole turn; each step resends the growing
-        // conversation, so the LAST step's input is what the window currently holds.
-        this.stats.contextTokens = tokens.input || 0;
-        this.stats.totalTurns += 1;
-        this.onEvent?.("stats", { stats: this.stats });
+      if (this._interrupted) return;
+      await this._applyModel();
+      if (this._interrupted) return;
+      this._ensureBus();
+      await this.server.prompt(this.activeSessionId, buildPromptBody(promptText, staged));
+    }).catch((e) => {
+      this.isTurnRunning = false;
+      if (!this._interrupted) {
+        this.onEvent?.("error", { message: e.message });
       }
-    } else {
-      // Nothing above claimed it. The pane re-renders the CLI's own TUI, so a record this
-      // adapter does not know yet still has to REACH it — under its own name, whole — or
-      // the pane quietly shows less than the CLI said, with nothing to notice.
-      this.onEvent?.("cli_event", { type: type || "", subtype: "", record: data });
-    }
+    });
   }
 
   /**
-   * End the TURN. This engine runs one CLI per turn, so the turn's own process IS the
-   * turn — stopping it is what Stop/Esc means, and the next prompt spawns a fresh one.
+   * End the TURN, not the conversation: the server keeps the session and its
+   * context, so the next prompt resumes where this one stopped.
    *
-   * Without this the adapter exposed neither `interrupt` nor `signal`, so `AiSession.stop`
-   * had nothing to call and still reported the turn stopped: the pane cleared its flag
-   * while the CLI kept working, and the dot disagreed with the agent from then on.
+   * The turn ends HERE, not on a bus echo: a turn hung in its LLM call never
+   * settles on the bus (measured — interrupt POST 204, then not one settle
+   * event), and waiting for it left isTurnRunning stuck true so every later
+   * prompt was refused. The flag only stays to swallow the late "interrupted"
+   * error echo, if one ever arrives.
    */
   interrupt() {
+    // TEMP DIAGNOSTIC (esc-stop)
+    logger.info(`[TEMP DIAGNOSTIC] oc interrupt turnRunning=${this.isTurnRunning} session=${this.activeSessionId || "-"}`);
     if (!this.isTurnRunning) return false;
+    this._interrupted = true;
     this.isTurnRunning = false;
-    Promise.resolve(this.proc?.stop()).catch(() => {});
+    if (this.activeSessionId) {
+      this.server.interruptSession(this.activeSessionId)
+        .then(() => logger.info("[TEMP DIAGNOSTIC] oc interrupt POST ok"))
+        .catch((e) => logger.warn(`[TEMP DIAGNOSTIC] oc interrupt POST refused: ${e.message}`));
+    }
     return true;
   }
 
-  /** The fallback `AiSession.stop` reaches for. The daemon carrier is the one that has it. */
-  signal(sig = "SIGINT") {
-    if (typeof this.proc?.signal !== "function") return false;
-    try { this.proc.signal(sig); return true; } catch { return false; }
+  /** The fallback AiSession.stop reaches for. There is no process to signal. */
+  signal(sig) {
+    return this.interrupt();
   }
 
   stop() {
     this.isTurnRunning = false;
-    // The daemon asks the CLI first and only kills it if it will not go, so a turn
-    // that can flush its transcript still gets to.
-    return this.proc.stop();
+    this.bus?.close();
+    this.bus = null;
+    this.parser = null;
+    if (this.activeSessionId) this.server.interruptSession(this.activeSessionId).catch(() => {});
+    return Promise.resolve();
   }
 }

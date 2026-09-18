@@ -12,6 +12,7 @@ import { stripHarnessWrapping, isInjectedTurn } from "../terminal/agentHistory.j
 import { recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
 import { codexItemEvents } from "./codexItems.js";
 import { opencodePartEvents } from "./opencodePart.js";
+import { antigravityEditDiff } from "./adapters/antigravityAdapter.js";
 import { toolStart, toolResult } from "./toolEvent.js";
 
 const require = createRequire(import.meta.url);
@@ -439,13 +440,18 @@ export function recoverFromAntigravityTranscript(cwd, sessionId) {
     const calls = rec.tool_calls || [];
     for (const call of calls) {
       const id = `${call.name}-${rec.step_index}`;
-      pending.push(id);
+      pending.push({ id, call });
       events.push({ seq: seq++, event: "tool_start", data: { id, name: call.name, input: normalizeAntigravityArgs(call.args) } });
     }
     // A GENERIC step is the harness reporting what the preceding call returned, in the
     // order the calls were made — that pairing is the only id the transcript offers.
     if (rec.type === "GENERIC" && pending.length) {
-      events.push({ seq: seq++, event: "tool_result", data: { id: pending.shift(), output: rec.content || "" } });
+      const settled = pending.shift();
+      events.push({ seq: seq++, event: "tool_result", data: { id: settled.id, output: rec.content || "" } });
+      // Same rule as the live stream: an edit that landed draws its diff card, or a
+      // reopened chat swaps the card it was drawn with for a bare tool row.
+      const diff = antigravityEditDiff(settled.call.name, normalizeAntigravityArgs(settled.call.args));
+      if (diff) events.push({ seq: seq++, event: "diff", data: diff });
       continue;
     }
     if (rec.content?.trim()) {

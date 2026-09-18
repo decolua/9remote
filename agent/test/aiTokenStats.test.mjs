@@ -78,18 +78,23 @@ await test("codex assigns its cumulative turn.completed usage and reads the real
 
 await test("opencode keeps adding its per-step tokens", () => {
   const adapter = new OpenCodeAdapter({ cwd: "/tmp", onEvent: () => {} });
-  const step = (tokens) => ({ type: "step_finish", part: { tokens } });
-  adapter.handleEvent(step({ input: 10654, output: 55 }));
-  adapter.handleEvent(step({ input: 8918, output: 44 }));
+  // The serve bus bills a step on session.next.step.ended (recorded shape).
+  const step = (tokens, finish = "stop") => ({
+    type: "session.next.step.ended", data: { sessionID: "ses_1", finish, tokens }
+  });
+  adapter.handleEvent(step({ input: 10654, output: 55, reasoning: 0, cache: { read: 0, write: 0 } }, "tool-calls"));
+  adapter.handleEvent(step({ input: 8918, output: 44, reasoning: 0, cache: { read: 0, write: 0 } }));
   assert.equal(adapter.stats.inputTokens, 19572);
   assert.equal(adapter.stats.outputTokens, 99);
 });
 
 await test("opencode's context is the LAST step's input, not the sum of every step", () => {
   const adapter = new OpenCodeAdapter({ cwd: "/tmp", onEvent: () => {} });
-  const step = (tokens) => ({ type: "step_finish", part: { tokens } });
-  adapter.handleEvent(step({ input: 10654, output: 55 }));
-  adapter.handleEvent(step({ input: 8918, output: 44 }));
+  const step = (tokens, finish = "stop") => ({
+    type: "session.next.step.ended", data: { sessionID: "ses_1", finish, tokens }
+  });
+  adapter.handleEvent(step({ input: 10654, output: 55, reasoning: 0, cache: { read: 0, write: 0 } }, "tool-calls"));
+  adapter.handleEvent(step({ input: 8918, output: 44, reasoning: 0, cache: { read: 0, write: 0 } }));
   // Each step resends the growing conversation, so the sum bills the same context
   // repeatedly — the window holds what the final step sent.
   assert.equal(adapter.stats.contextTokens, 8918);

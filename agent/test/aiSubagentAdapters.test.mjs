@@ -122,20 +122,16 @@ test("codex: a live file_change draws its diff in either spelling", () => {
 
 // ── opencode ──
 test("opencode: a task call becomes an agent card with its brief", () => {
+  // The serve bus spells the same call as its own events (recorded shape): the
+  // input names the tool, `called` carries the parsed args, `success` settles.
   const { of } = replay(OpenCodeAdapter, [
-    JSON.stringify({
-      type: "tool_use",
-      part: {
-        tool: "task", callID: "call_1c01",
-        state: {
-          status: "completed",
-          input: { description: "Run ls -la", prompt: "Run the command ls -la", subagent_type: "general" },
-          output: "<task_result>done</task_result>"
-        }
-      }
-    })
+    JSON.stringify({ type: "session.next.tool.input.started", data: { sessionID: "ses_1", callID: "call_1c01", name: "task" } }),
+    JSON.stringify({ type: "session.next.tool.called", data: { sessionID: "ses_1", callID: "call_1c01", tool: "task", input: { description: "Run ls -la", prompt: "Run the command ls -la", subagent_type: "general" } } }),
+    JSON.stringify({ type: "session.next.tool.success", data: { sessionID: "ses_1", callID: "call_1c01", content: [{ type: "text", text: "<task_result>done</task_result>" }] } })
   ]);
-  const [start] = of("tool_start");
+  // The bus announces the card empty while the input streams, then fills it —
+  // the card the pane keeps is the last announce, the one with the brief.
+  const start = of("tool_start").at(-1);
   assert.equal(start[1].name, "task");
   assert.equal(start[1].input.subagent_type, "general");
   assert.equal(start[1].input.prompt, "Run the command ls -la");
