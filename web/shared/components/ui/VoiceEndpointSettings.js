@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { X, Mic, Pencil } from "@/shared/components/ui/Icon";
+import { X, Mic } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
@@ -159,29 +159,38 @@ export default function VoiceEndpointSettings({ dense = false }) {
   const setEnabled = useVoiceStore((s) => s.setEnabled);
   const [open, setOpen] = useState(false);
 
+  const handleOpen = () => {
+    vibrate();
+    setOpen(true);
+  };
+
   const rowCls = dense
-    ? "flex items-center gap-2.5 text-sm text-text"
-    : "w-full px-3 py-2 rounded-brand flex items-center gap-2.5 text-sm text-text hover:bg-surface-2 transition-colors";
+    ? "flex items-center gap-2.5 text-sm text-text cursor-pointer select-none"
+    : "w-full px-3 py-2 rounded-brand flex items-center gap-2.5 text-sm text-text hover:bg-surface-2 cursor-pointer select-none transition-colors";
 
   return (
     <>
-      <div className={rowCls}>
+      <div className={rowCls} onClick={handleOpen}>
         <Mic size={16} className="text-brand-500 flex-shrink-0" />
-        <button
-          type="button"
-          onClick={() => { vibrate(); setOpen(true); }}
-          className="flex-1 min-w-0 text-left flex flex-col active:scale-[0.99] transition-transform"
-        >
+        <div className="flex-1 min-w-0 flex flex-col">
           <span className="flex items-center gap-1.5">
             <span className="truncate">Voice input</span>
             <span className="text-xs text-text-muted shrink-0">{mode === "ai" ? "AI" : "Browser"}</span>
-            <Pencil size={12} className="text-text-muted shrink-0" />
           </span>
           <span className="text-xs text-text-muted truncate">Speak instead of typing — chat, terminal, remote</span>
+        </div>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); handleOpen(); }}
+          title="Voice configuration"
+          aria-label="Voice configuration"
+          className="shrink-0 px-2 h-7 flex items-center justify-center rounded-brand border border-border-subtle/60 hover:border-border hover:bg-surface-3/50 text-text-muted hover:text-text text-xs transition-colors"
+        >
+          Config
         </button>
         <button
           type="button"
-          onClick={() => { vibrate(); setEnabled(!enabled); }}
+          onClick={(e) => { e.stopPropagation(); vibrate(); setEnabled(!enabled); }}
           aria-label="Toggle voice input"
           className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${enabled ? "bg-brand-500" : "bg-surface-2"}`}
         >
