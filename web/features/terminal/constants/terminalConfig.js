@@ -379,6 +379,16 @@ export const SWIPE_TAB = {
 // Treat data starting with ESC (0x1b) as non-typing so badges survive scrolling.
 export const isUserTyping = (d) => !!d && d.charCodeAt(0) !== 0x1b;
 
+// Terminal report responses emitted automatically by xterm in response to escape queries
+// (DA1/DA2/DA3, CPR cursor position, DSR status, OSC responses). These must not leak to PTY
+// during history replay or when no program is actively awaiting them.
+export const isTerminalReport = (d) => typeof d === "string" && (
+  /^\x1b\[[?>=][0-9;]*c$/.test(d) ||
+  /^\x1b\[[0-9]+;[0-9]+R$/.test(d) ||
+  /^\x1b\[0n$/.test(d) ||
+  /^\x1b\]\d+;/.test(d)
+);
+
 // macOS CMD key
 export const MAC_KEY = { label: "⌘", key: "Meta", modifier: true };
 

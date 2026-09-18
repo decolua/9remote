@@ -71,9 +71,6 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
           // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
           setTimeout(() => {
             if (myGen !== refs.joinGenRef.current || term._core?._isDisposed) return;
-            refs.joiningRef.current = false;
-            refs.joinClaimedRef.current = false; // the join is done — the recovery lane is free
-            refs.setJoining(false);
             const queue = refs.joinQueueRef.current;
             refs.joinQueueRef.current = [];
             const b = writeBatcherRef.current;
@@ -90,6 +87,9 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
               refs.lastSeqRef.current = Math.max(ackSeq ?? -1, queueTailSeq ?? -1);
             }
             b?.flush();
+            refs.joiningRef.current = false;
+            refs.joinClaimedRef.current = false; // the join is done — the recovery lane is free
+            refs.setJoining(false);
           }, 0);
           // total = bytes agent holds; ceiling for scroll-up fetch.
           refs.historyTotalRef.current = res.total || 0;

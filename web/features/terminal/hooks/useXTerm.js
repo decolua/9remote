@@ -9,7 +9,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, HISTORY_FETCH, applyTerminalBackground, effectiveFontSize } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, isTerminalReport, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, HISTORY_FETCH, applyTerminalBackground, effectiveFontSize } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState, recoveryBusy } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
@@ -788,6 +788,8 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
 
     if (isFocused) {
       inputHandlerRef.current = termRef.current.onData((data) => {
+        // Drop automated terminal reports (DA1/DA2/CPR) triggered by replaying historical output
+        if ((joiningRef.current || historyFetchingRef.current) && isTerminalReport(data)) return;
         if (isUserTyping(data)) onInput?.(sessionId);
         bus.emit("input", { sessionId, data });
       });
