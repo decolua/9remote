@@ -51,13 +51,11 @@ export function getResourceManager() {
 let robot = null;
 let TileManager = null;
 let ResourceManager = null;
-let ScreenUpdateHelper = null;
 let MouseHandler = null;
 let KeyboardHandler = null;
 let ScreenHandler = null;
 let MonitorManager = null;
 let resourceManager = null;
-let screenUpdateHelper = null;
 let mouseHandler = null;
 let keyboardHandler = null;
 let screenHandler = null;
@@ -90,12 +88,11 @@ async function loadRemoteModules() {
     robot = robotModule.default || robotModule;
     const { TileManager: TM } = await import("./TileManager.js");
     const { ResourceManager: RM } = await import("./ResourceManager.js");
-    const { ScreenUpdateHelper: SUH } = await import("./utils/ScreenUpdateHelper.js");
     const { MouseHandler: MH } = await import("./handlers/MouseHandler.js");
     const { KeyboardHandler: KH } = await import("./handlers/KeyboardHandler.js");
     const { ScreenHandler: SH } = await import("./handlers/ScreenHandler.js");
     const { MonitorManager: MM } = await import("./MonitorManager.js");
-    TileManager = TM; ResourceManager = RM; ScreenUpdateHelper = SUH;
+    TileManager = TM; ResourceManager = RM;
     MouseHandler = MH; KeyboardHandler = KH; ScreenHandler = SH;
     MonitorManager = MM;
     await enablePerMonitorDpiAwareness();
@@ -126,10 +123,9 @@ export async function setupRemoteHandlers(socket, apiKey) {
 
   if (!resourceManager) {
     resourceManager = new ResourceManager();
-    screenUpdateHelper = new ScreenUpdateHelper(resourceManager);
     mouseHandler = new MouseHandler(robot, resourceManager);
     keyboardHandler = new KeyboardHandler(robot, resourceManager);
-    screenHandler = new ScreenHandler(resourceManager, screenUpdateHelper, robot);
+    screenHandler = new ScreenHandler(resourceManager, robot);
     resourceManager.startResourceMonitoring();
   }
 

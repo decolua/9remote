@@ -31,9 +31,8 @@ import { REMOTE_CONFIG } from "../REMOTE_CONFIG.js";
 import { pushUiLog } from "../../../api/ui.js";
 
 export class ScreenHandler {
-  constructor(resourceManager, screenUpdateHelper, robot) {
+  constructor(resourceManager, robot) {
     this.resourceManager = resourceManager;
-    this.screenUpdateHelper = screenUpdateHelper;
     this.robot = robot;
   }
 
