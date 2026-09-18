@@ -6,7 +6,6 @@ import {
   ChevronLeft, ChevronRight, RefreshCw, Keyboard, HelpCircle, Hand, Settings, MoreHorizontal, X, Bug, Monitor, Plus, CornerDownLeft, Mic, MicOff, History, Bell, Eye, EyeOff
 } from "@/shared/components/ui/Icon";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
-import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import CommandSuggestions from "@/shared/components/ui/CommandSuggestions";
 import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
 import { useRemoteHistoryStore } from "@/shared/stores/historyStore";
@@ -89,8 +88,7 @@ export default function RemoteControls({
   const { t, locale } = useI18n();
   const panelInputRef = useRef(null);
   // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
-  const [voiceLang, setVoiceLang] = useVoiceLang(locale);
-  const [voiceLangOpen, setVoiceLangOpen] = useState(false);
+  const [voiceLang] = useVoiceLang(locale);
   const [historyOpen, setHistoryOpen] = useState(false);
   const voice = useVoiceInput({
     lang: localeToSpeechLang(voiceLang),
@@ -296,19 +294,8 @@ export default function RemoteControls({
           )}
         </div>
         <div className="flex gap-2 items-center justify-end">
-        {voice.supported && (
+        {voice.active && (
           <div className="relative shrink-0">
-            {voice.listening && (
-              <button
-                type="button"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setVoiceLangOpen(true)}
-                title={t("voice.language")}
-                className="absolute -top-9 left-1/2 -translate-x-1/2 z-50 px-2.5 py-1 rounded-brand bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors"
-              >
-                {voiceLang}
-              </button>
-            )}
             <button
               type="button"
               onMouseDown={(e) => e.preventDefault()}
@@ -508,12 +495,6 @@ export default function RemoteControls({
           { id: "bottom", label: t("remoteControls.bottomRow"), hook: bottomCustom, excludeIds: [REMOTE_PINNED_KEY_ID] },
           { id: "extra", label: t("remoteControls.extraPanel"), hook: extraCustom }
         ]}
-      />
-      <VoiceLangModal
-        isOpen={voiceLangOpen}
-        value={voiceLang}
-        onSelect={setVoiceLang}
-        onClose={() => setVoiceLangOpen(false)}
       />
       <CommandHistoryModal
         isOpen={historyOpen}

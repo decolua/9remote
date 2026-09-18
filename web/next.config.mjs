@@ -94,7 +94,8 @@ const nextConfig = {
       { key: "X-Content-Type-Options", value: "nosniff" },
       { key: "X-Frame-Options", value: "DENY" },
       { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-      { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=()" },
+      // microphone=(self): voice dictation runs in this origin's own document.
+      { key: "Permissions-Policy", value: "camera=(), microphone=(self), geolocation=()" },
       { key: "Content-Security-Policy-Report-Only", value: csp }
     ];
     // The sites shell and its worker, which in production never reach Next at

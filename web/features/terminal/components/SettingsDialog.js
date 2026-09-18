@@ -17,8 +17,7 @@ import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonI
 import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
-import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
-import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
+import VoiceEndpointSettings from "@/shared/components/ui/VoiceEndpointSettings";
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
@@ -55,8 +54,8 @@ export default function SettingsDialog({
 
   const push = usePushToggle(context.subscribeToPush, context.unsubscribeFromPush);
   const artifact = useArtifactToggle(context.busRef, context.connected);
-  const mcpClients = useTerminalStore((s) => s.mcpClients);
   const artifactSupported = artifact.supported;
+  // Plugins tab is not gated on MCP support: it also hosts the client-side voice config.
 
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const agentVersion = context.agentVersion;
@@ -72,10 +71,8 @@ export default function SettingsDialog({
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
     if (c.id === "codespace") return isCodespaces;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
-    // An agent too old to serve MCP has nothing to put on this tab
-    if (c.id === "mcp") return artifactSupported;
     return true;
-  }), [isCodespaces, hideActions, artifactSupported]);
+  }), [isCodespaces, hideActions]);
   // "install" is a drill-in from the install row, not a nav entry — it has no category
   const activeCategory = categories.find((c) => c.id === section);
 
@@ -308,34 +305,23 @@ export default function SettingsDialog({
 
             {section === "mcp" && (
               <div className="space-y-6">
-                {/* Named by the agent, not hardcoded here: it is the side that owns each
-                    CLI's config file, so it is the side that knows which ones it reaches. */}
-                {mcpClients.length > 0 && (
-                  <Group title={t("menu.mcpClients")}>
-                    <div className="flex flex-wrap gap-1.5">
-                      {mcpClients.map((id) => (
-                        <span key={id} className="flex items-center gap-1.5 pl-1.5 pr-2.5 py-1 rounded-brand bg-surface-2 text-[12px] text-text">
-                          <img src={agentIconUrl(id)} alt="" className={`w-3.5 h-3.5 ${AGENT_ICON_CLS}`} />
-                          {AGENT_LABELS[id] || id}
-                        </span>
-                      ))}
-                    </div>
-                  </Group>
-                )}
+                <VoiceEndpointSettings />
 
-                {/* One switch, and the hint under it says what it buys them — MCP is
-                    jargon, so the row has to explain itself. */}
-                <ToggleRow
-                  icon={PanelRight}
-                  label={t("menu.artifactPanel")}
-                  hint={t("menu.artifactHint")}
-                  value={artifact.enabled}
-                  loading={artifact.loading}
-                  disabled={!context.connected}
-                  onChange={artifact.toggle}
-                />
+                {artifactSupported && (<>
+                  {/* One switch, and the hint under it says what it buys them — MCP is
+                      jargon, so the row has to explain itself. */}
+                  <ToggleRow
+                    icon={PanelRight}
+                    label={t("menu.artifactPanel")}
+                    hint={t("menu.artifactHint")}
+                    value={artifact.enabled}
+                    loading={artifact.loading}
+                    disabled={!context.connected}
+                    onChange={artifact.toggle}
+                  />
 
-                <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
+                  <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
+                </>)}
               </div>
             )}
             {section === "shortcuts" && (

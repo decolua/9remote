@@ -23,8 +23,7 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { verifyServerConnection } from "@/shared/hooks/useAuth";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
-import { AGENT_LABELS } from "@/features/terminal/constants/agentLabels";
-import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
+import VoiceEndpointSettings from "@/shared/components/ui/VoiceEndpointSettings";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 
@@ -160,7 +159,6 @@ export default function MenuItems({
 
   const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
   const artifact = useArtifactToggle(busRef, connected);
-  const mcpClients = useTerminalStore((s) => s.mcpClients);
   // Treat native WebView (Expo) the same as PWA for UI gating
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || push.isExpoWebView
@@ -313,30 +311,21 @@ export default function MenuItems({
         </div>
       )}
 
-      {/* MCP — what the AI CLIs are allowed to drive in this app. Its own section rather
-          than a terminal setting: it changes what the AI can do, not how a terminal looks. */}
-      {artifact.supported && (
-        <div className="bg-surface rounded-brand-lg overflow-hidden">
-          <button
-            onClick={() => { vibrate(); setMcpMenuOpen((v) => !v); }}
-            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-          >
-            <Zap className="text-brand-500" size={16} />
-            <span className="text-sm flex-1">{t("menu.settingsMcp")}</span>
-            <ChevronDown className={`text-text-muted transition-transform duration-200 ${mcpMenuOpen ? "rotate-180" : ""}`} size={16} />
-          </button>
-          {mcpMenuOpen && (
-            <div className="pl-6 pr-3 pb-2 space-y-2">
-              {mcpClients.length > 0 && (
-                <div className="flex flex-wrap gap-1">
-                  {mcpClients.map((id) => (
-                    <span key={id} className="flex items-center gap-1 pl-1 pr-2 py-0.5 rounded-brand bg-surface-2 text-[11px] text-text">
-                      <img src={agentIconUrl(id)} alt="" className={`w-3 h-3 ${AGENT_ICON_CLS}`} />
-                      {AGENT_LABELS[id] || id}
-                    </span>
-                  ))}
-                </div>
-              )}
+      {/* Plugins — AI extras + voice endpoint. Its own section rather than a terminal
+          setting: it changes what the AI can do, not how a terminal looks. */}
+      <div className="bg-surface rounded-brand-lg overflow-hidden">
+        <button
+          onClick={() => { vibrate(); setMcpMenuOpen((v) => !v); }}
+          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+        >
+          <Zap className="text-brand-500" size={16} />
+          <span className="text-sm flex-1">{t("menu.settingsMcp")}</span>
+          <ChevronDown className={`text-text-muted transition-transform duration-200 ${mcpMenuOpen ? "rotate-180" : ""}`} size={16} />
+        </button>
+        {mcpMenuOpen && (
+          <div className="pl-4 pr-2 pb-2 space-y-2">
+            <VoiceEndpointSettings dense />
+            {artifact.supported && (<>
               <div className="flex items-center gap-2.5">
                 <PanelRight className="text-text shrink-0" size={16} />
                 <span className="text-sm flex-1 min-w-0">{t("menu.artifactPanel")}</span>
@@ -349,10 +338,10 @@ export default function MenuItems({
                 </button>
               </div>
               <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.artifactHint")}</p>
-            </div>
-          )}
-        </div>
-      )}
+            </>)}
+          </div>
+        )}
+      </div>
 
       {/* Terminal background picker — standalone row (mobile, dark mode only) */}
       {appMode === "dark" && (

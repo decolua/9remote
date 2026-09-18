@@ -20,7 +20,6 @@ import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
 import CommandSuggestions, { pickCommandItems } from "@/shared/components/ui/CommandSuggestions";
 import { useTerminalHistoryStore } from "@/shared/stores/historyStore";
 import { useVoiceInput, localeToSpeechLang, useVoiceLang } from "@/shared/hooks/useVoiceInput";
-import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useCustomKeys } from "@/shared/hooks/useCustomKeys";
 import KeyCustomizeModal from "@/shared/components/ui/KeyCustomizeModal";
@@ -102,8 +101,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
   } = useAttachments({ bus, sessionId });
 
   // Voice dictation language: persisted, defaults to the UI locale. Chosen via modal.
-  const [voiceLang, setVoiceLang] = useVoiceLang(locale);
-  const [voiceLangOpen, setVoiceLangOpen] = useState(false);
+  const [voiceLang] = useVoiceLang(locale);
   const voice = useVoiceInput({
     lang: localeToSpeechLang(voiceLang),
     onText: (txt) => {
@@ -598,17 +596,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
                 <History size={14} />
               </button>
             )}
-            {voice.supported && voice.listening && (
-              <button
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => setVoiceLangOpen(true)}
-                title={t("voice.language")}
-                className="absolute right-1.5 -top-7 z-10 px-2.5 py-1 rounded bg-surface-2 shadow-lg text-[11px] font-semibold uppercase text-text-muted hover:text-text transition-colors touch-none"
-              >
-                {voiceLang}
-              </button>
-            )}
-            {voice.supported && (
+            {voice.active && (
               <button
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={toggleVoice}
@@ -676,12 +664,6 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
           { id: "basic", label: t("mobileKeyboard.mainBar"), hook: basicCustom, excludeIds: [TERMINAL_PINNED_KEY_ID] },
           { id: "extra", label: t("mobileKeyboard.extraPanel"), hook: extraCustom }
         ]}
-      />
-      <VoiceLangModal
-        isOpen={voiceLangOpen}
-        value={voiceLang}
-        onSelect={(l) => { setVoiceLang(l); voice.stop(); }}
-        onClose={() => { setVoiceLangOpen(false); voice.stop(); }}
       />
       <CommandHistoryModal
         isOpen={showHistory}
