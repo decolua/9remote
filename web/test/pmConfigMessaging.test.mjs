@@ -189,7 +189,7 @@ test("dispatch: __ack resolves the pending callback and clears its timer", () =>
 test("dispatch: RTC envelope spreads args; WS payload stays single-arg", () => {
   const pm = makePm();
   const seen = [];
-  pm._listeners.set("output", new Set([(...a) => seen.push(a)]));
+  pm._sockListeners.set("output", [(...a) => seen.push(a)]);
   dispatch(pm, "output", { args: [1, 2, 3] }, "rtc");
   dispatch(pm, "output", { data: "x" }, "ws");
   assert.deepEqual(seen[0], [1, 2, 3]);

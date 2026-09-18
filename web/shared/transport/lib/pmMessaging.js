@@ -146,10 +146,7 @@ export function dispatch(pm, event, payload, source) {
   const args = source === "rtc" && Array.isArray(payload?.args)
     ? payload.args
     : [payload];
-  // 1) PM-internal listeners
-  const set = pm._listeners.get(event);
-  if (set) for (const h of set) h(...args);
-  // 2) The app's listeners, which all live on the one bus — the carrier that
+  // The app's listeners, which all live on the one bus — the carrier that
   // delivered this is not its business. (Previously the WS path returned here
   // because socket.io had already invoked the handlers itself; now nothing is
   // registered on the bus, so every carrier ends the same way.)

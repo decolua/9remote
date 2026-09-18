@@ -52,7 +52,6 @@ export class ProtocolManager {
     this._sigBuffer = [];
 
     this._adapters = new Map();
-    this._listeners = new Map();
     this._buffer = [];
     this._binOut = false; // peer announced caps.binOut — output bytes may ride binary
     // Diagnostic one-shots/counters — confirm the protocol switches are live, not
@@ -558,8 +557,6 @@ export class ProtocolManager {
         // Synthesize ack callback as last argument
         args.push((...resp) => this._sendAck(ackId, resp));
       }
-      const set = this._listeners.get(event);
-      if (set) for (const h of set) h(...args);
       const fns = this._host?.listeners?.(event) || [];
       for (const fn of fns) fn(...args);
       this._host?.dispatchAny?.(event, args[0]);
@@ -572,8 +569,6 @@ export class ProtocolManager {
     // Asked as "does the host need this forward" (dispatchAny exists only on
     // an AgentBus), not as a type flag: a socket.io host must NOT be forwarded
     // into (it already fired), an AgentBus must be.
-    const set = this._listeners.get(event);
-    if (set) for (const h of set) h(payload);
     if (this._host?.dispatchAny) {
       const fns = this._host.listeners?.(event) || [];
       const args = wsArgs || [payload];

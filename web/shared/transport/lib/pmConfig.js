@@ -48,7 +48,6 @@ export function buildConfig(wsConfig, rtcConfig) {
 export function initialState() {
   return {
     _adapters: new Map(),   // id → adapter instance
-    _listeners: new Map(),  // event → Set<handler>
     _buffer: [],            // pending control sends when no adapter ready
     _pendingAcks: new Map(), // ackId → callback (RTC ack)
     _ackTimers: new Map(),  // ackId → timeout (zombie detection)

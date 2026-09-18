@@ -25,7 +25,6 @@ const test = (name, fn) => {
 // Minimal PM stand-in with the fields pmMessaging.dispatch touches.
 function makePm() {
   const pm = {
-    _listeners: new Map(),
     _adapters: new Map(),
     _pendingAcks: new Map(),
     _ackTimers: new Map(),
@@ -101,13 +100,11 @@ test("the synthetic connect of a carrier rejoin reaches app listeners", () => {
   assert.equal(rejoined, 1);
 });
 
-test("PM-internal bus listeners still work alongside app listeners", () => {
+test("app listeners on the bus fire on dispatch, once per event", () => {
   const pm = makePm();
-  let internal = 0, app = 0;
-  pm._listeners.set("device:approved", new Set([() => { internal++; }]));
+  let app = 0;
   pm._bus.on("device:approved", () => { app++; });
   dispatch(pm, "device:approved", {}, "ws");
-  assert.equal(internal, 1, "PM's own listener");
   assert.equal(app, 1, "app listener on the bus");
 });
 

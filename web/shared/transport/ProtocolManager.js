@@ -23,7 +23,7 @@ registerProtocol(WebRtcProtocol);
  * ProtocolManager — orchestrator. Holds auth, instantiates adapters from profile,
  * routes messages by channel via priority, auto-reroutes on stateChange.
  *
- * Backward-compat API kept (on/off/emit/connect/disconnect, busRef, type, connected, connectionMode).
+ * Backward-compat API kept (emit/connect/disconnect, busRef, type, connected, connectionMode).
  */
 export class ProtocolManager {
   constructor(wsConfig, rtcConfig) {
@@ -76,15 +76,6 @@ export class ProtocolManager {
   }
 
   // ─── Public API ────────────────────────────────────────────────────────────
-
-  on(event, handler) {
-    if (!this._listeners.has(event)) this._listeners.set(event, new Set());
-    this._listeners.get(event).add(handler);
-  }
-
-  off(event, handler) {
-    this._listeners.get(event)?.delete(handler);
-  }
 
   /** Legacy emit — routes through control channel via best adapter. */
   emit(event, ...args) {
