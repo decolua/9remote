@@ -242,6 +242,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
       case "options_changed":
         if (data?.permissionMode) permissionMode = data.permissionMode;
         if (data?.model) metadata.model = data.model;
+        if (data?.effort) metadata.effort = data.effort;
         break;
       case "turn_complete":
         turnEnded = true;
@@ -536,6 +537,7 @@ export function useAiSession({
         // Another surface switched mode/model — this one shows the same thing
         if (data?.permissionMode) useAiStore.getState().setPermissionMode(sid, data.permissionMode);
         if (data?.model) setMetadata(sid, { model: data.model });
+        if (data?.effort) setMetadata(sid, { effort: data.effort });
         break;
       // A client that joined mid-turn measures from its own join, so the host's span —
       // which rides with the event that ends the turn — is the honest number.

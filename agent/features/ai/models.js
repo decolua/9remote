@@ -5,6 +5,8 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "node:child_process";
+import { PATHS } from "../../lib/constants.js";
+import { writeJsonAtomic } from "../../lib/atomicFile.js";
 
 // Each env key names one slot the CLI offers. `[1m]` suffixes are kept verbatim —
 // they select the 1M-context variant and must survive back to `--model`.
@@ -188,12 +190,40 @@ export function listOpencodeModelOptions() {
   return options;
 }
 
+const AI_PREFERENCES_FILE = path.join(PATHS.STATE, "aiPreferences.json");
+
+export function readAiPreferences() {
+  try {
+    return JSON.parse(fs.readFileSync(AI_PREFERENCES_FILE, "utf8")) || {};
+  } catch {
+    return {};
+  }
+}
+
+export function saveAiPreference(engine, patch) {
+  if (!engine || !patch || typeof patch !== "object") return;
+  try {
+    const current = readAiPreferences();
+    const existing = current[engine] || {};
+    const updated = {
+      ...existing,
+      ...(patch.model !== undefined ? { model: patch.model } : null),
+      ...(patch.effort !== undefined ? { effort: patch.effort } : null)
+    };
+    current[engine] = updated;
+    writeJsonAtomic(AI_PREFERENCES_FILE, current);
+  } catch {}
+}
+
 /**
  * The model a brand-new chat starts with, read from each CLI's own config — the id
  * lives only on the host (gateway aliases, per-machine picks) so nothing may be baked
  * in. Empty string means "let the CLI decide".
  */
 export function resolveDefaultModel(engine) {
+  const saved = readAiPreferences()[engine]?.model;
+  if (typeof saved === "string" && saved) return saved;
+
   if (engine === "claude") {
     // Claude resolves `sonnet`-style aliases through the same env slots the picker lists.
     const settings = readClaudeSettings();
@@ -244,6 +274,9 @@ export function resolveDefaultModel(engine) {
  * only ever arrived from `setOptions`. The CLI was running `medium` the whole time.
  */
 export function resolveDefaultEffort(engine) {
+  const saved = readAiPreferences()[engine]?.effort;
+  if (typeof saved === "string" && saved) return saved;
+
   if (engine === "claude") {
     const level = readClaudeSettings().effortLevel;
     return typeof level === "string" ? level.trim() : "";

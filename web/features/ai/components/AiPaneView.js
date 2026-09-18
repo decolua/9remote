@@ -164,8 +164,9 @@ export const AiPaneView = memo(function AiPaneView({
   // Model is a session option, not a chat message: it must go through ai:options so
   // the host applies it to the CLI (a `/model x` prompt would just be sent as text).
   const handleSelectModel = useCallback((modelId) => {
+    useAiStore.getState().setMetadata(sessionId, { model: modelId });
     emitOptions({ model: modelId });
-  }, [emitOptions]);
+  }, [emitOptions, sessionId]);
 
   // Resume a past conversation: hand the CLI the thread/session id it should
   // continue. The host applies it and rebuilds the adapter.
@@ -184,8 +185,9 @@ export const AiPaneView = memo(function AiPaneView({
   // Apply a submenu value (effort, variant, sandbox) to the running session.
   const handleOptionChange = useCallback((key, value) => {
     if (!key) return;
+    if (key === "effort") useAiStore.getState().setMetadata(sessionId, { effort: value });
     emitOptions({ [key]: value });
-  }, [emitOptions]);
+  }, [emitOptions, sessionId]);
 
   const engineConfig = getEngineConfig(engine);
 

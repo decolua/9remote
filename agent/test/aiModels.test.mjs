@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { resolveDefaultModel, resolveDefaultEffort, listCodexModelOptions, listOpencodeModelOptions } from "../features/ai/models.js";
+import { resolveDefaultModel, resolveDefaultEffort, listCodexModelOptions, listOpencodeModelOptions, saveAiPreference, readAiPreferences } from "../features/ai/models.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -78,6 +78,20 @@ await test("codex reads the TOP-LEVEL model_reasoning_effort, not a profile's", 
 
 await test("opencode publishes no effort — its variant is in argv only", () => {
   assert.equal(resolveDefaultEffort("opencode"), "");
+});
+
+await test("aiPreferences persists latest model and effort per engine", () => {
+  const orig = readAiPreferences();
+  try {
+    saveAiPreference("claude", { model: "test-model-xyz", effort: "xhigh" });
+    assert.equal(resolveDefaultModel("claude"), "test-model-xyz");
+    assert.equal(resolveDefaultEffort("claude"), "xhigh");
+  } finally {
+    saveAiPreference("claude", {
+      model: orig.claude?.model || "",
+      effort: orig.claude?.effort || ""
+    });
+  }
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

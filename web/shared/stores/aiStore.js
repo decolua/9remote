@@ -823,7 +823,10 @@ export const useAiStore = create(
               // null is "not chosen yet" — persisting a concrete "default" here would
               // outlive the reload and pin every engine to the wrong mode.
               permissionMode: sess?.permissionMode ?? null,
-              metadata: { model: sess?.metadata?.model || "" }
+              metadata: {
+                model: sess?.metadata?.model || "",
+                effort: sess?.metadata?.effort || ""
+              }
             }
           ])
         )
