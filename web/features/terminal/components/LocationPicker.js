@@ -117,8 +117,9 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
       {open && (
         <div
           role="listbox"
-          className="absolute z-10 left-0 right-0 top-full mt-1 max-h-72 overflow-y-auto scrollbar-thin bg-surface-2 rounded-brand border border-border-subtle shadow-lg py-1"
+          className="absolute z-10 left-0 right-0 top-full mt-1 max-h-72 flex flex-col bg-surface-2 rounded-brand border border-border-subtle shadow-lg"
         >
+          <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin py-1">
           {!creating && loading && (
             <div className="flex items-center justify-center py-4 text-text-muted">
               <Loader2 size={15} className="animate-spin" />
@@ -161,33 +162,8 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
               })}
             </div>
           ))}
-          {!creating && (repoGroups.length > 0 || onBrowse) && (
-            <>
-              <div className="my-1 h-px bg-border-subtle" />
-              {repoGroups.length > 0 && fileBus?.gitWorktreeAdd && (
-                <button
-                  type="button"
-                  onClick={() => { vibrate(); startCreate(); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-text-muted hover:bg-surface-3 hover:text-text transition-colors"
-                >
-                  <GitFork size={12} className="shrink-0 opacity-70" />
-                  {t("workspaces.newWorktree")}
-                </button>
-              )}
-              {onBrowse && (
-                <button
-                  type="button"
-                  onClick={() => { vibrate(); setOpen(false); onBrowse(); }}
-                  className="w-full flex items-center gap-2 px-3 py-1.5 text-left text-xs text-text-muted hover:bg-surface-3 hover:text-text transition-colors"
-                >
-                  <FolderOpen size={12} className="shrink-0 opacity-70" />
-                  {t("terminal.browseFolders")}
-                </button>
-              )}
-            </>
-          )}
           {creating && (
-            <div className="px-2 py-1.5">
+            <div data-wt-form className="px-2 py-1.5">
               <div className="flex items-center gap-1.5 px-1 pb-1.5 text-[10px] font-medium uppercase tracking-wider text-text-subtle">
                 <GitFork size={11} />
                 {t("workspaces.newWorktree")}
@@ -236,6 +212,31 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
                   {wtBusy ? <Loader2 size={12} className="animate-spin" /> : t("common.create")}
                 </button>
               </div>
+            </div>
+          )}
+          </div>
+          {!creating && (repoGroups.length > 0 || onBrowse) && (
+            <div className="shrink-0 border-t border-border-subtle flex items-center gap-1 px-2 py-1.5">
+              {repoGroups.length > 0 && fileBus?.gitWorktreeAdd && (
+                <button
+                  type="button"
+                  onClick={() => { vibrate(); startCreate(); }}
+                  className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-1 rounded-brand text-xs text-brand-500 hover:bg-brand-500/10 transition-colors"
+                >
+                  <GitFork size={12} className="shrink-0" />
+                  <span className="truncate">{t("workspaces.newWorktree")}</span>
+                </button>
+              )}
+              {onBrowse && (
+                <button
+                  type="button"
+                  onClick={() => { vibrate(); setOpen(false); onBrowse(); }}
+                  className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-1 rounded-brand text-xs text-text-muted hover:bg-surface-3 hover:text-text transition-colors"
+                >
+                  <FolderOpen size={12} className="shrink-0 opacity-70" />
+                  <span className="truncate">{t("terminal.browseFolders")}</span>
+                </button>
+              )}
             </div>
           )}
         </div>

@@ -159,6 +159,9 @@ export default function NewTerminalModal({
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (browsing) return;
+      // Keys born inside the worktree-create form belong to it — its input submits
+      // the form and Escape backs out to the list, never the whole modal.
+      if (e.target?.closest?.("[data-wt-form]")) return;
       if (e.key === "Escape") {
         e.preventDefault();
         e.stopPropagation();
