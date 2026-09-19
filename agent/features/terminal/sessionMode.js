@@ -110,9 +110,17 @@ function enterUi(sessionId, session) {
   if (exitTui(sessionId, session)) logger.debug(`session ${sessionId} → ui, TUI exiting`);
 }
 
+// Double-quoted so spaces survive; escape what a double-quoted string still reads.
+function shellQuote(p) {
+  return `"${p.replace(/(["\\$`])/g, "\\$1")}"`;
+}
+
 function leaveUi(sessionId, session, conv) {
   // Leaving the UI would strand a CLI process on the host holding this conversation
   // while a second one resumes it.
+  // Grab the chat's dir before its CLI dies: the resume line must run there, not
+  // wherever the idle shell beneath happens to sit.
+  const chatCwd = globalAiManager.getSession(sessionId)?.cwd || null;
   stopChatCli(sessionId);
   const engine = engineFromAgent(conv?.agent || session.agent);
   const line = conv?.id
@@ -120,7 +128,13 @@ function leaveUi(sessionId, session, conv) {
     : (agentById(engine)?.cmd || engine);
   if (!line) return;
   exitTui(sessionId, session);
+  // Align the shell with the chat's dir when the two drifted apart (chat in a
+  // worktree, shell at the workspace root), then hand the conversation over.
+  // ponytail: `&&` is a parse error in PowerShell 5, so Windows keeps the old
+  // one-line behavior; revisit when a Windows user hits a worktree drift.
+  const needsCd = process.platform !== "win32" && chatCwd && session.cwd && chatCwd !== session.cwd;
+  const full = needsCd ? `cd ${shellQuote(chatCwd)} && ${line}` : line;
   // Clear any leaked terminal responses or dirty chars on the prompt
-  setTimeout(() => sendTerminalInput(sessionId, session, `${CLEAR_LINE}${line}\r`), CLI_EXIT_MS);
+  setTimeout(() => sendTerminalInput(sessionId, session, `${CLEAR_LINE}${full}\r`), CLI_EXIT_MS);
   logger.debug(`session ${sessionId} → terminal (${engine} ${conv?.id || "fresh"})`);
 }

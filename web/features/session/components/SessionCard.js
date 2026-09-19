@@ -56,8 +56,9 @@ export default function SessionCard({
   const state = status?.state || "idle";
   const visual = statusVisual(state);
   // Live checkout of where the terminal actually sits, not of its fixed workspace root —
-  // a `cd` into another worktree has to show that worktree's branch.
-  const gitPath = cwd || session.workspacePath || null;
+  // a `cd` into another worktree has to show that worktree's branch. Chat UI panes emit
+  // no terminal OSC 7, so their dir comes from the session record itself.
+  const gitPath = cwd || session.cwd || session.workspacePath || null;
   const { branch, dirty, changedCount } = useWorkspaceGit(gitPath, fileBus, { enabled: connected });
   const basePath = session.workspacePath || null;
   // Prompt path: relative to the workspace root while inside it, ~-shortened outside.

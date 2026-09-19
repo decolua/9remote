@@ -9,7 +9,7 @@ import { searchRepoFiles } from "./files.js";
 import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
-import { broadcastAiStatus } from "../terminal/terminalSocket.js";
+import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.js";
 import { getConversation, getSessionAgent, setConversationId, getStatus, touchWorking, requestAutoName } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
@@ -21,6 +21,12 @@ import * as claudeRewind from "./claudeRewind.js";
 import * as codexRewind from "./codexRewind.js";
 
 const logger = createLogger("ai");
+
+// The terminal's live cwd (daemon-reported) beats the client's copy — a chat
+// opened from a terminal must land where that terminal actually stands.
+function liveTerminalCwd(sessionId) {
+  return listSessionRoots().find((s) => s.id === sessionId)?.cwd || null;
+}
 
 // What the CLI calls a refusal, in words a reader can act on. It refuses rather than
 // cutting when the turn to rewind is not one it can place — either the client's count has
@@ -385,6 +391,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     logger.info(`[ai] create recv: ${sessionId} engine=${engine} (syncClientSession)`);
     try {
       if (!sessionId || !engine) throw new Error("Missing sessionId or engine");
+      const liveCwd = liveTerminalCwd(sessionId);
+      if (liveCwd) cwd = liveCwd;
       // A create repeats on every mount (F5, second tab). The live session is already
       // this chat, so re-creating it would kill its CLI and lose the turn in flight.
       if (manager.getSession(sessionId)) {
@@ -470,7 +478,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         }
         if (!session) {
           // cwd rides along so the raced session lands in the right directory, not $HOME
-          session = manager.createSession(sessionId, "claude", cwd || process.cwd(), {
+          session = manager.createSession(sessionId, "claude", liveTerminalCwd(sessionId) || cwd || process.cwd(), {
             defaultModel: defaultModelFor("claude"),
             defaultEffort: defaultEffortFor("claude")
           });

@@ -11,6 +11,7 @@ import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import {
@@ -47,6 +48,8 @@ export default function SessionList({
   fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession
 }) {
   const { t } = useI18n();
+  // Callers may pass no bus; the store is the single live connection anyway
+  const activeFileBus = fileBus || useFileBusStore.getState();
   const storeConnected = useConnectionStore((s) => s.connected);
   const storeCarrier = useConnectionStore((s) => s.carrier);
   const storeBusRef = useConnectionStore((s) => s.busRef);
@@ -235,7 +238,7 @@ export default function SessionList({
                   connected={connected}
                   shellCount={shells.length}
                   cwdBySession={cwdBySession}
-                  fileBus={fileBus}
+                  fileBus={activeFileBus}
                   homeDir={homeDir}
                   sessionStatus={sessionStatus}
                   notifications={notifications}
@@ -334,7 +337,7 @@ export default function SessionList({
           connected={connected}
           workspacePath={workspaces.find((w) => w.id === terminalModal.workspaceId)?.path || null}
           workspaceName={workspaces.find((w) => w.id === terminalModal.workspaceId)?.name || ""}
-          fileBus={fileBus}
+          fileBus={activeFileBus}
           homeDir={homeDir}
           suggestName={`${t("terminal.defaultName")} ${sessionsIn(terminalModal.workspaceId).length + 1}`}
         />

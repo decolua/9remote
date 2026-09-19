@@ -353,7 +353,7 @@ function TerminalWorkspace({
           <AiPaneView
             sessionId={sessionId}
             engine={aiUi.aiEngine}
-            workspacePath={session?.workspacePath || activeWorkspace?.path}
+            workspacePath={session?.cwd || session?.workspacePath || activeWorkspace?.path}
             sessionName={session?.name}
             bus={activeBus}
             fileBus={activeFileBus}
@@ -507,6 +507,7 @@ function TerminalWorkspace({
             onReorderSession={handleReorderSession}
             onToggleRightPanel={rightPanel?.onToggle}
             rightPanelOpen={rightPanel?.open}
+            fileBus={activeFileBus}
             homeDir={homeDir}
           />
           )}

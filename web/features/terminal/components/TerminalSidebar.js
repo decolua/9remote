@@ -163,7 +163,7 @@ function TerminalSidebar({
   // and can name one that has since closed.
   const liveSessionIds = useMemo(() => new Set(allSessions.map((s) => s.id)), [allSessions]);
   const activeCwd = activeSessionId
-    ? (cwdBySession[activeSessionId] ?? allSessions.find((s) => s.id === activeSessionId)?.workspacePath ?? null)
+    ? (cwdBySession[activeSessionId] ?? allSessions.find((s) => s.id === activeSessionId)?.cwd ?? allSessions.find((s) => s.id === activeSessionId)?.workspacePath ?? null)
     : null;
 
   // PWA install — desktop only, so the row shows solely when the browser can
@@ -426,7 +426,7 @@ function TerminalSidebar({
                         </span>
                         <SessionMeta
                           fileBus={fileBus}
-                          cwd={cwdBySession[s.id] ?? s.workspacePath}
+                          cwd={cwdBySession[s.id] ?? s.cwd ?? s.workspacePath}
                           basePath={workspaceGitPath(grp)}
                           homeDir={homeDir}
                         />

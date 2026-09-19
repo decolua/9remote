@@ -223,7 +223,9 @@ export function useSessionNavigation({
   // added-then-removed — same pane count, so the row neither re-measures its widths nor
   // scrolls, and a create the host refuses leaves the chat on screen instead of losing both.
   const handleReplaceSession = useCallback((sessionId, name, agent = null, nameIsAuto = false) => {
-    createSession(name, null, activeWorkspaceId, null, (result) => {
+    // The replacement inherits the old terminal's dir — a chat rooted in a worktree must not jump back to the workspace root
+    const oldCwd = sessions.find((s) => s.id === sessionId)?.cwd || null;
+    createSession(name, null, activeWorkspaceId, oldCwd, (result) => {
       if (!result?.success) return alertCreateFailed(result?.error);
       if (!result.sessionId) return;
       const replaced = result.replaced || sessionId;
@@ -238,7 +240,7 @@ export function useSessionNavigation({
       }
       requestFocus?.(result.sessionId);
     }, nameIsAuto, agent, sessionId);
-  }, [createSession, activeWorkspaceId, alertCreateFailed, addOpenedSession, touchLivePane, replaceTopWithSession, pushView, currentView, requestFocus]);
+  }, [createSession, activeWorkspaceId, alertCreateFailed, addOpenedSession, touchLivePane, replaceTopWithSession, pushView, currentView, requestFocus, sessions]);
 
   // Create from the FileExplorer bottom panel — stay in the current view
   const handleCreateSessionInline = useCallback((onCreated) => {

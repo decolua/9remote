@@ -38,9 +38,8 @@ export const AiStatusBar = memo(function AiStatusBar({
   const permissionMode = storedMode || getEngineConfig(engine).defaultMode;
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
-  // Mobile only: a branch is worth the row on a phone, and only when it is not the
-  // workspace default. Desktop polls it in the sidebar instead.
-  const { branch, dirty } = useWorkspaceGit(workspacePath, undefined, { enabled: !isDesktop && !!workspacePath });
+  // Non-default branch only — "main" is the norm, not information (same rule as the sidebar).
+  const { branch, dirty } = useWorkspaceGit(workspacePath, undefined, { enabled: !!workspacePath });
 
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef(null);
@@ -131,7 +130,7 @@ export const AiStatusBar = memo(function AiStatusBar({
 
       {/* Right: branch (mobile, non-default only), New chat */}
       <div className="flex items-center gap-2.5 shrink-0">
-        {!isDesktop && branch && !isDefaultBranch(branch) && <BranchBadge branch={branch} dirty={dirty} size={11} />}
+        {branch && !isDefaultBranch(branch) && <BranchBadge branch={branch} dirty={dirty} size={11} />}
 
         <button
           type="button"
