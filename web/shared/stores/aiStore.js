@@ -362,6 +362,32 @@ export const useAiStore = create(
         });
       },
 
+      // Text and thinking buffered for the same frame, applied as ONE set: each set
+      // notifies React subscribers synchronously, and splitting a flush into two
+      // writes doubled the nested-update pressure that crashed streaming panes.
+      appendStream: (sessionId, text, thinking) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          const list = [...curr.messages];
+          let last = list[list.length - 1];
+          if (!last || last.role !== "assistant" || !last.isLive) {
+            list.push({ id: nextId("msg"), role: "assistant", content: text || "", thinking: thinking || "", isLive: true, diffs: [], tools: [] });
+          } else {
+            list[list.length - 1] = {
+              ...last,
+              ...(text ? { content: (last.content || "") + text } : null),
+              ...(thinking ? { thinking: (last.thinking || "") + thinking } : null)
+            };
+          }
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, messages: list }
+            }
+          };
+        });
+      },
+
       appendDiff: (sessionId, diffData) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -754,10 +780,18 @@ export const useAiStore = create(
           // back spinning. The task list already in the store is the judge — it is the
           // whole set, folded from every record seen so far.
           const messages = settleTasks(curr.harnessTasks || [], older) || older;
+          // The page's ids were minted to continue past the window, but their base was read
+          // before this write commits (two panes, a rewind since) — an id that still collides
+          // gets a fresh store id so no key can enter the list twice.
+          const have = new Set(curr.messages.map((m) => m.id));
+          const safe = messages.map((m) => {
+            if (!have.has(m.id)) { have.add(m.id); return m; }
+            return { ...m, id: nextId(m.id.split("-")[0]) };
+          });
           return {
             bySession: {
               ...state.bySession,
-              [sessionId]: { ...curr, messages: [...messages, ...curr.messages] }
+              [sessionId]: { ...curr, messages: [...safe, ...curr.messages] }
             }
           };
         });

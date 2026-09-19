@@ -1146,9 +1146,18 @@ export function useAiSession({
     // are pure appends with no ordering against each other, so they accumulate here and
     // land once per frame. Everything else (a tool, a permission gate, turn_complete)
     // must not wait: it changes what the pane is allowed to do, not just what it shows.
+    //
+    // Non-stream events no longer flush those buffers synchronously. Every store set
+    // notifies React subscribers synchronously, so a burst delivering thinking
+    // interleaved with tool/status events interleaved writes with renders until React's
+    // nested-update guard tripped ("Maximum update depth exceeded" — the crash frame
+    // pointed at appendThinking). Both halves of such a burst now queue and land in one
+    // microtask drain: the writes coalesce, React renders once per delivery task.
     let bufferedText = "";
     let bufferedThinking = "";
     let flushHandle = null;
+    let pendingEvents = [];
+    let drainScheduled = false;
     const flushStreamed = () => {
       // Dropped either way: called from the frame itself this is a no-op, and called
       // synchronously from an event below it stops that frame from firing again on an
@@ -1159,15 +1168,48 @@ export function useAiSession({
       const thinking = bufferedThinking;
       bufferedText = "";
       bufferedThinking = "";
-      const apply = applyEventRef.current;
-      if (text) apply(sessionId, "delta", { text });
-      if (thinking) apply(sessionId, "thinking", { text: thinking });
+      if (text || thinking) {
+        useAiStore.getState().appendStream(sessionId, text, thinking);
+      }
     };
     const bufferStream = (event, text) => {
       if (!text) return;
       if (event === "delta") bufferedText += text;
       else bufferedThinking += text;
       if (flushHandle == null) flushHandle = requestAnimationFrame(flushStreamed);
+    };
+    // One drain per delivery task, in arrival order. A stream item is the text buffered
+    // ahead of the event queued behind it — folding it in here keeps "text lands before
+    // the tool/gate it preceded" true without a synchronous flush.
+    const drainPending = () => {
+      drainScheduled = false;
+      const batch = pendingEvents;
+      pendingEvents = [];
+      const apply = applyEventRef.current;
+      for (const item of batch) {
+        if (item.stream) useAiStore.getState().appendStream(sessionId, item.data.text, item.data.thinking);
+        else apply(sessionId, item.event, item.data);
+      }
+    };
+    const queueEvent = (event, data) => {
+      // Whatever streams buffered so far arrived BEFORE this event, and must not land
+      // after it: a reset queued behind them would clear text the reader was shown, and
+      // a tool card would jump ahead of prose that followed it. cli_event is the
+      // exception: it is bookkeeping (tasks/notices), changes nothing the pane may do,
+      // and a thinking stream carries one per token — folding each one out would
+      // re-impose the per-token store write the buffer exists to prevent.
+      if (event !== "cli_event" && (bufferedText || bufferedThinking)) {
+        const item = { stream: true, data: { text: bufferedText, thinking: bufferedThinking } };
+        bufferedText = "";
+        bufferedThinking = "";
+        if (flushHandle != null) { cancelAnimationFrame(flushHandle); flushHandle = null; }
+        pendingEvents.push(item);
+      }
+      pendingEvents.push({ event, data });
+      if (!drainScheduled) {
+        drainScheduled = true;
+        queueMicrotask(drainPending);
+      }
     };
 
     const handleAiEvent = (payload) => {
@@ -1178,12 +1220,10 @@ export function useAiSession({
         pendingLiveRef.current.push(payload);
         return;
       }
-      // Text held for this frame goes in first: anything below either changes what the
-      // pane may do, or restarts the log the text belongs to. A delta that turns out to be
-      // one we already replayed must still flush what came before it, or that text would
-      // land after the events that followed it.
+      // Anything below either changes what the pane may do, or restarts the log the
+      // buffered text belongs to — queueEvent folds that text in ahead of the event it
+      // preceded, so the order the reader sees is still the order the host sent.
       const isStream = payload.event === "delta" || payload.event === "thinking";
-      if (!isStream) flushStreamed();
       // A reset means the host is starting a NEW log whose seqs begin again at 1.
       // The old watermark would drop every replayed event as "already applied", so
       // it must be cleared before the replay that follows.
@@ -1195,7 +1235,7 @@ export function useAiSession({
         // The host replays a tail only, so the reset states where that tail starts.
         olderSeqRef.current = payload.data?.fromSeq ?? 0;
         setHasOlder(Boolean(payload.data?.hasMore));
-        applyEvent(sessionId, payload.event, payload.data);
+        queueEvent(payload.event, payload.data);
         return;
       }
       // Already covered by a replay this client hydrated from — applying it again
@@ -1209,7 +1249,7 @@ export function useAiSession({
         bufferStream(payload.event, payload.data?.text);
         return;
       }
-      applyEvent(sessionId, payload.event, payload.data);
+      queueEvent(payload.event, payload.data);
     };
 
     bus.on("ai:event", handleAiEvent);
