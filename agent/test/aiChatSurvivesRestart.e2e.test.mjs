@@ -44,8 +44,12 @@ const SOCKET_PATH = process.platform === "win32"
 // Hard ceiling: a phase that never resolves ends the run with a failure instead of
 // hanging the terminal (the daemon under test is a separate process and can die).
 const DEADLINE_MS = 30000;
+// The deadline must go through cleanup() — a bare process.exit() skips the finally
+// below and leaks the daemon + CLIs this run spawned.
+let cleanup = () => {};
 const deadline = setTimeout(() => {
   console.error(`\n✗ timed out after ${DEADLINE_MS / 1000}s — a phase never resolved`);
+  cleanup();
   process.exit(1);
 }, DEADLINE_MS);
 
@@ -221,6 +225,10 @@ function connectDaemon() {
   });
 }
 
+// Every child this run started, so a failure anywhere still ends with all of them
+// dead — killing them only at the end of a passing test is how they leaked.
+const liveChildren = [];
+
 // Spawns the agent child and collects its stdout report.
 function startChild(env, sessionId = "chat-1") {
   const child = spawn(process.execPath, [AGENT_CHILD, sessionId, daemonDir], {
@@ -237,10 +245,14 @@ function startChild(env, sessionId = "chat-1") {
     stdio: ["ignore", "pipe", "inherit"]
   });
   const state = { events: [], signals: [], ready: null, child };
+  liveChildren.push(state);
   child.stdout.on("data", (c) => {
     for (const line of c.toString().split("\n")) {
       if (!line.trim()) continue;
-      const msg = JSON.parse(line);
+      // A stray stdout line must not crash the harness — an exception in this
+      // handler is an uncaughtException that skips cleanup entirely.
+      let msg;
+      try { msg = JSON.parse(line); } catch { continue; }
       if (msg.kind === "ready") state.ready = msg;
       else if (msg.kind === "event") state.events.push(msg);
       else { state.signals.push(msg); if (process.env.DUMP) console.log("SIGNAL", JSON.stringify(msg)); }
@@ -272,6 +284,24 @@ const daemon = spawn(process.execPath, [DAEMON_SRC], {
 await wait(500);
 
 let client, child, revived;
+cleanup = () => {
+  clearTimeout(deadline);
+  for (const st of liveChildren) { try { st.child.kill("SIGKILL"); } catch {} }
+  client?.close();
+  // SIGTERM, not SIGKILL: the daemon's shutdown handler takes its managed CLIs
+  // down with it; a kill -9 orphans them and they stream forever.
+  try { daemon.kill("SIGTERM"); } catch {}
+  // An agent child whose client auto-reconnected may have respawned the daemon
+  // from the runtime copy — the PID file is the only handle to that one too.
+  try {
+    const pid = parseInt(fs.readFileSync(path.join(TEST_HOME, "pids", "ptyDaemon.pid"), "utf8"), 10);
+    if (pid) process.kill(pid, "SIGTERM");
+  } catch {}
+  fs.rmSync(fakeDir, { recursive: true, force: true });
+  fs.rmSync(daemonDir, { recursive: true, force: true });
+  try { fs.unlinkSync(AGENT_CHILD); } catch {}
+  try { fs.rmSync(TEST_HOME, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+};
 try {
   client = await connectDaemon();
   console.log("Running AI chat restart tests...\n");
@@ -450,14 +480,7 @@ try {
     assert.equal(gone.success, false);
   });
 } finally {
-  clearTimeout(deadline);
-  child?.child.kill("SIGKILL");
-  revived?.child.kill("SIGKILL");
-  client?.close();
-  daemon.kill("SIGKILL");
-  fs.rmSync(fakeDir, { recursive: true, force: true });
-  fs.rmSync(daemonDir, { recursive: true, force: true });
-  try { fs.unlinkSync(AGENT_CHILD); } catch {}
+  cleanup();
 }
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);

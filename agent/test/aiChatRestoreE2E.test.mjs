@@ -42,8 +42,12 @@ const KEY = "sk-abcd1234-qrstuvwx-mnpqrstu";
 fs.writeFileSync(path.join(HOME, "keys.json"), JSON.stringify({ key: KEY }));
 
 const DEADLINE_MS = 120000;
+// The deadline must go through cleanup() — a bare process.exit() skips the finally
+// below and leaks the agents + daemon this run spawned.
+let cleanup = () => {};
 const deadline = setTimeout(() => {
   console.error(`\n✗ timed out after ${DEADLINE_MS / 1000}s — a phase never resolved`);
+  cleanup();
   process.exit(1);
 }, DEADLINE_MS);
 
@@ -123,6 +127,26 @@ const agentOf = (list, id) => (Array.isArray(list) ? list.find((s) => s.id === i
 
 // ── The run ───────────────────────────────────────────────────────────────────
 let agent1, agent2, client1, client2;
+// The daemon is detached on purpose (it must survive the agent), so the only
+// handle left at teardown is the PID file it writes for exactly this. SIGTERM,
+// not SIGKILL: the daemon's own shutdown takes its PTYs down with it.
+const killDaemonByPid = () => {
+  try {
+    const pid = parseInt(fs.readFileSync(path.join(HOME, "pids", "ptyDaemon.pid"), "utf8"), 10);
+    if (pid) process.kill(pid, "SIGTERM");
+  } catch {}
+};
+cleanup = () => {
+  clearTimeout(deadline);
+  client1?.socket?.close();
+  client2?.socket?.close();
+  agent1?.kill("SIGKILL");
+  agent2?.kill("SIGKILL");
+  killDaemonByPid();
+  // Best effort: a daemon child may still be writing into the tree, and a
+  // cleanup failure must not mask the assertion that actually failed.
+  try { fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+};
 try {
   console.log("Running chat-survives-restart tests...\n");
 
@@ -198,14 +222,7 @@ try {
       "the conversation link was lost across the restart");
   });
 } finally {
-  clearTimeout(deadline);
-  client1?.socket?.close();
-  client2?.socket?.close();
-  agent1?.kill("SIGKILL");
-  agent2?.kill("SIGKILL");
-  // Best effort: a daemon child may still be writing into the tree, and a
-  // cleanup failure must not mask the assertion that actually failed.
-  try { fs.rmSync(HOME, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 }); } catch {}
+  cleanup();
 }
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
