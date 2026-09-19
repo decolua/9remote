@@ -123,12 +123,19 @@ export function resolveVoiceCfg(s) {
   return { endpoint: s.customEndpoint, model: s.customModel, apiKey: s.customKey };
 }
 
-export async function transcribeBlob(state, blob, lang) {
+export async function transcribeBlob(state, blob) {
   const cfg = resolveVoiceCfg(state);
   const data = await chat(cfg, {
     model: cfg.model,
     messages: [{ role: "user", content: [
-      { type: "text", text: `Transcribe this audio${lang ? ` (${lang})` : ""}. Reply with the transcript text only.` },
+      {
+        type: "text",
+        text: `Transcribe this audio accurately for a developer coding & terminal context.
+- Auto-detect spoken language; do NOT translate.
+- Keep English tech terms, code, and CLI commands in English (e.g. git, npm, docker, API, bug, log, deploy).
+- Add natural punctuation. Omit filler sounds.
+- Output ONLY the transcribed text.`,
+      },
       { type: "input_audio", input_audio: { data: await blobToBase64(await blobToWav(blob)), format: "wav" } },
     ]}],
   });

@@ -16,9 +16,9 @@ import { useAttachments } from "@/features/terminal/hooks/useAttachments";
 import CommandSuggestions, { pickCommandItems } from "@/shared/components/ui/CommandSuggestions";
 import { useAiHistoryStore } from "@/shared/stores/historyStore";
 import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
+import VoicePill from "@/shared/components/ui/VoicePill";
 
 const EMPTY_ARRAY = [];
-const WAVE_BARS = [0.3, 0.6, 0.85, 1.0, 0.75, 0.9, 1.0, 0.65, 0.35];
 
 export const Composer = memo(function Composer({
   sessionId = "",
@@ -109,15 +109,11 @@ export const Composer = memo(function Composer({
     removeAttachment, handleFileUpload, handleAttachPaste
   } = useAttachments({ bus: useConnectionStore((s) => s.bus), sessionId });
 
-  const executeSendRef = useRef();
-  const sendOnFinishRef = useRef(false);
-
   // Voice dictation language: persisted, defaults to the UI locale. Set in the
   // voice settings modal (Plugins → Voice input).
   const [voiceLang] = useVoiceLang(locale);
   const voice = useVoiceInput({
     lang: localeToSpeechLang(voiceLang),
-    silenceMs: 3000,
     onText: (txt) => {
       setText(txt);
       if (textareaRef.current) {
@@ -127,30 +123,19 @@ export const Composer = memo(function Composer({
         textareaRef.current.focus();
       }
     },
-    onFinish: (txt) => {
-      if (sendOnFinishRef.current) {
-        sendOnFinishRef.current = false;
-        if (txt?.trim()) {
-          executeSendRef.current?.(txt);
-        }
-      }
-    },
   });
 
-  const handleVoiceSend = useCallback(() => {
+  const handleVoiceDone = useCallback(() => {
     vibrate();
-    sendOnFinishRef.current = true;
     voice.stop();
   }, [voice]);
 
   const handleVoiceCancel = useCallback(() => {
-    sendOnFinishRef.current = false;
     voice.cancel();
   }, [voice]);
 
   const toggleVoice = useCallback(() => {
     if (voice.listening) { voice.stop(); return; }
-    sendOnFinishRef.current = false;
     document.activeElement?.blur(); // hide soft keyboard while dictating
     voice.start(text);
   }, [voice, text]);
@@ -382,10 +367,6 @@ export const Composer = memo(function Composer({
       attachments: pending.map(({ name, type, content }) => ({ filename: name, type, content }))
     });
   }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias, setQueue]);
-
-  useEffect(() => {
-    executeSendRef.current = executeSend;
-  }, [executeSend]);
 
   // Dispatch one item that has ALREADY been decided: it sat in the queue because a turn
   // was running, and now it is its turn to go. No `force` — this is reached from the
@@ -871,93 +852,8 @@ export const Composer = memo(function Composer({
         </div>
       )}
 
-      {/* Voice Waveform & Countdown Pill */}
-      {voice.listening && (
-        <div className="w-fit mx-auto mb-1 flex items-center gap-2 px-2 py-1 rounded-full bg-surface-2/95 border border-border-subtle shadow-md backdrop-blur-md text-xs animate-in fade-in slide-in-from-bottom-1 duration-150">
-          {/* Cancel button on far left */}
-          <button
-            type="button"
-            onClick={handleVoiceCancel}
-            className="text-text-muted hover:text-text p-1 rounded-full hover:bg-surface-3 transition-colors cursor-pointer shrink-0"
-            title="Cancel"
-            aria-label="Cancel"
-          >
-            <X size={12} />
-          </button>
-
-          <div className="h-3 w-px bg-border-subtle shrink-0" />
-
-          {voice.transcribing ? (
-            <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0" />
-          ) : (
-            <span className="relative flex h-2 w-2 shrink-0">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-red-400 opacity-75" />
-              <span className="relative inline-flex rounded-full h-2 w-2 bg-red-500" />
-            </span>
-          )}
-
-          {/* Audio wave bars */}
-          <div className="flex items-center gap-[2.5px] h-3.5 shrink-0">
-            {WAVE_BARS.map((factor, i) => {
-              const h = Math.max(3, Math.round(3 + factor * (voice.volume || 0.1) * 11));
-              return (
-                <span
-                  key={i}
-                  className="w-[2px] rounded-full bg-brand-500 transition-all duration-75"
-                  style={{ height: `${h}px` }}
-                />
-              );
-            })}
-          </div>
-
-          {!voice.transcribing ? (
-            <div className="flex items-center gap-1.5 shrink-0">
-              {/* Circular progress countdown ring */}
-              <svg className="w-3.5 h-3.5 -rotate-90 shrink-0" viewBox="0 0 16 16">
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  className="text-surface-3"
-                />
-                <circle
-                  cx="8"
-                  cy="8"
-                  r="6"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeDasharray={37.7}
-                  strokeDashoffset={37.7 * (1 - Math.max(0, Math.min(1, voice.countdownMs / 3000)))}
-                  strokeLinecap="round"
-                  className="text-brand-500 transition-[stroke-dashoffset] duration-100 ease-linear"
-                />
-              </svg>
-              <span className="font-mono text-[11px] text-text-muted font-medium w-[26px]">
-                {(voice.countdownMs / 1000).toFixed(1)}s
-              </span>
-            </div>
-          ) : (
-            <span className="font-mono text-[10px] text-brand-400 font-medium">Transcribing…</span>
-          )}
-
-          <div className="h-3 w-px bg-border-subtle shrink-0" />
-
-          {/* Send immediately button on far right */}
-          <button
-            type="button"
-            onClick={handleVoiceSend}
-            className="p-1 rounded-full bg-brand-500 hover:bg-brand-600 text-white transition-colors cursor-pointer shadow-xs flex items-center justify-center shrink-0"
-            title="Send now"
-            aria-label="Send now"
-          >
-            <Send size={10} className="translate-x-[0.5px]" />
-          </button>
-        </div>
-      )}
+      {/* Voice Waveform & Action Pill */}
+      <VoicePill voice={voice} onDone={handleVoiceDone} onCancel={handleVoiceCancel} className="mb-1.5" />
 
       {/* Main Composer Box — Transparent, compact height */}
       <div className="relative rounded-brand border border-border-subtle/80 bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">

@@ -38,11 +38,7 @@ export function useVoiceLang(fallbackLocale) {
 
 // Fatal errors: user must act — don't auto-restart on these.
 const FATAL = new Set(["not-allowed", "service-not-allowed", "audio-capture", "language-not-supported"]);
-
-// Silence detection defaults
-const RMS_SPEECH = 6;       // avg |sample-128| above this counts as speech
-const SILENCE_STOP_MS = 3000;
-const MONITOR_MS = 100;
+const MONITOR_MS = 80;
 
 function getRecognition() {
   if (typeof window === "undefined") return null;
@@ -51,7 +47,6 @@ function getRecognition() {
 
 export function useVoiceInput({
   lang = "en-US",
-  silenceMs = SILENCE_STOP_MS,
   onText,
   onError,
   onFinish,
@@ -61,11 +56,8 @@ export function useVoiceInput({
   const [listening, setListening] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
   const [volume, setVolume] = useState(0);
-  const [countdownMs, setCountdownMs] = useState(silenceMs);
   const [error, setError] = useState(null);
 
-  const silenceMsRef = useRef(silenceMs);
-  useEffect(() => { silenceMsRef.current = silenceMs; }, [silenceMs]);
   const onFinishRef = useRef(onFinish);
   useEffect(() => { onFinishRef.current = onFinish; }, [onFinish]);
   const onErrorRef = useRef(onError);
@@ -83,8 +75,6 @@ export function useVoiceInput({
   const recognitionRef = useRef(null);
   const aiRef = useRef(null);         // { stream, rec, chunks, stopped, ctx, timer } while AI-recording
   const baseRef = useRef("");        // text already committed before this dictation
-  const browserTimerRef = useRef(null);
-  const lastBrowserSpeechRef = useRef(0);
 
   const supported = typeof window !== "undefined" && (
     mode === "ai"
@@ -93,8 +83,7 @@ export function useVoiceInput({
   );
   const active = enabled && supported;
 
-  // AI engine: record while "listening", transcribe once on stop (auto on
-  // silence, or when the user taps again).
+  // AI engine: record while "listening", transcribe once on stop.
   const stopAi = useCallback(async () => {
     wantOnRef.current = false;
     const sess = aiRef.current;
@@ -103,12 +92,10 @@ export function useVoiceInput({
       setListening(false);
       setTranscribing(false);
       setVolume(0);
-      setCountdownMs(silenceMsRef.current);
       return;
     }
     clearInterval(sess.timer);
     setVolume(0);
-    setCountdownMs(0);
     setTranscribing(true);
     try { if (sess.rec.state !== "inactive") sess.rec.stop(); } catch {}
     await sess.stopped;
@@ -129,7 +116,6 @@ export function useVoiceInput({
       setListening(false);
       setTranscribing(false);
       setVolume(0);
-      setCountdownMs(silenceMsRef.current);
     }
   }, []);
 
@@ -137,7 +123,6 @@ export function useVoiceInput({
     baseRef.current = currentText ? currentText.replace(/\s*$/, "") + " " : "";
     setError(null);
     wantOnRef.current = true;
-    setCountdownMs(silenceMsRef.current);
     setVolume(0);
     setTranscribing(false);
     try {
@@ -152,24 +137,11 @@ export function useVoiceInput({
       analyser.fftSize = 512;
       ctx.createMediaStreamSource(stream).connect(analyser);
       const buf = new Uint8Array(analyser.fftSize);
-      let lastSpokeAt = Date.now();
       const timer = setInterval(() => {
         analyser.getByteTimeDomainData(buf);
         let sum = 0;
         for (let i = 0; i < buf.length; i++) sum += Math.abs(buf[i] - 128);
         const rms = sum / buf.length;
-        const curSilenceMs = silenceMsRef.current;
-        if (rms > RMS_SPEECH) {
-          lastSpokeAt = Date.now();
-          setCountdownMs(curSilenceMs);
-        } else {
-          const elapsed = Date.now() - lastSpokeAt;
-          const remaining = Math.max(0, curSilenceMs - elapsed);
-          setCountdownMs(remaining);
-          if (elapsed > curSilenceMs) {
-            void stopAi();
-          }
-        }
         setVolume(Math.min(1, Math.max(0, (rms - 2) / 20)));
       }, MONITOR_MS);
       aiRef.current = { stream, rec, chunks, stopped, ctx, timer };
@@ -181,11 +153,10 @@ export function useVoiceInput({
       setError(code);
       onErrorRef.current?.(code);
     }
-  }, [stopAi]);
+  }, []);
 
   const cancel = useCallback(() => {
     wantOnRef.current = false;
-    clearInterval(browserTimerRef.current);
     const sess = aiRef.current;
     aiRef.current = null;
     if (sess) {
@@ -198,12 +169,10 @@ export function useVoiceInput({
     setListening(false);
     setTranscribing(false);
     setVolume(0);
-    setCountdownMs(silenceMsRef.current);
   }, []);
 
   const stop = useCallback(() => {
     wantOnRef.current = false;
-    clearInterval(browserTimerRef.current);
     if (mode === "ai") { void stopAi(); return; }
     try { recognitionRef.current?.stop(); } catch {}
   }, [mode, stopAi]);
@@ -228,22 +197,17 @@ export function useVoiceInput({
       if (final) baseRef.current = `${baseRef.current}${final} `.replace(/\s+/g, " ");
       const combined = `${baseRef.current}${interim}`.replace(/\s+/g, " ").trimStart();
       onTextRef.current?.(combined);
-      lastBrowserSpeechRef.current = Date.now();
-      setCountdownMs(silenceMsRef.current);
     };
 
     rec.onend = () => {
       recognitionRef.current = null;
       if (wantOnRef.current) {
         try { spawnRec(); } catch {
-          clearInterval(browserTimerRef.current);
           setListening(false);
         }
       } else {
-        clearInterval(browserTimerRef.current);
         setListening(false);
         setVolume(0);
-        setCountdownMs(silenceMsRef.current);
         const final = baseRef.current.trim();
         if (final) onFinishRef.current?.(final);
       }
@@ -256,7 +220,6 @@ export function useVoiceInput({
       onErrorRef.current?.(code);
       if (FATAL.has(code)) {
         wantOnRef.current = false;
-        clearInterval(browserTimerRef.current);
         setListening(false);
       }
     };
@@ -265,24 +228,11 @@ export function useVoiceInput({
     try {
       rec.start();
       setListening(true);
-      lastBrowserSpeechRef.current = Date.now();
-      clearInterval(browserTimerRef.current);
-      browserTimerRef.current = setInterval(() => {
-        const elapsed = Date.now() - lastBrowserSpeechRef.current;
-        const remaining = Math.max(0, silenceMsRef.current - elapsed);
-        setCountdownMs(remaining);
-        if (elapsed > silenceMsRef.current) {
-          clearInterval(browserTimerRef.current);
-          wantOnRef.current = false;
-          try { recognitionRef.current?.stop(); } catch {}
-        }
-      }, MONITOR_MS);
     } catch (err) {
       console.warn("[voice] start failed:", err);
       if (!recognitionRef.current) {
         setListening(false);
         wantOnRef.current = false;
-        clearInterval(browserTimerRef.current);
       }
     }
   }, []);
@@ -303,7 +253,6 @@ export function useVoiceInput({
 
   useEffect(() => () => {
     wantOnRef.current = false;
-    clearInterval(browserTimerRef.current);
     try { recognitionRef.current?.abort(); } catch {}
     const sess = aiRef.current;
     if (sess) {
@@ -321,7 +270,6 @@ export function useVoiceInput({
     listening,
     transcribing,
     volume,
-    countdownMs,
     error,
     start,
     stop,
