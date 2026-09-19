@@ -21,6 +21,9 @@ export const THEME = {
 const RELEASES = "https://github.com/decolua/9remote/releases/latest/download";
 const RELEASES_PAGE = "https://github.com/decolua/9remote/releases/latest";
 
+export const APP_STORE_URL = "https://apps.apple.com/us/app/9remote/id6796664210";
+export const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=cc.remote9.app&pli=1";
+
 // Desktop installer for the visitor's OS; falls back to the releases page when unknown
 export const releaseFor = (os) =>
   os === "macos" ? `${RELEASES}/9Remote-macos-universal.dmg`

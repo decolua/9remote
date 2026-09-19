@@ -7,13 +7,26 @@ import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { maskApiKey } from "@/shared/utils/formatters";
 import { useI18n } from "@/shared/i18n";
 
+const APP_STORE_URL = "https://apps.apple.com/us/app/9remote/id6796664210";
+const PLAY_STORE_URL = "https://play.google.com/store/apps/details?id=cc.remote9.app&pli=1";
+
 /**
- * PWA Installation Guide Component
+ * PWA & Mobile Installation Guide Component
  * Detects platform and shows appropriate installation instructions
  */
+function detectPlatform() {
+  if (typeof navigator === "undefined") return "unknown";
+  const userAgent = navigator.userAgent.toLowerCase();
+  if (/iphone|ipad|ipod/.test(userAgent)) return "ios";
+  if (/android/.test(userAgent)) return "android";
+  if (/mac/.test(userAgent)) return "macos";
+  if (/win/.test(userAgent)) return "windows";
+  return "desktop";
+}
+
 export default function PwaInstallGuide() {
   const { t } = useI18n();
-  const [platform, setPlatform] = useState("unknown");
+  const [platform] = useState(detectPlatform);
   const [copied, setCopied] = useState(false);
   const [installState, setInstallState] = useState("idle");
   const apiKey = useSlideMenuStore((s) => s.context.apiKey);
@@ -21,27 +34,6 @@ export default function PwaInstallGuide() {
   const canInstall = usePwaInstallStore((s) => s.canInstall);
   const isInstalled = usePwaInstallStore((s) => s.isInstalled);
   const install = usePwaInstallStore((s) => s.install);
-
-  useEffect(() => {
-    // Detect platform
-    const userAgent = navigator.userAgent.toLowerCase();
-    const isIOS = /iphone|ipad|ipod/.test(userAgent);
-    const isAndroid = /android/.test(userAgent);
-    const isMacOS = /mac/.test(userAgent);
-    const isWindows = /win/.test(userAgent);
-
-    if (isIOS) {
-      setPlatform("ios");
-    } else if (isAndroid) {
-      setPlatform("android");
-    } else if (isMacOS) {
-      setPlatform("macos");
-    } else if (isWindows) {
-      setPlatform("windows");
-    } else {
-      setPlatform("desktop");
-    }
-  }, []);
 
   const handleInstallClick = async () => {
     setInstallState("installing");
@@ -138,24 +130,24 @@ export default function PwaInstallGuide() {
           {1 + stepOffset}
         </div>
         <div className="flex-1">
-          <p className="text-text font-medium mb-1">{t("pwaGuide.tapShareButton")}</p>
-          <p className="text-text-muted text-sm">{t("pwaGuide.tapShareHint")}</p>
+          <p className="text-text font-medium mb-1.5">Download 9Remote on App Store</p>
+          <a
+            href={APP_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-brand transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.38c.62-.75 1.04-1.8 0.92-2.85-.9.04-2 .6-2.65 1.35-.58.66-1.09 1.73-.95 2.76.99.08 2.03-.51 2.68-1.26z" />
+            </svg>
+            Get on App Store
+          </a>
         </div>
       </div>
 
       <div className="flex items-start gap-3">
         <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
           {2 + stepOffset}
-        </div>
-        <div className="flex-1">
-          <p className="text-text font-medium mb-1">{t("pwaGuide.addToHome")}</p>
-          <p className="text-text-muted text-sm">{t("pwaGuide.addToHomeHint")}</p>
-        </div>
-      </div>
-
-      <div className="flex items-start gap-3">
-        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-          {3 + stepOffset}
         </div>
         <div className="flex-1">
           <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
@@ -169,53 +161,42 @@ export default function PwaInstallGuide() {
     <div className="space-y-4">
       {renderCopyKeyStep()}
 
-      {/* Install button — Android Chrome fires beforeinstallprompt */}
-      {renderInstallButton()}
-
-      {/* Manual fallback — Firefox/other browsers */}
-      {canInstall ? (
-        <div className="flex items-start gap-3">
-          <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-            {2 + stepOffset}
-          </div>
-          <div className="flex-1">
-            <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
-            <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
-          </div>
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+          {1 + stepOffset}
         </div>
-      ) : (
-        <>
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-              {1 + stepOffset}
-            </div>
-            <div className="flex-1">
-              <p className="text-text font-medium mb-1">{t("pwaGuide.openMenu")}</p>
-              <p className="text-text-muted text-sm">{t("pwaGuide.openMenuHint")}</p>
-            </div>
-          </div>
+        <div className="flex-1">
+          <p className="text-text font-medium mb-1.5">Download 9Remote on Google Play</p>
+          <a
+            href={PLAY_STORE_URL}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-2 px-4 py-2 bg-brand-500 hover:bg-brand-600 text-white text-sm font-semibold rounded-brand transition-colors"
+          >
+            <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M3.609 1.814L13.793 12 3.61 22.186a2.128 2.128 0 0 1-.22-.964V2.778c0-.36.08-.694.22-.964zm11.233 11.234l2.584 2.584-11.834 6.83 9.25-9.414zm0-2.096L5.592 1.538l11.834 6.83-2.584 2.584zm1.485 1.048l3.633 2.098a1.328 1.328 0 0 0 0-2.296l-3.633-2.098-1.048 1.048 1.048 1.048z" />
+            </svg>
+            Get on Google Play
+          </a>
+        </div>
+      </div>
 
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-              {2 + stepOffset}
-            </div>
-            <div className="flex-1">
-              <p className="text-text font-medium mb-1">{t("pwaGuide.installApp")}</p>
-              <p className="text-text-muted text-sm">{t("pwaGuide.installAppHint")}</p>
-            </div>
-          </div>
-
-          <div className="flex items-start gap-3">
-            <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
-              {3 + stepOffset}
-            </div>
-            <div className="flex-1">
-              <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
-              <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
-            </div>
-          </div>
-        </>
+      {canInstall && (
+        <div className="pt-2 border-t border-border">
+          <p className="text-xs text-text-muted mb-2">Or install directly as Web App (PWA):</p>
+          {renderInstallButton()}
+        </div>
       )}
+
+      <div className="flex items-start gap-3">
+        <div className="flex-shrink-0 w-8 h-8 bg-brand-500/10 rounded-brand flex items-center justify-center text-brand-500 font-semibold">
+          {2 + stepOffset}
+        </div>
+        <div className="flex-1">
+          <p className="text-text font-medium mb-1">{t("pwaGuide.openAppPasteKey")}</p>
+          <p className="text-text-muted text-sm">{t("pwaGuide.openAppPasteKeyHint")}</p>
+        </div>
+      </div>
     </div>
   );
 

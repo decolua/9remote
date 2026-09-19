@@ -4,14 +4,12 @@ Your entire dev workstation in your pocket. A remote IDE, 60fps desktop stream, 
 
 <div align="center">
   <img src="./images/screen.png" alt="9Remote Workspace" width="900"/>
-</div>
 
-### 📱 Mobile Experience
-
-<div align="center">
-  <img src="./images/mobile-1.webp" width="280" alt="Claude Code & AI Agents on Phone"/>
-  <img src="./images/mobile-2.webp" width="280" alt="File Explorer on Phone"/>
-  <img src="./images/mobile-3.webp" width="280" alt="System Dashboard on Phone"/>
+  <p align="center">
+    <img src="./images/mobile-1.webp" width="280" alt="Claude Code on Phone"/>
+    <img src="./images/mobile-2.webp" width="280" alt="File Explorer on Phone"/>
+    <img src="./images/mobile-3.webp" width="280" alt="System Dashboard on Phone"/>
+  </p>
 </div>
 
 ---
@@ -31,20 +29,25 @@ npm i -g 9remote
 - **Windows (Setup EXE):** [9Remote-windows-x64-setup.exe](https://github.com/decolua/9remote/releases/latest/download/9Remote-windows-x64-setup.exe) *(Installer, x64)*
 - **Windows (Portable EXE):** [9Remote.exe](https://github.com/decolua/9remote/releases/latest/download/9Remote.exe) *(Portable, no install)*
 
+### 3. Or Get Mobile App
+
+- **iOS / iPadOS:** [Download on the App Store](https://apps.apple.com/us/app/9remote/id6796664210)
+- **Android:** [Get it on Google Play](https://play.google.com/store/apps/details?id=cc.remote9.app&pli=1)
+
 Scan the QR code from a phone (or open the URL) and you're on your machine's shell — over WebRTC or WebSocket, through an encrypted tunnel that closes when you stop the agent.
 
 ---
 
-## 🖥️ Two Halves. One Session. (Supported Platforms)
+## 📱 Supported Platforms
 
-| Platform | Host (Agent) | Client (Viewer) | How to Use |
+| Platform | Host (Your Machine) | Client (Anywhere) | Download / Access |
 |---|:---:|:---:|---|
 | **macOS** | ✅ | ✅ | [Download .dmg](https://github.com/decolua/9remote/releases/latest/download/9Remote-macos-universal.dmg) or `npm i -g 9remote` |
 | **Windows** | ✅ | ✅ | [Download .exe](https://github.com/decolua/9remote/releases/latest/download/9Remote-windows-x64-setup.exe) or `npm i -g 9remote` |
-| **Linux** | ✅ | ✅ | `npm i -g 9remote` *(Ubuntu, Debian, Fedora, Arch, etc.)* |
-| **Web Browser** | — | ✅ | Open [`https://9remote.cc/login`](https://9remote.cc/login) in Chrome, Edge, Safari, Firefox |
-| **iOS / iPadOS** | — | ✅ | Safari → [`https://9remote.cc`](https://9remote.cc) → **Share → Add to Home Screen (PWA)** *(iPad trackpad & dev keys supported)* |
-| **Android** | — | ✅ | Chrome → [`https://9remote.cc`](https://9remote.cc) → **Install App / Add to Home Screen (PWA)** *(Full-screen dev mode)* |
+| **Linux** | ✅ | ✅ | `npm i -g 9remote` |
+| **Web Browser** | — | ✅ | [`https://9remote.cc/login`](https://9remote.cc/login) *(Zero install, any browser)* |
+| **iOS / iPadOS** | — | ✅ | [App Store](https://apps.apple.com/us/app/9remote/id6796664210) / Web PWA *(Supports iPad keyboard & trackpad)* |
+| **Android** | — | ✅ | [Google Play](https://play.google.com/store/apps/details?id=cc.remote9.app&pli=1) / Web PWA *(Fullscreen dev mode)* |
 
 ---
 

@@ -6,7 +6,9 @@ import { THEME } from "../constants/landingConfig";
 const PRODUCT_LINKS = [
   { href: "/login", label: "Remote", internal: true },
   { href: "/workspace", label: "Terminal", internal: true },
-  { href: "/remote", label: "Remote Desktop", internal: true }
+  { href: "/remote", label: "Remote Desktop", internal: true },
+  { href: "https://apps.apple.com/us/app/9remote/id6796664210", label: "iOS (App Store)" },
+  { href: "https://play.google.com/store/apps/details?id=cc.remote9.app&pli=1", label: "Android (Google Play)" }
 ];
 
 const RESOURCE_LINKS = [
