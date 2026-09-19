@@ -13,6 +13,7 @@ mkdir -p "$OUT/macos" "$OUT/windows" "$OUT/linux"
 MAC="$ROOT/target/universal-apple-darwin/release/bundle"
 if ls "$MAC"/dmg/*.dmg >/dev/null 2>&1; then
   cp "$MAC"/dmg/*.dmg "$OUT/macos/"
+  cp "$MAC"/dmg/*universal.dmg "$OUT/macos/9Remote-macos-universal.dmg" 2>/dev/null || true
 fi
 
 # Windows — cross-compiled x64
@@ -22,6 +23,7 @@ if [ -f "$WIN/9Remote.exe" ]; then
 fi
 if ls "$WIN"/bundle/nsis/*-setup.exe >/dev/null 2>&1; then
   cp "$WIN"/bundle/nsis/*-setup.exe "$OUT/windows/"
+  cp "$WIN"/bundle/nsis/*-setup.exe "$OUT/windows/9Remote-windows-x64-setup.exe" 2>/dev/null || true
 fi
 
 # Linux — arm64 (native + AppImage) and x64 (amd64), both under target-linux
