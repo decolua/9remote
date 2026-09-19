@@ -271,7 +271,9 @@ function TerminalWorkspace({
     + (editorOpen && editorExpanded ? editorPanel.width : 0)
     + (mobilePanel?.open && mobilePanel.mode === "pin" ? mobilePanel.width : 0);
   const autoWidth = autoFitPaneWidth({
-    rowWidth, paneCount, sidebarWidth, sidePx: sideWidth,
+    // A collapsed sidebar renders at 0 inside the row (rowWidth never changes), so the
+    // deduction must follow its live width or the fit reserves space for a hidden panel.
+    rowWidth, paneCount, sidebarWidth: sidebarCollapsed ? 0 : sidebarWidth, sidePx: sideWidth,
     gapPx: PANE_GAP_PX, paddingPx: PANE_ROW_PADDING_PX, minWidth: PANE_WIDTH.min,
     applied: appliedWidth
   });
