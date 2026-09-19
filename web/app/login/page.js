@@ -22,7 +22,7 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
 import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
 import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
-import { headOf, tailOf } from "@/shared/utils/apiKey";
+import { headOf, tailOf, isLegacyApiKey } from "@/shared/utils/apiKey";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { AGENT_PORT } from "@/shared/constants/API";
 
@@ -91,6 +91,7 @@ function LoginContent() {
   // (reading during the first render would disagree with the server's HTML).
   const [tailRejected, setTailRejected] = useState(false);
   const { loadKeys, saveKey, removeKey, renameKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
+  const hasLegacySavedKey = useMemo(() => savedKeys.some((item) => isLegacyApiKey(item.key)), [savedKeys]);
 
   // Check for token (old) or temp key (new) in URL (QR code auth).
   // The v2 pairing code rides the #fragment (never sent to the server); the
@@ -264,6 +265,11 @@ function LoginContent() {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) return;
 
+    if (isLegacyApiKey(trimmedKey)) {
+      setError(t("login.legacyKeyError"));
+      return;
+    }
+
     const parsed = parsePairingInput(trimmedKey);
     const isOneTime = !!parsed?.tempKey;
 
@@ -309,6 +315,10 @@ function LoginContent() {
   // Handle login with saved key
   const handleLoginWithSavedKey = async (key) => {
     if (!key) return;
+    if (isLegacyApiKey(key)) {
+      setError(t("login.legacyKeyError"));
+      return;
+    }
     // A stored key may be a full v2 key (re-seed its TAIL so a fresh browser
     // profile can answer the agent) or just the HEAD, from a one-time login
     // saved before the TAIL arrived — withTail repairs that entry from the
@@ -616,19 +626,32 @@ function LoginContent() {
                 <div className="font-mono text-[11px] uppercase tracking-wider text-text-subtle mb-1 px-1">
                   {t("login.savedKeys")}
                 </div>
+                {hasLegacySavedKey && (
+                  <div className="my-2.5 px-3 py-2.5 bg-amber-500/10 border border-amber-500/30 rounded-brand-lg flex items-start gap-2.5">
+                    <Icon name="AlertCircle" size={16} className="text-amber-500 shrink-0 mt-0.5" />
+                    <div className="min-w-0 flex-1">
+                      <div className="text-xs font-medium text-text">{t("login.legacyKeyUpdateRequired")}</div>
+                      <div className="text-xs text-text-muted mt-0.5">{t("login.legacyKeyUpdateHint")}</div>
+                      <code className="inline-block mt-1.5 px-2 py-0.5 bg-surface-2 border border-border text-text text-xs rounded font-mono select-all">
+                        npm i -g 9remote@latest
+                      </code>
+                    </div>
+                  </div>
+                )}
                 {savedKeys.map((item) => {
                   const isEditing = editingKeyId === item.id;
                   const isLoading = loginLoadingKey === item.key;
+                  const isLegacy = isLegacyApiKey(item.key);
                   return (
                     <div
                       key={item.id}
-                      className="flex items-center gap-3 px-1 py-2 rounded-[10px] hover:bg-surface-2 transition-colors cursor-pointer"
+                      className={`flex items-center gap-3 px-1 py-2 rounded-[10px] hover:bg-surface-2 transition-colors cursor-pointer ${isLegacy ? "opacity-85" : ""}`}
                       onClick={() => !isEditing && !isLoading && handleLoginWithSavedKey(item.key)}
                       role="button"
                       tabIndex={0}
                     >
                       {/* laptop icon */}
-                      <div className="w-12 h-12 rounded-[12px] bg-surface-2 border border-border-subtle grid place-items-center text-text-muted flex-shrink-0">
+                      <div className={`w-12 h-12 rounded-[12px] bg-surface-2 border ${isLegacy ? "border-amber-500/40 text-amber-500" : "border-border-subtle text-text-muted"} grid place-items-center flex-shrink-0`}>
                         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8} strokeLinecap="round" strokeLinejoin="round" className="w-[26px] h-[26px]">
                           <rect x="2" y="4" width="20" height="13" rx="2" />
                           <line x1="2" y1="20" x2="22" y2="20" />
@@ -658,7 +681,14 @@ function LoginContent() {
                           </div>
                         ) : (
                           <>
-                            <div className="text-[13px] font-medium text-text truncate" title={item.label || t("agentSwitcher.unnamed")}>{item.label || t("agentSwitcher.unnamed")}</div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[13px] font-medium text-text truncate" title={item.label || t("agentSwitcher.unnamed")}>{item.label || t("agentSwitcher.unnamed")}</span>
+                              {isLegacy && (
+                                <span className="shrink-0 px-1.5 py-0.5 text-[9px] font-semibold font-mono uppercase rounded bg-amber-500/15 text-amber-500 border border-amber-500/30">
+                                  {t("login.updateRequired")}
+                                </span>
+                              )}
+                            </div>
                             <div className="font-mono text-[11px] text-text-subtle mt-0.5 truncate">{maskApiKey(item.key)}</div>
                           </>
                         )}

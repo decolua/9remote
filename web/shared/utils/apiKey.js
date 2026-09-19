@@ -34,6 +34,13 @@ export function parseApiKey(apiKey) {
   return null;
 }
 
+/** Check if key is a legacy v1 key (requires agent update to v2) */
+export function isLegacyApiKey(apiKey) {
+  if (typeof apiKey !== "string" || !apiKey) return false;
+  const parsed = parseApiKey(apiKey.trim().toLowerCase());
+  return !!parsed && parsed.version !== 2;
+}
+
 /** HEAD of a v2 key (routing part); v1 keys pass through unchanged. */
 export function headOf(apiKey) {
   if (typeof apiKey !== "string" || !/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) return apiKey || null;
