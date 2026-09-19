@@ -475,7 +475,7 @@ export function setupGitHandlers(socket) {
 
   // Refuses while terminals are still rooted inside, unless the client confirms — pulling
   // the directory out from under a running shell is not something to do silently.
-  socket.on("gitWorktreeRemove", async ({ repoPath, worktreePath, force, confirmed }, callback) => {
+  socket.on("gitWorktreeRemove", async ({ repoPath, worktreePath, force, confirmed, deleteBranch }, callback) => {
     if (!worktreePath) return callback({ success: false, error: "worktreePath required" });
     if (isSensitivePath(worktreePath)) return callback({ success: false, error: "Access denied" });
     try {
@@ -488,6 +488,16 @@ export function setupGitHandlers(socket) {
       const r = await runGit(args, repoPath);
       if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
       invalidateRepoScan(repoPath);
+      // Optional branch cleanup: safe delete only — git refuses unmerged or checked-out
+      // branches, and a refusal keeps the branch rather than failing the removal.
+      if (deleteBranch) {
+        const branch = String(deleteBranch);
+        if (branch.startsWith("-") || /\s/.test(branch)) {
+          return callback({ success: true, branchKept: true, branchNote: "invalid branch name" });
+        }
+        const bd = await runGit(["branch", "-d", branch], repoPath);
+        if (bd.code !== 0) return callback({ success: true, branchKept: true, branchNote: bd.stderr.trim() });
+      }
       callback({ success: true });
     } catch (error) {
       callback({ success: false, error: error.message });

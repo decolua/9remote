@@ -256,6 +256,8 @@ export default {
     addWorktree: "Thêm worktree",
     removeWorktree: "Gỡ worktree",
     removeWorktreeMessage: "Gỡ worktree ở \"{path}\"?",
+    removeWorktreeBranch: "Branch \"{branch}\" cũng bị xóa (nếu đã merge).",
+    worktreeBranchKept: "Branch \"{branch}\" được giữ lại: chưa merge.",
     worktreeBusy: "Còn {count} terminal đang chạy trong worktree này: {names}",
     checkedOut: "đang checkout",
     newBranch: "Branch mới",

@@ -316,6 +316,8 @@ export default {
     addWorktree: "Add worktree",
     removeWorktree: "Remove worktree",
     removeWorktreeMessage: "Remove worktree at \"{path}\"?",
+    removeWorktreeBranch: "Branch \"{branch}\" is deleted too (when fully merged).",
+    worktreeBranchKept: "Branch \"{branch}\" kept: not fully merged.",
     worktreeBusy: "{count} terminal(s) still run in this worktree: {names}",
     checkedOut: "checked out",
     newBranch: "New branch",

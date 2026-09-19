@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Loader2, Package, Plus, RefreshCw, Search, X } from "@/shared/components/ui/Icon";
+import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Loader2, Package, Plus, RefreshCw, Search, Trash2, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import { vibrate } from "@/shared/utils/vibration";
@@ -12,15 +12,17 @@ import { useWorkspaceRoots } from "../hooks/useWorkspaceRoots";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { GIT_REFRESH_EVENT } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import ExplorerPanel from "@/features/fileExplorer/components/ExplorerPanel";
 import ScmPanel from "@/features/fileExplorer/components/ScmPanel";
-import WorktreePanel from "./WorktreePanel";
 
 const TABS = [
   { key: "files", icon: Files, labelKey: "workspaces.tabFiles" },
   { key: "git", icon: GitBranch, labelKey: "workspaces.tabGit" },
   { key: "trees", icon: GitFork, labelKey: "workspaces.tabTrees" }
 ];
+// TEMP: worktrees tab hidden — removing a worktree lives on each root's header in the files tab
+const VISIBLE_TABS = TABS.filter((t) => t.key !== "trees");
 
 // Secondary sidebar docked right of the terminal panes: file tree, git, worktrees.
 // Roots are the workspace itself plus each of its worktrees — separate directories on
@@ -33,7 +35,8 @@ function TerminalRightPanel({
 }) {
   const { t } = useI18n();
   const activeFileBus = fileBus || useFileBusStore.getState();
-  const activeTab = tab;
+  // A persisted "trees" tab must not strand the panel on hidden content
+  const activeTab = tab === "trees" ? "git" : tab;
   const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, activeFileBus);
   // The files tab may be revealed at a pane's live cwd; the other tabs stay workspace-rooted
   const effectiveFilesRoot = filesRoot || workspacePath;
@@ -93,6 +96,22 @@ function TerminalRightPanel({
 
   // The tree publishes its own actions so they can live in the tab bar above it.
   const [treeActions, setTreeActions] = useState(null);
+
+  // Worktree removal from a root header: the dialog target, plus post-remove notes.
+  const [removeTarget, setRemoveTarget] = useState(null); // { root, busy: [] }
+  const [rootError, setRootError] = useState(null);
+  const [branchKept, setBranchKept] = useState(null);
+  const removeRoot = async (root, confirmed) => {
+    setRootError(null);
+    setBranchKept(null);
+    // The worktree path itself resolves the repo — git runs fine from inside one.
+    const res = await activeFileBus.gitWorktreeRemove(root.path, root.path, { confirmed, deleteBranch: root.branch || undefined });
+    if (res?.busy) return setRemoveTarget({ root, busy: res.busy });
+    setRemoveTarget(null);
+    if (!res?.success) return setRootError(res?.error || "Remove failed");
+    if (res.branchKept) setBranchKept(root.branch);
+    refresh();
+  };
 
   // Which root opens by default: the worktree the focused terminal stands in (longest
   // matching prefix — a cwd deep inside it still resolves to that worktree), else main.
@@ -175,7 +194,7 @@ function TerminalRightPanel({
     >
       {/* Tabs — underline style, matching the terminal tab bar rather than inventing pills */}
       <div className={`h-11 ${PANEL_HEADER_H_CLASS} pl-1 pr-0.5 flex items-stretch gap-0 border-b border-border-subtle flex-shrink-0`}>
-        {TABS.map(({ key, icon: TabIcon, labelKey }) => (
+        {VISIBLE_TABS.map(({ key, icon: TabIcon, labelKey }) => (
           <button
             key={key}
             onClick={() => { vibrate(); onTabChange(key); }}
@@ -321,13 +340,29 @@ function TerminalRightPanel({
               workspace={effectiveFilesRoot}
               onOpen={(path) => { onOpenFile?.(path); closeSearch(); }}
             />
-          ) : roots.map((root) => (
+          ) : (
+            <div className="flex-1 min-h-0 flex flex-col">
+              {(rootError || branchKept) && (
+                <div className="px-3 py-1.5 border-b border-border-subtle text-[11px]">
+                  {rootError && <p className="text-red-500 break-words whitespace-pre-wrap">{rootError}</p>}
+                  {branchKept && (
+                    <p className="text-text-muted break-words">
+                      {t("workspaces.worktreeBranchKept", { branch: branchKept })}
+                    </p>
+                  )}
+                </div>
+              )}
+              {roots.map((root) => (
             <RootSection
               key={root.path}
               root={root}
               multiple={roots.length > 1}
               isOpen={roots.length === 1 || activeRoot === root.path}
               onToggle={() => setActiveRoot(activeRoot === root.path ? null : root.path)}
+              onRemove={!root.isMain
+                ? () => { vibrate(); void removeRoot(root, false); }
+                : null}
+              removeLabel={t("workspaces.removeWorktree")}
             >
               <ExplorerPanel
                 workspace={root.path}
@@ -340,7 +375,9 @@ function TerminalRightPanel({
                 onActions={root.path === activeRoot || roots.length === 1 ? setTreeActions : undefined}
               />
             </RootSection>
-          ))
+              ))}
+            </div>
+          )
         ) : activeTab === "git" ? (
           <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
             {/* A workspace holding many clones would otherwise list every one of them and
@@ -384,16 +421,26 @@ function TerminalRightPanel({
             </div>
             )}
           </div>
-        ) : (
-          <WorktreePanel
-            workspacePath={workspacePath}
-            fileBus={activeFileBus}
-            onNewTerminal={onNewTerminal}
-            homeDir={homeDir}
-            onChanged={refresh}
-          />
-        )}
+        ) : null}
       </div>
+
+      <ConfirmDialog
+        isOpen={!!removeTarget}
+        onClose={() => setRemoveTarget(null)}
+        onConfirm={() => { vibrate(); void removeRoot(removeTarget.root, true); }}
+        title={t("workspaces.removeWorktree")}
+        message={
+          removeTarget?.busy?.length
+            ? t("workspaces.worktreeBusy", {
+                count: removeTarget.busy.length,
+                names: removeTarget.busy.map((s) => s.name).join(", ")
+              })
+            : t("workspaces.removeWorktreeMessage", { path: removeTarget?.root?.path || "" })
+            + (removeTarget?.root?.branch
+              ? `\n${t("workspaces.removeWorktreeBranch", { branch: removeTarget.root.branch })}`
+              : "")
+        }
+      />
 
       {isDesktop && (
         <div
@@ -442,25 +489,36 @@ function SearchResults({ results, loading, query, searchDir, workspace, onOpen }
 }
 
 // A worktree root gets its own collapsible section; a lone root renders bare.
-function RootSection({ root, multiple, isOpen, onToggle, children }) {
+function RootSection({ root, multiple, isOpen, onToggle, onRemove = null, removeLabel = "", children }) {
   if (!multiple) return <div className="flex-1 min-h-0 flex flex-col">{children}</div>;
   return (
     <div className={`flex flex-col min-h-0 ${isOpen ? "flex-1" : "flex-shrink-0"}`}>
-      <button
-        onClick={() => { vibrate(); onToggle(); }}
-        className="px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted hover:text-text bg-surface-2/40 hover:bg-surface-2 border-b border-border-subtle transition-colors"
-        title={root.path}
-      >
-        <ChevronRight size={11} className={`flex-shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
-        {/* Worktrees of one repo share a name, so the branch is what tells them apart —
-            it leads, and the directory follows in the tooltip. */}
-        <span className="truncate flex-1 text-left">
-          {root.branch || root.name || root.path.split("/").pop()}
-        </span>
-        {!root.isMain && (
-          <GitFork size={10} className="flex-shrink-0 opacity-60" />
+      <div className="group px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted bg-surface-2/40 hover:bg-surface-2 border-b border-border-subtle transition-colors">
+        <button
+          onClick={() => { vibrate(); onToggle(); }}
+          className="flex-1 min-w-0 flex items-center gap-1.5 hover:text-text transition-colors"
+          title={root.path}
+        >
+          <ChevronRight size={11} className={`flex-shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
+          {/* Worktrees of one repo share a name, so the branch is what tells them apart —
+              it leads, and the directory follows in the tooltip. */}
+          <span className="truncate flex-1 text-left">
+            {root.branch || root.name || root.path.split("/").pop()}
+          </span>
+          {!root.isMain && (
+            <GitFork size={10} className="flex-shrink-0 opacity-60" />
+          )}
+        </button>
+        {onRemove && (
+          <button
+            onClick={() => { vibrate(); onRemove(); }}
+            title={removeLabel}
+            className="p-0.5 shrink-0 hover:text-red-500 transition-colors"
+          >
+            <Trash2 size={11} />
+          </button>
         )}
-      </button>
+      </div>
       {isOpen && <div className="flex-1 min-h-0 flex flex-col">{children}</div>}
     </div>
   );
