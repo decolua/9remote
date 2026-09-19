@@ -311,6 +311,8 @@ export default {
     emptyMetaRemote: "control this machine · <b>low latency</b>",
     worktrees: "Worktrees",
     branches: "Branches",
+    newWorktree: "New worktree",
+    worktreeName: "Branch name",
     addWorktree: "Add worktree",
     removeWorktree: "Remove worktree",
     removeWorktreeMessage: "Remove worktree at \"{path}\"?",

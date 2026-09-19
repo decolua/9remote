@@ -47,3 +47,11 @@ export function workspaceGitPath(workspace) {
   if (workspace?.path) return workspace.path;
   return workspace?.items?.find((s) => s.workspacePath)?.workspacePath || null;
 }
+
+// Sibling directory named after the branch — the convention most worktree users follow.
+export function suggestWorktreePath(repoPath, branch) {
+  if (!repoPath) return "";
+  const parent = repoPath.slice(0, repoPath.lastIndexOf("/")) || "/";
+  const safe = branch.replace(/[^\w.-]+/g, "-");
+  return `${parent}/${repoPath.split("/").pop()}-${safe}`;
+}

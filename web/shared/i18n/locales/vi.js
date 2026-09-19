@@ -251,6 +251,8 @@ export default {
     cardRemoteDesc: "Điều khiển màn hình máy này",
     worktrees: "Worktree",
     branches: "Branch",
+    newWorktree: "Worktree mới",
+    worktreeName: "Tên branch",
     addWorktree: "Thêm worktree",
     removeWorktree: "Gỡ worktree",
     removeWorktreeMessage: "Gỡ worktree ở \"{path}\"?",

@@ -6,7 +6,7 @@ import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { refreshWorkspaceGit } from "../hooks/useWorkspaceGit";
-import { shortenHomePath } from "../lib/workspaceGrouping";
+import { shortenHomePath, suggestWorktreePath } from "../lib/workspaceGrouping";
 
 // Worktrees on top, branches below — the two always move together (pick a branch, give it
 // a worktree, open a terminal in it), so splitting them across tabs would mean ping-pong.
@@ -225,12 +225,4 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
       />
     </div>
   );
-}
-
-// Sibling directory named after the branch — the convention most worktree users follow.
-function suggestWorktreePath(workspacePath, branch) {
-  if (!workspacePath) return "";
-  const parent = workspacePath.slice(0, workspacePath.lastIndexOf("/")) || "/";
-  const safe = branch.replace(/[^\w.-]+/g, "-");
-  return `${parent}/${workspacePath.split("/").pop()}-${safe}`;
 }
