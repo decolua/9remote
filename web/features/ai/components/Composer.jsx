@@ -148,8 +148,11 @@ export const Composer = memo(function Composer({
   // wherever the user moved it. Never while a modal is open — that would drag focus
   // back out of the modal panel.
   useEffect(() => {
-    if (isFocused && !modalOpen) textareaRef.current?.focus();
-  }, [isFocused, modalOpen]);
+    // Desktop only: on touch devices an auto-focus here pops the soft keyboard mid-panes-creation
+    // and WebKit shoves the fixed layout around (terminals never auto-focus on mobile either).
+    // preventScroll: stops the first-mount scroll-into-view snap on desktop.
+    if (isFocused && !modalOpen && hasKeyboard) textareaRef.current?.focus({ preventScroll: true });
+  }, [isFocused, modalOpen, hasKeyboard]);
 
   // Auto-close the model popover on outside click
   useEffect(() => {
