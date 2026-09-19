@@ -19,6 +19,7 @@ import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { saveLastRoute, getLastRoute } from "@/shared/hooks/useLastRoute";
 import { API_ENDPOINTS, TUNNEL_VERIFY_RETRY_MAX, TUNNEL_VERIFY_RETRY_INTERVAL_MS } from "@/shared/constants/API";
+import { isLegacyApiKey } from "@/shared/utils/apiKey";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { verifyServerConnection } from "@/shared/hooks/useAuth";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
@@ -87,6 +88,10 @@ export default function MenuItems({
   // Currently hidden in the UI (managed from login); kept for re-enabling later.
   const handleSwitchAgent = useCallback(async (newKey) => {
     if (!newKey || newKey === currentApiKey) return;
+    if (isLegacyApiKey(newKey)) {
+      setSwitchError(t("login.legacyKeyError"));
+      return;
+    }
     vibrate();
     setSwitchError("");
     setSwitchingKey(newKey);
