@@ -444,7 +444,10 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
       <div
         className="relative transition-all duration-300 overflow-visible opacity-100 flex-shrink-0"
       >
-        <VoicePill voice={voice} className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-30" />
+        <VoicePill
+          voice={voice}
+          className={`absolute left-1/2 -translate-x-1/2 z-30 ${stripVisible ? "bottom-[calc(100%+36px)]" : "bottom-[calc(100%+18px)]"}`}
+        />
         <div className={isDesktop ? "flex w-full items-stretch" : `${stripVisible ? "pt-0.5" : "pt-2"} px-2 pb-2 flex gap-2 items-end`}>
           <div className={`relative flex-1 bg-surface-2 transition-all duration-150 ease-out input-focus-glow border-border-subtle ${
             isDesktop ? "rounded-none border-0 border-r" : "rounded-xl border"
