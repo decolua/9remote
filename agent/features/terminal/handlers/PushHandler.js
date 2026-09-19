@@ -6,6 +6,7 @@ import { writeCmd } from "../../../cli/utils/state.js";
 import { scanLocalSites } from "../portScanner.js";
 import { startProxySession, endProxySession, setupSiteRequestHandler } from "../../../proxy/index.js";
 import { setMcpEnabled, MCP_CLIENTS } from "../../../mcp/mcpConfig.js";
+import { readSettings, writeSettings } from "../../../lib/settings.js";
 import { broadcast } from "../../../transport/broadcast.js";
 
 export function setupPushHandlers(socket, io) {
@@ -99,6 +100,17 @@ export function setupPushHandlers(socket, io) {
     callback?.({ success: true, enabled: value, clients: MCP_CLIENTS });
     // Every other client mirrors this setting — imported lazily because terminalSocket
     // is what mounts these handlers, so a static import would close the cycle.
+    const { broadcastServerInfo } = await import("../terminalSocket.js");
+    broadcastServerInfo();
+  });
+
+  socket.on("getVoiceConfig", (callback) => {
+    callback?.({ success: true, voiceConfig: readSettings().voiceConfig || null });
+  });
+
+  socket.on("setVoiceConfig", async ({ voiceConfig } = {}, callback) => {
+    const next = writeSettings({ voiceConfig });
+    callback?.({ success: true, voiceConfig: next?.voiceConfig || null });
     const { broadcastServerInfo } = await import("../terminalSocket.js");
     broadcastServerInfo();
   });

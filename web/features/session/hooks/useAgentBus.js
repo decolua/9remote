@@ -3,6 +3,7 @@ import { useBus } from "@/shared/hooks/useBus";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { commitPendingKey, forgetRejectedTail } from "@/shared/transport/lib/deviceTrust";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { WORKER_API } from "@/shared/constants/API";
 import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
 import { sameList } from "@/shared/utils/shallowEqual";
@@ -284,6 +285,13 @@ export function useAgentBus() {
       useTerminalStore.getState().setAgentCaps(info.caps || {});
       useTerminalStore.getState().setArtifactEnabled(info.artifactEnabled);
       useTerminalStore.getState().setMcpClients(info.mcpClients);
+      if (info.voiceConfig) {
+        useVoiceStore.getState().syncFromAgent(info.voiceConfig);
+      } else {
+        const s = useVoiceStore.getState();
+        const hasConfig = s.geminiKeys.some((k) => k.trim()) || s.openrouterKey || s.customKey || s.customEndpoint;
+        if (hasConfig) s.pushToAgent();
+      }
       if (info.isCodespaces) {
         setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }
