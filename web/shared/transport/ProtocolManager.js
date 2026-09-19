@@ -326,7 +326,6 @@ export class ProtocolManager {
       try { inst.disconnect("pm-disconnect"); } catch {}
     }
     this._adapters.clear();
-    this._listeners.clear();
     // App listeners live on the bus now (they used to die with the socket.io
     // socket) — a torn-down PM must not keep panes and their closures alive.
     this._bus.clear();
