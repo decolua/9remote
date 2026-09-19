@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
-  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image
+  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -25,8 +25,11 @@ import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/
 import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
+import { JarvisConfigPanel } from "@/features/jarvis/components/JarvisConfigPanel";
+import { useJarvisStore } from "@/shared/stores/jarvisStore";
+import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot };
 
 
 /**
@@ -54,6 +57,8 @@ export default function SettingsDialog({
 
   const push = usePushToggle(context.subscribeToPush, context.unsubscribeFromPush);
   const artifact = useArtifactToggle(context.busRef, context.connected);
+  // Local (per-device) switch — no agent round-trip, so it works even offline.
+  const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const artifactSupported = artifact.supported;
   // Plugins tab is not gated on MCP support: it also hosts the client-side voice config.
 
@@ -322,6 +327,26 @@ export default function SettingsDialog({
 
                   <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
                 </>)}
+              </div>
+            )}
+
+            {section === "jarvis" && (
+              <div className="space-y-6">
+                <ToggleRow
+                  icon={Bot}
+                  label={t("menu.jarvisToggle")}
+                  hint={t("menu.jarvisToggleHint")}
+                  value={jarvisEnabled}
+                  onChange={(v) => {
+                    useJarvisStore.getState().setSettings({ enabled: v });
+                    // Toggling off mid-session must not leave the overlay stranded.
+                    if (!v) useJarvisStore.getState().setOpen(false);
+                  }}
+                />
+                {artifactSupported && !artifact.enabled && (
+                  <p className="text-[11px] leading-relaxed text-amber-400">{t("menu.jarvisMcpOff")}</p>
+                )}
+                <JarvisConfigPanel busRef={context.busRef} />
               </div>
             )}
             {section === "shortcuts" && (

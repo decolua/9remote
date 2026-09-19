@@ -105,3 +105,5 @@ export const AI_DOCTOR_TIMEOUT_MS = 30000;
 // client must see the host's current list), and codex/opencode answer by spawning a
 // CLI — 0.2s and 1.3s measured — which would otherwise be paid on every F5.
 export const AI_MODEL_CACHE_TTL_MS = 30000;
+
+

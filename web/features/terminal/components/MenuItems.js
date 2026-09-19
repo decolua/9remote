@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, QrCode } from "@/shared/components/ui/Icon";
+import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, QrCode, Bot } from "@/shared/components/ui/Icon";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
@@ -24,6 +24,8 @@ import { verifyServerConnection } from "@/shared/hooks/useAuth";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
 import VoiceEndpointSettings from "@/shared/components/ui/VoiceEndpointSettings";
+import { useJarvisStore } from "@/shared/stores/jarvisStore";
+import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 
@@ -57,6 +59,7 @@ export default function MenuItems({
   const closeMenu = useSlideMenuStore((s) => s.close);
   const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const buttonToggles = useButtonToggles();
+  const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
   const fontSize = useTerminalStore((s) => s.fontSize);
@@ -153,6 +156,7 @@ export default function MenuItems({
     return () => document.removeEventListener("mousedown", onClick);
   }, [powerMenuOpen]);
   const [isMobile, setIsMobile] = useState(false);
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
@@ -323,7 +327,7 @@ export default function MenuItems({
           <ChevronDown className={`text-text-muted transition-transform duration-200 ${mcpMenuOpen ? "rotate-180" : ""}`} size={16} />
         </button>
         {mcpMenuOpen && (
-          <div className="pl-4 pr-2 pb-2 space-y-2">
+          <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
             <VoiceEndpointSettings dense />
             {artifact.supported && (<>
               <div className="flex items-center gap-2.5">
@@ -363,6 +367,17 @@ export default function MenuItems({
           </span>
           <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
         </button>
+      )}
+
+      {/* Jarvis coordinator — opens the kanban + voice chat overlay */}
+      {jarvisEnabled && (
+      <button
+        onClick={() => { vibrate(); closeMenu(); useJarvisStore.getState().toggle(); }}
+        className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+      >
+        <Bot className="text-brand-500" size={16} />
+        <span className="text-sm">Jarvis</span>
+      </button>
       )}
 
       {/* Command Notes */}

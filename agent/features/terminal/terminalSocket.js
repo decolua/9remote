@@ -1,7 +1,7 @@
 // Terminal Socket.IO namespace
 import chalk from "chalk";
 import { readFileSync } from "fs";
-import { join, dirname } from "path";
+import { join, dirname, resolve } from "path";
 import { fileURLToPath } from "url";
 import * as daemonClient from "./ptyDaemonClient.js";
 
@@ -16,6 +16,7 @@ import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks, reconcileCodexTrust } from "./hookManager.js";
 import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js";
+import { readSettings } from "../../lib/settings.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
 import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent } from "./statusManager.js";
@@ -187,6 +188,57 @@ export function listSessionRoots() {
   return [...sessions.entries()].map(([id, s]) => ({
     id, name: s.name, workspacePath: s.workspacePath || null, cwd: s.cwd || null
   }));
+}
+
+/**
+ * Which workspace a path belongs to: the deepest workspace whose root CONTAINS it
+ * (or that it contains) — exact string equality misses trailing slashes, a `cd`
+ * into a subfolder, and a path the caller only knows approximately. Pure, so the
+ * matching rule is testable without touching the persisted maps.
+ */
+export function matchWorkspacePath(workspaceList, targetPath) {
+  const target = targetPath ? resolve(targetPath) : "";
+  if (!target) return null;
+  let exact = null, contains = null, within = null;
+  for (const w of workspaceList || []) {
+    if (!w?.path) continue;
+    const p = resolve(w.path);
+    if (target === p) exact = w;
+    // The workspace root contains the target — deepest wins.
+    else if (target.startsWith(p + "/") && (!contains || p.length > resolve(contains.path).length)) contains = w;
+    // The target contains the workspace — closest (shallowest) wins.
+    else if (p.startsWith(target + "/") && (!within || p.length < resolve(within.path).length)) within = w;
+  }
+  return exact || contains || within || null;
+}
+
+/**
+ * Register a daemon-spawned PTY into the agent's session map — the step beyond a
+ * bare daemon spawn. Without it the PTY runs (the fleet sees it) but no list
+ * does: the sidebar, workspace pinning, and persistence all read this map.
+ * `workspacePath` (or the cwd, when that is all the caller knows) pins the tab.
+ */
+export function registerManagedSession({ sessionId, name, autoNamed = true, cwd = null, workspacePath = null, shellId = null, shellLabel = null, agent = null }) {
+  const workspace = matchWorkspacePath([...workspaces.values()], workspacePath || cwd) || null;
+  sessions.set(sessionId, {
+    daemon: true,
+    name,
+    autoNamed,
+    createdAt: Date.now(),
+    cwd: cwd || workspace?.path || null,
+    workspacePath: workspace?.path || null,
+    shellId,
+    shellLabel,
+    agent
+  });
+  if (workspace) {
+    sessionWorkspaces[sessionId] = workspace.id;
+    saveWorkspaces(workspaces, sessionWorkspaces, sessionOrder);
+  }
+  saveSessionMetadata(sessions);
+  // Other devices hold this list in memory — tell them a terminal appeared.
+  broadcast(null, "sessionsChanged");
+  return { success: true, sessionId, workspacePath: workspace?.path || null };
 }
 
 export async function initializeTerminal() {
@@ -373,6 +425,7 @@ export function setupTerminalSocket(io, apiKey) {
     // when web starts sending a new payload shape (e.g. joinSession with cols/rows).
     caps: { joinSessionSize: true, artifact: true },
     artifactEnabled: isMcpEnabled(),
+    voiceConfig: readSettings().voiceConfig || null,
     // Which CLIs the switch writes to — the settings screen names them rather than
     // hardcoding a list that would drift as clients are added.
     mcpClients: MCP_CLIENTS,

@@ -26,6 +26,10 @@ import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL } from "@/shared/constants/github";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
+import JarvisView from "@/features/jarvis/components/JarvisView";
+import { useJarvisStore } from "@/shared/stores/jarvisStore";
+import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
+import { useKanbanStore } from "@/shared/stores/kanbanStore";
 
 // Engines a terminal can be swapped into the chat UI.
 const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex"]);
@@ -110,6 +114,22 @@ function TerminalHeader({
   const [renameDialog, setRenameDialog] = useState({ sessionId: null, name: "", value: "" });
   // New terminal modal (named create)
   const [createModalOpen, setCreateModalOpen] = useState(false);
+  // Jarvis coordinator surface — global overlay, opened by header button or ⌘J.
+  const jarvisOpen = useJarvisStore((s) => s.open);
+  const toggleJarvis = useJarvisStore((s) => s.toggle);
+  const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
+  const jarvisNeedsInput = useKanbanStore((s) => Object.values(s.board.tasks).some((t) => t.status === "needs_input"));
+  useEffect(() => {
+    if (!isActive || !jarvisEnabled) return;
+    const onKey = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "j") {
+        e.preventDefault();
+        toggleJarvis();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [isActive, jarvisEnabled, toggleJarvis]);
   // Drag-reorder the tab strip. No grip here — the strip is too tight for one — so a
   // press only becomes a drag past the threshold; below it the tab still switches.
   const { dragId, registerEl, startDrag, consumeClick } = useDragReorder({
@@ -470,6 +490,22 @@ function TerminalHeader({
       </button>
       )}
 
+      {jarvisEnabled && (
+      <button
+        onClick={() => { vibrate(); toggleJarvis(); }}
+        disabled={!connected}
+        className={`relative p-1.5 hover:bg-surface-2 rounded-brand transition duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed ${
+          jarvisNeedsInput ? "text-amber-400" : "text-text hover:text-text"
+        }`}
+        title="Jarvis coordinator (⌘J / Ctrl+J)"
+      >
+        <Bot size={16} />
+        {jarvisNeedsInput && (
+          <span className="absolute top-0.5 right-0.5 w-1.5 h-1.5 rounded-full bg-amber-400 animate-pulse" />
+        )}
+      </button>
+      )}
+
       {showButton("notifications") && (
         <SessionStatusBadge
           sessionStatus={sessionStatus}
@@ -652,6 +688,16 @@ function TerminalHeader({
       />
 
       <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} busRef={busRef} isOpen={sitesOpen} onClose={closeSites} />
+
+      {/* Jarvis coordinator overlay — fixed, so it floats over every pane */}
+      {jarvisOpen && (
+        <JarvisView
+          busRef={busRef}
+          fileBus={fileBus}
+          workspacePath={activeWorkspace?.path || ""}
+          onClose={() => useJarvisStore.getState().setOpen(false)}
+        />
+      )}
     </div>
   );
 }

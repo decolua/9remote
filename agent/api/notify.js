@@ -9,6 +9,7 @@ import { sendPushNotification } from "../features/terminal/pushManager.js";
 import { applyEvent, STATES, setConversationId, getConversation, requestAutoName } from "../features/terminal/statusManager.js";
 import { sessionIdFromHookPayload, hookSessionIdKeys } from "../features/terminal/agentCatalog.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
+import { onWorkerDone } from "../features/jarvis/jarvisWake.js";
 
 const pushLastTime = {};
 const PUSH_RATE_LIMIT_MS = 10000;
@@ -81,6 +82,10 @@ function dispatchNotify(params) {
   // when an auto-named terminal can take its conversation's name. `working`
   // fires on every tool call and teaches nothing new, so it is left out.
   if (state === STATES.DONE || state === STATES.BLOCKED) requestAutoName(sessionId);
+
+  // The conductor cares about the same two moments: a worker finished, or one
+  // is waiting on an answer. The wake itself debounces inside jarvisWake.
+  if (state === STATES.DONE || state === STATES.BLOCKED) onWorkerDone(sessionId);
 
   // Type B — push to mobile: only for done/blocked (working would spam every tool call).
   // The SW's visible-window backstop suppresses the banner when a client is focused.

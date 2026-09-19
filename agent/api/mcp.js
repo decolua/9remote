@@ -24,7 +24,7 @@ export async function handleMcpPost(req, res) {
 
   let response;
   try {
-    response = handleRpc(msg, { sessionId: resolveCallerSession(req) });
+    response = await handleRpc(msg, { sessionId: resolveCallerSession(req) });
   } catch (e) {
     // An MCP client reads a JSON-RPC error; a bare 500 just reads as the server dying
     response = { jsonrpc: "2.0", id: msg?.id ?? null, error: { code: -32603, message: e.message } };

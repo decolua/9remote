@@ -28,6 +28,14 @@ const RESPAWN_DEFAULT_ROWS = 24;
 const RESPAWN_MIN_COLS = 10;
 const RESPAWN_MIN_ROWS = 2;
 
+// The socket setup stores its destroyer here so non-socket callers (the Jarvis
+// close_session tool) tear a session down through the SAME code path.
+let sessionDestroyer = null;
+export async function destroySessionById(sessionId) {
+  if (!sessionDestroyer) return false;
+  return await sessionDestroyer(sessionId);
+}
+
 // Resolve cols/rows for a respawned PTY from the client's last known size.
 // Falls back to 80×24 when missing or below a sane floor (a transient tiny size
 // tracked before disconnect must not persist into the new PTY).
@@ -200,6 +208,9 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     saveSessionMetadata(sessions);
     return true;
   };
+  // Hand the destroyer to non-socket callers (the Jarvis close_session tool)
+  // so teardown happens through ONE code path, not a parallel one.
+  sessionDestroyer = destroySession;
 
   socket.on("getSessions", async (callback) => {
     capsLogger.info("[diag] getSessions arrived (socket ready to answer)"); // TEMP DIAGNOSTIC — stuck-loading bug
