@@ -21,8 +21,6 @@ const TABS = [
   { key: "git", icon: GitBranch, labelKey: "workspaces.tabGit" },
   { key: "trees", icon: GitFork, labelKey: "workspaces.tabTrees" }
 ];
-// TEMP: worktrees hidden until reworked — a persisted "trees" tab falls back to git
-const VISIBLE_TABS = TABS.filter((t) => t.key !== "trees");
 
 // Secondary sidebar docked right of the terminal panes: file tree, git, worktrees.
 // Roots are the workspace itself plus each of its worktrees — separate directories on
@@ -35,8 +33,7 @@ function TerminalRightPanel({
 }) {
   const { t } = useI18n();
   const activeFileBus = fileBus || useFileBusStore.getState();
-  // A persisted "trees" tab must not strand the panel on hidden content
-  const activeTab = tab === "trees" ? "git" : tab;
+  const activeTab = tab;
   const { repos, refresh: refreshRepos, scanning, deep, scanDeeper } = useWorkspaceRepos(workspacePath, activeFileBus);
   // The files tab may be revealed at a pane's live cwd; the other tabs stay workspace-rooted
   const effectiveFilesRoot = filesRoot || workspacePath;
@@ -178,7 +175,7 @@ function TerminalRightPanel({
     >
       {/* Tabs — underline style, matching the terminal tab bar rather than inventing pills */}
       <div className={`h-11 ${PANEL_HEADER_H_CLASS} pl-1 pr-0.5 flex items-stretch gap-0 border-b border-border-subtle flex-shrink-0`}>
-        {VISIBLE_TABS.map(({ key, icon: TabIcon, labelKey }) => (
+        {TABS.map(({ key, icon: TabIcon, labelKey }) => (
           <button
             key={key}
             onClick={() => { vibrate(); onTabChange(key); }}
