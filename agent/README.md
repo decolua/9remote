@@ -17,13 +17,8 @@
 
 ## ⚡ Quick Start
 
-Start your remote workspace in **30 seconds** with a single command:
+Start your remote workspace in **30 seconds**:
 
-```bash
-npx 9remote
-```
-
-*Or install globally:*
 ```bash
 npm install -g 9remote
 9remote

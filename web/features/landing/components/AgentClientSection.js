@@ -36,7 +36,7 @@ export default function AgentClientSection() {
   const [picked, setPicked] = useState({});
 
   const copyCommand = () => {
-    navigator.clipboard?.writeText("npx 9remote").catch(() => {});
+    navigator.clipboard?.writeText("npm i -g 9remote").catch(() => {});
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -125,7 +125,7 @@ export default function AgentClientSection() {
                           style={{ background: THEME.bgPanel }}
                         >
                           <span style={{ color: THEME.textMuted }}>$</span>
-                          <code className="font-bold" style={{ color: THEME.text }}>npx 9remote</code>
+                          <code className="font-bold" style={{ color: THEME.text }}>npm i -g 9remote</code>
                           <span className="ml-auto text-xs font-sans" style={{ color: copied ? THEME.success : THEME.textMuted }}>
                             {copied ? "Copied" : "Copy"}
                           </span>
