@@ -53,6 +53,7 @@ export function useRouteSync(hydrated) {
     if (target === lastSyncedPath.current) return;
     const currentUrlPath = viewToPath(pathToView(pathname, searchParams));
     const fromUrl = navSourceRef.current === "url";
+    if (fromUrl) navSourceRef.current = null;
     // Tab switch within terminal view is same-level: replace (not push) so browser Back
     // returns to session list instead of the previous tab.
     const sameLevelTerminal = prevViewRef.current?.type === "terminal" && currentView?.type === "terminal";

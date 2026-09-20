@@ -72,7 +72,7 @@ export const createNavigationSlice = (set, get) => ({
   popView: () => set((state) => {
     const stack = Array.isArray(state.viewStack) ? state.viewStack : [];
     return {
-      viewStack: stack.length > 1 ? stack.slice(0, -1) : stack
+      viewStack: stack.length > 1 ? stack.slice(0, -1) : [{ type: "list" }]
     };
   }),
 

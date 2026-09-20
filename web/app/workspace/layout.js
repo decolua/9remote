@@ -504,8 +504,8 @@ export default function WorkspaceLayout({ children }) {
       setMobileEditor(null);
       return;
     }
+    storePopView();
     if (typeof history !== "undefined" && history.length > 1) router.back();
-    else storePopView();
   }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor, removeArtifact]);
 
   // The terminal header's back means "leave the terminal, go to the session list" — not

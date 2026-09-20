@@ -100,7 +100,7 @@ export default function SessionList({
       busRef,
       // Remote and Sites sit in this screen's own header, and Files needs a workspace
       // that has not been picked yet — all three would be duplicates or dead entries.
-      hideActions: ["remote", "files", "sites", "terminalSettings"],
+      hideActions: ["remote", "files", "sites"],
       tunnelUrl,
       apiKey,
       connectionMode,
