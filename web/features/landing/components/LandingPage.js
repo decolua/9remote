@@ -8,6 +8,7 @@ import FeaturesSection from "./FeaturesSection";
 import SecuritySection from "./SecuritySection";
 import CTASection from "./CTASection";
 import Footer from "./Footer";
+import MobileStoreBanner from "./MobileStoreBanner";
 import { THEME } from "../constants/landingConfig";
 
 export default function LandingPage() {
@@ -24,6 +25,7 @@ export default function LandingPage() {
         <CTASection />
       </main>
       <Footer />
+      <MobileStoreBanner />
     </div>
   );
 }

@@ -18,6 +18,7 @@ export default function Navbar() {
   const [scrolled, setScrolled] = useState(false);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const { formattedStars } = useGithubStars();
+  const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 20);
@@ -42,6 +43,11 @@ export default function Navbar() {
             className="w-8 h-8 rounded-lg object-contain shadow-md shadow-brand-500/20"
           />
           <span className="text-xl font-bold tracking-tight" style={{ color: THEME.text }}>9Remote</span>
+          {version && (
+            <span className="px-2 py-0.5 text-xs font-mono font-medium rounded-full bg-brand-500/10 text-brand-400 border border-brand-500/20">
+              v{version}
+            </span>
+          )}
         </Link>
 
         <div className="hidden md:flex items-center gap-7">
