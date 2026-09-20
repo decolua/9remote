@@ -71,7 +71,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
       <div
         role="dialog"
         aria-modal="true"
-        className="relative card-elev max-w-md w-full mt-4 mb-auto sm:my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto animate-in zoom-in-95 duration-200"
+        className="relative card-elev max-w-md w-full my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >

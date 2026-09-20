@@ -196,7 +196,7 @@ export default function NewTerminalModal({
         role="dialog"
         aria-modal="true"
         aria-labelledby="newTerminalTitle"
-        className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col mt-4 mb-auto sm:my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] animate-in zoom-in-95 duration-150"
+        className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Title, then where the terminal will start — context before choices */}

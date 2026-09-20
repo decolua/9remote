@@ -99,7 +99,7 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
   return (
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative card-elev w-full max-w-sm mt-4 mb-auto sm:my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto">
+      <div className="relative card-elev w-full max-w-sm my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto">
         <div className="px-4 py-3">
           <h3 className="text-text font-semibold">{t("files.createNew")}</h3>
         </div>
@@ -188,7 +188,7 @@ export function RenameModal({ value, onChange, onSubmit, onClose }) {
   return (
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative card-elev w-full max-w-sm mt-4 mb-auto sm:my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto">
+      <div className="relative card-elev w-full max-w-sm my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto">
         <div className="px-4 py-3">
           <h3 className="text-text font-semibold">{t("files.rename")}</h3>
         </div>

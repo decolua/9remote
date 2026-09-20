@@ -31,7 +31,7 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
       <div
         role="dialog"
         aria-modal="true"
-        className="relative card-elev w-full max-w-xs p-5 mt-4 mb-auto sm:my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto animate-in zoom-in-95 duration-150"
+        className="relative card-elev w-full max-w-xs p-5 my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
