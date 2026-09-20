@@ -20,20 +20,10 @@ import { anchorFrom, anchoredScrollTop } from "../lib/scrollAnchor";
 
 const EMPTY_MESSAGES = [];
 
-// What the reader was looking at, read off ONE NODE — the same element both times.
-//
-// Held as the element itself, not as an index or a key: React reconciles by key, so the
-// div for a turn is the same DOM node before and after a page is prepended above it, only
-// moved further down. Slot 0 is NOT that node afterwards, and re-finding it by key would
-// mean a lookup table, a callback per turn and a way to escape the key — all to re-derive
-// a node already in hand.
+// Hold element directly: React reconciles by key so the node survives prepend.
 const measure = (el, node) => {
   if (!el || !node) return null;
-  // Both rects in ONE reading, and `scrollTop` added to land in CONTENT coordinates —
-  // the units that survive the correction being written, which is what makes the second
-  // reading comparable to the first. `offsetTop` would have been measured against the
-  // node's offsetParent, i.e. whichever positioned ancestor happens to be nearest, so a
-  // class change on the scroller could silently move the mark.
+  // Content coordinates survive correction; offsetTop is vulnerable to positioned ancestors.
   const content = el.getBoundingClientRect();
   return {
     scrollTop: el.scrollTop,
@@ -43,24 +33,15 @@ const measure = (el, node) => {
   };
 };
 
-// How many past conversations the empty state offers before deferring to /resume.
 const RECENT_SESSIONS = 8;
 const LOAD_MORE_THRESHOLD_PX = 120;
-// One page opens at most this often. Three doors ask for older turns — the scroll handler
-// each frame while the reader is under the threshold, the sentinel observer (rebuilt, and
-// so re-fired, on every page), the button. A page whose cards all mount collapsed can be
-// worth a few pixels, which leaves scrollTop under the threshold after the anchor holds it
-// — so the doors kept opening pages back to back, and a run of 128KB commits is what the
-// reader feels as a stutter.
+// Cooldown prevents back-to-back page fetches when collapsed turns leave scrollTop under threshold.
 const PAGE_COOLDOWN_MS = 300;
-// How many times the pane re-asks whether this conversation is rewindable while waiting
-// for the engine to make it so. Enough to cover a slow first turn, few enough that a
-// host which will never say yes does not get polled.
+// Poll limit while waiting for engine to make conversation rewindable.
 const REWIND_ASKS_MAX = 6;
 
 const pad2 = (n) => String(n).padStart(2, "0");
 
-// "1m 12s" while it runs, "1m 12s" once done — both are the same wall-clock span.
 function formatDuration(ms) {
   const total = Math.max(0, Math.floor(ms / 1000));
   const h = Math.floor(total / 3600);
@@ -71,7 +52,6 @@ function formatDuration(ms) {
   return `${s}s`;
 }
 
-// The turn's own token count. Hidden until there is something to report.
 function tokenReadout(outputTokens) {
   if (!outputTokens) return null;
   return (
@@ -82,8 +62,6 @@ function tokenReadout(outputTokens) {
   );
 }
 
-// Lines the run changed, the way the CLIs report it at the end. Hidden when the turn
-// touched no file — "+0 −0" would be noise on every question-answering turn.
 function changeReadout({ added, removed }) {
   if (!added && !removed) return null;
   return (
@@ -96,9 +74,7 @@ function changeReadout({ added, removed }) {
   );
 }
 
-// The chat is being rebuilt from the host. Shown in place of the empty state, which would
-// otherwise claim the conversation is new while the ask is still unanswered. Once the
-// re-ask ladder is spent the spinner is a lie, so it becomes a retry.
+// Shown during rebuild so fresh chat state is not shown before the host answers.
 const AiLoadingState = memo(function AiLoadingState({ engine = "claude", failed = false, onRetry }) {
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
   if (failed) {
@@ -125,8 +101,7 @@ const AiLoadingState = memo(function AiLoadingState({ engine = "claude", failed 
   );
 });
 
-// The turn's own line, at the tail of the history like the user's message: the running
-// spinner and the finished summary are states of one row, so nothing jumps when it ends.
+// Running spinner and finished summary share one row so layout does not jump.
 const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrating = false }) {
   const isTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const turnStartedAt = useAiStore((s) => s.bySession[sessionId]?.turnStartedAt);
@@ -153,15 +128,12 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
     return () => clearInterval(timer);
   }, [isTurnRunning]);
 
-  // Freeze the summary against the same clock the live line used. Tokens and span are
-  // both session-running totals, so they only ever climb — a resumed or rebuilt pane
-  // keeps counting from where the host says the conversation already is.
+  // Freeze summary against the live clock so resumed panes continue from host values.
   const [finished, setFinished] = useState(null);
   const prevRunningRef = useRef(isTurnRunning);
   useEffect(() => {
     if (prevRunningRef.current && !isTurnRunning && turnStartedAt) {
-      // The host measured the span when it ended the turn, and it watched from the real
-      // start — this pane may have joined mid-turn, where its own clock reports a sliver.
+      // Prefer host duration over local elapsed time in case of mid-turn joins.
       setFinished({
         ms: lastTurnMs || Date.now() - turnStartedAt,
         outputTokens: turnOutput,
@@ -170,13 +142,10 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
     }
     if (isTurnRunning) setFinished(null);
     prevRunningRef.current = isTurnRunning;
-    // turnMessages is read only on the falling edge; the guard above keeps the stream's
-    // own re-renders from re-freezing the summary.
+    // Guard on falling edge keeps streaming re-renders from re-freezing summary.
   }, [isTurnRunning, turnStartedAt, lastTurnMs, turnOutput, turnMessages]);
 
-  // A pane that loaded after the turn ended never saw the falling edge above, so its own
-  // clock has nothing to measure — the host's span is the only record of it. Changes come
-  // from the replay; the turn's tokens do not survive it, so that readout is left off.
+  // For panes mounted after turn ended, host lastTurnMs is the only timing record.
   const reopened = useMemo(
     () => (!finished && !isTurnRunning && lastTurnMs
       ? { ms: lastTurnMs, outputTokens: 0, changes: countTurnChanges(turnMessages) }
@@ -191,8 +160,7 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
     return (
       <div className="flex items-center gap-2 py-1 select-none text-xs text-text-muted">
         <Check size={14} className="text-emerald-400 shrink-0" />
-        {/* The counts sit outside the truncating span: an ellipsis eats the tail first,
-            which is exactly where the changed-line and token readouts are. */}
+        {/* Counts sit outside truncating span so ellipsis does not hide them */}
         <span className="flex items-center min-w-0 font-mono text-[11px]">
           <span className="truncate">
             Worked for <span className="text-text">{formatDuration(summary.ms)}</span>
@@ -207,10 +175,8 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
   }
 
   const activeTool = lastMsg?.tools?.find((t) => t.status === "running");
-  // The host's number lags the stream, so the live count is the last reported total plus
-  // an estimate of what has arrived since. turn_complete replaces it with the real one.
+  // Live count estimates un-reported tokens until turn_complete.
   const liveOutput = turnOutput + estimateTurnTokens(turnMessages);
-  // What the agent is doing, named from state the pane already holds (see lib/liveStatus).
   const live = describeLive({ connected, hydrating, retryStatus, activeTool, engine, lastMsg });
 
   return (
@@ -220,8 +186,7 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
       ) : (
         <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
       )}
-      {/* The sheen owns the verb alone: `background-clip: text` re-anchors its gradient
-          per element, so nesting children inside it broke the sweep across the line. */}
+      {/* background-clip: text re-anchors per element; keep children unnested */}
       <span className="flex items-center min-w-0 font-mono text-[11px]">
         <span className="truncate">
           <span className={`ai-sheen-text${live.tone === "alert" ? " !text-danger" : ""}`}>{live.verb}…</span>
@@ -235,7 +200,6 @@ const AiTurnStatus = memo(function AiTurnStatus({ sessionId, engine = "", hydrat
   );
 });
 
-// Relative age the way the sidebar writes it: short, one unit.
 function relativeAge(ms) {
   if (!ms) return "";
   const mins = Math.round((Date.now() - ms) / 60000);
@@ -245,16 +209,13 @@ function relativeAge(ms) {
   return `${Math.round(hours / 24)}d`;
 }
 
-// What a brand-new conversation shows: where it will run, and what was already
-// talked about here. Only mounted while the list is empty, so the session scan and
-// the git poll stay off a chat that is under way.
+// Mounted only for empty chats so git/session polls do not run during active turns.
 const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspacePath, fileBus, onSendPrompt, onOpenResume }) {
   const { t } = useI18n();
   const [recent, setRecent] = useState([]);
   const [homedir, setHomedir] = useState(null);
   const git = useWorkspaceGit(workspacePath, fileBus, { enabled: Boolean(workspacePath) });
 
-  // Home is only needed to print "~/…" — the git poll does not wait on it.
   useEffect(() => {
     if (!workspacePath) return;
     let live = true;
@@ -262,7 +223,6 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
     return () => { live = false; };
   }, [fileBus, workspacePath]);
 
-  // The same scan the sidebar and /resume read, so the rows match what those show.
   useEffect(() => {
     if (!workspacePath) return;
     let live = true;
@@ -293,7 +253,6 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
       </div>
       <h3 className="text-base font-semibold text-text mb-1">{engineMeta.label}</h3>
 
-      {/* Where this chat runs — the fact a phone user cannot get from anywhere else. */}
       {dirLabel && (
         <div className="flex items-center justify-center gap-2 mb-3 text-[11px] font-mono text-text-muted" title={workspacePath}>
           <span className="truncate max-w-[220px]">{dirLabel}</span>
@@ -315,9 +274,7 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
           </div>
           <div className="max-h-[38vh] overflow-y-auto custom-scrollbar rounded-brand border border-border-subtle bg-surface-2/30">
             {recent.map((row) => {
-              // The host tags the row whose conversation a terminal is already
-              // running. Resuming it would open a second copy of the same chat, so
-              // the row says so and picks that terminal instead.
+              // If session is already open in a terminal, switch to it instead of resuming.
               const isOpen = !!row.openSessionId;
               const onPick = () => {
                 if (isOpen) window.dispatchEvent(new CustomEvent(OPEN_SESSION_EVENT, { detail: { sessionId: row.openSessionId } }));
@@ -331,8 +288,6 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
                   className="w-full flex items-center gap-2 px-2.5 py-1.5 text-left border-b border-border-subtle/50 last:border-b-0 hover:bg-surface-2 transition-colors"
                   title={isOpen ? t("agentHistory.openNow") : undefined}
                 >
-                  {/* Already running is the brighter row, the way the sidebar's history
-                      says it — same idiom, no badge. */}
                   <span className={`flex-1 min-w-0 truncate text-[11px] ${isOpen ? "text-text font-medium" : "text-text-muted"}`}>
                     {row.title || "Untitled conversation"}
                   </span>
@@ -389,22 +344,15 @@ export const AiMessagesList = memo(function AiMessagesList({
   onReload
 }) {
   const scrollRef = useRef(null);
-  // Marks the top of the mounted window — watched so paging also fires on first paint
-  // (a tap on the header, a resize) and not only on a scroll gesture.
+  // Sentinel at top of window triggers paging on resize/paint in addition to scroll.
   const sentinelRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const scrollTimerRef = useRef(null);
-  // The element in slot 0 right now. Only ever read at the moment a fetch starts: what gets
-  // held across the await is that ELEMENT, kept on the anchor itself, because React
-  // reconciles by key — the div for that turn is the same DOM node after a page is
-  // prepended, just moved further down. Slot 0 is NOT that node afterwards (an older turn
-  // takes it), which is why the anchor carries the node and not an index or a key.
+  // Anchor holds DOM element across await because React key reconciliation preserves the node.
   const topRef = useRef(null);
-  // The correction waiting for its commit. Armed by handleLoadMore, spent by the layout
-  // effect below.
+  // Pending scroll correction armed by handleLoadMore, applied in useLayoutEffect.
   const anchorRef = useRef(null);
-  // When the last page started. The gate above reads it; opening the pane mid-turn does
-  // not, since those pages are sequential by construction.
+  // Timestamp of last page fetch for cooldown gating.
   const pageAtRef = useRef(0);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [visibleBytes, setVisibleBytes] = useState(PAGE_BUDGET_BYTES);
@@ -415,21 +363,17 @@ export const AiMessagesList = memo(function AiMessagesList({
   // pane repointed at another chat starts its budget over.
   const autoPagedRef = useRef({ sessionId: null, n: 0 });
 
-  // Subscribe ONLY to messages of this session
   const messages = useAiStore((s) => s.bySession[sessionId]?.messages) || EMPTY_MESSAGES;
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
 
-  // A history rebuilt from the host log is a different list — start from the tail again.
+  // Reset window state when switching sessions.
   useEffect(() => {
     setVisibleBytes(PAGE_BUDGET_BYTES);
     setTopId(null);
-    // A correction measured against the log being replaced would be applied to this one.
     anchorRef.current = null;
   }, [sessionId]);
 
-  // Derived during render, not through state, so the frame that receives a hydrate mounts
-  // the right slice. Through state it would mount the previous slice for one frame — and
-  // on a hydrate, where the ids are all new, that slice is the whole session.
+  // Derived in render so hydrated messages mount with correct slice on first frame.
   const { id: nextTopId, index: hiddenCount } = useMemo(
     () => windowTop(topId, messages, visibleBytes, MAX_MOUNTED_BYTES),
     [topId, messages, visibleBytes]
@@ -438,35 +382,22 @@ export const AiMessagesList = memo(function AiMessagesList({
 
   const visibleMessages = hiddenCount > 0 ? messages.slice(hiddenCount) : messages;
 
-  // One turn = a user message plus every assistant segment that followed it. The list
-  // renders turns, not messages, because a turn is what folds (see AiTurn).
-  //
-  // Only an engine that can actually rewind gets the control on a prompt. A fresh chat
-  // is refused until its conversation is readable, and when that happens depends on the
-  // engine — claude binds an id at startup but writes its transcript once the turn is
-  // underway. Rather than guess a trigger, the question is re-asked (a handful of times,
-  // then left alone) each time the prompt count changes.
+  // Poll rewind capability on prompt count change until engine writes transcript.
   const [rewind, setRewind] = useState(null);
   const rewindAsksRef = useRef(0);
   const promptCount = useMemo(() => messages.filter((m) => m.role === "user").length, [messages]);
   useEffect(() => {
     if (rewind?.ok || rewind?.supported === false) return;
-    // The wait is for a transcript being written, which is a turn's work, not a chat's.
     if (rewindAsksRef.current >= REWIND_ASKS_MAX) return;
     rewindAsksRef.current += 1;
     let live = true;
     onListRewindPoints?.().then((r) => { if (live) setRewind(r); }).catch(() => {});
     return () => { live = false; };
-    // Re-asked when the engine changes too: a pane can be repointed at another one.
   }, [onListRewindPoints, engine, sessionId, promptCount, rewind?.ok, rewind?.supported]);
 
   const canRewind = Boolean(rewind?.ok);
 
-  // Which turn each bubble is, counted from the END of the thread.
-  //
-  // A bubble's id is minted in this client's store (`u-<timestamp>`) and means nothing
-  // to a CLI, so the host cannot look the turn up by it. A position from the end is what
-  // both sides always agree on, however much paging hid above.
+  // Turn index counted from thread end so host and client agree regardless of paging.
   const rewindIndex = useMemo(() => {
     const out = new Map();
     let n = 0;
@@ -486,65 +417,29 @@ export const AiMessagesList = memo(function AiMessagesList({
     return out;
   }, [visibleMessages]);
 
-  // Prepending shifts everything down; hold the turn the reader was on, so paging up does
-  // not move what they are reading.
-  //
-  // The correction is taken BEFORE the await and settled in a LAYOUT effect (see
-  // anchorRef below), never from a `scrollHeight` read across it. That was the
-  // old way and it moved the reader: the fetch takes seconds, the scroller is clamped by
-  // the browser while it runs, and the live turn kept streaming text into the tail — so
-  // `scrollHeight` grew for reasons that had nothing to do with the page being prepended,
-  // and the whole delta was added to `scrollTop`. On a phone, where one page is worth far
-  // fewer pixels than on a desktop, the wrong part of the delta is the bigger part.
-  //
-  // The gate at the top is why a scroll gesture can no longer open pages back to back:
-  // every door lands here, and a page started within the cooldown is simply not opened.
+  // Preserve scroll position across prepend by anchoring to top visible node before await.
   const handleLoadMore = useCallback(async ({ auto = false } = {}) => {
     const el = scrollRef.current;
     const now = Date.now();
     if (!auto && now - pageAtRef.current < PAGE_COOLDOWN_MS) return;
     pageAtRef.current = now;
-    // The node the spec would pick too — nearest the block start edge. A page can only
-    // ever land ABOVE it, which is what makes it a mark worth holding on to. Read through a
-    // ref rather than from `turns`: the store appends a message per streamed token, so
-    // anything this callback closed over would be rebuilt that often, and the observer
-    // below is keyed on it.
+    // Read anchor node through ref to avoid recreating callback on every streamed token.
     const node = topRef.current;
     const a = node ? anchorFrom(measure(el, node)) : null;
-    // Only the open-time ladder may re-pin the tail, and only while the reader has not
-    // touched the pane. A page the reader asked for is always HELD where they are: the pin
-    // is `scrollTop = scrollHeight`, so a reader who tapped "Load older" — or a window
-    // shorter than the pane, where top and bottom are the same place — was carried to the
-    // end of the conversation by the very page they asked for.
+    // User-requested paging preserves position; only auto open-time paging pins tail.
     const pending = a ? { ...a, atBottom: auto && isAtBottomRef.current, node } : null;
-    // TEMP DIAGNOSTIC — scroll-up shows no older turns; log the decision inputs and the
-    // outcome so we can tell "never asked the host" from "host had nothing" from "got it
-    // but never mounted". Remove once the paging path is confirmed end to end.
     const diagBefore = { hiddenCount, hasOlder, scrollTop: el?.scrollTop ?? 0, scrollHeight: el?.scrollHeight ?? 0 };
-    // The in-RAM window grows first; past its end the older turns still live on the host.
-    // Dropping the mark is what reveals a page that arrived while it was still standing —
-    // a held top wins over the page budget by design.
+    // Expand in-RAM window first; fetch from host only when top is reached.
     let fetched = null;
     if (hiddenCount === 0 && hasOlder) fetched = await onLoadOlder?.();
     termLog("ai-page", "loadMore", { ...diagBefore, fetched });
-    // The anchor is armed here and spent by the layout effect below, on the commit these
-    // two setters cause. A second call that got through the hook's in-flight guard simply
-    // overwrites it with a fresher reading of the same node — and settling twice on the
-    // same node gives the same answer, so nothing compounds.
+    // Arm anchor correction to be applied on layout effect commit.
     anchorRef.current = pending;
     setTopId(null);
     setVisibleBytes((b) => b + PAGE_BUDGET_BYTES);
   }, [hiddenCount, hasOlder, onLoadOlder]);
 
-  // The commit that reveals the page, closed before the browser paints.
-  //
-  // useLayoutEffect, not requestAnimationFrame: React runs this after the DOM is written
-  // and before paint, so the reader never sees the shifted frame. A rAF lands at least one
-  // paint later — one visible jump, and on iOS often several.
-  //
-  // Keyed on the two values that change the mounted slice — they ARE the commit — so there
-  // is no tick to remember to bump. `anchorRef` is the guard: it is written only by
-  // handleLoadMore and cleared here, so a commit with nothing pending does nothing.
+  // Apply scroll correction before paint via useLayoutEffect to prevent visible jumps.
   useLayoutEffect(() => {
     const el = scrollRef.current;
     const anchor = anchorRef.current;
@@ -552,35 +447,26 @@ export const AiMessagesList = memo(function AiMessagesList({
     anchorRef.current = null;
     const target = anchoredScrollTop(anchor, measure(el, anchor.node) || {});
     if (target != null) el.scrollTop = target;
-    // One reading for both flags, so the scroll handler does not fire a second correction
-    // a moment later on the position this one just chose.
+    // Sync scroll flags immediately so onScroll does not fight the corrected position.
     const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
     isAtBottomRef.current = distance < 8;
     setShowScrollBottom(distance > 140);
   }, [visibleBytes, topId]);
 
-  // Open on a turn: the host answers a hydrate with a byte-measured tail, and one agentic
-  // turn can run past that budget — a reopened chat then mounts a column of cards with no
-  // prompt above them. Bounded, so a log whose turns all sit behind one window cannot
-  // fetch itself to death; scroll-up still reaches the rest.
+  // Auto-page older turns if initial hydrate landed mid-turn, bounded by MAX_AUTO_PAGES.
   useEffect(() => {
     const paged = autoPagedRef.current;
-    // A pane repointed at another chat starts its budget over.
     if (paged.sessionId !== sessionId) { paged.sessionId = sessionId; paged.n = 0; }
     if (paged.n >= MAX_AUTO_PAGES) return;
-    // Only on a settled hydrate — mid-hydrate the window still belongs to the old log.
+    // Wait for settled hydrate before auto-paging.
     if (hydrating || !synced) return;
-    // The ladder is for opening the pane, which is what its name means: the reader is still
-    // on the tail. `opensMidTurn` stays true of almost any window in an agentic chat, so
-    // without this the ladder kept fetching DURING the reader's own scroll-up — 40 pages of
-    // auto-pinned tail, each one dropping them back at the bottom of the conversation.
+    // Only auto-page if user is still at bottom to avoid fighting scroll-up.
     if (!isAtBottomRef.current) return;
     if (!opensMidTurn(messages, hiddenCount, hasOlder)) return;
     paged.n += 1;
     handleLoadMore({ auto: true });
   }, [sessionId, messages, hiddenCount, hasOlder, hydrating, synced, handleLoadMore]);
 
-  // Optimized scroll handler using requestAnimationFrame
   const handleScroll = useCallback(() => {
     if (scrollTimerRef.current) return;
     scrollTimerRef.current = requestAnimationFrame(() => {
@@ -591,15 +477,13 @@ export const AiMessagesList = memo(function AiMessagesList({
       const atBottom = distanceToBottom < 80;
       isAtBottomRef.current = atBottom;
       setShowScrollBottom(!atBottom && distanceToBottom > 140);
-      // Auto-load older turns as user scrolls near top
       if (el.scrollTop < LOAD_MORE_THRESHOLD_PX && (hiddenCount > 0 || hasOlder)) {
         handleLoadMore();
       }
     });
   }, [handleLoadMore, hiddenCount, hasOlder]);
 
-  // Paging sentinel observer — fires when user scrolls up into the threshold.
-  // Gated on !isAtBottomRef to prevent an infinite loop on initial paint when scrollTop is 0.
+  // IntersectionObserver triggers loadMore when sentinel enters threshold while not at bottom.
   useEffect(() => {
     const root = scrollRef.current;
     const sentinel = sentinelRef.current;
@@ -616,33 +500,22 @@ export const AiMessagesList = memo(function AiMessagesList({
     return () => io.disconnect();
   }, [handleLoadMore]);
 
-  // Structure, not content: changes when a step APPEARS (a new segment, tool, diff or
-  // prose block), not while text streams into one that already exists. Auto-scroll keys
-  // on this — scrolling per delta made the pane impossible to read upward, since every
-  // keystroke of the agent's reply yanked the view back to the bottom.
+  // Auto-scroll triggers on new message structure, not on every streaming token.
   const structureKey = useMemo(
     () => messages.map((m) => `${m.id}:${m.thinking ? 1 : 0}:${m.content ? 1 : 0}:${m.tools?.length || 0}:${m.diffs?.length || 0}:${m.permission ? 1 : 0}`).join("|"),
     [messages]
   );
 
-  // Ref callbacks are re-run on every render when they are re-created, so both live in refs
-  // of their own: a callback that changes identity detaches and re-attaches the node each
-  // pass, and on a streaming turn that is once per token.
-  // Slot 0 is where a fetch takes its anchor node from — see topRef. On the element
-  // itself, so React keeps it current without anything being recomputed at render time.
+  // Stable ref callback tracks slot 0 element for scroll anchoring.
   const slot0Ref = useCallback((n) => { topRef.current = n; }, []);
 
-  // Smart auto-scroll: only when the user is already at the bottom. A new step scrolls
-  // into view; a growing one does not.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el || !isAtBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [structureKey]);
 
-  // Soft keyboard, rotation, safe-area change: the container shrinks but scrollTop does
-  // not, so the tail slides down under the composer and the user types blind. Re-pin
-  // while they were already at the bottom; leave a reader who scrolled up where they are.
+  // Re-pin to bottom on container resize (e.g. keyboard) if already at bottom.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -663,8 +536,7 @@ export const AiMessagesList = memo(function AiMessagesList({
     setShowScrollBottom(false);
   }, []);
 
-  // A turn scrolled into view is history, not a turn being watched — its cards open
-  // collapsed so paging in old turns mounts rows instead of every output they hold.
+  // Older turns render collapsed to keep mounted DOM light.
   const isLiveTurn = useCallback((turn) => turn.messages.some((m) => m.isLive), []);
 
   return (
@@ -676,9 +548,7 @@ export const AiMessagesList = memo(function AiMessagesList({
       >
         {(hiddenCount > 0 || hasOlder) && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
-          // An unanswered hydrate is not an empty chat. The empty state offers starter
-          // prompts and past conversations — all of which a chat that already has history
-          // would be lying about, so nothing is shown until the host has answered.
+          // Show loading until host answers hydrate, avoiding false empty state.
           synced ? (
             <AiEmptyState
               engine={engine}
@@ -704,12 +574,7 @@ export const AiMessagesList = memo(function AiMessagesList({
             )}
             {turns.map((turn, turnIdx) => {
               const [first, ...rest] = turn.messages;
-              // Slot 0 is the anchor: the top of the mounted window, which is exactly where
-              // a page lands above. Nothing to recompute — it is a function of position, and
-              // position is what the DOM already knows.
-              // A user prompt stays a bubble of its own; everything the agent did in
-              // response is one foldable turn under it. A window that starts mid-turn
-              // has no prompt to show, so the whole thing is the turn.
+              // Slot 0 is the anchor for prepending older pages.
               if (first.role !== "user") {
                 return (
                   <div key={turn.key} ref={turnIdx === 0 ? slot0Ref : undefined}>
@@ -751,7 +616,6 @@ export const AiMessagesList = memo(function AiMessagesList({
         )}
       </div>
 
-      {/* Floating Scroll to Bottom button */}
       {showScrollBottom && (
         <button
           type="button"

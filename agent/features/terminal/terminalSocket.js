@@ -19,7 +19,7 @@ import { isMcpEnabled, syncMcpConfig, MCP_CLIENTS } from "../../mcp/mcpConfig.js
 import { readSettings } from "../../lib/settings.js";
 import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
-import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent } from "./statusManager.js";
+import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent, scheduleDoneCommit } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
@@ -457,6 +457,21 @@ export function broadcastServerInfo() {
 // session never gets from a PTY hook, and the tab menu and bell read it to label the row.
 export function broadcastAiStatus(sessionId, state, tool, data = null) {
   if (!autoNameIo) return null;
+
+  // A done waits out its debounce window so the stream's next event can cancel
+  // the flash; every other state commits now (and cancels it — applyEvent).
+  if (state === "done") {
+    scheduleDoneCommit(sessionId, () => {
+      const conversationId = data?.sessionId || data?.threadId || getConversation(sessionId)?.id || null;
+      const before = getStatus(sessionId);
+      const entry = applyEvent({ type: state, sessionId, tool });
+      if (!entry || entry === before) return;
+      broadcast(autoNameIo, "statusChange", { sessionId, state, tool, conversationId });
+      broadcast(autoNameIo, "statusState", getStatuses());
+    });
+    return getStatus(sessionId);
+  }
+
   const conversationId = data?.sessionId || data?.threadId || getConversation(sessionId)?.id || null;
   const before = getStatus(sessionId);
   const entry = applyEvent({ type: state, sessionId, tool });

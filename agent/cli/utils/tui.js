@@ -1,8 +1,3 @@
-/**
- * Terminal UI utilities — native ESM, no external deps
- * Provides: selectMenu(), renderProgress(), showBanner(), confirm()
- */
-
 import readline from "readline";
 import http from "http";
 import { openPermissionPane } from "./permissions.js";
@@ -12,7 +7,6 @@ import { resolveLocalHost } from "../core/localApi.js";
 
 export { openPermissionPane };
 
-// Brand color: orange #E68A6E
 const C = {
   reset:  "\x1b[0m",
   bold:   "\x1b[1m",
@@ -26,8 +20,6 @@ const C = {
 };
 
 const W = () => Math.min(44, process.stdout.columns || 44);
-
-// ── Banner ────────────────────────────────────────────────────────────────────
 
 export function getBannerText(currentVersion, latestVersion = null) {
   const w = W();
@@ -70,8 +62,6 @@ export function showBanner(currentVersion, latestVersion = null) {
   console.log(getBannerText(currentVersion, latestVersion));
 }
 
-// ── Progress ──────────────────────────────────────────────────────────────────
-
 const SPINNER_FRAMES = ["⣾", "⣽", "⣻", "⢿", "⡿", "⣟", "⣯", "⣷"];
 
 const STEPS = [
@@ -85,9 +75,7 @@ const STEPS = [
 const IS_WIN = process.platform === "win32";
 const SPINNER_INTERVAL_MS = IS_WIN ? 120 : 80;
 
-// Ensure cursor is restored on any unexpected exit
 process.on("exit", () => process.stdout.write("\x1b[?25h"));
-// Restore cursor on signal; defer exit to lifecycle.setupExitHandler if attached, else exit now
 const onSig = (sig, code) => {
   process.stdout.write("\x1b[?25h");
   if (process.listenerCount(sig) <= 1) process.exit(code);
@@ -132,7 +120,6 @@ function _fullRedraw() {
   _progressLines = lines.length;
 }
 
-// Only repaint the active spinner line to avoid flicker on Windows conhost
 function _tickSpinner() {
   if (_progressLines === 0 || _activeIdx < 0) return;
   const lines = _buildLines();
@@ -142,7 +129,6 @@ function _tickSpinner() {
   }
   const activeLineOffset = _activeIdx + (_infoLine && _infoLine.afterIdx < _activeIdx ? 1 : 0);
   const up = _progressLines - activeLineOffset;
-  // Move up, clear line, write, move back down — single write = no flicker
   process.stdout.write(`\x1b[${up}A\r\x1b[2K${lines[activeLineOffset]}\x1b[${up}B\r`);
 }
 
@@ -184,12 +170,10 @@ export function renderProgress(activeIdx, redraw = false, desc = null) {
   }
 }
 
-/** Show an extra info line after a completed step */
 export function setProgressInfo(afterIdx, text) {
   _infoLine = text ? { afterIdx, text } : null;
 }
 
-/** Update desc of current active step without changing step index */
 export function updateProgressDesc(desc) {
   _activeDesc = desc;
   if (_progressLines > 0) _tickSpinner();
@@ -208,21 +192,6 @@ export function resetProgress() {
   _spinnerFrame = 0;
 }
 
-// ── selectMenu ────────────────────────────────────────────────────────────────
-
-/**
- * Interactive arrow-key menu. Clears full screen on each render.
- * Setup order: emitKeypressEvents → setRawMode → on("keypress") → resume.
- * cleanup: setRawMode(false) → removeListener → pause.
- * Subsequent readline.createInterface calls work because they resume stdin internally.
- *
- * @param {string} title
- * @param {Array<{label: string}>} items
- * @param {number} defaultIndex
- * @param {string} headerContent — pre-built string shown above menu
- * @param {(setRedraw: () => void, forceExit?: () => void) => void} onRedrawInit — receive redraw + forceExit triggers (for SSE updates / external prompts)
- * @returns {Promise<number>} selected index, -1 on ESC, -2 on forceExit (caller should re-render)
- */
 export function selectMenu(title, items, defaultIndex = 0, headerContent = "", onRedrawInit = null, onCtrlC = null) {
   return new Promise((resolve) => {
     let selected = defaultIndex;
@@ -232,7 +201,6 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
 
     const renderMenu = () => {
       if (!isActive) return;
-      // First paint: clear full screen for clean canvas; subsequent paints: cursor home + clear-to-EOL per line (no flicker)
       process.stdout.write(firstRender ? "\x1b[2J\x1b[H" : "\x1b[H");
       firstRender = false;
       const header = typeof headerContent === "function" ? headerContent() : headerContent;
@@ -290,35 +258,24 @@ export function selectMenu(title, items, defaultIndex = 0, headerContent = "", o
     process.stdin.resume();
     renderMenu();
 
-    // Allow external code to force-exit this menu (e.g. to show a prompt that needs stdin).
-    // Resolves with -2 so caller knows to re-render/restart the menu with a fresh stdin state.
     const forceExit = () => {
       if (!isActive) return;
       cleanup();
       resolve(-2);
     };
 
-    // Allow external code (SSE) to trigger a re-render without disrupting navigation
     if (onRedrawInit) onRedrawInit(renderMenu, forceExit);
   });
 }
 
-// ── confirm ───────────────────────────────────────────────────────────────────
-
-/**
- * Yes/no prompt. Uses readline.createInterface which resumes stdin internally.
- * Works after selectMenu.cleanup() which pauses stdin.
- */
 export function confirm(message) {
   return new Promise((resolve) => {
-    // Clean state
     process.stdin.removeAllListeners("keypress");
     if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
     process.stdin.pause();
 
     process.stdout.write(`${message} (y/N): `);
 
-    // Use raw keypress (same pattern as selectMenu)
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
     process.stdin.resume();
@@ -339,25 +296,17 @@ export function confirm(message) {
   });
 }
 
-// ── Device Approval Prompt ────────────────────────────────────────────────────
-
-/**
- * Show device approval prompt with raw-mode single-key capture.
- * Fully takes over stdin from selectMenu, resolves with true/false.
- */
 export function showDeviceApproval(deviceId, ip) {
   return new Promise((resolve) => {
     const shortId = deviceId ? deviceId.slice(0, 8) : "unknown";
     const w = W();
 
-    // Save existing keypress listeners (e.g. selectMenu's) so we can restore
-    // them after the prompt — otherwise the caller's menu loses arrow-key input.
+    // Save existing keypress listeners to restore after prompt
     const savedListeners = process.stdin.listeners("keypress").slice();
     process.stdin.removeAllListeners("keypress");
     if (process.stdin.isTTY) { try { process.stdin.setRawMode(false); } catch {} }
     process.stdin.pause();
 
-    // Clear screen for clean approval UI
     const bar = `${C.orange}${'═'.repeat(w)}${C.reset}`;
     process.stdout.write(
       `\x1b[2J\x1b[H\n${bar}\n` +
@@ -367,7 +316,6 @@ export function showDeviceApproval(deviceId, ip) {
       `  Allow this device? ${C.dim}(y/n)${C.reset} `
     );
 
-    // Use keypress events (same pattern as selectMenu)
     readline.emitKeypressEvents(process.stdin);
     if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
     process.stdin.resume();
@@ -375,7 +323,6 @@ export function showDeviceApproval(deviceId, ip) {
     const restoreListeners = () => {
       for (const l of savedListeners) process.stdin.on("keypress", l);
       if (savedListeners.length > 0) {
-        // Previous owner (selectMenu) was in raw mode + resumed stdin.
         if (process.stdin.isTTY) { try { process.stdin.setRawMode(true); } catch {} }
         process.stdin.resume();
       }
@@ -384,7 +331,6 @@ export function showDeviceApproval(deviceId, ip) {
     const onKeypress = (str, key) => {
       if (!key) return;
       const ch = (key.name || "").toLowerCase();
-      // Treat ESC / unknown keys as reject so prompt never hangs forever
       const isAccept = ch === "y" || key.name === "return";
       const isReject = ch === "n" || key.name === "escape";
       const isCtrlC = key.ctrl && key.name === "c";
@@ -409,15 +355,6 @@ export function showDeviceApproval(deviceId, ip) {
   });
 }
 
-// ── SSE client ───────────────────────────────────────────────────────────────
-
-/**
- * Subscribe to server SSE stream. Calls onEvent(type, data) for each event.
- * Returns a cleanup function to close the connection.
- * @param {number} port
- * @param {(type: string, data: object) => void} onEvent
- * @returns {() => void} cleanup
- */
 export function subscribeSSE(port, onEvent) {
   let req = null;
   let closed = false;
@@ -439,7 +376,7 @@ export function subscribeSSE(port, onEvent) {
         armIdle();
         buf += chunk.toString();
         const lines = buf.split("\n");
-        buf = lines.pop(); // keep incomplete line
+        buf = lines.pop();
         let eventData = "";
         for (const line of lines) {
           if (line.startsWith("data: ")) {
@@ -447,7 +384,6 @@ export function subscribeSSE(port, onEvent) {
           } else if (line === "" && eventData) {
             try {
               const parsed = JSON.parse(eventData);
-              // onEvent may be async — a rejection escapes this try and kills the CLI parent
               Promise.resolve(onEvent(parsed.type, parsed)).catch(() => {});
             } catch {}
             eventData = "";

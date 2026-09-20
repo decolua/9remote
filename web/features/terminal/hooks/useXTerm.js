@@ -100,9 +100,7 @@ function setupMacImeFix(term, container) {
       this._unprocessedDeadKey = false;
       this._keyDownSeen = false;
 
-      // When a non-tone letter is typed after a toned vowel (e.g. 'i' in 'rồ'->'rồi' or 'n' in 'bạ'->'bạn'),
-      // OpenKey sent only 1 Backspace to erase the new letter, leaving the previous vowel unerased.
-      // For tone keys (e.g. 'j' in 'được' or 's' in 'quá'), OpenKey already sent all Backspaces.
+      // OpenKey sends only 1 Backspace for non-tone letters after a toned vowel
       if (cleanData.length > 1 && !TELEX_TONE_KEYS.test(lastKeyDownKey)) {
         this.coreService.triggerDataEvent("\x7f", true);
       }
@@ -144,9 +142,7 @@ function setupMacImeFix(term, container) {
   };
 }
 
-// WKWebView on macOS (Tauri) can miss mouseup after a trackpad tap / three-finger drag.
-// xterm listens on document while selecting, so when mousemove reports buttons === 0,
-// synthesize the release so xterm cleans up its document-level selection listeners.
+// Synthesize mouseup when buttons === 0 to fix lost pointerup on macOS WKWebView
 function setupMacMouseFix(term, container) {
   if (!isMacWebKit() || !container) return () => {};
 
@@ -216,8 +212,7 @@ function setupMacMouseFix(term, container) {
   };
 }
 
-// isVisible: pane is shown (desktop: always true for opened panes, mobile: only active)
-// isFocused: pane receives keyboard input (only one pane focused at a time)
+// isVisible: pane is shown; isFocused: receives keyboard input
 export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
   const storeBus = useConnectionStore((s) => s.bus);
   const bus = propBus || storeBus;
@@ -230,69 +225,53 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
   const inputHandlerRef = useRef(null);
   const resizeTimerRef = useRef(null);
   const doResizeRef = useRef(null);
-  const doJoinSessionRef = useRef(null); // reload() calls this — no full bus reconnect
-  const fireJoinRef = useRef(null);      // emit joinSession at a size (set by doJoinSession, called by settle)
-  const forceNextRef = useRef(false);   // doResize({force}) flag carried into the settle timer
-  const joinNextRef = useRef(false);    // doResize({join}) flag — fire a deferred join at settled size
+  const doJoinSessionRef = useRef(null);
+  const fireJoinRef = useRef(null);
+  const forceNextRef = useRef(false);
+  const joinNextRef = useRef(false);
   const stopMomentumRef = useRef(null);
-  const cwdRef = useRef(null); // Track current working directory
-  const [cwd, setCwd] = useState(null); // Reactive cwd for toolbar UI
+  const cwdRef = useRef(null);
+  const [cwd, setCwd] = useState(null);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
-  // Pane background key: computed by the pane from the shared pool + display index
   const fontSizeSetting = useTerminalStore((s) => s.fontSize);
   const onSelectionMadeRef = useRef(onSelectionMade);
   useEffect(() => { onSelectionMadeRef.current = onSelectionMade; }, [onSelectionMade]);
-  const awaitingTuiOutputRef = useRef(false); // SGR emit→output round-trip tracker (TUI backpressure)
+  const awaitingTuiOutputRef = useRef(false);
   const searchAddonRef = useRef(null);
   const [termReady, setTermReady] = useState(false);
 
-  // Last PTY size sent — skip emit when fit yields the same cols/rows (soft-KB with fixed pane height)
+  // Skip emit when fit yields unchanged cols/rows
   const lastPtySizeRef = useRef(null);
 
-  // Scrollback history mirror — raw bytes written to XTerm, so we can replay after
-  // fetching an older prefix on scroll-up. have = bytes currently mirrored.
-  const historyMirrorRef = useRef([]); // array of Uint8Array/string chunks
-  const historyBytesRef = useRef(0);   // total mirrored bytes
-  const historyTotalRef = useRef(0);   // bytes agent reports holding (ceiling)
-  const historyFetchingRef = useRef(false); // in-flight requestHistory
-  const historyLastFetchRef = useRef(0);    // timestamp of last fetch (guard)
-  const historyHaveAtEmitRef = useRef(0);   // historyBytesRef snapshot at requestHistory emit (race-dedup)
-  // Fragmented history prefix (part/parts markers from the agent): held until all
-  // parts arrive, then replayed as one — the prefix splice is once-semantics.
+  // Scrollback history mirror for replay on prefix fetch
+  const historyMirrorRef = useRef([]);
+  const historyBytesRef = useRef(0);
+  const historyTotalRef = useRef(0);
+  const historyFetchingRef = useRef(false);
+  const historyLastFetchRef = useRef(0);
+  const historyHaveAtEmitRef = useRef(0);
   const prefixFragsRef = useRef(null);
-  // Live-output seq (plan F): last live seq rendered. Detects a scrollback gap when output was
-  // lost during a background suspension the warm-reconnect heuristic missed. null until the
-  // first seq'd chunk arrives (old agents send no seq → seq logic stays disabled).
   const lastSeqRef = useRef(null);
-  // Gap recovery (plan G) state machine — lives inside the main effect (closure)
-  // Join-replay window: while a joinSession round-trip is in flight (emit → replay → ack), LIVE
-  // output is QUEUED (not written) so it never lands between term.reset() and the mode-restore
-  // replay packet. Queue + flush on ack: replay paints first, queued live follows in order.
   const joiningRef = useRef(false);
-  // A join is coming, from the moment something asks for one. joiningRef only
-  // rises when the join is EMITTED, and doJoinSession defers through the settle
-  // debounce first — so between the two lies a window where the pane is about to
-  // be wiped and lastSeq is still null. That window is where a second recovery
-  // trigger slipped through and started the whole blind rejoin again.
+  // Guards race window between recovery trigger and join emission
   const joinClaimedRef = useRef(false);
   const hardRejoinRef = useRef(null);
-  const [joining, setJoining] = useState(false); // reactive for the loading spinner during join
+  const [joining, setJoining] = useState(false);
   const joinQueueRef = useRef([]);
-  const joinGenRef = useRef(0); // stale-ack guard: only the current join's ack clears the spinner
-  const scrollDisposeRef = useRef(null);    // disposable from term.onScroll
-  const pendingRecoverRef = useRef(null);   // recovery asked for while pane hidden/busy → reason, replayed when it can run
-  const requestRecoverRef = useRef(null);   // single recovery entry point, shared with the visibility effect
-  const isVisibleRef = useRef(isVisible);   // mirror isVisible for bus handlers
+  const joinGenRef = useRef(0);
+  const scrollDisposeRef = useRef(null);
+  const pendingRecoverRef = useRef(null);
+  const requestRecoverRef = useRef(null);
+  const isVisibleRef = useRef(isVisible);
   useEffect(() => { isVisibleRef.current = isVisible; }, [isVisible]);
-  const [historyFetching, setHistoryFetching] = useState(false); // loading indicator state
-  const maybeFetchHistoryRef = useRef(null); // shared with touch/wheel scroll handlers
-  const userAtTopRef = useRef(false); // true only when the user actively scrolled up to top
-  const onPrefixSettledRef = useRef(null);  // told by the output router when a prefix has landed
-  const lastOutputAtRef = useRef(0);  // ts of last live output (diagnostics)
-  const outputTotalRef = useRef(0);   // bytes received this session — dup detector
+  const [historyFetching, setHistoryFetching] = useState(false);
+  const maybeFetchHistoryRef = useRef(null);
+  const userAtTopRef = useRef(false);
+  const onPrefixSettledRef = useRef(null);
+  const lastOutputAtRef = useRef(0);
+  const outputTotalRef = useRef(0);
 
-  // Emit resize only if cols/rows are above the sane-size floor. A transient tiny size
-  // (layout mid-transition, app-resume reconnect) re-wraps scrollback narrow forever.
+  // Transient tiny sizes re-wrap scrollback narrow irreversibly
   const emitResize = useCallback(() => {
     const term = termRef.current;
     if (!term || !bus) return;
@@ -302,12 +281,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     bus.emit("resize", { sessionId, cols, rows });
   }, [bus, sessionId]);
 
-  // Settle-and-emit: single debounce (SETTLE_DEBOUNCE_MS) after the LAST layout change, then fit
-  // once + emit at the settled size. PTY cols is one-way (a transient narrow cols re-wraps
-  // scrollback narrow FOREVER) so we never accept a mid-transition size — the debounce IS the
-  // stability gate, event-driven via ResizeObserver.
-  // opts.force: always emit even if size unchanged (reconnect/redraw). opts.join: also fire the
-  // deferred join at this size (initial mount / group switch).
+  // Debounce resize after layout settles to avoid transient narrow wrap
   const doResize = useCallback((opts = {}) => {
     const force = opts === true || opts?.force === true;
     const join = !!opts?.join;
@@ -320,34 +294,23 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       const fitAddon = fitAddonRef.current;
       const el = containerRef.current;
       if (!term || term._isDisposed || !fitAddon || !bus) return;
-      if (!el?.offsetWidth || !el?.offsetHeight) return; // not laid out yet → RO will re-kick
+      if (!el?.offsetWidth || !el?.offsetHeight) return;
       fitAddon.fit();
       const { cols, rows } = term;
-      if (cols < MIN_COLS || rows < MIN_ROWS) return; // mid-transition → RO will re-kick
+      if (cols < MIN_COLS || rows < MIN_ROWS) return;
       const prev = lastPtySizeRef.current;
       const force = forceNextRef.current;
       const wantJoin = joinNextRef.current;
       forceNextRef.current = false;
       joinNextRef.current = false;
-      // Nothing to do and no join pending — if a rejoin claimed the lane it will
-      // never be released here, so hand it back. (The early returns above keep
-      // joinNextRef set and are re-kicked by the ResizeObserver, so the join is
-      // still coming and the claim must stand.)
       if (!force && prev && prev.cols === cols && prev.rows === rows && !wantJoin) {
         joinClaimedRef.current = false;
         return;
       }
       lastPtySizeRef.current = { cols, rows };
       bus.emit("resize", { sessionId, cols, rows });
-      // A join was wanted but the closure is not wired yet (mount race) — nothing
-      // will fire, so a claimed lane would stay claimed forever.
       if (wantJoin && !fireJoinRef.current) joinClaimedRef.current = false;
       if (wantJoin && fireJoinRef.current) {
-        // Every join lands here: doJoinSession defers through this debounce so the
-        // PTY snapshot is taken at a settled cols. That makes this the wipe that
-        // matters, and it must hold the recovery lane for the same reason a rejoin
-        // does — a trigger arriving between here and the ack finds lastSeq still
-        // null (the baseline only rides in on the replay) and wipes again.
         joinClaimedRef.current = true;
         term.reset();
         fireJoinRef.current(cols, rows);
@@ -390,8 +353,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     const cleanupImeFix = setupMacImeFix(term, containerRef.current);
     const cleanupMouseFix = setupMacMouseFix(term, containerRef.current);
 
-    // rAF write batcher — coalesce high-frequency output bursts into one write/frame so the
-    // main thread isn't blocked parsing/rendering each 1KB chunk.
+    // Coalesce high-frequency output bursts into one write per animation frame
     const batcher = createWriteBatcher(term);
     writeBatcherRef.current = batcher;
 
@@ -425,7 +387,6 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
         term.loadAddon(webglAddon);
         // Image addon only with WebGL active (VS Code parity, avoids GPU issues)
         if (ADDONS.image) term.loadAddon(new ImageAddon());
-        // WebGL cell dimensions differ from DOM → re-fit after load
         fitAddon.fit();
       } catch (e) {
         webglFailed = true;
@@ -446,7 +407,6 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     loadWebGLRef.current = loadWebGL;
     disposeWebGLRef.current = disposeWebGL;
 
-    // Initial fit and mark ready
     let checkCount = 0;
     const maxChecks = 50;
     const checkReady = () => {
@@ -461,9 +421,6 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
 
       if (term.element && width >= 100 && height >= 100) {
         fitAddon.fit();
-        // This width gate is far looser than MIN_COLS — 100px is ~10 cols, never a
-        // real layout — so emitResize does the deciding. Marking the term ready is
-        // still right: the ResizeObserver settles the true size right after.
         emitResize();
         setTermReady(true);
       } else {
@@ -475,23 +432,16 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     const resizeObserver = new ResizeObserver(() => doResizeRef.current?.());
     resizeObserver.observe(containerRef.current);
 
-    // Detect scroll near top (primary buffer only) → fetch an older history chunk from the agent.
-    // auto=true is the self-continued leg (see historyChain): it skips the user-gesture gate and
-    // the fixed guard — its own debounce is the pacing. Returns whether a fetch actually started.
+    // Fetch older history prefix when scrolled near top
     const fetchHistory = (auto = false) => {
       const buf = term.buffer.active;
       if (HISTORY_FETCH.disabled) return false;
       if (historyFetchingRef.current) return false;
       if (buf.type === "alternate") return false;
       if (historyTotalRef.current <= 0) return false;
-      // Skip when fewer than minFetchBytes remain — a few stray bytes (live output that landed
-      // between fetches) aren't worth a full mirror reset+rewrite, which yanks the viewport.
       if (historyTotalRef.current - historyBytesRef.current < HISTORY_FETCH.minFetchBytes) return false;
       const now = Date.now();
       if (!auto && now - historyLastFetchRef.current < HISTORY_FETCH.guardMs) return false;
-      // A gesture proves intent via userAtTopRef; the auto leg cannot (live output clears that
-      // flag on every chunk), so it re-checks the position instead — the chain only ever arms
-      // the continuation from a top that a gesture already reached.
       const atTop = buf.viewportY <= HISTORY_FETCH.topThresholdLines;
       if (!auto && !userAtTopRef.current) return false;
       if (!atTop) { if (!auto) userAtTopRef.current = false; return false; }
@@ -516,30 +466,19 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     });
     onPrefixSettledRef.current = () => chain.settled();
 
-    // onScroll is NOT a fetch trigger and NOT a chain closer. Both roles belong to the wheel /
-    // touch / key paths, which announce a real gesture; a replay scrolls the buffer itself, so
-    // anything driven off onScroll would let the replay hand the chain a fresh budget forever.
-    // All this keeps is the flag's other job: leaving the top retires the gesture.
     const handleScroll = () => {
       if ((term.buffer.active.viewportY ?? 0) > HISTORY_FETCH.topThresholdLines) userAtTopRef.current = false;
     };
-    // Gesture entry, shared with the wheel/touch handlers — they set userAtTopRef first.
     const maybeFetchHistory = () => chain.gesture();
     scrollDisposeRef.current = term.onScroll(handleScroll);
     term.textarea?.addEventListener("keyup", maybeFetchHistory);
     maybeFetchHistoryRef.current = maybeFetchHistory;
 
-    // Recovery single-flight state: one pending debounce timer, one peek round-trip,
-    // one deadline so a peek whose ack never returns can't wedge recovery forever.
-    // peekGen retires a timed-out peek: its late ack must not clobber the peek that
-    // replaced it, nor drive a gapFetch off a seq that is no longer current.
     let peekTimer = null;
     let peekDeadline = null;
     let peekInFlight = false;
     let peekGen = 0;
 
-    // Gap-recovery state machine (plan G): request a missing live-output range and append it —
-    // no reset, no flash. Live output meanwhile is queued, then flushed after the gap.
     const gapFetch = createGapFetch({
       emit: (payload, ack) => bus.emit("requestGap", { sessionId, ...payload }, ack),
       writeChunk: (data) => {
@@ -554,70 +493,55 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       getFromSeq: () => (lastSeqRef.current ?? 0) + 1
     });
 
-    /** Blind recovery: wipe and replay the daemon tail. Only for cases seq recovery can't
-     *  serve — no baseline, or the agent's counter rewound (agent restarted). */
+    // Blind recovery: wipe and replay daemon tail when seq recovery cannot serve
     const hardRejoin = (why) => {
       if (!termRef.current) return;
       if (!useConnectionStore.getState().connected) { pendingRecoverRef.current = why; return; }
-      pendingRecoverRef.current = null; // the rejoin refetches everything — nothing left to recover
+      pendingRecoverRef.current = null;
       termLog("reconnect", `reset+rejoin (${why})`);
-      // Claim the lane now — the wipe is a settle-debounce away and a trigger in
-      // between must not start a second recovery — but leave the wiping itself to
-      // doResize. Resetting here as well blanked the pane for the whole debounce
-      // and then wiped the blank again: two resets per join, the first one visible
-      // and pointless. ~170KB came down twice, and the spinner flashed for it.
       joinClaimedRef.current = true;
       doJoinSessionRef.current?.(true);
     };
-    hardRejoinRef.current = hardRejoin; // gapFetch is built above it — the ref bridges the order
+    hardRejoinRef.current = hardRejoin;
 
-    /** Single entry point for seq-based recovery: ASK the agent for its newest seq instead of
-     *  waiting for the next chunk — output produced while backgrounded otherwise stays missing
-     *  until the terminal prints again (a finished command leaves the pane silently truncated).
-     *  Every caller goes through requestRecover below; this only runs once a peek may fire. */
+    // Queries agent for newest seq to detect and recover missed backgrounded output
     const runRecover = (reason) => {
       peekTimer = null;
-      // Visibility can flip during the debounce (group switch right after a resume) — re-check
-      // at fire time, else the peek recovers into a zero-size buffer and wraps wrong.
       if (!isVisibleRef.current) { pendingRecoverRef.current = reason; return; }
       if (!useConnectionStore.getState().connected) { pendingRecoverRef.current = reason; return; }
-      if (recoveryBusy({ joinClaimed: joinClaimedRef, joining: joiningRef, gapBusy: gapFetch.isBusy() })) return; // recovery already running — it covers this
+      if (recoveryBusy({ joinClaimed: joinClaimedRef, joining: joiningRef, gapBusy: gapFetch.isBusy() })) return;
       if (lastSeqRef.current == null) return hardRejoin(`${reason}: no seq baseline`);
       const gen = ++peekGen;
       peekInFlight = true;
       peekDeadline = setTimeout(() => {
         peekDeadline = null;
         peekInFlight = false;
-        peekGen++; // retire this peek — a late ack now belongs to nobody
+        peekGen++;
         termLog("reconnect", `${reason}: peekSeq timed out → retry`);
         pendingRecoverRef.current = pendingRecoverRef.current || reason;
         drainPending();
       }, PEEK_TIMEOUT_MS);
       bus.emit("peekSeq", { sessionId }, (res) => {
-        if (gen !== peekGen) return; // this peek was retired (timeout/reconnect) — a newer one owns the decision
+        if (gen !== peekGen) return;
         clearTimeout(peekDeadline);
         peekDeadline = null;
         peekInFlight = false;
         const agentSeq = res?.seq;
-        if (agentSeq == null) return hardRejoin(`${reason}: agent has no seq`); // agent too old to answer
+        if (agentSeq == null) return hardRejoin(`${reason}: agent has no seq`);
         const lastSeq = lastSeqRef.current ?? 0;
-        // Counter rewound → the agent process restarted and its ring is a different stream.
-        // Every later live chunk would classify as STALE and be dropped forever.
+        // Counter rewound indicates agent restarted with a new output stream
         if (agentSeq < lastSeq) return hardRejoin(`${reason}: seq rewound ${lastSeq} → ${agentSeq}`);
         if (agentSeq === lastSeq) {
           termLog("reconnect", `${reason}: nothing missed (seq ${lastSeq})`);
           return drainPending();
         }
-        if (recoveryBusy({ joinClaimed: joinClaimedRef, joining: joiningRef, gapBusy: gapFetch.isBusy() })) return drainPending(); // a rejoin started meanwhile
+        if (recoveryBusy({ joinClaimed: joinClaimedRef, joining: joiningRef, gapBusy: gapFetch.isBusy() })) return drainPending();
         termLog("reconnect", `${reason}: peekSeq ${lastSeq} → ${agentSeq} → gapFetch`);
         gapFetch.start(agentSeq);
       });
     };
 
-    /** The ONE door into recovery. A resume fires several triggers at once (visibilitychange,
-     *  bus connect, pane focus), so the peek is debounced into a single round-trip. A request
-     *  that can't run right now is REMEMBERED, not dropped: a hidden pane would recover into a
-     *  zero-size buffer (wrong wrap), so it waits for the visibility effect to replay it. */
+    // Debounces recovery triggers into a single peek round-trip
     const requestRecover = (reason) => {
       if (!isVisibleRef.current || peekInFlight) { pendingRecoverRef.current = reason; return; }
       if (peekTimer) clearTimeout(peekTimer);
@@ -625,7 +549,6 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     };
     requestRecoverRef.current = requestRecover;
 
-    // Replay a request that arrived while a peek owned the decision.
     function drainPending() {
       const reason = pendingRecoverRef.current;
       if (!reason) return;
@@ -633,7 +556,6 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       requestRecover(reason);
     }
 
-    // Output routing: prefix replay / join replay / gap / queues / seq classify / live
     const { handleOutput } = createOutputRouter({
       sessionId, term, writeBatcherRef, gapFetch,
       refs: {
@@ -645,14 +567,13 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     });
     bus.on("output", handleOutput);
 
-    // Server-pushed cwd change (OSC 7 detected daemon-side) — authoritative cwd source
+    // OSC 7 cwd change pushed from daemon
     const handleCwdChange = (payload) => {
       if (!payload || payload.sessionId !== sessionId) return;
       if (payload.cwd) { cwdRef.current = payload.cwd; setCwd(payload.cwd); useTerminalStore.getState().setCwd(sessionId, payload.cwd); }
     };
     bus.on("cwdChange", handleCwdChange);
 
-    // Join session and replay scrollback buffer from the daemon
     const doJoinSession = createJoinSession({
       bus, sessionId, term, fitAddon, writeBatcherRef, doResizeRef, fireJoinRef,
       refs: {
@@ -661,21 +582,13 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       },
       setCwd
     });
-    // Stagger initial join by mountDelay so a freshly-entered group's panes don't all join at
-    // once (focus pane = 0ms, siblings stagger ~120ms). Rejoins pass 0.
-    // A staggered pane must still reach the listeners below — returning early here left every
-    // non-focused pane without a reconnect/visibility handler, so it never recovered anything.
+    // Stagger initial join by mountDelay to prevent simultaneous joins
     const joinTimer = mountDelay > 0 ? setTimeout(doJoinSession, mountDelay) : null;
     if (!joinTimer) doJoinSession();
     doJoinSessionRef.current = doJoinSession;
 
-    // On reconnect → clear stale content and rejoin to get the latest scrollback.
-    // Only if the pane is visible — a hidden pane (different group, LRU) has a stale/zero-size
-    // container; fitting+joining now would serialize the TUI snapshot at a wrong cols.
     const handleReconnect = () => {
       if (!termRef.current) return;
-      // Reset transient state stuck from the disconnect (mid-flight requestHistory, mid-SGR
-      // TUI round-trip). R5/R6 (join window, gap fetch) handled below and via gapFetch.cancel().
       resetReconnectState({
         historyFetching: historyFetchingRef,
         historyHaveAtEmit: historyHaveAtEmitRef,
@@ -688,22 +601,15 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       gapFetch.cancel();
       chain.cancel();
       clearTimeout(peekDeadline); peekDeadline = null;
-      peekInFlight = false; // an ack from the dead carrier never arrives — don't wedge recovery
-      peekGen++;            // and if it does arrive late, it must not decide anything
+      peekInFlight = false;
+      peekGen++;
       setHistoryFetching(false);
-      setJoining(false); // rejoin below will set it true again on emit
-      // Seq-first: ask the agent what we missed and append exactly that — no reset, no flash,
-      // and nothing lost above the join tail. How LONG the app was backgrounded is irrelevant;
-      // what matters is whether the ring still holds the missing range. A miss or a stalled
-      // transfer falls back to reset+rejoin via gapFetch.onFallback.
-      // Only a missing/rewound seq baseline needs the blind reset+rejoin. A hidden pane defers
-      // inside requestRecover — the request is kept, not dropped.
+      setJoining(false);
       requestRecover("reconnect");
     };
     bus.on("connect", handleReconnect);
 
-    // Orientation change: wait for mobile layout to settle, then force-refit + re-emit cols.
-    // RO may not fire or fire mid-transition with a stale width → cols lock to the wrong value.
+    // Orientation change: wait for mobile layout to settle then force-refit
     const handleOrientationChange = () => setTimeout(() => {
       const term = termRef.current;
       const fitAddon = fitAddonRef.current;
@@ -714,8 +620,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     }, ORIENTATION_SETTLE_MS);
     window.addEventListener("orientationchange", handleOrientationChange);
 
-    // Force redraw when the tab becomes visible again (WebGL may not repaint after a tab
-    // switch), and ask the agent for its newest seq to recover backgrounded output only if connected.
+    // Force redraw and recover backgrounded output when tab becomes visible
     const handleVisibilityChange = () => {
       if (!document.hidden && termRef.current) {
         termRef.current.refresh(0, termRef.current.rows - 1);
@@ -739,9 +644,8 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       term.textarea?.removeEventListener("keyup", maybeFetchHistory);
       if (inputHandlerRef.current) inputHandlerRef.current.dispose();
       if (resizeTimerRef.current) clearTimeout(resizeTimerRef.current);
-      // Gap fetch in flight → kill its fallback timer, else it fires after unmount
       gapFetch.cancel();
-      if (joinTimer) clearTimeout(joinTimer); // unmount before the staggered join fired
+      if (joinTimer) clearTimeout(joinTimer);
       if (peekTimer) clearTimeout(peekTimer);
       if (peekDeadline) clearTimeout(peekDeadline);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
@@ -765,7 +669,6 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     else disposeWebGLRef.current?.();
   }, [webglEnabled, bus, sessionId]);
 
-  // Live font size: apply + re-fit on change
   useEffect(() => {
     const term = termRef.current;
     const fitAddon = fitAddonRef.current;
@@ -777,7 +680,6 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     term.refresh(0, term.rows - 1);
   }, [fontSizeSetting, bus, sessionId, emitResize]);
 
-  // Input handler - only when active
   useEffect(() => {
     if (!termRef.current || !bus || !sessionId) return;
 
@@ -796,11 +698,9 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     }
   }, [isFocused, bus, sessionId, onInput]);
 
-  // Hover scroll: forward mouse-report sequences to the PTY even when the pane is not focused,
-  // so alt-screen apps (Claude Code CLI) scroll on hover without stealing keyboard focus.
+  // Forward mouse-report sequences on hover when unfocused for alt-screen scrolling
   useEffect(() => {
     if (!termRef.current || !bus || !sessionId || isFocused) return;
-    // Mouse SGR (\x1b[<) or normal (\x1b[M) report → forward; ignore keyboard data
     const isMouseReport = (d) => d.startsWith("\x1b[<") || d.startsWith("\x1b[M");
     const handler = termRef.current.onData((data) => {
       if (isMouseReport(data)) bus.emit("input", { sessionId, data });
@@ -808,30 +708,21 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     return () => handler.dispose();
   }, [isFocused, bus, sessionId]);
 
-  // Re-fit when becoming visible (desktop: all opened panes; mobile: active pane)
   useEffect(() => {
     if (!isVisible || !fitAddonRef.current || !termRef.current) return;
     const timer = setTimeout(() => {
-      // Recovery was asked for while this pane was hidden → run it now that the buffer has a
-      // real size. Seq-first, so nothing above the join tail is lost; only a missing/rewound
-      // baseline falls back to the blind reset+rejoin inside runRecover.
       if (pendingRecoverRef.current) {
         const reason = pendingRecoverRef.current;
         pendingRecoverRef.current = null;
         termLog("reconnect", `deferred recover → fire (pane now visible, ${reason})`);
         requestRecoverRef.current?.(reason);
       }
-      // force: pane may have been hidden during reconnect → daemon snapshot stale, and
-      // cols/rows unchanged would skip emit → PTY never gets SIGWINCH to redraw.
       doResize({ force: true });
-      // Pane was hidden (LRU opacity-0) → force repaint so the stale canvas redraws
       requestAnimationFrame(() => termRef.current?.refresh(0, termRef.current.rows - 1));
     }, 100);
     return () => clearTimeout(timer);
   }, [isVisible, doResize]);
 
-  // Refit when the pane receives focus (desktop split + mobile active pane).
-  // Mobile single-pane: force PTY emit so the TUI redraws at the right size.
   useEffect(() => {
     if (!isFocused) return;
     const mobile = typeof window !== "undefined" && window.innerWidth < 760;
@@ -842,14 +733,11 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     return () => clearTimeout(timer);
   }, [isFocused, doResize]);
 
-  // Update theme (app mode + sub-theme + background preset + dim level)
   useEffect(() => {
     const term = termRef.current;
     if (!term) return;
-    // The veil is tuned for dark mode, so a background never renders in light mode
     const effKey = theme === "dark" ? bgKey : "none";
     term.options.theme = applyTerminalBackground(resolveTerminalTheme(theme, terminalTheme) || THEMES.dark, effKey);
-    // Force a full repaint — stale transparent pixels must not survive a bg switch
     term.refresh(0, term.rows - 1);
   }, [theme, terminalTheme, bgKey]);
 
@@ -859,14 +747,12 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     stopMomentumRef
   });
 
-  // Manual per-pane reload: reset the local XTerm + re-join THIS session to re-fetch the
-  // scrollback tail + restore modes, then rebuild WebGL to clear glyph glitches. No bus
-  // reconnect, no impact on other panes.
+  // Reset XTerm and re-join session to re-fetch scrollback tail without bus reconnect
   const reload = useCallback(() => {
     const term = termRef.current;
     if (!term || !bus) return;
     termLog("join", "manual reload (user refetch)");
-    doJoinSessionRef.current?.(true); // doResize wipes at the settled size
+    doJoinSessionRef.current?.(true);
     if (webglEnabled) {
       disposeWebGLRef.current?.();
       loadWebGLRef.current?.();
@@ -877,15 +763,15 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
 
   return {
     termRef,
-    cwdRef, // Expose cwd for file path resolution
-    cwd, // Reactive cwd for toolbar UI
-    searchAddonRef, // Expose for search UI (findNext/findPrevious)
+    cwdRef,
+    cwd,
+    searchAddonRef,
     termReady,
-    joining, // true while joinSession round-trip is in flight (initial mount + reconnect)
+    joining,
     doResize,
     reload,
     focus: () => termRef.current?.focus(),
     stopMomentum: () => stopMomentumRef.current?.(),
-    historyFetching // true while an older-history chunk is in flight
+    historyFetching
   };
 }

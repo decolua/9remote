@@ -4,34 +4,17 @@ import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { selectedIceTraffic } from "./controlRouting";
 
-// Environment watchers for the transport: tab visibility/resume/freeze and network
-// handover. Both classes of event invalidate an RTC peer well before its own timers
-// notice, so they drive the recovery paths on the PM.
-// Extracted verbatim from ProtocolManager — pm is the manager instance.
-// One app switch on mobile fires visibilitychange + resume (+ often online and
-// connection-change) within milliseconds of each other. Each one used to drive
-// the recovery path independently — probing, restarting, and racing on the same
-// peer. Collapsing the burst into a single pass is what keeps them from fighting.
+// Watchers for tab visibility/freeze and network handover to trigger RTC recovery.
+// Coalesces rapid visibility/resume/online events into a single recovery pass.
 const RESUME_COALESCE_MS = 150;
 
-// Reopening the app is a fresh circumstance, not a continuation of the failures
-// that came before it. The ladder is only reset by rtc-open, net-change and
-// teardown — and hiding an app changes no network, so `online` never fires. A
-// session that hid at the 120s rung woke at the 120s rung and sat on the tunnel
-// for minutes on a network that carries RTC fine. Resume resets it back to the
-// fast rungs; the guards above this call still decide whether to retry at all,
-// so no extra signaling is spent — it merely happens sooner.
+// Reset backoff ladder on resume so reopening the app retries fast rungs.
 function resetLadderOnResume(pm, reason) {
   const pendingIn = pm._rtcRestartTimer ? Math.max(pm._rtcRestartDueAt - Date.now(), 0) : -1;
   termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) reason=${reason} pendingIn=${pendingIn}ms`);
   pm._rtcRestartAttempts = 0;
   pm._probeAttempts = 0;
-  // A rung armed before we hid stays armed — it is the safety net for the paths
-  // below that decline to restart (a peer stuck "connecting" is skipped as
-  // in-flight by _restartRtc). But a probe rung can be minutes out, and
-  // _scheduleRtcRestart declines to arm while one is pending, so a stale long
-  // timer would swallow every retry request until it fires. Pull it forward to
-  // the fast rung the counters above just reset to.
+  // Pull forward long pending retry timers to the fast rung on resume.
   if (pendingIn <= RTC_RESTART.backoffMs[0]) return;
   termLog("switch", `resume: pending rung was ${pendingIn}ms out → re-arm fast`);
   pm._disarmRestart();
@@ -39,34 +22,20 @@ function resetLadderOnResume(pm, reason) {
 }
 
 export function attachWatchers(pm) {
-  // Visibility-based RTC health check — restart frozen RTC when tab becomes visible.
-  // WS may survive background suspension (socket.io keepalive) while the RTC
-  // PeerConnection freezes/closes; without this, RTC never recovers on resume.
+  // Health check to restart frozen RTC when tab becomes visible.
   const runResumeCheck = () => {
     termLog("switch", `visibility=${document.visibilityState}`);
-    // Went away again while the burst was coalescing — nothing to recover.
     if (document.visibilityState !== "visible") return;
     const ws = pm._adapters.get("ws");
     const rtc = pm._adapters.get("rtc");
     termLog("switch", `resume check: ws=${ws?.ready ? "ready" : ws?.state} rtc=${rtc?.ready ? "ready" : rtc?.state}`);
-    // WS zombie: socket.io still reports connected after background suspension
-    // froze its pings, so it looks ready but no bytes flow (terminal/remote go
-    // dead with NO disconnect modal, and only an app reload recovers). Break the
-    // zombie bus so the normal reconnect path replaces it.
-    // lastInboundAt comes from Engine.IO "pong" (true liveness, independent of
-    // app traffic or RTC) so an idle-but-alive WS is never mistaken for a zombie.
-    // Use the FRESHEST of pong and app-event: a carrier that still delivers app
-    // bytes is alive even if the server's pingInterval is long/disabled, and an
-    // idle bus is kept alive by pong. Only when BOTH go stale is it a zombie.
+    // Detect WS zombie when background suspension freezes keepalives while socket reports connected.
     const wsLastAlive = Math.max(ws?.lastInboundAt ?? 0, ws?.lastMsgAt ?? 0);
     const wsZombie = ws?.ready && isWsZombie({
       ready: true,
       lastInboundAt: wsLastAlive,
       now: Date.now()
     });
-    // TEMP DIAGNOSTIC — compare pong liveness vs app-event liveness.
-    // lastInbound = pong heartbeat; lastMsg = app event over WS. If lastMsg
-    // stays fresh while lastInbound goes stale, pong stamping is the bug.
     if (ws) {
       const lb = ws.lastInboundAt ?? 0;
       const lm = ws.lastMsgAt ?? 0;
@@ -77,30 +46,15 @@ export function attachWatchers(pm) {
       debugLog("transport", "[pm] ws zombie on resume → force reconnect");
       try { ws.forceReconnect?.(); } catch {}
     }
-    // WS not ready but not a zombie → leave it alone. WsProtocol's own
-    // visibility handler owns that path (it calls retryNow, guarded against
-    // killing a mid-handshake bus → no onConnect → handleSocketReady flash).
-    // Signaling rides the tunnel WS *or* the DO relay — an RTC-only session
-    // has no ws adapter at all, so gating on WS here left it stuck forever.
-    if (pm._awaitingApproval) return; // host hasn't approved yet — nothing to retry
-    // Gave up on hard NAT → only a REAL network change can make RTC viable again.
-    // Ask STUN for the current public IP (no DO call) and compare; a timer would
-    // re-spam the DO on every long app switch even though the NAT never moved.
+    if (pm._awaitingApproval) return;
+    // When gave up on hard NAT, re-arm only if public IP changed.
     if (pm._rtcGivenUp) {
-      // The probe decides asynchronously whether to re-arm; nothing else on the
-      // resume path should touch RTC while we're WS-only.
       pm._maybeRearmRtc();
       return;
     }
-    // Past the two guards that must keep standing down (host approval, hard-NAT
-    // give-up), so every path below leads to a retry. Reset here rather than in
-    // each branch: the dead-RTC branch and the zombie probe both need it, and
-    // one site cannot drift from the other. A healthy peer is already at rung 0,
-    // so this is a no-op for it.
     resetLadderOnResume(pm, "resume");
     if (!pm._canSignal()) {
-      // Both carriers down (background froze them too) — kick the relay and
-      // let its onReady restart RTC once a path exists again.
+      // When all carriers are down, kick signaling relay to restart RTC once connected.
       pm._sig?.retryNow("resume-no-carrier");
       return;
     }
@@ -109,15 +63,11 @@ export function attachWatchers(pm) {
       termLog("switch", `visibility → restartRtc (rtc=${rtcState || "absent"})`);
       pm._restartRtc("resume-dead-rtc");
     } else {
-      // RTC reports open/connecting — but OS suspension often kills the DC
-      // without firing an iceConnectionState change. Probe the DC before
-      // tearing down; only force a restart if the probe times out.
+      // Probe DC before tearing down in case OS suspension killed it without state change.
       probeRtcOnResume(pm);
     }
   };
 
-  // Coalesced entry point — every resume-ish event goes through this, so a
-  // burst results in exactly one recovery pass.
   const visibilityHandler = () => {
     if (document.visibilityState === "hidden") { pm._hiddenAt = Date.now(); return; }
     clearTimeout(pm._resumeCoalesceTimer);
@@ -125,8 +75,7 @@ export function attachWatchers(pm) {
   };
   document.addEventListener("visibilitychange", visibilityHandler);
 
-  // Page Lifecycle: a tab returning from frozen→active may NOT fire
-  // visibilitychange (Chrome 77+ Android) — only `resume`. Treat it the same.
+  // Handle Page Lifecycle 'resume' for Android Chrome where visibilitychange may not fire.
   const resumeHandler = () => {
     if (document.visibilityState === "visible") visibilityHandler();
   };
@@ -134,10 +83,7 @@ export function attachWatchers(pm) {
   document.addEventListener("resume", resumeHandler);
   document.addEventListener("freeze", freezeHandler);
 
-  // Network handover (wifi ⇄ cellular ⇄ another AP) invalidates the NAT
-  // bindings ICE negotiated, so RTC is dead well before its own timers notice.
-  // Both signals are hints only (onLine is unreliable per MDN; the Network
-  // Information API is missing on Safari) — the srflx check does the deciding.
+  // Network handover invalidates NAT bindings; trigger recovery on network change.
   const netHandler = () => {
     clearTimeout(pm._netDebounceTimer);
     pm._netDebounceTimer = setTimeout(() => {
@@ -145,20 +91,14 @@ export function attachWatchers(pm) {
       debugLog("transport", "[pm] network change → probe rtc");
       termLog("switch", `net-change: online=${navigator.onLine} → kick sig + ws + rtc`);
       pm._sig?.retryNow("net-change");
-      // WS too: a full outage closes it and leaves it inside its own backoff, so
-      // the tunnel could sit idle long after the network came back. retryNow is
-      // throttled internally, and revives an adapter PM tore down entirely.
+      // Retry WS immediately on network change to avoid waiting for backoff.
       pm.retryNow("net-change");
-      // Fresh network deserves a fresh budget, else a session that burned its
-      // 3 restarts on a bad network is locked to the tunnel forever. A network
-      // change also means the NAT may differ → clear any give-up and try again.
+      // Reset restart attempts and clear give-up flag on new network.
       termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) givenUp=${pm._rtcGivenUp} reason=net-change`);
       pm._rtcRestartAttempts = 0;
       pm._probeAttempts = 0;
       pm._rtcGivenUp = false;
       pm._giveUpIp = null;
-      // No carrier yet — the relay just reconnected; its onReady fires the
-      // restart. Renegotiating now would only buffer an offer nobody reads.
       if (pm._shouldRenegotiate()) pm._restartRtc("net-change");
     }, NET_RECOVERY.debounceMs);
   };
@@ -181,27 +121,12 @@ export function attachWatchers(pm) {
   };
 }
 
-/** On resume from background, RTC may report "open" while the DC is actually
- *  dead (OS suspension froze ICE without firing state changes). Sample
- *  getStats() across the window — STUN keepalives grow responsesReceived on a
- *  live DC; a flat counter means zombie → force a restart. Browser-only, no
- *  agent cooperation (and no DO signaling round-trip on a healthy resume). */
-/**
- * Browser-only liveness probe (no agent cooperation): sample the selected ICE
- * candidate-pair's responsesReceived across the window. ICE sends STUN keepalives
- * continuously — even with no app traffic — so a live DC grows this counter; a
- * frozen/zombie DC stays flat. Shared by the resume path and the ack-timeout
- * path: a state=open peer that eats messages must be probed, not restarted blind.
- */
+// Probe RTC liveness via ICE candidate-pair traffic counter delta.
 export function probeRtcLiveness(pm, reason) {
   const rtc = pm._adapters.get("rtc");
   const pc = rtc?._pc;
   if (!pc || pc.connectionState === "failed") { pm._forceRestartRtc(`${reason}-pc-failed`); return; }
-  // A probe is already measuring THIS peer — share its verdict instead of
-  // restarting the window. Staggered ack-timeouts each clearing the timer kept
-  // pushing the answer out forever, so a dead RTC was detected slowest exactly
-  // when the most traffic was dying on it. Superseding still applies when the
-  // rtc instance changed: an old peer's probe must not judge the new one.
+  // Share in-flight probe verdict for same peer to avoid pushing deadline on staggered timeouts.
   if (pm._probeLive?.rtc === rtc) {
     termLog("switch", `${reason} probe shared (already measuring this peer)`);
     return;
@@ -243,11 +168,7 @@ export function probeRtcLiveness(pm, reason) {
 export function probeRtcOnResume(pm) {
   const rtc = pm._adapters.get("rtc");
   if (!rtc?.ready) { pm._restartRtc("resume-not-ready"); return; }
-  // Certain-death shortcut: on a touch device the OS suspends WebRTC soon after
-  // the app hides, so a peer hidden past the threshold is dead and probing it
-  // only spends the whole probe window before the same restart. Desktop keeps
-  // the probe — hiding a tab does not freeze the peer, and a live one there
-  // must not be torn down.
+  // On touch devices, skip probe and restart immediately if hidden past threshold.
   const hiddenFor = pm._hiddenAt ? Date.now() - pm._hiddenAt : 0;
   const isTouch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
   if (isTouch && hiddenFor > RESUME_PROBE_SKIP_HIDDEN_MS) {

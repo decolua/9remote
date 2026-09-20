@@ -1,6 +1,4 @@
-// Download + install Android SDK components the host is missing, on an explicit
-// user click from the UI. One download at a time; progress is pushed to the
-// client, which may close and reopen freely — the job lives on the agent.
+// Download and install missing Android SDK components.
 
 import { spawn, spawnSync, execFile } from "child_process";
 import { promisify } from "util";
@@ -17,8 +15,7 @@ const execFileAsync = promisify(execFile);
 
 const logger = createLogger("mobile");
 
-// The install target: the first SDK root the probes already look at, so a
-// freshly installed component is found without any reconfiguration.
+// First discovered SDK root used as install target.
 export function installRoot() {
   const home = os.homedir();
   const roots = [
@@ -31,21 +28,14 @@ export function installRoot() {
   return roots[0];
 }
 
-// ── Job state ────────────────────────────────────────────────────────────────
-// One download at a time: two unzips racing into the same SDK root would fight.
-
-let job = null;   // { component, phase, received, total, bytesPerSec, error }
+let job = null;
 let cancelled = false;
-// Every connected client gets progress pushes, so listeners are a set — a
-// single slot would let a second connection silence the first.
 const jobListeners = new Set();
 
 export function sdkJobState() {
   return job ? { ...job } : null;
 }
 
-// Registers a listener and returns its disposer — a disconnect must remove
-// exactly its own listener, not just the latest one.
 export function setJobListener(fn) {
   if (typeof fn !== "function") return () => {};
   jobListeners.add(fn);
@@ -63,8 +53,6 @@ export function isBusy() {
   return Boolean(job && job.phase !== "done" && job.phase !== "error");
 }
 
-// Image installs ride the same job slot as component downloads; the socket
-// layer owns the lifecycle for those (percent-based, no byte counter).
 export function beginJob(component, extra = {}) {
   if (isBusy()) throw new Error("Another download is already running");
   cancelled = false;
@@ -73,18 +61,13 @@ export function beginJob(component, extra = {}) {
 }
 
 export function endJob(patch) {
-  if (!job) return;   // no job to patch — a step stamp before the first install
+  if (!job) return;
   setJob(patch);
 }
 
 export function setCancelled(v) {
   cancelled = v;
 }
-
-// ── Disk space ───────────────────────────────────────────────────────────────
-// Async + cached: mobile:list runs on the UI's poll, and a sync df there would
-// block the event loop every few seconds. Unknown space is reported as null and
-// never blocks — the UI just hides the number.
 
 let cachedDiskFree;
 let diskFreeAt = 0;
@@ -103,9 +86,6 @@ async function diskFreeBytes(dirPath) {
   return cachedDiskFree;
 }
 
-// Install order the UI must respect: sdkmanager (inside cmdline-tools) is a
-// Java tool, so the emulator branch of the catalog cannot run until both of
-// these are in place. Everything else installs independently.
 const COMPONENT_DEPENDENCIES = {
   "platform-tools": [],
   "cmdline-tools": [],
@@ -120,8 +100,6 @@ export async function envStatus() {
     "emulator": { installed: Boolean(findEmulator()) },
     "jdk": { installed: Boolean(findJava()) }
   };
-  // Carry the missing prerequisites on each row so the client can disable the
-  // button and say why, instead of letting the user hit a dead error.
   for (const [name, comp] of Object.entries(components)) {
     comp.requires = COMPONENT_DEPENDENCIES[name] || [];
     comp.missingRequires = comp.requires.filter((r) => !components[r]?.installed);
@@ -135,10 +113,6 @@ export async function envStatus() {
   };
 }
 
-// ── Java ─────────────────────────────────────────────────────────────────────
-// sdkmanager/avdmanager are Java tools; without a JDK 17+ they cannot run. The
-// check is cheap and cached like the other probes.
-
 let cachedJava;
 let javaProbedAt = 0;
 
@@ -150,7 +124,6 @@ export function findJava() {
 }
 
 function detectJava() {
-  // A JDK we installed ourselves lives under the SDK root.
   const bundled = path.join(installRoot(), JDK_SETUP.dirName);
   const bundledHome = fs.existsSync(bundled)
     ? (process.platform === "darwin" ? path.join(bundled, "Contents", "Home") : bundled)
@@ -159,15 +132,14 @@ function detectJava() {
     return bundledHome;
   }
   if (process.env.JAVA_HOME && fs.existsSync(process.env.JAVA_HOME)) return process.env.JAVA_HOME;
-  // macOS answers without spawning java; elsewhere the version check decides.
   if (process.platform === "darwin") {
     try {
       const r = spawnSync("/usr/libexec/java_home", ["-v", `${JDK_SETUP.version}+`], { encoding: "utf8" });
       if (r.status === 0 && r.stdout.trim()) return r.stdout.trim();
-    } catch { /* fall through */ }
+    } catch { }
   }
   const probe = spawnSync("java", ["-version"], { encoding: "utf8" });
-  if (probe.status === 0) return "java";   // on PATH; version adequacy assumed
+  if (probe.status === 0) return "java";
   return null;
 }
 
@@ -176,12 +148,9 @@ function resetJavaCache() {
   javaProbedAt = 0;
 }
 
-// ── sdkmanager / avdmanager ──────────────────────────────────────────────────
-
 export function sdkManagerPath() {
   const root = installRoot();
   const exe = process.platform === "win32" ? "sdkmanager.bat" : "sdkmanager";
-  // Latest-first: an upgraded layout may hold several versions side by side.
   const base = path.join(root, "cmdline-tools");
   try {
     const versions = fs.readdirSync(base)
@@ -200,14 +169,11 @@ export function avdManagerPath() {
   return path.join(path.dirname(path.dirname(sdk)), "bin", process.platform === "win32" ? "avdmanager.bat" : "avdmanager");
 }
 
-// Every sdkmanager/avdmanager invocation needs JAVA_HOME pointing at 17+.
 function javaEnv() {
   const home = findJava();
   return home && home !== "java" ? { ...process.env, JAVA_HOME: home } : process.env;
 }
 
-// Runs a cmdline-tools binary, capturing stderr (sdkmanager writes progress
-// there). Throws on non-zero exit with the tail of the output.
 async function runTool(toolPath, args, { onStdout, timeoutMs } = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(toolPath, args, {
@@ -281,8 +247,6 @@ function bytesPerSec(received, lastReceived, lastTick, now) {
   return Math.round((received - lastReceived) * 1000 / Math.max(1, now - lastTick));
 }
 
-// ── Extract ──────────────────────────────────────────────────────────────────
-
 function unzip(archivePath, destDir) {
   return new Promise((resolve, reject) => {
     // macOS and Linux ship unzip; Windows 10+ ships tar, which handles zip.
@@ -301,12 +265,8 @@ function unzip(archivePath, destDir) {
   });
 }
 
-// ── Install ──────────────────────────────────────────────────────────────────
-
 export async function installComponent(name) {
   if (isBusy()) throw new Error("Another download is already running");
-  // Server-side mirror of what the UI disables: a crafted client must not
-  // reach "cmdline-tools not installed" mid-download after a 150MB wait.
   const missingDeps = (COMPONENT_DEPENDENCIES[name] || []).filter((dep) => {
     if (dep === "jdk") return !findJava();
     if (dep === "cmdline-tools") return !sdkManagerPath();
@@ -314,8 +274,6 @@ export async function installComponent(name) {
   });
   if (missingDeps.length) throw new Error(`Requires ${missingDeps.join(", ")} first`);
   if (name === "jdk") return installJdk();
-  // The emulator has no stable direct zip; it is distributed through
-  // sdkmanager like the system images.
   if (name === "emulator") {
     beginJob("emulator", { kind: "image" });
     try {
@@ -344,10 +302,7 @@ export async function installComponent(name) {
     if (cancelled) throw new Error("cancelled");
     setJob({ phase: "extracting" });
     await unzip(archivePath, tmpDir);
-    // The zip unpacks a single top folder (platform-tools/, cmdline-tools/),
-    // which is nearly the SDK layout. cmdline-tools must land as
-    // cmdline-tools/latest/ for sdkmanager to find itself; the rest is moved
-    // as-is. A cross-volume rename fails with EXDEV, so a copy is the fallback.
+    // Unpack cmdline-tools into latest/ subdirectory as required by sdkmanager.
     const target = path.join(root, name);
     fs.rmSync(target, { recursive: true, force: true });
     const extracted = path.join(tmpDir, name);
@@ -366,7 +321,6 @@ export async function installComponent(name) {
       }
     }
 
-    // Re-probe so the new binary is visible immediately, no agent restart.
     resetAdbCache();
     resetEmulatorCache();
     resetJavaCache();
@@ -375,19 +329,14 @@ export async function installComponent(name) {
     logger.info(`📦 SDK component installed: ${name} → ${root}`);
     return { installed: name, root };
   } catch (err) {
-    // The client renders the failure against the component row that started it.
     setJob({ phase: "error", error: err.message });
     throw err;
   } finally {
-    // The tmp dir holds either nothing of value (moved) or a cancelled/partial
-    // download — removed either way.
     try { fs.rmSync(tmpDir, { recursive: true, force: true }); } catch {}
   }
 }
 
-// The JDK zip (mac: .tar.gz via the Adoptium API) unpacks a versioned folder
-// like jdk-17.0.12+7 — standardised into JDK_SETUP.dirName so findJava can
-// rely on the path. macOS JDKs carry Contents/Home inside.
+// Standardise JDK folder name to JDK_SETUP.dirName under installRoot.
 async function installJdk() {
   if (isBusy()) throw new Error("Another download is already running");
   const arch = process.platform === "darwin" && process.arch === "arm64" ? "darwinArm64" : process.platform;
@@ -451,21 +400,12 @@ export function cancelInstall() {
   return true;
 }
 
-// ── One-tap provisioning ─────────────────────────────────────────────────────
-// The UI offers devices, not SDK packages: the user picks "Pixel 7" and this
-// side works out the profile, the image, and every missing tool in order.
-
-// Two presets, deliberately generic profiles: medium_phone/tablet ask for
-// 800MB of data partition, while named-device profiles (pixel_7: 6GB) make
-// the emulator refuse to boot on a disk with under ~7.3GB free.
+// Generic profiles ask for 800MB data partition instead of 6GB for named devices.
 const PROVISION_PRESETS = [
   { id: "phone", label: "Phone", profileId: "medium_phone", api: 36 },
   { id: "tablet", label: "Tablet", profileId: "medium_tablet", api: 36 }
 ];
 
-// Presets store the API level only; the package path is derived from the host
-// ABI at use time. Building it in one place keeps the list and the provision
-// run from drifting apart.
 function presetImagePath(preset) {
   return `system-images;android-${preset.api};google_apis;${hostAbi()}`;
 }
@@ -477,23 +417,16 @@ export function listProvisionPresets() {
     return {
       ...p,
       imagePath,
-      // What the tap will cost: "ready" when everything is already on disk,
-      // otherwise the ~1.5GB image download is the honest number to show.
       ready: !needsImage && Boolean(findAdb() && sdkManagerPath() && findJava() && findEmulator())
     };
   });
 }
 
-// Sequential self-setup then AVD creation. Each step manages the shared job
-// slot itself (installComponent/installImage already do), so this only
-// orchestrates and stamps the step name for the client.
 export async function provisionPreset(presetId, { onStep } = {}) {
   const preset = PROVISION_PRESETS.find((p) => p.id === presetId);
   if (!preset) throw new Error(`Unknown device: ${presetId}`);
   if (isBusy()) throw new Error("A setup is already running");
 
-  // Fail fast with real numbers: the emulator's own error surfaces only at
-  // boot, far from the tap that caused it.
   const free = await diskFreeBytes(avdHome());
   if (free != null && free < SDK_SETUP.minDiskBytes) {
     throw new Error(`Not enough disk space — a new device needs ~7.3 GB free, only ${(free / 1024 ** 3).toFixed(1)} GB available`);
@@ -515,7 +448,6 @@ export async function provisionPreset(presetId, { onStep } = {}) {
       await step("image", () => installImage(imagePath, (pct) => endJob({ percent: pct })));
     }
 
-    // Auto-name: 9r_phone, 9r_phone_2, … — the user never types one.
     const existing = await listAvds();
     let n = 1;
     let name = `9r_${preset.id}`;
@@ -529,26 +461,15 @@ export async function provisionPreset(presetId, { onStep } = {}) {
     logger.info(`📱 Provisioned ${name} (${imagePath})`);
     return { avdName: name };
   } catch (err) {
-    // The install steps stamp their own error onto the job; this catch covers
-    // the ones that do not (naming, create) — without it the shared job slot
-    // stays "busy" and blocks every later install until an agent restart.
     endJob({ phase: "error", error: err.message });
     throw err;
   }
 }
 
-// ── AVD management (avdmanager) ──────────────────────────────────────────────
-
-// Device profiles the create wizard offers. `avdmanager list device` answers
-// the real catalog; this is only the default ordering when it cannot be read.
 export async function listDeviceProfiles() {
   const avd = avdManagerPath();
   if (!avd) throw new Error("cmdline-tools not installed");
   const { stdout } = await runTool(avd, ["list", "device"], { timeoutMs: 30_000 });
-  // Blocks look like:
-  //   id: 0 or "pixel_7"
-  //   Name: Pixel 7
-  //   ...
   const profiles = [];
   let cur = null;
   for (const line of stdout.split("\n")) {
@@ -572,13 +493,10 @@ export async function createAvd({ name, imagePath, deviceId }) {
   if (deviceId && !/^[A-Za-z0-9._-]{1,64}$/.test(deviceId)) throw new Error("Invalid device id");
   const args = ["create", "avd", "-n", name, "-k", imagePath];
   if (deviceId) args.push("-d", deviceId);
-  // create avd asks "Do you wish to create a custom hardware profile?" — no.
   await runToolCancelable(avd, args, { stdinput: "no\n" }).done;
   return { created: name };
 }
 
-// Only AVDs that are powered off may be deleted or wiped — the .lock files an
-// emulator holds would otherwise make both fail or corrupt the image.
 function avdHome() {
   return process.env.ANDROID_AVD_HOME || process.env.ANDROID_SDK_HOME
     ? path.join(process.env.ANDROID_AVD_HOME || process.env.ANDROID_SDK_HOME, ".android", "avd")
@@ -605,8 +523,7 @@ export async function deleteAvd(avdName) {
 export async function wipeAvdData(avdName) {
   if (!/^[A-Za-z0-9._-]{1,64}$/.test(avdName || "")) throw new Error("Invalid AVD name");
   const { dir } = avdPaths(avdName);
-  // The userdata images carry everything a wipe should clear; keep hardware
-  // config (config.ini, snapshots dir is gone after next boot anyway).
+  // Clear userdata/cache images on wipe while preserving hardware config.
   const targets = ["userdata-qemu.img", "userdata.img", "cache.img", "snapshots"];
   let wiped = false;
   for (const t of targets) {
@@ -616,8 +533,7 @@ export async function wipeAvdData(avdName) {
   return { wiped };
 }
 
-// sdkmanager progress looks like "[====    ] 12% Fetch remote repository..." —
-// the percent sits AFTER the bracket, and lines arrive as \r-separated runs.
+// Extract progress percentage from sdkmanager output lines.
 function extractPercent(line) {
   const matches = [...line.matchAll(/(\d+)%/g)];
   return matches.length ? Number(matches[matches.length - 1][1]) : null;
@@ -627,8 +543,6 @@ export async function listImages() {
   const sdk = sdkManagerPath();
   if (!sdk) throw new Error("cmdline-tools not installed");
   const { stdout } = await runTool(sdk, ["--list"], { timeoutMs: 60_000 });
-  // Package lines look like:
-  //   system-images;android-35;google_apis;arm64-v8a | 5 | ...
   const images = [];
   for (const line of stdout.split("\n")) {
     const m = line.match(/^\s*(system-images;[\w.;-]+)\s+\|\s*(\d+)\s*\|/);
@@ -637,19 +551,13 @@ export async function listImages() {
   return images;
 }
 
-// The host's CPU architecture narrows the catalog: an arm64-v8a image cannot
-// run under an x86_64 emulator and vice versa.
 export function hostAbi() {
   return ["arm64", "aarch64"].includes(process.arch) ? "arm64-v8a" : "x86_64";
 }
 
-// Installed images read straight off disk — sdkmanager's --list output mixes
-// them into the catalog, and a directory listing answers in microseconds.
 export function listInstalledImages() {
   const base = path.join(installRoot(), "system-images");
   const out = [];
-  // system-images/<api>/<variant>/<abi>/ holds the payload; a directory
-  // containing system.img terminates a path, anything else recurses.
   const walk = (dir, parts) => {
     let entries;
     try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
@@ -671,13 +579,10 @@ export function listInstalledImages() {
 export async function installEmulatorPackage(onProgress) {
   const sdk = sdkManagerPath();
   if (!sdk) throw new Error("cmdline-tools not installed");
-  // A cancel must reach the java process itself — sdkmanager ignores flags and
-  // would happily download gigabytes after one.
-  // sdkmanager refuses to install while licenses are unanswered; without this
-  // the java process parks on its own "Accept? (y/N)" stdin prompt forever.
+  // Auto-accept licenses so sdkmanager does not block on stdin prompt.
   try {
     await runToolCancelable(sdk, ["--licenses"], { stdinput: "y\n" });
-  } catch { /* already accepted, or the probe failed — install will tell */ }
+  } catch { }
   const childPromise = runToolCancelable(sdk, ["--install", "emulator"], {
     onStdout: (chunk) => {
       for (const line of chunk.split(/[\r\n]+/)) {
@@ -691,8 +596,6 @@ export async function installEmulatorPackage(onProgress) {
   }, 500);
   try {
     await childPromise.done;
-    // The emulator binary lands under the SDK root; drop the cached null so
-    // the next findEmulator() sees it.
     resetEmulatorCache();
     return { installed: "emulator" };
   } finally {
@@ -703,17 +606,11 @@ export async function installEmulatorPackage(onProgress) {
 export async function installImage(imagePath, onProgress) {
   const sdk = sdkManagerPath();
   if (!sdk) throw new Error("cmdline-tools not installed");
-  // `|| ""` matters: regex.test(undefined) coerces to the string "undefined"
-  // and passes, sending a literal "undefined" package name to sdkmanager.
   if (!/^[\w.;-]+$/.test(imagePath || "")) throw new Error("Invalid package path");
-  // sdkmanager refuses to install while licenses are unanswered; the user has
-  // already confirmed the download, so accepting on their behalf here matches
-  // what Android Studio's first wizard run does.
+  // Auto-accept licenses so sdkmanager does not block on stdin prompt.
   try {
     await runToolCancelable(sdk, ["--licenses"], { stdinput: "y\n" });
-  } catch { /* already accepted, or the probe failed — install will tell */ }
-  // A cancel must reach the java process itself — sdkmanager ignores flags and
-  // would happily download gigabytes after one.
+  } catch { }
   const childPromise = runToolCancelable(sdk, ["--install", imagePath], {
     onStdout: (chunk) => {
       for (const line of chunk.split(/[\r\n]+/)) {
@@ -732,15 +629,12 @@ export async function installImage(imagePath, onProgress) {
   }
 }
 
-// runTool plus a handle to kill the child (a cancel has no other way in).
-// stdinput feeds stdin up front (license prompts answer "y").
 function runToolCancelable(toolPath, args, { onStdout, stdinput } = {}) {
   let kill = () => {};
   const done = new Promise((resolve, reject) => {
     const child = spawn(toolPath, args, { env: javaEnv(), stdio: ["pipe", "pipe", "pipe"] });
     if (stdinput) child.stdin.write(stdinput.repeat(20));
-    // No stdin to feed: close it, so an unexpected prompt reads EOF and exits
-    // instead of blocking the java process (and the job slot) forever.
+    // Close stdin so unexpected prompts exit on EOF instead of hanging.
     child.stdin.end();
     kill = () => { try { child.kill("SIGKILL"); } catch {} reject(new Error("cancelled")); };
     let stdout = "";
@@ -763,15 +657,12 @@ function runToolCancelable(toolPath, args, { onStdout, stdinput } = {}) {
 export async function uninstallImage(imagePath) {
   const sdk = sdkManagerPath();
   if (!sdk) throw new Error("cmdline-tools not installed");
-  // Segments are validated per-part: ".." passes the earlier charset regex
-  // and would walk the join out of the SDK root — a sibling directory like
-  // "<root>2" even survives a plain startsWith(root) prefix check.
+  // Validate path segments against traversal outside SDK root.
   const segments = String(imagePath || "").split(";");
   if (segments.length < 2 || segments.some((s) => !s || s === "." || s === ".." || !/^[\w-]+$/.test(s))) {
     throw new Error("Invalid package path");
   }
-  // --uninstall asks for confirmation on stdin; --licenses style prompting is
-  // bypassed by removing the package dir directly instead.
+  // Remove package dir directly to avoid interactive --uninstall prompts.
   const root = installRoot();
   const dir = path.join(root, ...segments);
   if (!dir.startsWith(root + path.sep)) throw new Error("Invalid package path");

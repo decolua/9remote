@@ -9,13 +9,7 @@ import { termLog } from "@/shared/utils/termLog";
 
 const RETRY = BEHAVIOR.retry;
 
-/**
- * WsProtocol — Socket.IO transport adapter.
- * Owns: connection strategy (tunnel/local-first), retry, visibility reconnect.
- * Channels: control (Socket.IO emit). Binary supported via "tiles-bin-v2".
- */
-// A single app switch can fire visibilitychange + online back to back; both
-// drive retryNow. Collapse that burst (same value SignalingClient uses).
+// Collapse visibilitychange + online burst into single retry.
 const RETRY_NOW_THROTTLE_MS = 3000;
 
 export class WsProtocol extends BaseProtocol {
@@ -36,22 +30,14 @@ export class WsProtocol extends BaseProtocol {
     this._updating = false;
     this._connecting = false;
     this._visibilityHandler = null;
-    // Engine.IO liveness — updated by the built-in "pong" event (every pingInterval
-    // even when no app bytes flow), so an idle-but-alive socket is never mistaken
-    // for a zombie. PM reads this on resume to decide whether to force a reconnect.
+    // Engine.IO liveness updated by "pong" heartbeat.
     this._lastInboundAt = Date.now();
-    // TEMP DIAGNOSTIC — last app-level event received (vs pong heartbeat).
-    // If this stays fresh while lastInboundAt goes stale, pong stamping is broken.
     this._lastMsgAt = 0;
-    // Generation token: bump on every teardown/restart (retryNow, disconnect,
-    // _forceReconnect, _cancelRetry) so a stale async _doRetry stands down instead
-    // of clobbering the fresh URL or killing the socket a newer cycle just opened.
+    // Generation token to invalidate stale async _doRetry calls.
     this._retrySeq = 0;
   }
 
-  /** Last Engine.IO pong timestamp — real transport liveness (independent of RTC). */
   get lastInboundAt() { return this._lastInboundAt; }
-  /** TEMP DIAGNOSTIC — last app event received. */
   get lastMsgAt() { return this._lastMsgAt; }
 
   get socket() { return this._socket; }
@@ -68,34 +54,18 @@ export class WsProtocol extends BaseProtocol {
     }
   }
 
-  /**
-   * Force a reconnect from outside (e.g. ProtocolManager detected a zombie socket
-   * that still reports connected after background suspension). Public wrapper for
-   * the internal reconnect path so PM doesn't reach into private state.
-   */
+  // Force reconnect from outside (e.g. zombie socket detection).
   forceReconnect() {
     if (this._destroyed) return;
     this._forceReconnect();
   }
 
-  /**
-   * User-triggered retry — skips the pending backoff timer and starts a fresh
-   * attempt window. Unlike forceReconnect() this also revives the "failed"
-   * terminal state (attempt counter exhausted, adapter closed).
-   */
+  // User-triggered retry: resets backoff counter and attempts immediate reconnect.
   retryNow(reason = "?") {
     if (this._blocked) { termLog("switch", `ws retryNow SKIP by=${reason} (blocked)`); return; }
-    // Mobile fires visibilitychange and online within milliseconds of one
-    // another, and both handlers land here. Since retryNow clears _connecting
-    // itself, the second call would tear down the socket the first one had just
-    // started handshaking — so collapse a burst into one attempt. Mirrors the
-    // throttle SignalingClient already applies to its own retryNow.
     const now = Date.now();
     const sinceLast = now - (this._lastRetryNowAt || 0);
     if (sinceLast < RETRY_NOW_THROTTLE_MS) {
-      // Deferred, never dropped: the throttled call may be the only one that
-      // knows the network is back, so re-run it at the end of the window
-      // instead of discarding it (one pending re-check, not a queue).
       if (!this._retryNowTimer) {
         this._retryNowTimer = setTimeout(() => {
           this._retryNowTimer = null;
@@ -107,7 +77,7 @@ export class WsProtocol extends BaseProtocol {
       return;
     }
     termLog("switch", `ws retryNow GO by=${reason} (drops attempt ${this._retryAttempt})`);
-    this._retrySeq++; // invalidate any _doRetry awaiting its fetch
+    this._retrySeq++;
     this._lastRetryNowAt = now;
     clearTimeout(this._retryNowTimer);
     this._retryNowTimer = null;
@@ -117,8 +87,7 @@ export class WsProtocol extends BaseProtocol {
     this._retryScheduled = false;
     this._retryAttempt = 0;
     this._connecting = false;
-    // Drop the old socket under the destroyed flag — its "disconnect" handler fires
-    // synchronously and would otherwise race the _connectInternal below.
+    // Set destroyed flag during disconnect to avoid re-triggering reconnect.
     this._destroyed = true;
     this._detachSocketEvents();
     this._socket?.disconnect();
@@ -141,12 +110,6 @@ export class WsProtocol extends BaseProtocol {
     }
   }
 
-  /**
-   * @param {object} ctx
-   * @param {object} ctx.auth         — { tunnelUrl, localIp, apiKey, tempKey, deviceId, namespace, socketOptions }
-   * @param {Function} ctx.onRetryStatus
-   * @param {Function} ctx.onUrlUpdate
-   */
   connect(ctx) {
     this._ctx = ctx;
     this._auth = ctx.auth;
@@ -160,7 +123,7 @@ export class WsProtocol extends BaseProtocol {
 
   disconnect() {
     this._destroyed = true;
-    this._retrySeq++; // stale _doRetry must not act on a torn-down adapter
+    this._retrySeq++;
     this._cancelRetry();
     this._removeNetworkListeners();
     this._detachSocketEvents();
@@ -191,12 +154,9 @@ export class WsProtocol extends BaseProtocol {
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   _connectInternal() {
-    // Guard concurrent connects — iOS wake fires online/visibility/disconnect together,
-    // each calling _forceReconnect → duplicate sockets → tiles stream to wrong socket (black canvas).
+    // Guard against concurrent connects (e.g. iOS wake burst).
     if (this._connecting || this._socket?.connected || this._destroyed) return;
-    // No carrier address yet (agent booting, stale tunnel cleared): io("") would
-    // silently target the web origin and burn the whole budget on connect_error.
-    // Fetch-first instead — _doRetry re-reads /api/connect until an URL exists.
+    // Hold connect until tunnelUrl or localIp exists.
     if (!this._auth.tunnelUrl && !this._auth.localIp) {
       debugLog("transport", "[ws] connect HOLD (no tunnelUrl/localIp yet) → retry");
       termLog("switch", "ws connect HOLD (no url yet) → fetch on retry");
@@ -205,8 +165,7 @@ export class WsProtocol extends BaseProtocol {
       return;
     }
     this._connecting = true;
-    // Safety: iOS may suspend mid-connect so onSocket/onFail never fire → clear the flag
-    // after a grace window so future reconnects aren't permanently blocked.
+    // Clear connecting flag after grace window if iOS suspends mid-connect.
     clearTimeout(this._connectingTimer);
     this._connectingTimer = setTimeout(() => { this._connecting = false; }, RETRY.interval);
 
@@ -226,7 +185,6 @@ export class WsProtocol extends BaseProtocol {
       onSocket: (socket, mode) => {
         this._connecting = false;
         clearTimeout(this._connectingTimer);
-        // Late-arriving duplicate — a socket already won the race; drop this one.
         if (this._socket?.connected && this._socket !== socket) { try { socket.disconnect(); } catch {} return; }
         this._connectionMode = mode;
         this._socket = socket;
@@ -253,7 +211,6 @@ export class WsProtocol extends BaseProtocol {
       debugLog("transport", `[ws] disconnect reason=${reason}`);
       termLog("switch", `ws disconnect reason=${reason}`);
       this._setState(ADAPTER_STATE.degraded);
-      // Reconnect unless adapter was intentionally destroyed (PM.disconnect / unmount)
       if (!this._destroyed) this._forceReconnect();
     });
     socket.on("connect_error", (err) => {
@@ -262,40 +219,20 @@ export class WsProtocol extends BaseProtocol {
       this._forceReconnect();
     });
 
-    // Engine.IO heartbeat — the "pong" reply arrives every pingInterval (~25s)
-    // regardless of app traffic, so it's a true liveness signal. Stamp it so the
-    // zombie probe (PM visibility handler) can distinguish an idle-but-alive
-    // socket from one frozen by OS background suspension.
     socket.io?.on?.("pong", () => {
       this._lastInboundAt = Date.now();
     });
-    // Also stamp on connect — a freshly opened socket is by definition alive.
     socket.on("connect", () => { this._lastInboundAt = Date.now(); });
 
-    // Every inbound event goes to PM as "message"; PM ends it at the ClientBus,
-    // which is the only place app listeners live. Nothing is registered on this
-    // socket, so this is the sole delivery path — no double-fire to avoid.
-    // (`source` is still tagged: RTC envelopes need their args unwrapped.)
-    // Acks are the exception and stay native: a WS request emits with its callback
-    // (see send()), and socket.io resolves that callback itself.
     socket.onAny((event, data) => {
-      this._lastMsgAt = Date.now(); // TEMP DIAGNOSTIC — app event over WS
+      this._lastMsgAt = Date.now();
       this._emit("message", { event, data, source: "ws" });
     });
   }
 
-  /**
-   * Environment listeners, bound for the adapter's whole lifetime — NOT per socket.
-   * A session that never opened one (agent offline at page load) still needs the
-   * resume path, or it burns its attempts and stays stuck on the failed screen.
-   */
   _attachNetworkListeners() {
     if (this._visibilityHandler) return;
 
-    // Resume = the first moment the network is real again, so start a fresh
-    // attempt window instead of _forceReconnect (which returns early while a
-    // retry timer is pending, leaving the stale counter to run out).
-    // Skip while a handshake is in flight — killing it would flash the UI.
     this._visibilityHandler = () => {
       if (document.visibilityState !== "visible") return;
       if (this._socket?.connected || this._connecting) return;
@@ -307,8 +244,6 @@ export class WsProtocol extends BaseProtocol {
       this._socket = null;
       this._setState(ADAPTER_STATE.degraded);
     };
-    // Same reasoning as the visibility handler: a network handover is a fresh
-    // start, and _forceReconnect would be swallowed by a pending retry timer.
     this._onlineHandler = () => {
       if (this._socket?.connected || this._connecting) {
         termLog("switch", `ws online event → skip (${this._connecting ? "handshaking" : "already up"})`);
@@ -317,15 +252,7 @@ export class WsProtocol extends BaseProtocol {
       this.retryNow("online");
     };
 
-    // Say goodbye on the way out. Without this the agent only learns the client
-    // is gone when socket.io's ping times out — up to 85 seconds of showing a
-    // closed browser as online, because a tab closing behind a tunnel produces
-    // no clean TCP close the server can see.
-    //
-    // pagehide, not beforeunload: it fires on mobile too, where a swiped-away
-    // app never sees beforeunload at all. Best-effort by nature — a crash or a
-    // pulled cable still falls back to the ping timeout, which is why that
-    // remains the real safety net.
+    // Disconnect socket on pagehide (works on mobile app switch).
     this._pagehideHandler = () => {
       try { this._socket?.disconnect(); } catch {}
     };
@@ -362,7 +289,7 @@ export class WsProtocol extends BaseProtocol {
 
   _forceReconnect() {
     if (this._destroyed || this._blocked || this._retryScheduled || this._connecting) return;
-    this._retrySeq++; // new cycle begins — invalidate a mid-flight _doRetry
+    this._retrySeq++;
     this._retryAttempt++;
     if (this._retryAttempt > BEHAVIOR.reconnect.fastFailThreshold) {
       this._retryAttempt = 0;
@@ -382,10 +309,7 @@ export class WsProtocol extends BaseProtocol {
 
   async _doRetry() {
     if (this._destroyed) return;
-    // Backgrounded: the OS cuts networking, so every attempt is a guaranteed
-    // failure. Counting them burns the whole budget while hidden — the user
-    // returns to "14/15" or a dead "failed" state. Hold the counter instead;
-    // the visibility handler starts a real window on resume.
+    // Pause retry attempts while document is hidden.
     if (typeof document !== "undefined" && document.visibilityState === "hidden") {
       termLog("switch", `ws retry HOLD (hidden, still at ${this._retryAttempt}/${this._maxAttempts})`);
       this._retryScheduled = false;
@@ -416,8 +340,6 @@ export class WsProtocol extends BaseProtocol {
       });
       if (!resp.ok) throw new Error("Failed");
       const { tunnelUrl, localIp } = await resp.json();
-      // A retryNow/disconnect ran while we awaited — its socket owns the cycle now;
-      // applying the stale result would clobber the fresh URL or kill the new socket.
       if (seq !== this._retrySeq) {
         termLog("switch", "ws retry ABORT (superseded mid-fetch)");
         return;
@@ -430,7 +352,7 @@ export class WsProtocol extends BaseProtocol {
       this._retryScheduled = false;
       this._connectInternal();
     } catch {
-      if (seq !== this._retrySeq) return; // a newer cycle owns the schedule
+      if (seq !== this._retrySeq) return;
       this._retryScheduled = false;
       this._scheduleRetry();
     }
@@ -441,7 +363,7 @@ export class WsProtocol extends BaseProtocol {
     this._retryTimer = null;
     clearTimeout(this._retryNowTimer);
     this._retryNowTimer = null;
-    this._retrySeq++; // the cancelled cycle's in-flight _doRetry is void now
+    this._retrySeq++;
     this._retryAttempt = 0;
     this._retryScheduled = false;
     this._ctx?.onRetryStatus?.({ isRetrying: false, attempt: 0, maxAttempts: this._maxAttempts, failed: false });

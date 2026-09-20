@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Folder, FolderOpen, GitBranch, GitFork, ChevronDown, Loader2, Check } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
+import transliterate from "@sindresorhus/transliterate";
 import { shortenHomePath, suggestWorktreePath } from "../lib/workspaceGrouping";
 
 // Where a new terminal starts. Flat list grouped by repo — worktrees of a repo are its
@@ -35,7 +36,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
       const entries = trees.length
         ? trees.map((w) => ({ path: w.path, branch: w.branch, detached: w.detached }))
         : [{ path: repo.path, branch: repo.branch, detached: false }];
-      return { repoPath: repo.path, name: repo.name, isRoot: !repo.relPath, isRepo: true, entries };
+      return { repoPath: repo.path, name: repo.name, branch: repo.branch, isRoot: !repo.relPath, isRepo: true, entries };
     }));
     // A plain folder holding repos is still a valid cwd, so keep it selectable.
     if (!built.some((g) => g.isRoot)) {
@@ -80,9 +81,12 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
     setWtBusy(false);
     setCreating(true);
   };
-  // Free-form name → git-safe branch; same sanitizing the path suggestion applies.
-  // Leading "-" would make git read the branch as an option (--force etc.)
-  const branchName = wtName.trim().replace(/[^\w.-]+/g, "-").replace(/^-+/, "");
+  // Free-form name → git-safe branch: transliterate to ASCII (sửa → sua, Привет →
+  // Privet) so any language reads as words, non-word runs collapse to one dash,
+  // edges trimmed. Leading "-" would make git read the branch as an option.
+  const branchName = transliterate(wtName.trim())
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
   const createWorktree = async () => {
     if (!wtRepo || !branchName || wtBusy || !fileBus?.gitWorktreeAdd) return;
     const wtPath = suggestWorktreePath(wtRepo, branchName);
@@ -95,10 +99,12 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
     pick(res.path || wtPath);
   };
 
-  // No pick yet means "inherit whatever the workspace last used" — name the workspace,
-  // not a path, so the default never looks like an explicit choice.
-  const label = value ? shortenHomePath(value, homeDir) : (workspaceName || shortenHomePath(workspacePath, homeDir) || t("terminal.workspaceRoot"));
   const multiRepo = (groups?.length || 0) > 1;
+
+  // Two lines: the selection on top, what the field does below — a bare value
+  // next to the title reads as mystery text. The path rides along as the tooltip.
+  const picked = value ? (groups || []).flatMap((g) => g.entries).find((e) => e.path === value) : null;
+  const primary = picked?.branch || (value || workspacePath || "").split("/").filter(Boolean).pop() || workspaceName || t("terminal.workspaceRoot");
 
   return (
     <div ref={wrapRef} className="relative">
@@ -107,17 +113,21 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
         onClick={() => { vibrate(); if (groups === null) void load(); setOpen((v) => !v); }}
         aria-haspopup="listbox"
         aria-expanded={open}
+        title={value || workspacePath || undefined}
         className="w-full flex items-center gap-2 px-2.5 py-1.5 rounded-brand text-left bg-surface-2 hover:bg-surface-3 transition-colors"
       >
-        <Folder size={14} className="text-text-muted shrink-0" />
-        <span className="flex-1 min-w-0 text-xs text-text truncate" title={label}>{label}</span>
+        <GitBranch size={14} className="text-text-muted shrink-0" />
+        <span className="flex-1 min-w-0 flex flex-col">
+          <span className="text-xs text-text truncate leading-tight">{primary}</span>
+          <span className="text-[10px] text-text-subtle truncate leading-tight">Pick a branch or worktree</span>
+        </span>
         <ChevronDown size={14} className={`text-text-muted shrink-0 transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
         <div
           role="listbox"
-          className="absolute z-10 left-0 right-0 top-full mt-1 max-h-72 flex flex-col bg-surface-2 rounded-brand border border-border-subtle shadow-lg"
+          className="absolute z-10 left-0 right-0 top-full mt-1 max-h-72 flex flex-col bg-surface-3 rounded-brand border border-border shadow-xl"
         >
           <div className="min-h-0 flex-1 overflow-y-auto scrollbar-thin py-1">
           {!creating && loading && (
@@ -140,7 +150,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
                     key={e.path}
                     onClick={() => pick(e.path)}
                     className={`w-full flex items-start gap-2 px-3 py-1.5 text-left transition-colors ${
-                      selected ? "bg-brand-500/15" : "hover:bg-surface-3"
+                      selected ? "bg-brand-500/15" : "hover:bg-text/[0.06]"
                     }`}
                   >
                     {e.branch || e.detached
@@ -169,16 +179,24 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
                 {t("workspaces.newWorktree")}
               </div>
               {repoGroups.length > 1 && (
-                <select
-                  value={wtRepo || ""}
-                  onChange={(e) => setWtRepo(e.target.value)}
-                  disabled={wtBusy}
-                  className="w-full mb-1 px-2 py-1 rounded-brand bg-surface-3 text-xs text-text focus:outline-none"
-                >
-                  {repoGroups.map((g) => (
-                    <option key={g.repoPath} value={g.repoPath}>{g.name}</option>
-                  ))}
-                </select>
+                <>
+                  <p className="px-1 pb-1 flex items-center gap-1 text-[10px] text-text-subtle">
+                    <GitBranch size={10} className="shrink-0" />
+                    {t("workspaces.worktreeRepoLabel")}
+                  </p>
+                  <select
+                    value={wtRepo || ""}
+                    onChange={(e) => setWtRepo(e.target.value)}
+                    disabled={wtBusy}
+                    className="w-full mb-1 px-2 py-1 rounded-brand bg-surface-2 text-xs text-text border border-border-subtle focus:outline-none"
+                  >
+                    {repoGroups.map((g) => (
+                      <option key={g.repoPath} value={g.repoPath}>
+                        {g.name}{g.branch ? ` · ${g.branch}` : ""}
+                      </option>
+                    ))}
+                  </select>
+                </>
               )}
               <input
                 type="text"
@@ -188,8 +206,14 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
                 onChange={(e) => setWtName(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void createWorktree(); } }}
                 placeholder={t("workspaces.worktreeName")}
-                className="w-full px-2 py-1.5 rounded-brand bg-surface-3 text-xs text-text placeholder-text-subtle focus:outline-none"
+                className="w-full px-2 py-1.5 rounded-brand bg-surface-2 text-xs text-text placeholder-text-subtle border border-border-subtle focus:outline-none"
               />
+              {/* A name that transliterates to nothing can't become a branch — say why */}
+              {wtName.trim() && !branchName && (
+                <p className="px-1 pt-1 text-[10px] text-red-500 leading-tight">
+                  {t("workspaces.worktreeNameAscii")}
+                </p>
+              )}
               {/* Path preview — the directory is derived, never typed */}
               <p className="px-1 pt-1 truncate text-[10px] text-text-subtle leading-tight" title={suggestWorktreePath(wtRepo, branchName || "…")}>
                 {shortenHomePath(suggestWorktreePath(wtRepo, branchName || "…"), homeDir)}
@@ -231,7 +255,7 @@ export default function LocationPicker({ workspacePath, workspaceName, fileBus, 
                 <button
                   type="button"
                   onClick={() => { vibrate(); setOpen(false); onBrowse(); }}
-                  className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-1 rounded-brand text-xs text-text-muted hover:bg-surface-3 hover:text-text transition-colors"
+                  className="flex-1 min-w-0 flex items-center justify-center gap-1.5 px-2 py-1 rounded-brand text-xs text-text-muted hover:bg-text/[0.06] hover:text-text transition-colors"
                 >
                   <FolderOpen size={12} className="shrink-0 opacity-70" />
                   <span className="truncate">{t("terminal.browseFolders")}</span>

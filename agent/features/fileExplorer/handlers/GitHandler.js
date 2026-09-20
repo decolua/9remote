@@ -8,6 +8,8 @@ import {
   scanReposCached, invalidateRepoScan, parseWorktreeList, parseBranchList, terminalsInWorktree
 } from "../gitRepoScan.js";
 import { listSessionRoots } from "../../terminal/terminalSocket.js";
+import { destroySessionById } from "../../terminal/handlers/SessionHandler.js";
+import { getSessionAgent } from "../../terminal/statusManager.js";
 
 // Per-cwd TTL cache for gitChangedCount badge — prevents repeated git spawns on
 // rapid requests (e.g. terminal typing re-rendering the file watcher effect).
@@ -475,14 +477,32 @@ export function setupGitHandlers(socket) {
 
   // Refuses while terminals are still rooted inside, unless the client confirms — pulling
   // the directory out from under a running shell is not something to do silently.
-  socket.on("gitWorktreeRemove", async ({ repoPath, worktreePath, force, confirmed, deleteBranch }, callback) => {
+  socket.on("gitWorktreeRemove", async ({ repoPath, worktreePath, force, confirmed, deleteBranch, probe }, callback) => {
     if (!worktreePath) return callback({ success: false, error: "worktreePath required" });
     if (isSensitivePath(worktreePath)) return callback({ success: false, error: "Access denied" });
     try {
       const busy = terminalsInWorktree(worktreePath, listSessionRoots());
+      // Probe answers "what would removal take with it" — nothing is touched.
+      if (probe) {
+        const branch = typeof deleteBranch === "string" && !deleteBranch.startsWith("-") && !/\s/.test(deleteBranch) ? deleteBranch : null;
+        let branchMerged = null;
+        if (branch) {
+          const m = await runGit(["branch", "--merged"], repoPath);
+          if (m.code === 0) branchMerged = m.stdout.split("\n").map((l) => l.replace(/^\*?\s+/, "").trim()).includes(branch);
+        }
+        return callback({
+          success: true,
+          probe: true,
+          branchMerged,
+          sessions: busy.map((s) => ({ id: s.id, name: s.name, chat: (getSessionAgent(s.id) || "").endsWith("-ui") }))
+        });
+      }
       if (busy.length && !confirmed) {
         return callback({ success: false, busy: busy.map((s) => ({ id: s.id, name: s.name })) });
       }
+      // Close the rooted sessions first — on Windows a live cwd inside blocks the
+      // removal, and the standard destroy path also tears down a chat CLI if any.
+      for (const s of busy) await destroySessionById(s.id);
       const args = ["worktree", "remove", worktreePath];
       if (force) args.splice(2, 0, "--force");
       const r = await runGit(args, repoPath);

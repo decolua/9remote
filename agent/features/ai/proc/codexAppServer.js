@@ -1,17 +1,3 @@
-// One codex chat, over the app-server instead of `exec --json`.
-//
-// WHY this exists at all — the two transports are not interchangeable:
-//
-//   exec --json   one process PER TURN, stdout only. Thinking arrives as a single
-//                 `item.completed reasoning` AFTER the answer, and a CommandExecution
-//                 carries no `parsed_cmd`, so a live read/search row could only be named
-//                 by reading the rollout file back off disk.
-//   app-server    one process for the whole chat, JSON-RPC both ways. Thinking streams
-//                 (`item/reasoning/summaryTextDelta`), and every command arrives with
-//                 `commandActions` — the CLI's own read of what the command did.
-//
-// Shapes here are read off the server's own generated bindings (`codex app-server
-// generate-ts`), not guessed.
 import { JsonRpcClient } from "./jsonRpcClient.js";
 import { sandboxPolicyFor, approvalPolicyFor, collaborationModeFor, turnSettingsFor, BLOCKED_TEXT_RE, MODE_LABELS, nextModeUp } from "../codexSettings.js";
 import { elicitationQuestions } from "../elicitation.js";
@@ -19,29 +5,10 @@ import { createLogger } from "../../../lib/logger.js";
 
 const logger = createLogger("codex-app-server");
 
-// `commandActions` type → the name the cards know. Same vocabulary as the rollout
-// reader's `parsed_cmd` map, because it is the same information from the same CLI.
 const ACTION_NAMES = { read: "read", listFiles: "list_files", search: "search" };
 
-// How long a request that OUGHT to answer quickly may take before it is a dead server.
-//
-// Measured against the real app-server: initialize 25-56ms, thread/start 73-108ms,
-// settings/update ~29ms, experimentalFeature/list ~30ms. This window is ~150x the
-// slowest of those — room for a loaded machine, and still fast enough that a chat with
-// no server does not sit there looking alive.
-//
-// Only the requests that OPEN or CHANGE something carry it. `turn/start` does NOT, and
-// that is the point of the split: its answer is an ack ("received"), not "finished", so
-// a slow ack is normal. Timing one out would flip `isTurnRunning` to false while codex
-// kept running the turn, and the next prompt would be refused — a state that diverges
-// silently, which is worse than a call that visibly waits.
 const REQUEST_TIMEOUT_MS = 15000;
 
-// Notifications the passthrough must NOT carry, because something already did: the ones
-// wired above (`item/agentMessage/delta`, the reasoning deltas, token usage) would be
-// drawn twice, and the rest are per-CHUNK streams — an output delta arrives once per
-// write, so carrying them buries the conversation in the replay window the way Claude's
-// telemetry did (807% of one window, measured).
 const ALREADY_ROUTED_OR_STREAMING = new Set([
   "item/agentMessage/delta",
   "item/plan/delta",
@@ -57,11 +24,6 @@ const ALREADY_ROUTED_OR_STREAMING = new Set([
   "process/outputDelta",
   "fs/changed",
   "thread/tokenUsage/updated",
-  // The turn's AGGREGATE diff — one string spanning every file the turn touched. The pane
-  // keys a diff card by FILE (appendDiff replaces the entry with the same `file`), and the
-  // per-file cards are already produced by each fileChange item, so carrying this one
-  // through would overwrite them with a single unnamed blob. Routed and dropped, like the
-  // other records something else already drew.
   "turn/diff/updated"
 ]);
 
@@ -69,80 +31,37 @@ export class CodexAppServer {
   constructor({ proc, cwd, onEvent, onInterruptSettled = null, threadId = null, model = "", mode = null, sandbox = null, approvalPolicy = null, effort = null, personality = null, settings = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
-    // Fired when OUR interrupt settles (the echo landed, or the request was refused) —
-    // the adapter's internal release, deliberately not an event the pane would draw.
     this.onInterruptSettled = onInterruptSettled;
     this.threadId = threadId || null;
-    // The turn currently open on this thread, which `turn/interrupt` REQUIRES beside the
-    // thread id (`TurnInterruptParams = { threadId, turnId }`, read off the server's own
-    // generated bindings). Without it the server refuses the call, and an interrupt that
-    // is refused while looking like it was sent is how Stop appeared to do nothing at all.
     this.turnId = null;
-    // Set when OUR turn/interrupt went out, so the server's own `turn/completed` echo of
-    // that stop can be told from a real ending. The session already emitted `stopped`
-    // when the request was written; the echo that follows would end the turn a second
-    // time — and if a queued prompt has started meanwhile, from the NEW turn's start
-    // mark ("Worked for 0s"). Consumed by the echo itself; a new turn/start must NOT
-    // clear it, because the server completes the interrupted turn before it reads the
-    // next one. Cleared on refusal too — no echo is coming then.
     this._interrupted = false;
-    // The thread's own name, as the server states it. Read back on start (a resumed
-    // thread already has one) and kept current by `thread/name/updated`.
     this.threadName = "";
     this.model = model || "";
     this.effort = effort || "";
     this.personality = personality || "";
     this.planMode = false;
     this.planEffort = "";
-    // Which preset this chat runs under, so `applyOptions` can re-derive the policy when
-    // only part of it changes. Kept as GIVEN, not defaulted here: a caller that named a
-    // raw sandbox and no mode must get that sandbox, and defaulting the mode first would
-    // shadow it (a chat asking for full access ran as workspace-write until this was
-    // found). `sandbox` is the exec transport's spelling of the same three presets.
     this.permissionMode = mode || null;
     this.sandboxName = sandbox || null;
     this.networkAccess = false;
     this.addDirs = [];
-    // The options the app set, in the server's vocabulary (see codexSettings.js). Held
-    // until the handshake finishes, then sent — a mode picked while the connection is
-    // still opening must not be lost, or the turn runs at the old policy.
     this.settings = settings || {
       sandboxPolicy: sandboxPolicyFor({ mode: this.permissionMode, sandbox: this.sandboxName }),
       approvalPolicy: approvalPolicy || approvalPolicyFor({ mode: this.permissionMode })
     };
     this.pendingSettings = {};
 
-    // The unregistered half of the protocol comes here instead of nowhere: the server
-    // declares 83 notifications and this class wires 7, so a record nobody routed used to
-    // disappear without a log or an error. The pane re-renders the CLI's own TUI, so it
-    // still has to REACH it, whole and under the server's own name — see the fallthrough
-    // in _wire's caller. `_itemEvents` covers the item vocabulary the same way.
     this.rpc = new JsonRpcClient(proc, {
       onMessage: (msg) => {
         if (ALREADY_ROUTED_OR_STREAMING.has(msg.method)) return;
-        // Same rule the wired handlers follow: a notification for another chat is not
-        // this one's. Most carry `threadId`; the ones that do not (`skills/changed`,
-        // `account/updated`) are process-wide and belong to every chat equally.
         if (!this._mine(msg.params)) return;
-        // Under the server's own name, whole. The client's notice reader matches on that
-        // name directly (see harnessTasks.noticeFrom — it has a codex branch for
-        // `warning`, `error`, `model/rerouted` and the rest), so wrapping one in a
-        // `system` envelope would not read as "more routable", it would stop reading.
         this.onEvent?.("cli_event", { type: msg.method || "", subtype: "", record: msg.params || {} });
       }
     });
     this.isTurnRunning = false;
     this.closed = false;
-    // The open gates, keyed by the id an answer must carry — the STRING form, because
-    // that is what the client's card is keyed by and what it sends back. The raw value
-    // travels inside the entry: the server's `RequestId` is `string | number`, it numbers
-    // its own requests, and an answer has to go back as the TYPE it arrived. Measured
-    // against the real server: answering a numeric id as `"0"` leaves the turn hung
-    // forever — no further records, no `turn/completed`, and the pane spins on a gate it
-    // already answered. String ids (the ones WE mint for a refusal) are unaffected.
+    // Answers must preserve raw RequestId type (string | number) on the wire.
     this.gates = new Map();
-    // Plan text as it streams, per item, so a delta can restate the whole plan so far —
-    // the card renders `input.plan`, and a fragment of it is not a plan.
     this.planText = new Map();
     this._wire();
   }
@@ -155,8 +74,6 @@ export class CodexAppServer {
       this.isTurnRunning = true;
       this.onEvent?.("thinking", { text: p.delta || "" });
     });
-    // The same thought in its other spelling: a model that reports raw reasoning rather
-    // than a summary. Both reach the pane the same way.
     rpc.on("item/reasoning/textDelta", (p) => {
       if (!this._mine(p)) return;
       this.isTurnRunning = true;
@@ -169,10 +86,6 @@ export class CodexAppServer {
       this.onEvent?.("delta", { text: p.delta || "" });
     });
 
-    // A plan being WRITTEN, one piece at a time. The server's own note says to treat these
-    // as a preview — the completed item is the authority — which is exactly how the card
-    // uses them: the text grows here and is replaced by the whole thing when the item
-    // completes. Without this a plan appeared only once it was already finished.
     rpc.on("item/plan/delta", (p) => {
       if (!this._mine(p)) return;
       this.isTurnRunning = true;
@@ -186,7 +99,6 @@ export class CodexAppServer {
     rpc.on("item/started", (p) => {
       if (!this._mine(p)) return;
       const item = p.item || {};
-      // The completed record restates the whole summary; it was already streamed.
       if (item.type === "reasoning") return;
       this.isTurnRunning = true;
       for (const ev of this._itemEvents(item, "inProgress")) this._emit(ev);
@@ -196,10 +108,6 @@ export class CodexAppServer {
       if (!this._mine(p)) return;
       const item = p.item || {};
       if (item.type === "reasoning") return;
-      // A refusal under a narrow sandbox arrives as PROSE — codex has no structured
-      // refusal event on either transport. Surface it as the card that offers the mode
-      // which would allow the action, the same one the exec transport draws. Without
-      // this the default transport showed the sentence and no way out of it.
       if (item.type === "agentMessage" && item.text && BLOCKED_TEXT_RE.test(item.text)) {
         const next = nextModeUp(this.permissionMode);
         if (next) {
@@ -210,11 +118,6 @@ export class CodexAppServer {
           });
         }
       }
-      // The ENVELOPE is the status for every item that has none of its own: the server
-      // declares items without a `status` field (`webSearch`, `plan`, `imageView`,
-      // `contextCompaction`), and reading only the item left each of them announced and
-      // never completed — a row that spun forever, and for the passthrough no record at
-      // all. `item.status` still wins where the item states one (`failed`, `declined`).
       for (const ev of this._itemEvents(item, item.status || "completed")) this._emit(ev);
     });
 
@@ -236,20 +139,8 @@ export class CodexAppServer {
     rpc.on("turn/completed", (p) => {
       if (!this._mine(p)) return;
       this.isTurnRunning = false;
-      // The turn is over, so the id that names it stops meaning anything: kept, the next
-      // Stop would interrupt a turn the server has already finished and be refused.
       this.turnId = null;
-      // Gates belong to the turn that asked them, and this one is over. A request left
-      // here was abandoned — an interrupt, or the turn failing around it — and it comes
-      // back from a replay as a question card whose answer reaches no server handler.
       this.gates.clear();
-      // The server echoing the turn WE stopped — the pane already drew `stopped` when
-      // turn/interrupt went out, so this completion carries no news, only a second
-      // ending (over a newer turn's start mark, when a queued prompt has since started).
-      // State above is still consumed; only the duplicate announcement is dropped.
-      // `onInterruptSettled` is the internal half the pane never sees: the adapter's own
-      // running flag only ever cleared on `turn_complete`/`error`, and swallowing those
-      // here left it stuck true — every prompt after an Esc was refused forever.
       if (this._interrupted) {
         this._interrupted = false;
         this.onInterruptSettled?.();
@@ -262,11 +153,6 @@ export class CodexAppServer {
       this.onEvent?.("turn_complete", { stats: {} });
     });
 
-    // The turn's plan, restated whole every time it moves — which is exactly the task
-    // list the pane's strip renders, in the CLI's own vocabulary (`pending` /
-    // `inProgress` / `completed`, `step`). This transport had NO todo item at all: the
-    // exec stream's `todo_list` does not exist here, and `turn/plan/updated` was reaching
-    // the pane as a raw record nothing drew. So the strip stayed empty for a whole plan.
     rpc.on("turn/plan/updated", (p) => {
       if (!this._mine(p)) return;
       const todos = (p.plan || []).map((s) => ({ content: s.step || "", status: s.status || "pending" }));
@@ -279,67 +165,25 @@ export class CodexAppServer {
       });
     });
 
-    // The gates. Registered so the client routes them here rather than refusing them —
-    // but the handler answers NOTHING: the CLI stays blocked until the user decides, and
-    // an auto-answer would be the app approving on their behalf. The id is the JSON-RPC
-    // one, which is what the answer has to go back on; `callId` is codex's own handle for
-    // the call and means nothing on the wire.
     rpc.on("execCommandApproval", (p, id) => this._askPermission(p, id, "exec"));
     rpc.on("applyPatchApproval", (p, id) => this._askPermission(p, id, "patch"));
     rpc.on("item/commandExecution/requestApproval", (p, id) => this._askPermission(p, id, "exec"));
     rpc.on("item/fileChange/requestApproval", (p, id) => this._askPermission(p, id, "patch"));
     rpc.on("item/tool/requestUserInput", (p, id) => this._askQuestion(p, id));
-    // Asking for MORE than the thread was opened with — network, or a path outside the
-    // sandbox. Unregistered, this one was auto-refused by the client's own refusal path
-    // with nobody told: the CLI asked, the app said no on the user's behalf, and the turn
-    // carried on without the access it needed. It is a gate like any other, so it gets a
-    // card and waits.
     rpc.on("item/permissions/requestApproval", (p, id) => this._askPermissionGrant(p, id));
-    // An MCP server asking the user something (`elicitation/create` in the MCP spec). It is
-    // a question like any other — the schema's properties ARE the questions — and it goes
-    // through the same card. Unregistered, the client refused it on the user's behalf, so
-    // an MCP tool that needed an answer got a denial nobody asked for.
     rpc.on("mcpServer/elicitation/request", (p, id) => this._askElicitation(p, id));
 
-    // ── what the thread says about ITSELF ──
-    //
-    // Three records the server raises about the conversation rather than about a turn. Each
-    // one was reaching the pane as a passthrough record and being dropped, because the
-    // pane only draws the names it knows.
-
-    // The thread was renamed — by the TUI's `/rename`, by another client, or by the CLI
-    // itself. `conversationTitle` (agent/features/terminal/agentHistory.js) can only ever
-    // read the ROLLOUT file, which holds the first prompt and nothing else, so a rename
-    // never reached the chat's name or the terminal tab's.
     rpc.on("thread/name/updated", (p) => {
       if (!this._mine(p)) return;
-      // A record with no name states nothing — the server sends one to say "unchanged".
       const name = String(p.threadName || "").trim();
       if (!name) return;
       this.threadName = name;
-      // NOT `...this.metadata`: this class holds none (the ADAPTER does), so spreading it
-      // published `{threadId, threadName}` and nothing else. A partial init is what the
-      // pane merges over what it has, so the loss was invisible — and every other field
-      // the adapter states is still on the wire from its own init.
       this.onEvent?.("init", { threadId: this.threadId, threadName: name });
     });
 
-    // A request the server was holding is no longer pending. The card keyed by that id has
-    // to go, and this is the only record that says so: unread, the pane sat on an
-    // Allow/Deny card for a CLI that had already moved on, and nothing but an F5 cleared
-    // it. Measured: the server sends it for EVERY gate, its own answer included.
-    //
-    // It does NOT clear the gate map — the answer path owns that. Doing it here too broke
-    // the ordinary case: answering a gate emits this record BEFORE the write is even
-    // flushed, so the entry was gone by the time the retry check looked for it, and a
-    // perfectly good answer was reported as "no longer waiting".
     rpc.on("serverRequest/resolved", (p) => {
       if (!this._mine(p)) return;
       const requestId = String(p.requestId);
-      // Only one WE are still holding. This chat's own answer already cleared its entry
-      // and announced the resolution; a second event for it would be a duplicate, and one
-      // for a request this chat never saw (another thread's, or before this process) is
-      // not news at all.
       if (!this.gates.has(requestId)) return;
       this.onEvent?.("permission_resolved", { requestId, behavior: "dismissed" });
     });
@@ -347,7 +191,6 @@ export class CodexAppServer {
     rpc.onExit((info) => this._handleExit(info));
   }
 
-  /** Notifications for another chat must not leak into this one. */
   _mine(params) {
     return !this.threadId || !params?.threadId || params.threadId === this.threadId;
   }
@@ -367,26 +210,11 @@ export class CodexAppServer {
     this.isTurnRunning = true;
     const questions = params.questions || [];
     this.gates.set(String(rpcId), { requestId: String(rpcId), rawId: rpcId, toolName: "request_user_input", input: { questions } });
-    // The pane's question card is reached through `permission_request`, the same door every
-    // other gate takes — emitted as its own event name it reached no listener at all, so a
-    // question the CLI was blocking on never appeared. `AskUserQuestion` is the tool name
-    // that door switches on (see AiPaneView), and the questions ride in `input` where the
-    // card reads them; this CLI's fields are the ones that card already wants
-    // (`question`, `options[].label`).
     this.onEvent?.("permission_request", {
       requestId: String(rpcId), tool: "AskUserQuestion", input: { questions }, type: "question"
     });
   }
 
-  /**
-   * Answer a `request_user_input` gate.
-   *
-   * The reply is the server's own `ToolRequestUserInputResponse`: `{answers: {<question
-   * id>: {answers: [<text>]}}}` — keyed by the question's ID, each answer a LIST. The card
-   * hands back the labels keyed by the question's TEXT (that is what every engine's card
-   * does), so the ids are looked up here. An answer for a question nobody asked is
-   * dropped rather than sent: the server validates the keys and refuses the whole reply.
-   */
   resolveQuestion(requestId, answers = {}) {
     if (!requestId) return false;
     const gate = this.gates.get(String(requestId));
@@ -397,9 +225,6 @@ export class CodexAppServer {
       const id = byText.get(key) || key;
       if (!byText.size || [...byText.values()].includes(id)) out[id] = { answers: [String(value)] };
     }
-    // An elicitation is ALSO a question, but its reply is the MCP one: a decision word and
-    // a `content` object keyed by the schema's property names. Same card, different answer.
-    // Same rule as resolvePermission: the type the request arrived with.
     const rawId = gate?.rawId ?? requestId;
     if (gate?.input?.kind === "elicitation") this.rpc.respond(rawId, {
       action: "accept",
@@ -410,11 +235,6 @@ export class CodexAppServer {
     return true;
   }
 
-  /**
-   * An MCP server's `elicitation/create`: it states its ask as a JSON Schema, which
-   * `elicitationQuestions` turns into the question shape the card renders. The reply is
-   * MCP's own (`{action, content}`), not this server's — see `resolveQuestion`.
-   */
   _askElicitation(params, rpcId) {
     this.isTurnRunning = true;
     const questions = elicitationQuestions(params);
@@ -430,13 +250,6 @@ export class CodexAppServer {
     });
   }
 
-  /**
-   * More access than the thread opened with: `permissions` is the profile being asked for
-   * (`network`, `fileSystem`), and `reason` is the CLI's own sentence about why. It is a
-   * permission gate — the same card, the same Allow/Deny — so it lands in the same map and
-   * answers through `resolvePermission`. The difference is only the REPLY's shape: this one
-   * states what was granted, not a bare decision (see `resolvePermission`).
-   */
   _askPermissionGrant(params, rpcId) {
     this.isTurnRunning = true;
     const input = {
@@ -449,19 +262,8 @@ export class CodexAppServer {
     this.onEvent?.("permission_request", { requestId: String(rpcId), tool: "request_permissions", input, type: "permission" });
   }
 
-  /**
-   * A turn item → the wire events it stands for.
-   *
-   * A command is named from the CLI's own `commandActions` — the parse it already did —
-   * so the row says "read … a.txt" without a rollout read. `commandActions[].command` is
-   * also the command WITHOUT its login-shell wrapper (`/bin/bash -lc`, `powershell
-   * -Command`, `cmd /d /s /c`), which is the same line the replay door shows.
-   */
   _itemEvents(item, status) {
     const id = item.id;
-    // `interrupted` belongs here and is a status of its own in the server's bindings
-    // (`CollabAgentToolCallStatus` is the one that has it). Left out, an agent the user
-    // interrupted stayed announced and never completed — a row that spun forever.
     const done = status === "completed" || status === "failed" || status === "declined" || status === "interrupted";
     const out = [];
 
@@ -512,8 +314,6 @@ export class CodexAppServer {
     }
 
     if (item.type === "plan") {
-      // The item is the authority on the text, so a streamed preview is replaced by it
-      // rather than appended to (the server says the two need not even match).
       const text = item.text || this.planText.get(id) || "";
       if (done) this.planText.delete(id);
       out.push({ event: "tool_start", data: { id, name: "update_plan", status: done ? "done" : "running", input: { plan: text } } });
@@ -521,9 +321,6 @@ export class CodexAppServer {
       return out;
     }
 
-    // An image the agent looked at — a screenshot it took, or a file it read. It is a
-    // READ, so it draws as the file card with the path, which is what the TUI shows.
-    // Measured in the rollouts on this machine: 3 of these, drawn by nothing before.
     if (item.type === "imageView") {
       out.push({
         event: "tool_start",
@@ -533,10 +330,6 @@ export class CodexAppServer {
       return out;
     }
 
-    // Entering and leaving code review are two items the CLI declares, and the pair is one
-    // happening: a review with the text it was asked to perform. Named as the review's own
-    // tool, so it draws the review's own card — mapping these onto Claude's plan-mode pair
-    // made the pane say "Plan Mode Activated", about the wrong engine, for a review.
     if (item.type === "enteredReviewMode" || item.type === "exitedReviewMode") {
       out.push({
         event: "tool_start",
@@ -550,11 +343,6 @@ export class CodexAppServer {
     }
 
     if (item.type === "collabAgentToolCall") {
-      // The sub-agent, as the item the CLI declares: `prompt` is the brief and
-      // `agentsStates` its own read on how it went — an errored one carries `message`
-      // while a healthy one is a bare status. Names come out in the snake_case the
-      // engine registry maps (`spawnAgent` → `spawn_agent`), which is also how the exec
-      // transport spells the same call, so both doors draw one card.
       const name = item.tool ? item.tool.replace(/[A-Z]/g, (c) => `_${c.toLowerCase()}`) : "agent";
       out.push({
         event: "tool_start",
@@ -562,9 +350,6 @@ export class CodexAppServer {
       });
       if (!done) return out;
       const errored = Object.values(item.agentsStates || {}).find((s) => (s?.status || s) === "errored");
-      // `agentsStates` is the CLI's own read on the agent, and it is the more specific
-      // answer when the two disagree: recorded on a real run, an agent with no credentials
-      // reads `completed` on the item while its state says `errored`.
       const failed = status === "failed" || status === "interrupted" || Boolean(errored);
       out.push({
         event: "tool_result",
@@ -576,9 +361,6 @@ export class CodexAppServer {
       return out;
     }
 
-    // An image the model GENERATED — distinct from `imageView`, which is one it looked at.
-    // It is a tool call that produced a file, so it draws as the tool row with the path it
-    // saved to, and a failed one says why instead of looking like it worked.
     if (item.type === "imageGeneration") {
       const saved = item.savedPath || "";
       out.push({
@@ -594,8 +376,6 @@ export class CodexAppServer {
       return out;
     }
 
-    // The interruptible `clock.sleep` tool. A wait with a stated length is a step the turn
-    // took, and the row says how long — dropped, the pause it explains looked like a stall.
     if (item.type === "sleep") {
       out.push({
         event: "tool_start",
@@ -605,27 +385,12 @@ export class CodexAppServer {
       return out;
     }
 
-    // A context compaction. The record carries nothing but its own id, and the pane already
-    // has the line for it — `thread/compacted` (see the notification passthrough). Emitted
-    // under that same name and subtype so one compaction is one row, whichever door it
-    // arrived through; as a passthrough it had NO subtype, and the client's notice reader
-    // answers null for that, so a compaction the TUI prints as "Compacted" showed as
-    // nothing at all.
     if (item.type === "contextCompaction") {
       if (!done) return out;
       out.push({ event: "cli_event", data: { type: "thread/compacted", subtype: "compacted", record: { id } } });
       return out;
     }
 
-    // An item THIS class does not know yet — the server declares 19 (`ThreadItem` in its
-    // own generated bindings) and the branches above draw 12 of them. The pane is a
-    // re-render of the CLI's TUI, so the item still reaches
-    // it, whole and under the server's own name; the `done` guard is the same one the
-    // exec transport applies, so an item announced and completed is one record, not two.
-    //
-    // Two items are excluded because something else already drew them: `agentMessage`
-    // streams as `item/agentMessage/delta`, and `userMessage` is the prompt the pane
-    // prints when it is sent — carrying either again would show it twice.
     if (item.type === "agentMessage" || item.type === "userMessage") return out;
     if (done) out.push({ event: "cli_event", data: { type: item.type || "", subtype: status || "", record: item } });
     return out;
@@ -634,16 +399,13 @@ export class CodexAppServer {
   _handleExit(info) {
     if (this.closed) return;
     this.isTurnRunning = false;
-    // Nothing is left to answer a gate on a server that is gone.
     this.gates.clear();
     this.onEvent?.("error", { message: `Codex app-server exited (code ${info?.code ?? "?"})` });
     this.onEvent?.("turn_complete", { stats: {} });
   }
 
-  /** Handshake: negotiate, then open or rejoin a thread. */
   async start() {
-    // `experimentalApi` is required or `thread/settings/update` and
-    // `collaborationMode/list` answer -32600 — every mid-chat option would be refused.
+    // experimentalApi is required for thread/settings/update and collaborationMode/list.
     await this.rpc.request("initialize", {
       clientInfo: { name: "9remote", title: "9Remote", version: "1.0.0" },
       capabilities: { experimentalApi: true, requestAttestation: false }
@@ -658,20 +420,14 @@ export class CodexAppServer {
       ...(this.personality ? { personality: this.personality } : {})
     };
 
-    // A resumed thread is rejoined, never re-created: `thread/start` on an existing id
-    // would open a second thread and orphan the conversation the user came back to.
     const res = this.threadId
       ? await this.rpc.request("thread/resume", { ...params, threadId: this.threadId }, { timeoutMs: REQUEST_TIMEOUT_MS })
       : await this.rpc.request("thread/start", params, { timeoutMs: REQUEST_TIMEOUT_MS });
 
     this.threadId = res?.thread?.id || this.threadId;
-    // A RESUMED thread carries the name it was given — by `/rename`, or by an earlier
-    // chat. `conversationTitle` can only read the rollout FILE, which holds the first
-    // prompt and nothing else, so a rename never reached the pane or the terminal's tab.
     const name = String(res?.thread?.name || "").trim();
     if (name) this.threadName = name;
 
-    // Whatever was picked while the handshake was in flight goes now, in one call.
     const held = this.pendingSettings;
     this.pendingSettings = {};
     if (Object.keys(held).length) await this.updateSettings(held);
@@ -679,18 +435,8 @@ export class CodexAppServer {
     return this.threadId;
   }
 
-  /**
-   * Change the live thread's options. `thread/start` cannot: it is past, and the server
-   * is still running with what it opened with.
-   *
-   * Probed on the real server — sandbox, approval, effort, personality, model and
-   * collaborationMode all take effect here immediately. That is what keeps changing the
-   * mode mid-chat working the way it did when every turn was its own process.
-   */
   async updateSettings(patch = {}) {
     if (!this.threadId) {
-      // No thread yet. Held, not dropped: the handshake is a second away and losing the
-      // setting would run the turn at the policy the user already changed.
       Object.assign(this.pendingSettings, patch);
       return false;
     }
@@ -698,16 +444,11 @@ export class CodexAppServer {
     return true;
   }
 
-  /** The options this chat runs with, in one place, for both the thread and each turn. */
   applyOptions(opts = {}) {
-    // Remembered, not just applied: a later call that changes only the mode would
-    // otherwise rebuild the policy with the defaults and silently drop the roots.
     if (opts.networkAccess !== undefined) this.networkAccess = Boolean(opts.networkAccess);
     if (opts.addDirs !== undefined) this.addDirs = (opts.addDirs || []).filter((d) => typeof d === "string" && d);
 
     if (opts.mode !== undefined || opts.networkAccess !== undefined || opts.addDirs !== undefined) {
-      // A mode wins over the raw sandbox name when both are held — a mode is the user's
-      // own choice, the sandbox name is only how the exec transport spells one.
       if (opts.mode !== undefined) this.permissionMode = opts.mode;
       this.settings.sandboxPolicy = sandboxPolicyFor({
         mode: this.permissionMode,
@@ -734,11 +475,6 @@ export class CodexAppServer {
     return changed;
   }
 
-  /**
-   * A prompt as the turn's input. An image is its own `localImage` entry (the exec path
-   * spelled it `--image=<path>`); the server takes no file input at all, so anything
-   * else is named in the text for the agent to read itself.
-   */
   _turnInput(prompt, attachments = []) {
     const text = String(prompt ?? "");
     const input = [];
@@ -748,8 +484,6 @@ export class CodexAppServer {
       if (a.kind === "image") input.push({ type: "localImage", path: a.path });
       else others.push(a.path);
     }
-    // An empty text entry is not a message: an image-only turn (the exec path accepted
-    // one too) would otherwise carry a blank line the model has to read past.
     const body = [text, ...others.map((p) => `@${p}`)].filter(Boolean).join("\n");
     if (body || !input.length) input.unshift({ type: "text", text: body, text_elements: [] });
     return input;
@@ -759,11 +493,6 @@ export class CodexAppServer {
     if (this.closed) return Promise.reject(new Error("Codex app-server has been closed"));
     if (this.isTurnRunning) return Promise.reject(new Error("Codex turn is already running."));
     this.isTurnRunning = true;
-    // `/review` is a COMMAND of this server, not prose: `review/start` runs the review
-    // (measured — it emits the enteredReviewMode -> command -> exitedReviewMode trio),
-    // while the same text sent as a prompt just asks the model to review something and
-    // gets an apology when the tree is clean. `target` is the server's union; uncommitted
-    // changes are what the TUI's own /review looks at.
     if (String(prompt).trim() === "/review") {
       return this.rpc.request("review/start", {
         threadId: this.threadId,
@@ -773,19 +502,13 @@ export class CodexAppServer {
     return this.rpc.request("turn/start", {
       threadId: this.threadId,
       input: this._turnInput(prompt, attachments),
-      // Repeated on the turn so a mode change lands even if the settings call was
-      // refused: an option the user picked must not wait for the next chat.
       ...this._turnOverrides()
     }).then((res) => {
-      // The turn's own id, which is what `turn/interrupt` needs. Taken from the ACK, not
-      // from the `turn/started` notification: the ack is what this call owns, so there is
-      // no window where a turn is running and this object does not know its id.
       if (res?.turn?.id) this.turnId = res.turn.id;
       return res;
     });
   }
 
-  /** The turn-level echo of the live settings — sandbox/approval/effort/personality/model. */
   _turnOverrides() {
     const out = {};
     if (this.settings.sandboxPolicy) out.sandboxPolicy = this.settings.sandboxPolicy;
@@ -796,56 +519,32 @@ export class CodexAppServer {
     return out;
   }
 
-  /** True while OUR interrupt is out and its echo has not landed — the stop window. */
   get interrupting() {
     return Boolean(this._interrupted);
   }
 
   interrupt() {
-    // Both ids are required by the server, and both are checked here rather than sent
-    // hopefully: a request the server refuses is indistinguishable from one that worked
-    // once it is behind a `.catch`, which is exactly how Stop looked like a no-op.
     if (!this.threadId || !this.turnId || this.closed) return false;
     this._interrupted = true;
     this.rpc
       .request("turn/interrupt", { threadId: this.threadId, turnId: this.turnId }, { timeoutMs: REQUEST_TIMEOUT_MS })
-      // Logged, not swallowed: without this line a refused interrupt leaves the turn
-      // running and the only evidence is a pane that keeps answering after Stop. The
-      // flag goes with it — a refused request has no echo to consume it, and left set
-      // it would eat the NEXT turn's real completion.
       .catch((e) => {
         this._interrupted = false;
-        // Settled here too: no echo is coming, and the adapter's stuck flag would refuse
-        // every prompt after this one.
         this.onInterruptSettled?.();
         logger.warn(`[codex] turn/interrupt refused: ${e.message} (thread=${this.threadId} turn=${this.turnId})`);
       });
     return true;
   }
 
-  /**
-   * Answer a gate the server is holding on, by the id the request carried.
-   *
-   * The decision vocabulary is the server's own: `accept` / `acceptForSession` / `decline`
-   * / `cancel` (checked against its generated bindings). It is NOT approve/deny, and the
-   * CLI rejects a value it does not know — which would leave the turn blocked while the
-   * app believed it had answered.
-   */
   resolvePermission(requestId, behavior, message = "") {
     if (!requestId) return false;
     const gate = this.gates.get(String(requestId));
     if (!this.gates.delete(String(requestId))) return false;
-    // A permission GRANT answers with what it granted, not with a decision — the two
-    // response shapes are the server's, and sending a `decision` to this one is a refusal
-    // it cannot read. Allow echoes back the profile that was asked for, for this turn
-    // only: a wider scope would quietly outlive the thing that needed it.
     const answer = gate?.input?.kind === "permission_grant"
       ? (behavior === "allow"
         ? { permissions: gate.input.permissions || {}, scope: "turn" }
         : { permissions: {}, scope: "turn" })
       : (behavior === "allow" ? { decision: "accept" } : { decision: "decline" });
-    // The RAW id, not the string the client sent: an answer must match the type the
-    // request arrived with, or the server never matches it up (see the gates map).
     this.rpc.respond(gate?.rawId ?? requestId, answer);
     return true;
   }
@@ -856,14 +555,6 @@ export class CodexAppServer {
     this.rpc.close();
   }
 
-  /**
-   * Let go of the process WITHOUT ending the session.
-   *
-   * A restart replaces the server under a chat that is staying; the old one's exit is
-   * the restart itself, not the chat dying. Without this the adapter would report an
-   * error and end a turn nobody ended — and the replacement's process had not started
-   * yet, so there would be nothing to carry on with.
-   */
   detach() {
     this.closed = true;
     this.isTurnRunning = false;

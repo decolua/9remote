@@ -24,7 +24,7 @@ export async function GET(request) {
     const newSec = Math.floor(SESSION_NEW_THRESHOLD_MS / 1000);
     const mauSec = Math.floor(SESSION_MAU_THRESHOLD_MS / 1000);
 
-    // R3/R7 chỉ tính session có quay lại (lastAccessAt - createdAt > returnSec)
+    // R3/R7 count returning sessions only (lastAccessAt - createdAt > returnSec)
     const row = await env.DB.prepare(`
       WITH s AS (
         SELECT

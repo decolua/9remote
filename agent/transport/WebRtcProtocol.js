@@ -9,8 +9,7 @@ import { getHostPublicKeyB64, getHostX25519PublicKeyB64, signSdp } from "../lib/
 
 const logger = createLogger("webrtc");
 
-// Lazy load: node-datachannel's native binary may be missing if install scripts
-// were blocked (e.g. Garner/npm fork). loadNative self-heals via prebuild-install.
+// Lazy-load node-datachannel with self-heal if install scripts were blocked.
 let _nodeDataChannel = null;
 function nodeDataChannel() {
   if (!_nodeDataChannel) _nodeDataChannel = loadNative("node-datachannel");
@@ -20,12 +19,7 @@ function nodeDataChannel() {
 // Test-only injection point — avoids loading the .node binary in unit tests.
 export const __setNodeDataChannelForTest = (m) => { _nodeDataChannel = m; };
 
-// STUN cluster — benchmarked from VN: Google ~150ms, Twilio ~144ms, Cloudflare ~813ms
-// Original cluster, restored after the trim turned out to buy nothing: libjuice
-// gathers from ONE socket (all candidates share a port), so server count does
-// not change the NAT mapping count — only gather redundancy across operators.
-// The ~2s answer latency the trim once addressed is absorbed by the client's
-// separate ICE window.
+// STUN cluster across operators for gather redundancy.
 const DEFAULT_ICE = [
   { hostname: "stun.l.google.com", port: 19302, type: "Stun" },
   { hostname: "stun1.l.google.com", port: 19302, type: "Stun" },
@@ -36,15 +30,12 @@ const DEFAULT_ICE = [
   { hostname: "stun.cloudflare.com", port: 3478, type: "Stun" }
 ];
 
-// Suppress repeated TURN fetch errors — endpoint fails non-fatally (STUN-only fallback),
-// but each new connection retried the fetch, spamming identical errors.
+// Suppress repeated TURN fetch errors on fallback to STUN-only.
 let _lastTurnError = "";
-// Module-level 23h cache across instances: all connections share the same credentials
+// 23h TURN credentials cache across instances with 3s timeout fallback to STUN.
 let _cachedTurnServers = null;
 let _cachedTurnExpiresAt = 0;
 const TURN_CACHE_TTL_MS = 23 * 60 * 60 * 1000;
-// The first peer waits on this fetch, so an unreachable endpoint must not stall
-// the connection — a 502 was observed taking ~14s. STUN-only is the fallback.
 const TURN_FETCH_TIMEOUT_MS = 3000;
 
 async function fetchTurnIceServers(turnApiUrl, apiKey) {
@@ -81,7 +72,6 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
     _cachedTurnExpiresAt = Date.now() + TURN_CACHE_TTL_MS;
     return result;
   } catch (err) {
-    // Non-fatal: STUN-only fallback. Log once per distinct error to avoid spam.
     if (_lastTurnError !== err.message) {
       _lastTurnError = err.message;
       console.warn(`[WebRtcProtocol] TURN fetch failed (${err.message}) — using STUN-only fallback. Will retry on next connection.`);
@@ -90,10 +80,7 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
   }
 }
 
-/**
- * WebRtcProtocol — server adapter. Two DCs (control/binary) created by client side;
- * server reacts via onDataChannel. Signaling routed via ProtocolManager.
- */
+// WebRtcProtocol: server adapter handling control, binary, and file DataChannels.
 export class WebRtcProtocol extends BaseProtocol {
   static id = "rtc";
   static capabilities = { control: true, binary: true, file: true, signaling: "external" };
@@ -131,20 +118,12 @@ export class WebRtcProtocol extends BaseProtocol {
     return 150;
   }
 
-  /**
-   * @param {object} ctx
-   * @param {object} ctx.auth        — { apiKey, socketId }
-   * @param {object} ctx.profile     — { rtc: { enableTurn, turnApiUrl, turnRefreshInterval, dcMaxMessageSize, answerTimeout } }
-   * @param {object} ctx.signaling   — { send(msg), on(handler), off() }
-   */
   async connect(ctx) {
     this._ctx = ctx;
     this._setState(ADAPTER_STATE.connecting);
 
     const rtcCfg = ctx.profile?.rtc || {};
-    // Handler first: the client is usually already offering by the time we get
-    // here, and an offer that finds no handler is dropped. TURN is opt-in and
-    // off by default (STUN + tunnel only), so nothing is awaited on this path.
+    // Attach signaling handler immediately so early offers are not dropped.
     this._signaling = ctx.signaling;
     this._signaling?.on?.((msg) => this._handleSignal(msg, rtcCfg));
 
@@ -166,9 +145,7 @@ export class WebRtcProtocol extends BaseProtocol {
     if (channel === CHANNELS.control) {
       if (!this._dcControl) return false;
       const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
-      // v2 binary frame once the peer announced it — buffers ride raw instead of
-      // base64 inside JSON. Legacy peers keep the text form, and with it the
-      // whole-frame limit: slicing is only readable by a peer that knows the form.
+      // Send v2 binary frames if peer supports env2, otherwise fallback to v1 text.
       if (this._peerEnv2) {
         if (!this._sendFramed(env)) return false;
         if (!this._v2Announced) {
@@ -181,18 +158,15 @@ export class WebRtcProtocol extends BaseProtocol {
         this._dcControl.sendMessage(encode(env));
         return true;
       } catch (err) {
-        // Oversize/dead-channel — the PM's carrier choice handles it, not this log.
         return false;
       }
     }
     if (channel === CHANNELS.binary) {
       if (!this._dcBinary) return false;
       try {
-        // Single pre-sized chunk (Buffer) — PM splits by dcMaxMessageSize.
         const chunk = Array.isArray(payload) ? payload[0] : payload;
-        // Backpressure — return false so PM stops and retries remaining tiles next frame
+        // Backpressure: return false so caller retries remaining tiles next frame.
         if (this._dcBinary.bufferedAmount() > REMOTE_CONFIG.webrtc.dcBufferThreshold) return false;
-        // sendMessageBinary returns false on oversize/negotiated-max violation — treat as drop
         return this._dcBinary.sendMessageBinary(chunk);
       } catch (err) {
         logger.error(`send binary failed: ${err.message}`);
@@ -203,9 +177,7 @@ export class WebRtcProtocol extends BaseProtocol {
       if (!this._dcFile) return false;
       try {
         const raw = Array.isArray(payload) ? payload[0] : payload;
-        // node-datachannel expects Buffer; encodeFileFrame yields Uint8Array.
         const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-        // Generous threshold — file transfer is throughput, not real-time.
         if (this._dcFile.bufferedAmount() > FILE_TRANSFER.dcBufferThreshold) return false;
         return this._dcFile.sendMessageBinary(chunk);
       } catch (err) {
@@ -238,9 +210,7 @@ export class WebRtcProtocol extends BaseProtocol {
   // Resolve .local mDNS hostnames to IP before adding (browser hides LAN IP)
   async _addRemoteCandidate(candidate, mid) {
     try {
-      // Empty candidate = end-of-candidates. libjuice only records it (it will
-      // not shorten failure detection), but the marker keeps the remote
-      // description honest and mirrors what the client sends us.
+      // Empty candidate marks end-of-candidates.
       if (!candidate) { this._pc?.addRemoteCandidate("", mid); return; }
       const resolved = await resolveCandidate(candidate);
       if (!resolved || !this._pc) return;
@@ -258,9 +228,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._remoteSet = false;
     this._lastMid = null;
     this.typeDetail = "dc-stun";
-    // NOTE: do NOT clear _pendingCandidates here — _processOffer flushes them
-    // after setRemoteDescription. Wiping them drops early ICE (pre-offer) silently,
-    // which stalls ICE during a network-flap storm → Answer timeout pile-up.
+    // Do not clear _pendingCandidates here; flushed after setRemoteDescription.
     if (this._iceGraceTimer) { clearTimeout(this._iceGraceTimer); this._iceGraceTimer = null; }
     if (this._answerTimer) { clearTimeout(this._answerTimer); this._answerTimer = null; }
 
@@ -279,8 +247,6 @@ export class WebRtcProtocol extends BaseProtocol {
         this._setState(ADAPTER_STATE.closed);
       } else if (state === "disconnected") {
         if (this._iceGraceTimer) return;
-        // Transient by default: a peer that comes back inside the grace window
-        // costs nothing, while tearing down on the first blip loses a live path.
         logger.debug(`peer disconnected → grace ${REMOTE_CONFIG.webrtc.iceDisconnectGraceMs}ms before closing`);
         this._iceGraceTimer = setTimeout(() => {
           this._iceGraceTimer = null;
@@ -299,8 +265,7 @@ export class WebRtcProtocol extends BaseProtocol {
         if (label === "control") { this._dcControl = dc; if (this._peerHb) this._startHeartbeat(dc); }
         else if (label === "binary") this._dcBinary = dc;
         else if (label === "file") this._dcFile = dc;
-        // Adapter is "open" once control+binary (tiles) are up; the file DC is a
-        // secondary channel that may open slightly later and is optional for state.
+        // Adapter is open once control and binary channels are established.
         if (this._dcControl && this._dcBinary) this._setState(ADAPTER_STATE.open);
       };
       dc.onOpen(() => { logger.debug(`DC[${label}] open`); setOpen(); });
@@ -313,15 +278,12 @@ export class WebRtcProtocol extends BaseProtocol {
       });
       dc.onError((err) => logger.error(`DC[${label}] error: ${err?.message || err}`));
       dc.onMessage((data) => {
-        // File DC carries raw binary frames (upload chunks from client).
         if (label === "file") {
           this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
           return;
         }
         if (label !== "control") return;
         let parsed;
-        // The DC itself tells the two wire forms apart: a string is v1 JSON, a
-        // binary message is a v2 frame. No sniffing, no ambiguity.
         try {
           let decoded;
           if (typeof data === "string") decoded = decode(data);
@@ -332,8 +294,7 @@ export class WebRtcProtocol extends BaseProtocol {
               logger.info("[env2] first v2 binary frame DECODED from client (mutual upgrade confirmed)");
             }
           }
-          // A sliced message is only whole once its last part lands; until then
-          // this yields null and the slices wait here.
+          // Reassemble fragmented control frames before dispatch.
           parsed = this._reassemble.push(decoded);
         }
         catch (err) { logger.error(`control parse: ${err.message}`); return; }
@@ -363,14 +324,11 @@ export class WebRtcProtocol extends BaseProtocol {
         if (type !== "answer" || settled) return;
         settled = true;
         clearAnswerTimer();
-        // Signed answer — lets the client verify (via the pinned host key) that
-        // the relay never swapped the peer. Legacy clients ignore the extras.
+        // Sign SDP answer with host key to allow client-side peer verification.
         this._signaling?.send?.({
           type: "answer",
           sdp: answerSdp,
           pub: getHostPublicKeyB64(),
-          // The sealing key rides along so a client pinning us here can seal its
-          // tail on the WS carrier too, without a second round trip.
           xpub: getHostX25519PublicKeyB64(),
           sig: signSdp(answerSdp)
         });
@@ -380,10 +338,7 @@ export class WebRtcProtocol extends BaseProtocol {
         this._lastMid = mid;
         if (candidate) this._signaling?.send?.({ type: "ice", candidate, mid });
       });
-      // libdatachannel never emits a null candidate, so gathering-complete is the
-      // only end-of-candidates signal available. The client needs it: its
-      // dead-path watch will not close a peer until both sides are done
-      // gathering, so without this the fast exit never arms.
+      // Signal end-of-candidates on complete gathering state change.
       this._pc.onGatheringStateChange?.((state) => {
         if (state !== "complete") return;
         this._signaling?.send?.({ type: "ice", candidate: "", mid: this._lastMid || "0" });
@@ -391,7 +346,6 @@ export class WebRtcProtocol extends BaseProtocol {
       try {
         this._pc.setRemoteDescription(sdp, "offer");
         this._remoteSet = true;
-        // Flush ICE buffered before the offer arrived (network-flap race).
         for (const { candidate, mid } of this._pendingCandidates) {
           this._addRemoteCandidate(candidate, mid);
         }
@@ -424,15 +378,11 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._dcFile = null;
     this.typeDetail = "dc-stun";
-    // Half-arrived slices belong to the peer being torn down — a fragment id of
-    // the next peer must not complete a message with this one's bytes.
+    // Reset reassembler so stale fragments do not corrupt next peer's messages.
     this._reassemble = createReassembler();
   }
 
-  /** PM forwards the peer's caps announcement. Heartbeat pings only peers that
-   *  declared caps.hb — an old web silently drops __ping, and pinging it would
-   *  tear down a healthy RTC every timeout. Caps may arrive before or after the
-   *  control DC opens, so arm from both sides. */
+  // Sets peer capabilities (heartbeat, env2, control fragmentation).
   setPeerCaps(caps) {
     this._peerHb = !!caps?.hb;
     this._peerEnv2 = !!caps?.env2;
@@ -440,25 +390,18 @@ export class WebRtcProtocol extends BaseProtocol {
     if (this._peerHb && this._dcControl && !this._hbTimer) this._startHeartbeat(this._dcControl);
   }
 
-  /** Largest control message the control DC takes — libdatachannel reports what
-   *  SCTP negotiated. Falls back to the constant when the DC cannot be asked. */
   get maxControlBytes() {
     try { return this._dcControl?.maxMessageSize() || CONTROL_RTC_MAX_BYTES; }
     catch { return CONTROL_RTC_MAX_BYTES; }
   }
 
-  /** v2 frames, sliced when the envelope is too big for one SCTP message. All or
-   *  nothing: a payload that dies mid-slice must not arrive as half a message.
-   *  A peer that cannot reassemble gets the whole frame — the DC refuses it if it
-   *  is too big, and the PM then decides which carrier carries it. */
+  // Sends control envelope, fragmenting into SCTP-sized frames if supported.
   _sendFramed(env) {
     const max = this._peerFragCtl ? this.maxControlBytes : Infinity;
     const frames = encodeFragments(env, max, ++this._fragSeq);
     if (!frames) return false;
     try {
       for (const frame of frames) {
-        // sendMessageBinary returns false on an oversize/negotiated-max violation —
-        // stopping here keeps the peer from holding a message that never completes.
         if (!this._dcControl.sendMessageBinary(frame)) return false;
       }
       return true;
@@ -468,10 +411,7 @@ export class WebRtcProtocol extends BaseProtocol {
     }
   }
 
-  /** Control-DC liveness (ttyd pattern): ping every interval, tear the peer down
-   *  after interval+grace of silence. A stalled SCTP reports "open" while
-   *  blackholing every message — this DC carries the whole terminal stream, so
-   *  the stall must convert into a close the PM can route around (→ WS). */
+  // Heartbeat pings control DC and closes stalled peer if no pong received.
   _startHeartbeat(dc) {
     this._stopHeartbeat();
     this._hbLastPong = Date.now();
@@ -495,8 +435,6 @@ export class WebRtcProtocol extends BaseProtocol {
 
   async _refreshTurn(rtcCfg) {
     const servers = await fetchTurnIceServers(rtcCfg.turnApiUrl, this._ctx.auth.apiKey);
-    // disconnect() may have run while the fetch was in flight — re-arming here
-    // would leave a dead adapter polling TURN for the life of the process.
     if (this._closed) return;
     if (servers?.length) {
       this._iceServers = servers;

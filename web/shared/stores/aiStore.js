@@ -6,15 +6,10 @@ import { updateToolTree, settleRunningTools } from "@/features/ai/lib/toolTree";
 import { applyTaskRecord, foldTaskRecords, TASK_ENDED, lastIndexOfCompacting } from "@/features/ai/lib/harnessTasks";
 import { upsertTask } from "@/features/ai/lib/taskList";
 
-// Zustand's persist writes on EVERY set, and a streamed answer sets the store once per
-// frame — so a turn spends thousands of synchronous JSON.stringify + localStorage
-// round-trips re-storing two fields (model, permissionMode) that did not change. Compare
-// the serialized payload first: what this store persists only moves when the user picks
-// a model or a mode.
+// persist writes on EVERY set and a streamed turn sets per frame — compare the payload first.
 const jsonStorage = createJSONStorage(() => window.localStorage);
 let lastWritten = null;
-// Undefined without a DOM (a server render) — persist then skips writing, as it would
-// have by default.
+// Undefined without a DOM (server render) — persist then skips writing, as by default.
 const aiStorage = jsonStorage && {
   ...jsonStorage,
   setItem: (name, raw) => {
@@ -24,56 +19,37 @@ const aiStorage = jsonStorage && {
   }
 };
 
-// Message ids are minted here, and a user prompt plus its assistant placeholder used to
-// take the same `Date.now()` — two rows, one key, which React reports as a duplicate
-// child and may then drop. A monotonic counter makes every id unique within a ms.
+// Date.now() alone collided (prompt + placeholder shared one key) — the counter keeps ids unique.
 let msgSeq = 0;
 const nextId = (prefix) => `${prefix}-${Date.now()}-${++msgSeq}`;
 
 const INITIAL_SESSION_STATE = {
   messages: [],
   isTurnRunning: false,
-  // Host clock at the moment the current turn started. Client-side only: the live line
-  // measures against this same clock, so no skew is involved.
+  // Host clock at turn start; the live line measures against the same clock, no skew.
   turnStartedAt: 0,
-  // How long the LAST turn took, measured by the host. A pane that loads after the turn
-  // ended prints its span from here — its own clock saw neither edge (see AiTurnStatus).
+  // Host-measured span of the LAST turn — a late-loading pane saw neither edge of it.
   lastTurnMs: 0,
   activePermission: null,
   // The last answer to this gate never reached the host — the card stays up and says so.
   gateError: false,
-  // A blocked action (sandbox/permission refusal) the CLI reported. Unlike
-  // activePermission this has nothing to resolve — it offers a mode escalation.
+  // A blocked action the CLI reported; nothing to resolve — it offers a mode escalation.
   activeBlocked: null,
-  // null = the host has not told us yet. The engine's own defaultMode is the fallback
-  // at render time; a hardcoded "default" here would show the wrong mode on every
-  // engine whose default is not "default" (codex, opencode).
+  // null = untold yet; a hardcoded "default" would show the wrong mode on codex/opencode.
   permissionMode: null,
   stats: { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 },
-  // `stats` is the host's session-running total; this is what it read when the current
-  // turn started. The turn's own usage is the difference between the two.
+  // stats snapshot at turn start; the turn's own usage is the difference.
   turnBaseline: { inputTokens: 0, outputTokens: 0 },
   metadata: { model: "", skills: [], mcpServers: [] },
   tasks: [], // TaskCreate/TaskUpdate checklist
-  // The harness's own task state (a background shell, a sub-agent), read straight off the
-  // CLI's records — see lib/harnessTasks.js, the only place that knows their shape.
+  // Harness task state straight off the CLI's records — lib/harnessTasks.js owns the shape.
   harnessTasks: [],
 };
 
-// Persisted slices keep prefs only, so a session restored from localStorage can be
-// missing every other field. Actions always read through the defaults.
+// Persisted slices keep prefs only — always read through the defaults.
 const sessionOf = (state, sessionId) => ({ ...INITIAL_SESSION_STATE, ...state.bySession[sessionId] });
 
-/**
- * Settle the tool rows whose task the CLI has ended.
- *
- * Read off the whole task list, not the delta: after a restart the pane hydrates with
- * tasks that ended before it existed, and their rows are still `running` in the log.
- * Idempotent — a row already settled matches nothing and the array comes back as it was.
- *
- * Only sub-agents and background shells have a task, and only claude reports one; an
- * engine with no task model leaves every row exactly as its adapter set it.
- */
+// Settle tool rows of ended tasks from the whole list — a restart hydrates rows already dead; idempotent.
 function settleTasks(tasks, messages) {
   if (!messages?.length) return null;
   const ended = tasks.filter((t) => t.toolUseId && TASK_ENDED.has(t.status));
@@ -110,22 +86,10 @@ export const useAiStore = create(
         }));
       },
 
-      // The harness's task records, folded by the one reader that knows their shape.
-      // Kept as a single action rather than four cases in the reducer's switch: the live
-      // path and the replay path must land the same list, and two copies of the rules is
-      // how they drift.
-      /**
-       * Replace the task list with what the HOST states, for a reset that rebuilt the log.
-       *
-       * Not the fold above: a reset says the conversation this pane held is gone (a /clear,
-       * a /resume, a rewind), so the tasks it was showing go with it. The host states its
-       * own set beside the log — the window cannot carry all of it, since a task announced
-       * at the top of a long turn falls outside a 32KB tail.
-       */
+      // One reader folds the harness records, so the live and replay paths land the same list.
+      // setTaskRecords REPLACES it with what the host states for a reset — the 32KB window cannot carry tasks.
       setTaskRecords: (sessionId, records) => {
-        // An EMPTY array is meaningful here — a /clear ends the conversation the tasks
-        // belonged to, and a client left holding them draws work that is over. Only an
-        // absent field (an older host) leaves the list alone.
+        // An EMPTY array is meaningful (a /clear); only an absent field (older host) is ignored.
         if (!sessionId || !Array.isArray(records)) return;
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -147,11 +111,8 @@ export const useAiStore = create(
           const curr = sessionOf(state, sessionId);
           const before = curr.harnessTasks || [];
           let next = before;
-          for (const [type, subtype, record] of records) next = applyTaskRecord(next, type, subtype, record);
-          // A task the CLI has ended settles the tool row that launched it. Without this
-          // the row spins until the host's own watchdog (120s), because a background
-          // shell's result is only the LAUNCH ack — "Command running in background with
-          // ID: …" sits in the output forever, so the card read it as running for good.
+          for (const [type, subtype, record, ageMs] of records) next = applyTaskRecord(next, type, subtype, record, ageMs);
+          // An ended task settles its row — a background shell's only result is the launch ack, or it spins forever.
           const messages = settleTasks(next, curr.messages);
           if (next === before && !messages) return state;
           return {
@@ -163,43 +124,24 @@ export const useAiStore = create(
         });
       },
 
-      /**
-       * A line the harness asked the timeline to draw (see lib/harnessTasks.noticeFrom).
-       *
-       * Appended, never merged into an assistant row: it is the CLI speaking, not the
-       * agent answering, and it has to keep its place between them. Empty text is refused
-       * here as well as at the reader — a record with nothing to show is bookkeeping, not
-       * a row the pane should carry.
-       */
+      // A harness line for the timeline, appended as its own row — the CLI speaking, not the agent answering.
       addNotice: (sessionId, notice) => {
         const content = typeof notice?.content === "string" ? notice.content.trim() : "";
         if (!sessionId) return;
-        // A settled compaction with nothing to say (it was skipped, or a re-run cleared a
-        // status nothing was running behind) still has to CLOSE the row a start opened.
-        // Refusing it on empty text left that row spinning over a compaction that was over.
-        // Every other empty notice is bookkeeping, as before.
+        // A settled compaction must still CLOSE its row even with no text; other empty notices are bookkeeping.
         if (!content && !notice?.compactSettled) return;
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          // Found by scanning back, not by reading the last row: the CLI can put another
-          // readable record between a compaction's start and its end (`api_error`, when the
-          // summarization call itself fails), and checking only the neighbour left the
-          // spinner running under the finished row.
+          // Scan back, not the last row — another record can sit between a compaction's start and end.
           const runningAt = notice?.compactSettled ? lastIndexOfCompacting(curr.messages) : -1;
-          // A settled compaction REPLACES the "Compacting…" row it ends: they are one
-          // happening, and the CLI states the start (a status) and the end (the boundary,
-          // or a failed status) as two frames. Dropping the row is the whole update when
-          // there is no error text to draw in its place.
+          // A settled compaction REPLACES the "Compacting…" row it ends.
           if (runningAt !== -1) {
             const messages = content
               ? [...curr.messages.slice(0, runningAt), { id: nextId("n"), role: "notice", subtype: notice.subtype || "", level: notice.level || "info", content }, ...curr.messages.slice(runningAt + 1)]
               : [...curr.messages.slice(0, runningAt), ...curr.messages.slice(runningAt + 1)];
             return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages } } };
           }
-          // Content was checked above, so only a settled compaction reaches here empty —
-          // and it has already done its work above or had no row to close. Returning the
-          // state unchanged is required: a bare `return` hands zustand `undefined`, which
-          // it takes as "replace the whole store with this" and wipes every session.
+          // A bare `return` hands zustand undefined, which wipes the whole store.
           if (!content) return state;
           const row = {
             id: nextId("n"),
@@ -207,19 +149,14 @@ export const useAiStore = create(
             subtype: notice.subtype || "",
             level: notice.level || "info",
             content,
-            // A row that names a FILE carries it, so the pane can open it. Only set when
-            // the reader produced one — see noticeFrom.
+            // Only set when the reader produced one — see noticeFrom.
             ...(notice.file ? { file: notice.file } : null),
-            // The compaction's own numbers, so the row prints "557k → 21k tokens" rather
-            // than only the harness's sentence — see harnessTasks.compactFrom.
+            // The compaction's own numbers ("557k → 21k tokens") — see harnessTasks.compactFrom.
             ...(notice.compact ? { compact: notice.compact } : null),
             // A compaction still running, which the boundary record later settles.
             ...(notice.compacting ? { compacting: true } : null)
           };
-          // The placeholder `addUserMessage` opened is for the answer, and the answer has
-          // not started. Dropping it is what stops the pane drawing a bare turn ahead of
-          // a line that arrived first; the next streamed token opens a fresh one.
-          // Same rule as the replay door — see reduceSessionEvents.
+          // Drop the empty placeholder the prompt opened — the answer has not started (same rule as the replay door).
           const last = curr.messages[curr.messages.length - 1];
           const messages = last && last.role === "assistant" && !last.content && !last.thinking && !(last.tools || []).length
             ? [...curr.messages.slice(0, -1), row]
@@ -276,15 +213,7 @@ export const useAiStore = create(
         });
       },
 
-      /**
-       * A prompt, echoed by the host so every surface shows the same bubble.
-       *
-       * `replay: true` means the log is being re-sent (a hydrate rebuilt it, a rewind, a
-       * /resume) and this prompt already happened. Such an event must NOT start a turn
-       * here: it would move the mark the live line counts from, and the `turn_complete`
-       * that follows it in the same batch would then measure ~0ms and overwrite the span
-       * the host had just stated — the "Worked for 0s" on a chat that ran for minutes.
-       */
+      // A replayed prompt already happened — starting a turn here would re-measure the span as ~0ms.
       addUserMessage: (sessionId, text, attachments = null, replay = false) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -308,8 +237,7 @@ export const useAiStore = create(
                   turnStartedAt: Date.now(),
                   // The turn this line will summarize has not ended yet.
                   lastTurnMs: 0,
-                  // The counter on screen is this turn's own usage, so it starts at zero
-                  // every prompt: remember where the session total stood.
+                  // The on-screen counter is this turn's usage — remember where the session total stood.
                   turnBaseline: {
                     inputTokens: curr.stats.inputTokens || 0,
                     outputTokens: curr.stats.outputTokens || 0
@@ -331,7 +259,7 @@ export const useAiStore = create(
           if (!last || last.role !== "assistant" || !last.isLive) {
             list.push({ id: nextId("msg"), role: "assistant", content: text || "", isLive: true, diffs: [], tools: [] });
           } else {
-            // New object identity — memoized bubbles must see the change to re-render
+            // New object identity — memoized bubbles must see the change to re-render.
             list[list.length - 1] = { ...last, content: (last.content || "") + (text || "") };
           }
           return {
@@ -362,9 +290,7 @@ export const useAiStore = create(
         });
       },
 
-      // Text and thinking buffered for the same frame, applied as ONE set: each set
-      // notifies React subscribers synchronously, and splitting a flush into two
-      // writes doubled the nested-update pressure that crashed streaming panes.
+      // Text + thinking as ONE set per frame — two writes doubled the nested-update pressure that crashed panes.
       appendStream: (sessionId, text, thinking) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -422,8 +348,7 @@ export const useAiStore = create(
           const curr = sessionOf(state, sessionId);
           const list = [...curr.messages];
           const last = list[list.length - 1];
-          // Text/thinking already streamed in this segment → close it and open a new
-          // segment so tools interleave with text in arrival order (CLI timeline feel)
+          // Text already streamed in this segment → close it and open a new one so tools interleave in arrival order.
           if (last && last.role === "assistant" && last.isLive && ((last.content || last.thinking || "").length > 0)) {
             list[list.length - 1] = { ...last, isLive: false };
             list.push({
@@ -477,8 +402,7 @@ export const useAiStore = create(
               list[i] = { ...msg, tools };
               break;
             }
-            // Not in this message and it has tools — keep looking; a result for an
-            // unknown tool id (e.g. after reload) is dropped, not duplicated
+            // A result for an unknown id (after reload) is dropped, not duplicated.
           }
           return {
             bySession: {
@@ -489,9 +413,7 @@ export const useAiStore = create(
         });
       },
 
-      // A sub-agent's tool call: it belongs to the Agent/Task card named by
-      // parentToolUseId, not to a row of its own — the card counts them and lists
-      // them nested. Dropped when the parent is unknown (a reload that lost it).
+      // A sub-agent's call nests under the parentToolUseId card; dropped when the parent is unknown.
       nestTool: (sessionId, toolData) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -586,8 +508,7 @@ export const useAiStore = create(
         });
       },
 
-      // A gate the CLI is holding but whose answer never reached it. Kept beside the
-      // open card so it can say so and offer another try, instead of looking answered.
+      // The gate's answer never reached the CLI — kept so the card can say so and offer a retry.
       setGateError: (sessionId, requestId, error = true) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -601,20 +522,11 @@ export const useAiStore = create(
         });
       },
 
-      // The host states the span (turnMs) when the event carries one: measured on its own
-      // clock, over the whole turn, where this pane may only have watched the tail.
-      //
-      // `replay: true` is an ending out of the log being re-sent, not news. It still closes
-      // the messages it owns (a live spinner must not survive a reload) but it may NOT
-      // touch the turn: the mark it would measure from belongs to a later turn, so the
-      // span it produced was a sliver — "Worked for 0s" over a chat that ran for minutes.
+      // turnMs is the host's own span; a replayed ending closes its rows but must not re-measure the turn ("Worked for 0s").
       finishTurn: (sessionId, stats, turnMs = 0, replay = false) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          // Nothing is still running once the turn is over, whatever the log says —
-          // a tool whose result never arrived would otherwise spin on forever. Every
-          // message is swept, not just the last: a tool row stays in the segment it was
-          // announced in, and later text opens a new one.
+          // Sweep every message — a tool whose result never arrived must not spin past the turn.
           const messages = curr.messages.map((m, idx) => ({
             ...m,
             ...(idx === curr.messages.length - 1 ? { isLive: false } : null),
@@ -627,8 +539,7 @@ export const useAiStore = create(
                 ...curr,
                 ...(replay ? { activePermission: null } : {
                   isTurnRunning: false,
-                  // turnStartedAt is kept: the pane's summary line needs the start mark
-                  // to print the span. A new turn overwrites it.
+                  // turnStartedAt kept: the summary line needs the mark; a new turn overwrites it.
                   lastTurnMs: turnMs || (curr.turnStartedAt ? Date.now() - curr.turnStartedAt : curr.lastTurnMs),
                   activePermission: null,
                   stats: stats ? { ...curr.stats, ...stats } : curr.stats
@@ -640,14 +551,7 @@ export const useAiStore = create(
         });
       },
 
-      // Full reset for a session whose view is rebuilt from the host's event log.
-      // tasks goes too: the checklist is re-derived from the replayed TaskCreate /
-      // TaskUpdate events, so keeping the old list would double every entry.
-      //
-      // The turn is NOT part of the log, so nothing here touches it. A reset arrives with
-      // every hydrate — including a reload taken mid-turn — and clearing the flag there
-      // reported a streaming turn as finished, which also took the stop control with it.
-      // What the log does own is the span: it describes the turns that just went.
+      // The log owns messages/tasks/span but NOT the running flag — a mid-turn reload must not read as finished.
       clearMessages: (sessionId) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -670,15 +574,7 @@ export const useAiStore = create(
         });
       },
 
-      /**
-       * Rewind, shown before the host confirms it: keep everything above this prompt,
-       * keep the prompt itself with the edited text, drop what followed.
-       *
-       * `newText` is the whole point of the operation — cutting the bubble too would
-       * erase the words the user just typed and leave them watching an empty gap for
-       * the round-trip. The host echoes this text back as `user_message` a moment
-       * later, which replaces this stand-in with the real turn.
-       */
+      // Optimistic rewind: keep through the prompt with the edited text until the host echoes it back.
       rewindToMessage: (sessionId, messageId, newText) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -702,8 +598,7 @@ export const useAiStore = create(
         });
       },
 
-      // TaskCreate/TaskUpdate → fold into the session's checklist. The rules live in
-      // lib/taskList.js so the replay path lands the same list — see there.
+      // Rules live in lib/taskList.js so the replay path lands the same list.
       upsertTask: (sessionId, taskData) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
@@ -718,17 +613,12 @@ export const useAiStore = create(
         });
       },
 
-      // Batch hydration: replaces the entire message history and task checklist in ONE      // state update instead of dispatching 5000+ individual actions on join/reconnect.
-      // A gate the host did not replay is one nobody is waiting on. The caller sets it
-      // back when the replay DOES carry a pending request — dropping it there instead
-      // left the card from before a reload on screen, and its "answered" report went to
-      // a request id the CLI had already moved past.
+      // Batch hydration: one state update instead of 5000+ actions on join/reconnect.
+      // A gate the replay does not carry is one nobody waits on — the caller sets it back when it does.
       hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null, elapsedMs = 0, lastTurnMs = 0, harnessTasks = null }) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          // The replayed log is a page of the past, and its `running` rows are whatever
-          // they were when they were written — a background shell that has since ended
-          // comes back mid-spin. The harness tasks arriving with it say which ended.
+          // A replayed `running` row may have ended since; the harness tasks say which.
           const settled = harnessTasks ? settleTasks(harnessTasks, messages) : null;
           return {
             bySession: {
@@ -739,28 +629,20 @@ export const useAiStore = create(
                 messages: settled || messages,
                 tasks,
                 isTurnRunning,
-                // The host's own duration anchors the mark, so a turn rejoined mid-flight
-                // shows the whole turn rather than counting from this page load. A host
-                // that states none (an older agent) still gets a usable clock.
+                // Anchor to the host's duration so a mid-turn rejoin shows the whole turn.
                 turnStartedAt: isTurnRunning ? Date.now() - (elapsedMs || 0) : 0,
-                // A turn that ended while this pane was away: the summary line reads its
-                // span from here (see AiTurnStatus). 0 while one is running — the pane
-                // freezes its own span on the falling edge.
+                // 0 while running — the pane freezes its own span on the falling edge (see AiTurnStatus).
                 lastTurnMs: isTurnRunning ? 0 : (lastTurnMs || 0),
-                // No baseline from the replay either: a mid-turn rejoin shows the session
-                // total rather than pretending to know where this turn began.
+                // No baseline from the replay — a mid-turn rejoin shows the session total.
                 turnBaseline: isTurnRunning
                   ? { inputTokens: 0, outputTokens: 0 }
                   : { inputTokens: stats?.inputTokens || 0, outputTokens: stats?.outputTokens || 0 },
                 metadata: { ...curr.metadata, ...metadata },
                 stats: stats ? { ...curr.stats, ...stats } : curr.stats,
-                // Authoritative from the replay: a blocked card with no matching event
-                // in the log is stale and must not survive the reload.
+                // A blocked card with no matching replay event is stale.
                 activeBlocked,
                 ...(permissionMode ? { permissionMode } : {}),
-                // What the replay's own records rebuilt. Only when the caller sent one:
-                // an older agent's ack carries none, and blanking there would erase the
-                // list the live path had already folded.
+                // Only when the caller sent one — an older agent's ack carries none.
                 ...(harnessTasks ? { harnessTasks } : {})
               }
             }
@@ -768,21 +650,14 @@ export const useAiStore = create(
         });
       },
 
-      // Scroll-up history fetch: older turns reduced on the client, dropped in front
-      // of the window already mounted. Tasks are left alone — a checklist is state,
-      // not timeline, and re-deriving it here would duplicate what is already shown.
+      // Scroll-up fetch: older turns in front of the window; tasks are state, not timeline.
       prependMessages: (sessionId, older) => {
         if (!older?.length) return;
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          // Older turns, same as the hydrate: their `running` rows are whatever the log
-          // said when they were written, and a task that has ended since must not come
-          // back spinning. The task list already in the store is the judge — it is the
-          // whole set, folded from every record seen so far.
+          // The store's whole task list judges which replayed `running` rows have ended.
           const messages = settleTasks(curr.harnessTasks || [], older) || older;
-          // The page's ids were minted to continue past the window, but their base was read
-          // before this write commits (two panes, a rewind since) — an id that still collides
-          // gets a fresh store id so no key can enter the list twice.
+          // An id that still collides (two panes, a rewind) gets a fresh store id — no key twice.
           const have = new Set(curr.messages.map((m) => m.id));
           const safe = messages.map((m) => {
             if (!have.has(m.id)) { have.add(m.id); return m; }

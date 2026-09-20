@@ -6,7 +6,7 @@
 // The agent sends its answer and its candidates back-to-back (they crossed
 // within 6ms in the field log), so whether the host candidate survived was a
 // coin flip per attempt: lose it and the only remaining pair was srflx through
-// a carrier NAT that never connects — "RTC lúc được lúc không".
+// a carrier NAT that never connects — flaky "sometimes works, sometimes not" RTC.
 //
 // Run: node --import ./test/loader-alias.mjs web/test/rtcCandidateBuffer.test.mjs
 import assert from "node:assert/strict";

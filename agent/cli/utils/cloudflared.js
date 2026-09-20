@@ -20,33 +20,13 @@ const TUNNEL_CONFIG = {
   internetCheckTimeoutMs: 3000,
   internetCheckHost: "1.1.1.1",
   internetCheckPort: 443,
-  // Edge-liveness probe. Separate from the 5s tick: the tick also does cheap
-  // local checks (pid, network fingerprint) that are worth running often, while
-  // this one crosses the network and must not run on every tick.
-  //
-  // Killing the tunnel is expensive — the URL changes and every client has to
-  // reconnect — so one unlucky probe must not trigger it. trycloudflare offers
-  // no uptime guarantee and rate-limits at 200 in-flight requests, so isolated
-  // failures are expected; only a sustained one means the edge is really gone.
-  // Matches the retry-before-verdict shape already used by the sleep/wake and
-  // network-change branches below, and the debounce in tunnelHealth.js.
+  // Sustained edge probe failures required before killing tunnel (URL rotation is costly).
   edgeProbeIntervalMs: 15000,
   edgeProbeFailureThreshold: 3,
   readyTimeoutMs: 1500,
 };
 
-// cloudflared's own readiness endpoint. It reports how many edge connections the
-// process currently holds, which is what "is the tunnel alive" actually means —
-// unlike our external probe, it involves no DNS and no round trip through the
-// edge, so it cannot fail for reasons unrelated to the tunnel.
-//
-// This matters because cloudflared already repairs itself: it keeps up to 4
-// connections to different PoPs, redials with backoff, rotates edge IPs, and
-// falls back QUIC->HTTP/2 (supervisor.go: "reconnects them if they disconnect").
-// Killing it mid-recovery throws away that work and rotates the URL for nothing.
-//
-// Served on the first free port in 20241-20245 with no extra flags; /ready is
-// 200 with readyConnections>0, 503 when the process holds no connection at all.
+// cloudflared /ready endpoint reports active edge connection count on ports 20241-20245.
 const CLOUDFLARED_METRICS_PORTS = [20241, 20242, 20243, 20244, 20245];
 let metricsPort = null;
 
@@ -62,32 +42,23 @@ async function fetchReady(port, timeoutMs) {
   }
 }
 
-/** Connection count from the metrics server on `port`, but only if it belongs to
- * the tunnel we manage. Any other cloudflared on this machine also answers on
- * these ports, and trusting it would report a healthy tunnel while ours is dead
- * — the one case where a restart really is needed. */
+// Only count connections if the metrics server matches our active tunnel URL.
 async function readyConnectionsOn(port, timeoutMs) {
   const body = await fetchReady(port, timeoutMs);
   if (!body) return null;
   const host = await fetchQuickTunnelHost(port, timeoutMs);
-  // No hostname (named tunnel, older build) is not proof of a mismatch, so it is
-  // accepted; a hostname that disagrees with our URL is.
+  // Accept missing hostname (named tunnel), reject explicit mismatch.
   if (host && activeTunnelUrl && !activeTunnelUrl.includes(host)) return null;
   return body.readyConnections;
 }
 
-/** Edge connections cloudflared reports, or null when it cannot be asked (older
- * build, port taken by something else, metrics server not up yet). */
 async function readyConnections(timeoutMs) {
   if (metricsPort !== null) {
     const conns = await readyConnectionsOn(metricsPort, timeoutMs);
     if (conns !== null) return conns;
-    // Gone, or now serving a different tunnel after a respawn — rediscover.
     metricsPort = null;
   }
-  // Probed in parallel, not in sequence: five ports each waiting out the timeout
-  // would take 5x longer than the 5s monitor tick, stacking ticks on a machine
-  // where nothing answers. In parallel the whole sweep costs one timeout.
+  // Probe ports in parallel so the sweep only takes one timeout.
   const results = await Promise.all(
     CLOUDFLARED_METRICS_PORTS.map(async (port) => ({
       port,
@@ -112,12 +83,10 @@ async function fetchQuickTunnelHost(port, timeoutMs) {
   }
 }
 
-// Sleep/wake detection — setInterval misses ticks while OS suspends the process,
-// so the gap between ticks jumps far past the poll interval. Tuned above CPU spikes.
+// Detect sleep/wake via gap between setInterval ticks exceeding threshold.
 const SLEEP_DETECT_MS = 30000;
 let lastTickAt = 0;
 
-// Network + restart state (module-scoped)
 let networkMonitorInterval = null;
 let lastNetworkState = null;
 let currentRestartArg = null;
@@ -142,20 +111,14 @@ const BIN_PATH = path.join(BIN_DIR, BIN_NAME);
 // Legacy PID file — kept for one-time cleanup of installs from older versions
 const LEGACY_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 
-// Track intentional shutdown to suppress exit logs
 let isIntentionalShutdown = false;
-// PID of the cloudflared this module currently owns. A spawn that gets superseded
-// (timeout, stale cleanup) leaves its exit handler attached, and that handler must
-// not schedule a restart for a process we already replaced.
+// Track current child PID to ignore exit events from superseded processes.
 let currentChildPid = null;
 
 // Pin stable version — avoid "latest" renaming/breakage
 const CLOUDFLARED_VERSION = "2026.6.1";
 const GITHUB_BASE_URL = `https://github.com/cloudflare/cloudflared/releases/download/${CLOUDFLARED_VERSION}`;
 
-/**
- * Check internet reachability via a single TCP connect attempt.
- */
 function checkInternet() {
   return new Promise((resolve) => {
     const socket = new net.Socket();
@@ -178,7 +141,6 @@ function checkInternet() {
   });
 }
 
-// Poll until internet is reachable; never give up
 async function waitForInternet() {
   isWaitingForInternet = true;
   try {
@@ -193,9 +155,7 @@ async function waitForInternet() {
   }
 }
 
-/**
- * Schedule a tunnel restart. Never gives up. Single-flight to prevent races.
- */
+// Schedule a tunnel restart with single-flight debounce.
 async function scheduleRestart(arg, reason) {
   if (!restartCallback) {
     logger.warn("No restartCallback registered — skip");
@@ -231,9 +191,6 @@ async function scheduleRestart(arg, reason) {
   }
 }
 
-/**
- * Platform mappings for cloudflared
- */
 const PLATFORM_MAPPINGS = {
   darwin: {
     x64: "cloudflared-darwin-amd64.tgz",
@@ -248,35 +205,26 @@ const PLATFORM_MAPPINGS = {
   }
 };
 
-/**
- * Get download URL
- */
 function getDownloadUrl() {
   const platform = os.platform();
   const arch = os.arch();
-  
+
   const platformMapping = PLATFORM_MAPPINGS[platform];
   if (!platformMapping) {
     throw new Error(`Unsupported platform: ${platform}`);
   }
-  
+
   const binaryName = platformMapping[arch];
   if (!binaryName) {
     throw new Error(`Unsupported architecture: ${arch} for platform ${platform}`);
   }
-  
+
   return `${GITHUB_BASE_URL}/${binaryName}`;
 }
 
 // Emit progress at most every N ms to avoid render thrash
 const PROGRESS_THROTTLE_MS = 150;
 
-/**
- * Download file from URL with progress tracking
- * @param {string} url
- * @param {string} dest
- * @param {(percent: number) => void} [onProgress]
- */
 async function downloadFile(url, dest, onProgress) {
   return new Promise((resolve, reject) => {
     const file = fs.createWriteStream(dest);
@@ -333,10 +281,6 @@ async function downloadFile(url, dest, onProgress) {
   });
 }
 
-/**
- * Ensure cloudflared binary exists
- * @param {(progress: { phase: "download" | "extract", percent?: number }) => void} [onProgress]
- */
 export async function ensureCloudflared(onProgress) {
   if (!fs.existsSync(BIN_DIR)) {
     fs.mkdirSync(BIN_DIR, { recursive: true });
@@ -392,7 +336,6 @@ function fetchText(url) {
   });
 }
 
-// Verify downloaded cloudflared binary matches sha256 from official release manifest
 async function verifyCloudflaredSha256(downloadUrl, filePath) {
   const filename = path.basename(downloadUrl);
   let manifest;
@@ -414,7 +357,6 @@ async function verifyCloudflaredSha256(downloadUrl, filePath) {
   if (actual !== expected) throw new Error(`Integrity check failed: SHA256 mismatch (expected ${expected}, got ${actual})`);
 }
 
-// Log patterns to filter cloudflared output
 const LOG_IGNORE = [
   "INF Starting tunnel",
   "INF Version",
@@ -430,9 +372,6 @@ const LOG_IGNORE = [
   "Updated to new configuration"
 ];
 
-/**
- * Parse trycloudflare.com URL from cloudflared log output
- */
 function parseQuickTunnelUrl(message) {
   const regex = /https:\/\/([a-z0-9-]+)\.trycloudflare\.com/gi;
   const candidates = [];
@@ -443,19 +382,10 @@ function parseQuickTunnelUrl(message) {
   return candidates.length ? candidates[candidates.length - 1] : null;
 }
 
-/**
- * Spawn cloudflared quick tunnel (no account needed)
- * @param {number} localPort - Local port to tunnel
- * @param {Function} onUrlUpdate - Called when URL changes after initial connect
- * @returns {Promise<{child, tunnelUrl}>}
- */
 export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart = null) {
   const binaryPath = await ensureCloudflared();
 
-  // Sweep leftovers from a previous start. The pid file cannot do this job: it
-  // names at most one process, so anything an earlier instance left behind —
-  // including a tunnel of ours from days ago — is invisible to it. Runs on every
-  // start and every restart.
+  // Sweep leftover cloudflared processes from previous runs.
   sweepStaleTunnels(binaryPath);
 
   if (onRestart) restartCallback = onRestart;
@@ -492,9 +422,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
       if (resolved) return;
       resolved = true;
       cleanup();
-      // Kill the child — otherwise the retry loop spawns a second cloudflared
-      // while this one keeps running, and they pile up across timeouts. Clearing
-      // currentChildPid marks it superseded so its exit handler stays quiet.
+      // Kill superseded child on timeout to prevent zombie process accumulation.
       if (currentChildPid === child.pid) currentChildPid = null;
       try { child.kill("SIGKILL"); } catch {}
       clearPid("cloudflared");
@@ -513,8 +441,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         lastUrl = tunnelUrl;
         activeTunnelUrl = tunnelUrl;
         tunnelReadyAt = Date.now();
-        // Fresh tunnel — failures counted against the previous one must not carry
-        // over, or an inherited streak could kill this one on its first miss.
+        // Reset failure streak so previous tunnel failures do not affect the new one.
         edgeFailStreak = 0;
         edgeProbeAt = 0;
         metricsPort = null; // new process may land on a different metrics port
@@ -526,7 +453,6 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         return;
       }
 
-      // URL rotated after initial connect — notify caller
       if (tunnelUrl !== lastUrl) {
         logger.info(`URL rotated: ${tunnelUrl}`);
         lastUrl = tunnelUrl;
@@ -551,8 +477,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
 
     child.on("exit", (code, signal) => {
       cleanup();
-      // Superseded child (timed out, or replaced by a newer spawn) — its death is
-      // expected and must not drive status or trigger another restart.
+      // Ignore exit from superseded child (timed out or replaced).
       const superseded = currentChildPid !== child.pid;
       const quiet = isIntentionalShutdown || superseded;
       logger.info(`cloudflared exited (intentional=${isIntentionalShutdown} superseded=${superseded})`);
@@ -561,9 +486,7 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
         resolved = true;
         clearTimeout(timeout);
         const tail = lastOutput.trim().split("\n").slice(-5).join(" | ");
-        // Died before the tunnel came up: reject only. The caller's retry loop
-        // (spawnQuickTunnelWithRetry) owns the retry — also calling
-        // scheduleRestart here would spawn two cloudflared for one failure.
+        // Reject only; caller retry loop handles respawn to avoid duplicate processes.
         currentChildPid = null;
         reject(new Error(`cloudflared exited (code=${code}, signal=${signal}) output: ${tail || "(empty)"}`));
         return;
@@ -575,24 +498,18 @@ export async function spawnQuickTunnel(localPort, onUrlUpdate = null, onRestart 
   });
 }
 
-/**
- * Spawn cloudflared tunnel
- * @param {string} tunnelToken
- * @param {Function} onRestart - Callback when tunnel needs restart
- * @returns {ChildProcess}
- */
 export async function spawnCloudflared(tunnelToken, onRestart = null) {
   const binaryPath = await ensureCloudflared();
 
   if (onRestart) restartCallback = onRestart;
   currentRestartArg = tunnelToken;
-  
+
   const child = spawn(binaryPath, ["tunnel", "run", "--token", tunnelToken], {
     detached: false,
     windowsHide: true,
     stdio: ["ignore", "pipe", "pipe"]
   });
-  
+
   isIntentionalShutdown = false;
 
   // Wait for 4 connections before resolving (tunnel is truly ready)
@@ -629,19 +546,16 @@ export async function spawnCloudflared(tunnelToken, onRestart = null) {
   child.on("error", (error) => {
     console.error("cloudflared error:", error);
   });
-  
+
   child.on("exit", (code, signal) => {
     logger.warn(`Cloudflared process exited (code: ${code}, signal: ${signal}, intentional: ${isIntentionalShutdown})`);
     if (isIntentionalShutdown) return;
     scheduleRestart(tunnelToken, `tunnel exit code ${code}${signal ? `/${signal}` : ""}`);
   });
-  
-  // Save PID
-  writePid("cloudflared", child.pid);
 
-  // Start network monitor
+  writePid("cloudflared", child.pid);
   startNetworkMonitor();
-  
+
   return child;
 }
 
@@ -654,8 +568,7 @@ function killPid(pid) {
   }
 }
 
-/** Parse `ps -eo pid=,args=` / PowerShell CSV rows into { pid, args }.
- *  argv is kept whole (not split) so a path with spaces stays matchable by token. */
+// Parse ps / PowerShell output into { pid, args } keeping argv whole for token matching.
 export function parsePsOutput(out) {
   if (!out) return [];
   return out.split("\n").flatMap((line) => {
@@ -664,13 +577,7 @@ export function parsePsOutput(out) {
   });
 }
 
-/**
- * PIDs of cloudflared processes launched from OUR managed binary with the
- * `tunnel` subcommand. Both signals are required: pids.js forbids matching by
- * image name because a user's own cloudflared (brew, a named tunnel for another
- * service) is a different program that shares the name, and the `tunnel` token
- * rejects a sibling binary that merely shares our path prefix.
- */
+// Match only cloudflared launched from our binary with 'tunnel' subcommand.
 export function pickStalePids(procs, binaryPath) {
   if (!Array.isArray(procs)) return [];
   return procs
@@ -696,15 +603,7 @@ function listOurTunnelPids(binaryPath) {
   }
 }
 
-/**
- * Kill cloudflared processes left behind by a previous 9remote start.
- *
- * The pid file alone cannot do this: a later instance overwrites it, orphaning
- * the tunnel of the one before — whose edge connection still holds a
- * trycloudflare slot, which is what starves the next start of quota. Sweeping by
- * identity instead of by recorded pid also drops the pid-reuse hazard, where the
- * recorded pid has been recycled onto an unrelated process.
- */
+// Kill stale cloudflared processes from prior runs to free edge connections.
 export function sweepStaleTunnels(binaryPath) {
   const pids = listOurTunnelPids(binaryPath);
   for (const pid of pids) {
@@ -764,12 +663,7 @@ export function killCloudflared() {
   }
 }
 
-/**
- * Reset restart counter and stop network monitor
- */
-/** A cloudflared is running and has a URL. Used by the background reconnect loop
- * to stand down instead of spawning over a tunnel that recovered by another path
- * (restart handler, network-change restart) while the loop was in its backoff. */
+// Check if a managed tunnel is currently running with an active URL.
 export function hasLiveTunnel() {
   if (!activeTunnelUrl) return false;
   const pid = readPid("cloudflared");
@@ -791,9 +685,6 @@ export function resetRestartCounter() {
 // Skip virtual/transient interfaces that flap during boot, sleep, or VPN connect
 const VIRTUAL_IFACE_REGEX = /^(utun|awdl|llw|anpi|bridge|gif|stf|ipsec|ap|tun|tap|vmnet|veth|docker)/i;
 
-/**
- * Get network state fingerprint (only physical active interfaces with IPv4)
- */
 function getNetworkFingerprint() {
   const interfaces = os.networkInterfaces();
   const active = [];
@@ -811,12 +702,7 @@ function getNetworkFingerprint() {
   return active.sort().join("|");
 }
 
-/**
- * Start network change monitor (event-driven).
- * Polls only local interface fingerprint (cheap syscall, no network IO).
- * When fingerprint changes: wait for stabilization, confirm Internet via TCP probe,
- * then restart tunnel. Avoids periodic Internet pings.
- */
+// Poll physical interface fingerprint to detect network changes without periodic pings.
 function startNetworkMonitor() {
   if (networkMonitorInterval) return;
 
@@ -825,8 +711,7 @@ function startNetworkMonitor() {
 
   networkMonitorInterval = setInterval(async () => {
    try {
-    // Time gap between ticks — must track before any early return so a long
-    // restartInFlight / waitForInternet window isn't misread as sleep on the next tick.
+    // Track tick gap before early returns to avoid false sleep detection.
     const now = Date.now();
     const gap = now - lastTickAt;
     lastTickAt = now;
@@ -834,8 +719,7 @@ function startNetworkMonitor() {
     if (isWaitingForInternet || restartInFlight) return;
     if (!restartCallback || currentRestartArg == null) return;
 
-    // Sleep/wake: gap >> poll interval → OS suspended us (clamshell, idle sleep).
-    // Probe first — cloudflared may have auto-reconnected after wake, no kill needed.
+    // Sleep/wake detected via tick gap; probe before killing since it may auto-reconnect.
     if (gap > SLEEP_DETECT_MS) {
       logger.info(`Sleep/wake detected (gap=${gap}ms)`);
       if (activeTunnelUrl) {
@@ -859,19 +743,11 @@ function startNetworkMonitor() {
     lastNetworkState = current;
 
     // Liveness watchdog — catches cases where exit-restart chain stopped
-    // (e.g. callback never re-armed) or fingerprint never changed after reconnect.
     const pid = readPid("cloudflared");
     const cloudflaredDead = !pid || !isAlive(pid);
 
     if (!fingerprintChanged && !cloudflaredDead) {
-      // Process alive, no network change — but the edge connection may have died
-      // silently (cloudflared stays running). Probe periodically, and only act
-      // once the failures are consecutive: a single miss is far more often a DNS
-      // hiccup or a slow response than a dead edge, and killing on it costs the
-      // URL. The streak resets on any success, so a real outage still converges.
-      //
-      // Counted across ticks rather than retried inside one: the tick fires every
-      // 5s, so awaiting several probes here would overrun the interval.
+      // Probe edge periodically; require consecutive failures to avoid killing on transient DNS hiccups.
       if (activeTunnelUrl && tunnelReadyAt
           && Date.now() - tunnelReadyAt > NETWORK_CHANGE_COOLDOWN_MS
           && now - edgeProbeAt >= TUNNEL_CONFIG.edgeProbeIntervalMs) {
@@ -880,11 +756,7 @@ function startNetworkMonitor() {
         if (probe.ok) {
           edgeFailStreak = 0;
         } else if (++edgeFailStreak >= TUNNEL_CONFIG.edgeProbeFailureThreshold) {
-          // Last word before killing: ask cloudflared itself. While it still holds
-          // an edge connection the fault is on the path to us (DNS, ISP, the edge
-          // POP for our region), and a restart would not fix it — it would only
-          // rotate the URL and disconnect every client. Only act when the process
-          // reports no connections, or cannot be asked at all.
+          // Verify with cloudflared metrics before killing: do not restart if edge connections are still held.
           const conns = await readyConnections(TUNNEL_CONFIG.readyTimeoutMs);
           if (conns > 0) {
             logger.info(`edge probe failing but cloudflared holds ${conns} connection(s) — not restarting`);
@@ -939,9 +811,6 @@ function startNetworkMonitor() {
   }, TUNNEL_CONFIG.networkCheckIntervalMs);
 }
 
-/**
- * Stop network monitor
- */
 function stopNetworkMonitor() {
   if (networkMonitorInterval) {
     clearInterval(networkMonitorInterval);

@@ -6,33 +6,24 @@ import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 
 const logger = createLogger("ai");
 
-// `agy` has no `--permission-mode` flag: the gate is either on or bypassed. Plan mode
-// is the CLI's own read-only mode (`--mode plan`), so that is what it maps to.
+// agy maps 'plan' to --mode plan and 'accept-edits' to --dangerously-skip-permissions.
 const MODE_TO_ARGS = {
   plan: ["--mode", "plan"],
   "accept-edits": ["--dangerously-skip-permissions"]
 };
 
-// Widening ladder: a denied action is resolved by the next mode up. Headless cannot
-// prompt, so a tool outside these two modes fails outright and the card offers the
-// only mode that would have allowed it.
+// Widening ladder: headless cannot prompt, so card offers escalation to next mode.
 const MODE_LADDER = ["plan", "accept-edits"];
 const MODE_LABELS = { plan: "Plan", "accept-edits": "Accept Edits" };
 
 // `agy` reports a denied tool as a plain error string inside tool_info.error.
 const DENIED_RE = /(?:user denied permission|permission check failed|auto-denied)/i;
 
-// Some model ids end in their own tier (gemini-3.8-flash-low). `agy` rejects
-// `--effort` beside one of those ("--model ... conflicts with --effort=high"), so a
-// picked level drops the suffix and the two never ride together.
+// agy rejects --effort alongside tier suffixes (e.g. -low/-high); strip suffix when effort is set.
 const TIER_SUFFIX_RE = /-(?:low|medium|high)$/i;
 const EFFORT_LEVELS = ["low", "medium", "high"];
 
-// `agy` names each tool's parameters itself, in PascalCase — CommandLine for
-// run_command, AbsolutePath for view_file, TargetFile for write_to_file,
-// DirectoryPath/SearchPath for the directory tools (all verified against 1.2.1).
-// The cards read one lowercase shape, so unmapped these rows carried no command and
-// no path: a Bash row rendered as its bare tool name with nothing to copy.
+// Normalize agy's PascalCase tool parameter names to lowercase standard aliases.
 const PARAM_ALIASES = {
   CommandLine: "command",
   AbsolutePath: "file_path",
@@ -51,18 +42,7 @@ function normalizeParameters(parameters) {
   return out;
 }
 
-// Edit tools whose input carries the change itself, so the turn draws a diff card —
-// the same fold claude's adapter does for Edit/Write. Arg names are the CLI's own,
-// read off real transcripts (write_to_file {TargetFile, CodeContent};
-// replace_file_content {TargetFile, TargetContent, ReplacementContent}) and read here
-// AFTER normalizeParameters, so the live stream and the transcript recovery share it.
-//
-// The LIVE stream strips the content args (verified on 1.2.2: write_to_file carries
-// TargetFile alone, both on ACTIVE and DONE) — only the transcript keeps them. A diff
-// without its content would be an empty card hiding the tool row, so a stripped input
-// answers null: live keeps the tool row, and a reopen (full args) swaps in the card.
-// ponytail: sed_file/multi_replace_file_content have no recorded run to verify shapes
-// against — add them when a real transcript shows their arg names.
+// Extract diff for edit tools (write_to_file, replace_file_content); live stream strips content.
 const DIFF_TOOLS = new Set(["write_to_file", "replace_file_content"]);
 
 export function antigravityEditDiff(name, input = {}) {
@@ -90,22 +70,16 @@ export class AntigravityAdapter {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
     this.hostSessionId = hostSessionId;
-    // Turn-per-CLI: a process is born per turn. Under the daemon it outlives an agent
-    // restart, and adopt() picks that turn back up.
+    // Turn-per-CLI: a process is born per turn; under daemon adopt() picks it back up.
     this.proc = proc || new AgentProc({ procId: "" });
     this.activeConversationId = conversationId || null;
     this.isTurnRunning = false;
-    // The model id may carry its own tier (gemini-3.8-flash-low); `--effort` is the
-    // separate knob, and the CLI rejects the two together. Empty means "the id decides".
     this.currentModel = model || "";
     this.effort = "";
     this.permissionMode = "accept-edits";
-    // Runtime flags chosen in the Config modal, appended to every turn.
     this.flags = [];
     this.stats = { inputTokens: 0, outputTokens: 0, thinkingTokens: 0, cachedTokens: 0, totalTurns: 0 };
-    // Empty model means "CLI default" — never a label, or it would be sent to the
-    // CLI as a real model id and fail the turn. `sessionId` is the key aiSession reads
-    // to persist the resumable id (the CLI calls it a conversation, the bus does not).
+    // Empty model means CLI default; sessionId persists the resumable conversation id.
     this.metadata = {
       model: this.currentModel,
       sessionId: this.activeConversationId || "",
@@ -118,20 +92,13 @@ export class AntigravityAdapter {
     if (model) {
       this.currentModel = model;
       this.metadata.model = model;
-      // A model that names its own tier cannot also take --effort — the CLI refuses
-      // the pair, so the pick is dropped the moment such a model is chosen.
       if (TIER_SUFFIX_RE.test(model)) this.effort = "";
     }
-    // Any of the three levels. An unknown value is ignored rather than sent: `agy`
-    // answers an unknown --effort with an error that kills the whole turn.
     if (EFFORT_LEVELS.includes(effort)) {
       this.effort = effort;
-      // The id's own tier would now conflict, so it is dropped for the run.
       this.currentModel = this.currentModel.replace(TIER_SUFFIX_RE, "");
       this.metadata.model = this.currentModel;
     }
-    // Published unconditionally: a model that names its own tier clears the level, and
-    // the composer's chip has to hear about that too.
     this.metadata.effort = this.effort;
     if (mode && MODE_TO_ARGS[mode]) {
       this.permissionMode = mode;
@@ -156,11 +123,7 @@ export class AntigravityAdapter {
     return { command: "agy", args: ["--version"] };
   }
 
-  /**
-   * Re-attach to the turn the daemon is still running after an agent restart. A turn
-   * that ended while nobody was watching is replayed too — every line it printed is
-   * in the daemon's buffer, so the chat shows the answer instead of a blank pane.
-   */
+  // Re-attach to daemon-buffered turn after agent restart.
   async adopt(from = 0, epoch = null) {
     const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
     const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
@@ -175,8 +138,7 @@ export class AntigravityAdapter {
     return fetch;
   }
 
-  // Handlers bind to the process that owns them, and the same process can carry a
-  // second turn later — so this is idempotent, not a one-shot wiring.
+  // Handlers bind to the process that owns them (idempotent per turn).
   _bind() {
     this.proc.onLine = (line) => this.feed(line);
     this.proc.onExit = ({ code, error }) => {
@@ -186,7 +148,6 @@ export class AntigravityAdapter {
     };
   }
 
-  /** Parse one raw line from the CLI. */
   feed(line) {
     if (!String(line).trim()) return;
     try {
@@ -206,8 +167,7 @@ export class AntigravityAdapter {
     if (this.activeConversationId) args.push("--conversation", this.activeConversationId);
     for (const a of MODE_TO_ARGS[this.permissionMode] || []) args.push(a);
     args.push(...extra);
-    // `-p` takes the next argv token as its prompt, so the prompt is attached with `=`
-    // — a separate token would be eaten by whichever flag follows it.
+    // Attach prompt with '=' so trailing flags do not consume it.
     args.push(`-p=${prompt}`);
     return args;
   }
@@ -217,10 +177,7 @@ export class AntigravityAdapter {
       throw new Error("Antigravity turn is already running.");
     }
 
-    // `agy`'s stream-json input takes text blocks only — an image content block is
-    // rejected with 'content block type "image" is not supported'. So every attachment,
-    // image included, is handed over as a path in the prompt: verified against the CLI,
-    // which reads the file itself and answers about its contents.
+    // agy stream-json only accepts text; pass all attachments as file paths in prompt.
     const staged = attachments?.length ? attachments.map(stageAttachment) : null;
     this.isTurnRunning = true;
     this._bind();
@@ -230,8 +187,6 @@ export class AntigravityAdapter {
       cwd: this.cwd,
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     }).then(
-      // commit feeds what the CLI printed before the handlers were live, releases the
-      // lines held during the handshake, then closes stdin. See DaemonProc.start.
       (started) => started.commit((line) => this.feed(line)),
       (err) => {
         this.isTurnRunning = false;
@@ -244,10 +199,7 @@ export class AntigravityAdapter {
     if (event.event === "init") return this.handleInit(event);
     if (event.event === "step_update") return this.handleStep(event.step_update);
     if (event.event === "result") return this.handleResult(event.result);
-    // Nothing above claimed it — this CLI names records with `event`, not `type`, so a
-    // record carrying either is one it does not know yet. The pane re-renders this CLI's
-    // own TUI, so the record still has to REACH it, whole and under its own name, or the
-    // pane quietly shows less than the CLI said and nothing anywhere says so.
+    // Forward unhandled CLI events to the pane whole under cli_event.
     this.onEvent?.("cli_event", { type: event.event || event.type || "", subtype: "", record: event });
   }
 
@@ -257,25 +209,17 @@ export class AntigravityAdapter {
       this.activeConversationId = event.conversation_id;
       this.metadata.sessionId = event.conversation_id;
     }
-    // Model and permission mode are echoed here on a resumed or fresh turn, and they
-    // are what the composer renders — without this a reload shows defaults.
     if (event.init?.model) this.metadata.model = event.init.model;
     if (event.init?.permission_mode) this.metadata.permissionMode = this.permissionMode;
     this.onEvent?.("init", { ...this.metadata });
   }
 
   handleStep(step) {
-    // `user_input` is the prompt the user typed, echoed back by the CLI. It is already on
-    // screen — the pane draws it when it is sent — so carrying it again would show every
-    // prompt twice. Deliberately dropped, not an oversight.
+    // Drop user_input echo to prevent duplicate prompt display.
     if (!step || step.step_type === "user_input") return;
 
     if (step.step_type === "agent_response") {
-      // Text arrives as a run of deltas and is forwarded whatever the state: the DONE
-      // event is NOT just a trailing newline — the CLI cuts mid-word, so its delta
-      // carries the tail of the reply ("…successfu" + "lly executed…"). Dropping it
-      // truncates every long answer. Verified: joining every text_delta, ACTIVE and
-      // DONE alike, reproduces result.response exactly.
+      // Forward all text deltas regardless of state (DONE may carry the trailing text).
       if (step.text_delta) this.onEvent?.("delta", { text: step.text_delta });
       // Usage rides on the DONE event of each response step, and is a per-step delta
       // (summing every step equals result.usage).
@@ -287,15 +231,9 @@ export class AntigravityAdapter {
     }
 
     if (step.step_type === "tool") return this.handleToolStep(step);
-    // An `invoke_subagent` step. Its own steps never reach this stream — the child
-    // runs its own conversation, and the log_uri it hands back points at a transcript
-    // this adapter does not read — so the card shows the sub-agent and its brief and
-    // leaves the count at zero rather than inventing children.
+    // Subagent steps run in separate conversation; show subagent card without child steps.
     if (step.step_type === "subagent") return this.handleSubagentStep(step);
 
-    // A step this adapter does not know yet. It used to fall off the end of this function
-    // in silence — the CLI said something and the pane was never told. Carried whole,
-    // under its own step_type, for whatever the pane learns to draw next.
     this.onEvent?.("cli_event", { type: "step_update", subtype: step.step_type || "", record: step });
   }
 
@@ -311,10 +249,7 @@ export class AntigravityAdapter {
       return;
     }
     if (step.state === "ERROR") {
-      // Not observed: every recorded agy run that spawned a sub-agent reported DONE,
-      // even one told to fail, and a permission denial aborts the run before any step
-      // is emitted. Kept because `tool` steps do carry ERROR, and without it a failed
-      // sub-agent would be settled as "done" — a success claim this cannot make.
+      // Handle sub-agent ERROR state to avoid settling failed sub-agents as done.
       this.onEvent?.("tool_result", {
         id: `${step.tool_name}-${step.step_index}`,
         name: step.tool_name || "invoke_subagent",
@@ -373,11 +308,7 @@ export class AntigravityAdapter {
 
   handleResult(result) {
     if (!result) return;
-    // Usage is counted per step (addUsage below), NOT here: result.usage is cumulative
-    // for the whole conversation — adding both double-counts every turn, and a resumed
-    // conversation would re-add every token spent before it.
-    // One turn is done, whatever it took: `totalTurns` counts turns, not steps, or a
-    // turn that called five tools would report six.
+    // result.usage is cumulative across turns, so usage is tracked per-step instead.
     this.stats.totalTurns += 1;
     this.onEvent?.("stats", { stats: this.stats });
     if (result.status && result.status !== "SUCCESS") {
@@ -395,14 +326,8 @@ export class AntigravityAdapter {
     this.stats.contextTokens = usage.input_tokens || 0;
   }
 
-  /**
-   * End the TURN. One CLI per turn here, so the turn's own process IS the turn — stopping
-   * it is what Stop/Esc means, and the next prompt spawns a fresh one. See the same method
-   * on opencodeAdapter: without it `AiSession.stop` had nothing to call and still reported
-   * the turn stopped.
-   */
+  // Interrupt current turn by stopping process.
   interrupt() {
-    // TEMP DIAGNOSTIC (esc-stop)
     logger.info(`[TEMP DIAGNOSTIC] agy interrupt turnRunning=${this.isTurnRunning} conv=${this.activeConversationId || "-"} proc=${this.proc?.constructor?.name || "none"}`);
     if (!this.isTurnRunning) return false;
     this.isTurnRunning = false;
@@ -412,7 +337,6 @@ export class AntigravityAdapter {
     return true;
   }
 
-  /** The fallback `AiSession.stop` reaches for. The daemon carrier is the one that has it. */
   signal(sig = "SIGINT") {
     if (typeof this.proc?.signal !== "function") return false;
     try { this.proc.signal(sig); return true; } catch { return false; }

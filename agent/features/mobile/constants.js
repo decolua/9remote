@@ -1,103 +1,56 @@
 // Android mobile mirroring (scrcpy) tunables — single source of truth.
 
-// Pinned scrcpy server version. Bumping it means re-validating the wire framing
-// in scrcpySession.js (the protocol drifts between scrcpy majors).
+// Pinned scrcpy server version (wire framing depends on major).
 export const SCRCPY_VERSION = "3.1";
 export const SCRCPY_JAR_NAME = `scrcpy-server-v${SCRCPY_VERSION}`;
 export const DEVICE_JAR_PATH = "/data/local/tmp/scrcpy-server.jar";
 
-// Stream defaults — emulators reject encoder sizes above ~2560, so cap the edge.
 export const STREAM_DEFAULTS = {
   maxSize: 1280,
   bitRate: 12_000_000,
   maxFps: 60,
-  // Seconds between forced keyframes. Recovery after a dropped frame waits for
-  // one of these, so a long interval shows as a freeze; but each keyframe is
-  // ~20x a delta frame, so 1s is the balance scrcpy itself ships with.
   keyFrameInterval: 1
 };
 
 export const ADB_TIMEOUTS = {
   command: 15_000,
-  socketWait: 30_000,   // device-side abstract socket to appear
+  socketWait: 30_000,
   connect: 3_000
 };
 
-// A cold AVD takes ~30s to reach sys.boot_completed; give it room but don't
-// hang the UI forever on a wedged image.
-// Launch flags for AVDs we start ourselves.
-//   -no-boot-anim: shaves a couple of seconds off a cold boot.
-//   -no-audio: nothing here plays the device's audio.
 const BASE_ARGS = ["-no-boot-anim", "-no-audio"];
 
-// -gpu host is the single biggest lever for smoothness on a machine whose
-// "auto" picks software rendering — on Apple Silicon auto selects SwiftShader,
-// and forcing host selects MoltenVK (measured: 13fps → 18fps, and it is what
-// keeps the windowless mode on the real GPU).
-//
-// It is NOT safe everywhere: a machine with no usable GPU (a headless server,
-// some Windows driver setups) can fail to boot with it. So it is attempted
-// first and dropped on failure rather than assumed — see startAvd.
+// -gpu host enables hardware acceleration but may fail on headless/unsupported systems.
 export const GPU_HOST_ARGS = ["-gpu", "host"];
 
-// Windowless mode. Measured against the same AVD and workload:
-//     windowed:  18.0 fps, 382% CPU
-//     windowless: 4.0 fps,  61% CPU
-// Six times less CPU for a quarter of the frame rate — worth it when the host is
-// thermally limited or on battery, and fine for tapping through an app or
-// reading logs, but not for scrolling or animation.
 export const EMULATOR_ARGS = BASE_ARGS;
 export const EMULATOR_ARGS_LOW_POWER = [...BASE_ARGS, "-no-window"];
 
-// The emulator hands the guest roughly 45% more RAM than the AVD asks for
-// (a 2048MB AVD boots with 2976MB), and that padding is real host memory.
-// Passing the configured size through QEMU removes it: same RAM the user chose,
-// ~30% less taken from the host. Never a fixed number — an AVD may be
-// configured with anything, and forcing one would grow a small device.
-//
-// -memory is documented for this but is ignored by current emulator builds;
-// only the QEMU passthrough takes effect. Measured, on one AVD:
-//     default:        guest 2976MB, host 5.9GB
-//     -qemu -m 2048:  guest 1975MB, host 4.2GB
+// QEMU passthrough caps emulator RAM overhead to configured size.
 export const QEMU_MEMORY_ARGS = (ramSizeMb) =>
   Number.isFinite(ramSizeMb) && ramSizeMb >= MIN_GUEST_RAM_MB
     ? ["-qemu", "-m", String(Math.round(ramSizeMb))]
     : [];
 
-// Below this Android starts killing apps as fast as they launch, so an AVD
-// configured smaller is left exactly as its owner set it.
 export const MIN_GUEST_RAM_MB = 1536;
 
 export const EMULATOR = {
   bootTimeoutMs: 180_000,
   bootPollMs: 1_500,
   shutdownTimeoutMs: 20_000,
-  // An emulator that rejects a command-line flag exits within a second or two;
-  // a slower failure is about the AVD, not the flag.
   flagRejectMs: 8_000,
-  // Emulator console ports are even, 5554..5682 — the serial encodes the port.
   serialPattern: /^emulator-(\d+)$/
 };
 
-// Emulator/vendor components that log a known-harmless error every frame. On a
-// stock AVD `mapper.ranchu` alone is ~30% of all output, which buries whatever
-// the user is actually debugging. Dropped agent-side so it never costs
-// bandwidth; the UI can ask for it back with includeNoise.
-// How often the agent re-checks which devices are up, so the header button can
-// show whether anything is running. Cheap: one `adb devices` call, no per-device
-// shell. Only runs while a client is connected.
+// Filter out noisy emulator logcat tags that flood every frame.
 export const DEVICE_WATCH_MS = 4000;
 
 export const LOGCAT_NOISE_TAGS = [
-  // Emulator graphics stack — one line per buffer.
   "mapper.ranchu",
   "goldfish-address-space",
   "emuglGLESv2_enc",
   "GRALLOC-DEBUG",
-  // Framework feature-flag dump: ~40% of all output on a stock AVD, and never
-  // about the app being debugged.
   "AconfigPackage",
-  // The media codec that mirroring itself starts — noise this feature causes.
   "CCodec",
   "CCodecConfig",
   "CCodecBuffers",
@@ -108,75 +61,47 @@ export const LOGCAT_NOISE_TAGS = [
   "hw-BpHwBinder"
 ];
 
-// Logcat is a firehose; filter agent-side and cap what reaches the client.
-// Info and above. Verbose and Debug are two thirds of a stock device's output,
-// so defaulting to them would spend tunnel bandwidth on lines nobody reads.
 export const LOGCAT_DEFAULT_LEVEL = "I";
 
 export const LOGCAT = {
   maxLineLength: 2000,
-  batchMs: 250,          // coalesce lines into one message
+  batchMs: 250,
   maxBatchLines: 200,
-  backlogLines: 200      // lines of history a newly-opened panel receives
+  backlogLines: 200
 };
 
-// APKs land here before `adb install`; removed right after.
 export const APK_STAGE_DIR = "9remote-apk";
 export const APK_MAX_BYTES = 500 * 1024 * 1024;
 
-// Video preamble: 64B device name + 12B codec meta, plus an optional dummy byte.
 export const PREAMBLE_SIZE = 64 + 12 + 1;
 export const FRAME_HEADER_SIZE = 12;
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const MAX_READER_BUFFER_BYTES = 32 * 1024 * 1024;
 
-// App-level flow control. The WS tunnel accepts an emit long after the link is
-// saturated — socket.io just grows its writeBuffer — so "did the send succeed"
-// says nothing about whether the client can keep up. Without a window the pump
-// runs at encoder speed while the tunnel drains far slower, and the backlog
-// becomes tens of seconds of latency: the client waits forever for a frame that
-// is queued behind stale ones. Mirrors the tiles path, which already does this.
+// Frame flow control tunables.
 export const FLOW = {
-  // 4, not 2: the window caps throughput at ackWindow / rtt, and over a tunnel
-  // (~150ms round trip) a window of 2 measured 11fps against 19fps at 4 — felt
-  // as touch lag. 8 bought only 5% more, so 4 is where the encoder becomes the
-  // limit again rather than the window.
-  ackWindow: 4,          // frames in flight before the pump waits
-  // Tighter than the old 20ms: this is dead time added to every frame once the
-  // window is full, and at 20ms it was a tenth of the frame budget.
-  ackPollMs: 8,          // re-check interval while waiting
-  ackTimeoutMs: 1500,    // ack lost → assume dropped and resume, never deadlock
-  // Consecutive ack timeouts that mean nobody is watching any more: a client can
-  // vanish without sending mobile:stop (tab closed, reload, network drop), and
-  // the encoder would otherwise keep running for no one.
+  ackWindow: 4,
+  ackPollMs: 8,
+  ackTimeoutMs: 1500,
   deadAckLimit: 8,
-  pausePollMs: 200       // how often a paused pump re-checks for the viewer
+  pausePollMs: 200
 };
 
-// Adaptive bitrate. The client picks a frame size from its viewport, but only
-// the agent can see whether the link actually carries it: a tunnel that cannot
-// keep up leaves the encoder cramming every frame into a budget the wire never
-// delivers, which is what makes the picture fall apart. Measured from how long
-// frames sit unacknowledged, and applied by restarting the encoder — scrcpy
-// has no way to change bitrate on a live session.
+// Adaptive bitrate tunables based on frame ack latency.
 export const ADAPT = {
-  sampleWindowMs: 4000,     // how much history a decision is made on
-  minRestartGapMs: 15_000,  // never thrash the encoder
-  // Fraction of the ack window spent full before the link counts as congested.
+  sampleWindowMs: 4000,
+  minRestartGapMs: 15_000,
   congestedRatio: 0.5,
   healthyRatio: 0.1,
-  stepDown: 0.7,            // multiply size by this when congested
-  stepUp: 1.15,             // and creep back up when healthy
-  minScale: 0.35,           // never shrink below this fraction of the request
+  stepDown: 0.7,
+  stepUp: 1.15,
+  minScale: 0.35,
   maxScale: 1
 };
 
-// Access units ride the transport's ordered "file" channel, which caps a message
-// at the SCTP limit — so a keyframe is split across chunks and reassembled by
-// frameSeq on the client. See mobileFrame.js for the exact layout.
+// Video chunk size fitting SCTP limit on the file channel.
 export const VIDEO_CHUNK_PAYLOAD = 56 * 1024;
 
-// scrcpy control message type codes (v3).
 export const CONTROL_TYPE = {
   injectKeycode: 0,
   injectText: 1,
@@ -188,7 +113,6 @@ export const CONTROL_TYPE = {
 
 export const TOUCH_ACTION = { down: 0, up: 1, move: 2 };
 
-// Android KeyEvent codes for the hardware buttons the UI exposes.
 export const ANDROID_KEY = {
   home: 3,
   back: 4,
@@ -199,51 +123,21 @@ export const ANDROID_KEY = {
   volumeDown: 25
 };
 
-// Put the device to sleep the moment nobody is watching: a woken emulator idles
-// at ~17% host CPU, asleep at ~4%, and waking plus the first frame costs 625ms.
-// Cheap enough that there is no reason to wait.
-//
-// A hidden tab gets a grace period instead — flicking to another tab to copy a
-// link and back is seconds, and blanking the screen for that would be worse than
-// the CPU it saves.
 export const SLEEP_ON_HIDE_MS = 30_000;
-
-// Shut an AVD down after this long with no client connected at all. Sleeping
-// saves CPU but not memory — the VM keeps its RAM either way — so a machine
-// that has been left alone still needs the emulator gone. Only ever applies to
-// AVDs this agent started.
 export const IDLE_SHUTDOWN_MS = 30 * 60 * 1000;
 export const IDLE_CHECK_MS = 60_000;
 
 export const TEXT_MAX_BYTES = 300;
 export const TAP_HOLD_MS = 20;
-// Touch moves are injected at wall-clock spacing of at least this. The network
-// bunches them; injected back-to-back they inflate Android's velocity tracker
-// and a small swipe flings across the screen.
-// 16ms meant ~60 input messages a second while a finger moved, and each one is
-// a round trip over the control channel — enough to swamp a tunnel on its own.
-// 33ms halves that; Android interpolates between motion events anyway, so the
-// gesture still lands smoothly.
+// Min interval between touch moves to prevent swamping the channel and inflating velocity.
 export const MOVE_MIN_INTERVAL_MS = 33;
 
-// SDK setup — the agent can fetch Android tooling the host is missing, on an
-// explicit user click from the UI. URLs are Google's direct downloads; the zip
-// layouts already match the SDK root layout (platform-tools/, cmdline-tools/).
 export const SDK_SETUP = {
-  // Re-probe cadence for cached-null tool lookups: a just-finished install
-  // must be visible without an agent restart, but which/exists every poll of
-  // every device would be wasteful.
   reprobeMs: 30_000,
-  // A failed or cancelled download is discarded wholesale (tmp dir removed),
-  // so a truncated zip from a flaky tunnel never reaches the SDK root.
   downloadTimeoutMs: 30 * 60 * 1000,
-  // The emulator allocates ~7.3GB for a new AVD's userdata on first boot,
-  // regardless of profile or image. Rather than let it die at boot with no
-  // explanation, provisioning refuses early with the real numbers.
   minDiskBytes: Math.ceil(7372.8 * 1024 * 1024),
   components: {
     "platform-tools": {
-      // ~13MB zipped; unzips to ~25MB. Includes adb and fastboot.
       urls: {
         darwin: "https://dl.google.com/android/repository/platform-tools-latest-darwin.zip",
         win32: "https://dl.google.com/android/repository/platform-tools-latest-windows.zip",
@@ -251,9 +145,6 @@ export const SDK_SETUP = {
       }
     },
     "cmdline-tools": {
-      // ~150MB. The zip unpacks to cmdline-tools/ — relaid into
-      // cmdline-tools/latest/ after extract, which is the layout sdkmanager
-      // requires of itself.
       urls: {
         darwin: "https://dl.google.com/android/repository/commandlinetools-mac-11076708_latest.zip",
         win32: "https://dl.google.com/android/repository/commandlinetools-win-11076708_latest.zip",
@@ -263,14 +154,9 @@ export const SDK_SETUP = {
   }
 };
 
-// sdkmanager is a Java tool and needs JDK 17+. The JDK click installs a pinned
-// Temurin 17 build as a plain archive (no installer, no admin) under the SDK
-// root, so nothing outside it is touched.
 export const JDK_SETUP = {
   version: 17,
-  // Where the JDK lands under the SDK root when we install it ourselves.
   dirName: "jdk-17",
-  // Adoptium API: stable "latest GA" links per OS/arch, plain archives.
   urls: {
     darwinX64: "https://api.adoptium.net/v3/binary/latest/17/ga/mac/x64/jdk/hotspot/normal/eclipse",
     darwinArm64: "https://api.adoptium.net/v3/binary/latest/17/ga/mac/aarch64/jdk/hotspot/normal/eclipse",
@@ -279,9 +165,7 @@ export const JDK_SETUP = {
   }
 };
 
-// scrcpy's own scroll message: one 21-byte packet per scroll, versus the ~17
-// touch packets a simulated swipe needs. hscroll/vscroll are fixed-point i16
-// covering the range [-16, 16].
+// scrcpy scroll message range [-16, 16].
 export const SCROLL_RANGE = 16;
 export const SWIPE_MIN_MS = 80;
 export const SWIPE_STEP_MS = 16;

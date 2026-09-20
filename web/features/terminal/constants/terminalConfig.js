@@ -1,9 +1,4 @@
-// Terminal configuration constants
-
-// Common shell commands offered as inline suggestions (terminal only).
-// Curated from tldr-pages / Fig common CLIs. Ordered short→long within a family
-// so ranking surfaces the base command first, then longer variants as you type.
-// Destructive commands (rm -rf, kill -9, git reset --hard, killall) are omitted on purpose.
+// Common shell commands for inline suggestions (destructive commands omitted).
 export const COMMON_COMMANDS = [
   // git
   "git status", "git add .", "git commit -m \"\"", "git push", "git pull", "git fetch",
@@ -28,31 +23,18 @@ export const COMMON_COMMANDS = [
   "claude", "claude --continue", "claude --resume", "claude --dangerously-skip-permissions", "claude mcp", "codex", "codex --full-auto"
 ];
 
-// Layout breakpoints and sizing
-export const DESKTOP_BREAKPOINT = 760; // >= this: enable split-view mode (tablets + desktop)
-export const MOBILE_FONT_BREAKPOINT = 768; // < this: mobile font default (matches the CSS sm: breakpoint)
-// Desktop pane width: null = auto (panes split the row evenly down to min, then the row
-// scrolls); a dragged number pins every pane to that fixed width. Double-click returns to auto.
+export const DESKTOP_BREAKPOINT = 760;
+export const MOBILE_FONT_BREAKPOINT = 768;
 export const PANE_WIDTH = { min: 400, max: Infinity };
-// Gap between desktop panes (px) — 2px divider between panes.
 export const PANE_GAP_PX = 2;
-// Horizontal padding of the panes row (px) — matches the px-0 class on that row.
 export const PANE_ROW_PADDING_PX = 0;
-export const MAX_LIVE_PANES = 12; // Max mounted XTerm panes kept alive (LRU); caps RAM
+export const MAX_LIVE_PANES = 12;
 
-// Left sidebar (workspace + terminal list)
 export const SIDEBAR_WIDTH = { default: 190, min: 180, max: Infinity };
-
-// Right panel (file tree / git / worktrees)
 export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
-
-// Inline editor opened from the file tree.
 export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: Infinity };
 
-// Every button the user can hide, in one list so a single settings screen covers
-// both places they live. "header" ids share the hiddenHeaderButtons list; "pane"
-// ids each own a store flag. Update and Settings are deliberately absent: one is
-// a warning that must not be silenced, the other is the way back into this screen.
+// Buttons user can toggle in settings; Update and Settings are excluded.
 export const TOGGLEABLE_BUTTONS = [
   { id: "remote", labelKey: "menu.remoteDesktop", group: "header" },
   { id: "mobile", labelKey: "mobile.androidDevice", group: "header" },
@@ -62,59 +44,43 @@ export const TOGGLEABLE_BUTTONS = [
   { id: "note", labelKey: "menu.showNote", group: "pane", storeKey: "showNoteButton", setterKey: "setShowNoteButton" }
 ];
 
-// Group heading for each half of the list, in render order.
 export const BUTTON_GROUPS = [
   { group: "header", titleKey: "menu.headerButtons" },
   { group: "pane", titleKey: "menu.showButtons" }
 ];
 
-// Android mirror docked right. Narrower than the editor: a phone screen is tall
-// and thin, and below ~260px the UI stops being usable.
 export const MOBILE_PANEL_WIDTH = { default: 300, min: 240, max: Infinity };
 
-// Floating mirror window — the default on desktop, so the terminal keeps its
-// full width. Size is the box; position is where it sits in the viewport.
 export const MOBILE_FLOAT = {
   width: { default: 300, min: 240, max: 900 },
   height: { default: 620, min: 320 },
-  margin: 12,           // keep this much of the window on screen when dragging
-  defaultOffset: 24     // initial inset from the bottom-right corner
+  margin: 12,
+  defaultOffset: 24
 };
 
-// Artifacts the AI has shown, kept per terminal so hiding the app does not lose them.
 export const ARTIFACT_STACK_MAX = 20;
-
-// Branch + dirty poll for a workspace root. Shared per path, not per terminal.
 export const WORKSPACE_GIT_POLL_MS = 10000;
-
-// Nested-repo scan inside a workspace. Shallow by default so a folder full of reference
-// clones does not drown the repo being worked on; "scan deeper" switches to deepMaxDepth.
+// Nested-repo scan depth; shallow by default to avoid drowning active repo.
 export const REPO_SCAN = { maxDepth: 1, deepMaxDepth: 3, cacheTtlMs: 30000 };
 
-// Scrollback history fetch — join sends only JOIN_REPLAY_SIZE tail; older history
-// fetched on demand when user scrolls near top (primary buffer only).
 export const HISTORY_FETCH = {
-  topThresholdLines: 5,    // within N lines of buffer top → fetch older prefix
-  guardMs: 600,            // min interval between scroll-top fetches — short enough that deep scroll-up flows (2s made a 2MB buffer take ~30s to walk)
-  minFetchBytes: 256,      // skip fetch when fewer bytes remain — a few stray ANSI bytes aren't worth a full mirror reset+rewrite that yanks the viewport
-  // A chunk can carry nothing but redraws — the reader is still parked at the top with no new
-  // ground above them. Continue on its own, bounded, so they don't have to keep tugging.
-  chainMax: 3,             // max self-continued fetches per scroll-to-top gesture
-  chainDebounceMs: 300,    // pause before a self-continued fetch — a repaint is not a gesture
-  disabled: false          // global kill switch (e.g. alt-buffer apps)
+  topThresholdLines: 5,
+  guardMs: 600,
+  minFetchBytes: 256,
+  chainMax: 3,
+  chainDebounceMs: 300,
+  disabled: false
 };
 
-// Attachments pasted/attached into the terminal input, sent via OS clipboard on the host
-export const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024; // 5MB per attachment
-export const MAX_ATTACHMENTS = 5; // cap concurrent attachments per send
-export const CLIPBOARD_ATTACH_TIMEOUT = 3000; // ms; fallback if host ack never arrives
-export const CLIPBOARD_ATTACH_GAP = 150; // ms; let CLI read clipboard before next overwrite
-export const INPUT_ENTER_DELAY = 100; // ms; gap between text and Enter so PTY reliably receives both
-export const INPUT_MAX_HEIGHT_MOBILE = 101; // px; mobile textarea auto-grow cap (~4.2 rows)
-export const INPUT_MAX_HEIGHT_DESKTOP = 200; // px; desktop textarea auto-grow cap
+export const MAX_ATTACHMENT_SIZE = 5 * 1024 * 1024;
+export const MAX_ATTACHMENTS = 5;
+export const CLIPBOARD_ATTACH_TIMEOUT = 3000;
+export const CLIPBOARD_ATTACH_GAP = 150;
+export const INPUT_ENTER_DELAY = 100;
+export const INPUT_MAX_HEIGHT_MOBILE = 101;
+export const INPUT_MAX_HEIGHT_DESKTOP = 200;
 
-// Control keys sent straight to the terminal from the text input (ANSI codes, OS-agnostic).
-// Ctrl only (not Meta) so Cmd+C stays copy on macOS. requireNoSelection: skip when text is selected.
+// ANSI control keys sent from text input (Ctrl only so Cmd+C stays copy on macOS).
 export const INPUT_CONTROL_KEYS = {
   Escape: { data: "\x1b" },
   c: { ctrl: true, data: "\x03", requireNoSelection: true },
@@ -123,36 +89,23 @@ export const INPUT_CONTROL_KEYS = {
   l: { ctrl: true, data: "\x0c" }
 };
 
-// Coalesce terminalStore → localStorage writes. zustand's persist serializes the whole
-// partialized state on EVERY set(), so a drag or a keystroke would stringify + write
-// synchronously per event and block the main thread.
+// Debounce terminalStore localStorage writes to prevent main-thread blocking.
 export const PERSIST_DEBOUNCE_MS = 250;
 
-// Per-terminal folder/changed-files toolbar
-export const WATCH_DEBOUNCE_MS = 400; // Debounce gitStatus refresh on file changes
-export const MAX_CHANGED_BADGE = 999; // Cap changed-count badge; above shows "999+"
+export const WATCH_DEBOUNCE_MS = 400;
+export const MAX_CHANGED_BADGE = 999;
 
-// Note checklist: default suggestion chips — tapping one sends the chip text plus the
-// checklist (markdown) into the pane's terminal. User-added chips live in terminalStore.
 export const NOTE_SUGGESTIONS = ["check again", "continue", "summarize"];
 
-// The pinned strip and the modal are separate mounts of NotePanel, so an edit in one
-// is broadcast to the other (detail: {sessionId, items}) instead of re-reading the agent.
+// Syncs NotePanel state between pinned strip and modal mounts.
 export const NOTE_SYNC_EVENT = "terminal:noteSync";
 
-// Focus an already-open terminal by id (detail: {sessionId}). Same reach as the dock
-// click: the chat pane's history rows sit under several memoized layers that a
-// callback would have to be threaded through, and the listener is the one place
-// that already owns "open the terminal holding this session".
 export const OPEN_SESSION_EVENT = "terminal:openSession";
 
-// Mobile status strip: the right slot alternates between the cwd folder and the
-// running CLI's 5h quota, since a phone-width bar fits only one at a time.
 export const STRIP_ROTATE_MS = 5000;
 export const STRIP_FADE_MS = 250;
-export const STRIP_QUOTA_PIN_PCT = 90; // At/above this the quota page stops rotating away
+export const STRIP_QUOTA_PIN_PCT = 90;
 
-// XTerm.js default options
 export const TERMINAL_OPTIONS = {
   cursorBlink: true,
   fontSize: 12,
@@ -169,26 +122,18 @@ export const TERMINAL_OPTIONS = {
   macOptionIsMeta: true
 };
 
-// The font size the terminal actually renders at — settings value, else the
-// breakpoint default. Shared so the AI pane can match the terminal exactly.
 export function effectiveFontSize(fontSizeSetting) {
   if (fontSizeSetting != null) return fontSizeSetting;
   const mobile = typeof window !== "undefined" && window.innerWidth < MOBILE_FONT_BREAKPOINT;
   return mobile ? TERMINAL_OPTIONS.fontSizeMobile : TERMINAL_OPTIONS.fontSize;
 }
 
-// Mobile terminal background presets (image behind a semi-transparent terminal)
 export const TERMINAL_BG_ALPHA = 0.8;
-// Thumbnails in the pickers use a far lighter veil than the pane: at 0.8 every tile
-// reads as a black rectangle, which is useless for telling wallpapers apart.
 export const TERMINAL_BG_PREVIEW_ALPHA = 0.25;
-// Veil + screen-lift layers painted on the PANE (canvas stays fully transparent),
-// so text padding can't create a bright un-veiled frame. RGBA triplets for CSS.
 export const TERMINAL_BG_VEIL_RGB = "16,16,20";
 export const TERMINAL_BG_LIFT_RGB = "116,120,136";
 export const TERMINAL_BG_LIFT = 0.28;
 export const TERMINAL_BG_DARK = "#101014";
-// User-adjustable veil opacity range (null = TERMINAL_BG_ALPHA default)
 export const TERMINAL_BG_OPACITY = { min: 0.3, max: 0.95, step: 0.01 };
 export const TERMINAL_BACKGROUNDS = {
   none: { label: "None" },
@@ -205,47 +150,36 @@ export const TERMINAL_BACKGROUNDS = {
   art12: { label: "Anime 12", src: "/backgrounds/bg13.jpg" }
 };
 
-// When a background is active the canvas paints NOTHING (alpha 00) — the dim veil
-// lives on the pane's background layers instead. RGB is kept so minimumContrastRatio
-// still computes text contrast against the near-black it visually sits on.
+// Sets canvas background transparent so pane veil layers show through.
 export function applyTerminalBackground(xtermTheme, bgKey) {
   if (!xtermTheme || !bgKey || bgKey === "none") return xtermTheme;
   if (!TERMINAL_BACKGROUNDS[bgKey] && !String(bgKey).startsWith("custom")) return xtermTheme;
   return { ...xtermTheme, background: `${TERMINAL_BG_DARK}00` };
 }
 
-// Custom keys reference the agent-saved list: "custom" = legacy single file,
-// "custom:<id>" = a picked tile. Returns the list id or null.
 export function customBgId(bgKey) {
   if (bgKey === "custom") return "custom";
   return typeof bgKey === "string" && bgKey.startsWith("custom:") ? bgKey.slice(7) : null;
 }
 
-// Renderable src for a background key — custom keys pull from the agent-saved items.
 export function backgroundSrc(bgKey, customItems = []) {
   const id = customBgId(bgKey);
   if (id) return customItems.find((it) => it?.id === id)?.dataUrl || null;
   return TERMINAL_BACKGROUNDS[bgKey]?.src || null;
 }
 
-// Human label for any background key (menu row / sheet tiles).
 export function backgroundLabel(bgKey) {
   return TERMINAL_BACKGROUNDS[bgKey]?.label || (customBgId(bgKey) ? "Custom" : TERMINAL_BACKGROUNDS.none.label);
 }
 
-// An old agent never acks bg:list — fall back to legacy bg:get after this.
 export const BG_LIST_TIMEOUT_MS = 4000;
-// Old agents have no bg:save handler either — the ack never fires, so time it out.
 export const BG_SAVE_TIMEOUT_MS = 20000;
 
-// Pane i in display order renders pool[i % len] — empty pool means no background.
 export function paneBackgroundKey(keys, index) {
   if (!Array.isArray(keys) || keys.length === 0) return "none";
   return keys[index % keys.length] || "none";
 }
 
-// Drop pool keys that can't render — custom ids no longer in the agent-saved list
-// (deleted on another device / a lost ack) must not occupy a round-robin slot.
 export function resolvableBackgroundKeys(keys, customItems = []) {
   if (!Array.isArray(keys)) return [];
   return keys.filter((k) => {
@@ -255,133 +189,79 @@ export function resolvableBackgroundKeys(keys, customItems = []) {
   });
 }
 
-// Pane background: a per-session pick wins over the pool. Either can be dropped when
-// its custom image is gone, so the result is always a key that actually renders.
 export function resolvePaneBackground(sessionKey, poolKeys, customItems = [], index = 0) {
   const override = resolvableBackgroundKeys([sessionKey], customItems)[0];
   return override || paneBackgroundKey(resolvableBackgroundKeys(poolKeys, customItems), index);
 }
 
-// Renderer config (VS Code parity)
 export const RENDERER = {
-  gpuAcceleration: "auto",      // "auto" | "on" | "off"
-  smoothScrollDuration: 125     // ms, applied only for physical mouse wheel
+  gpuAcceleration: "auto",
+  smoothScrollDuration: 125
 };
 
-// Optional addons toggle
 export const ADDONS = {
-  clipboard: true,              // OSC52 clipboard (write-only — see useXTerm provider)
-  search: true,                 // search scrollback (findNext/findPrevious)
-  image: true                   // sixel/iTerm images (only when WebGL active)
+  clipboard: true,
+  search: true,
+  image: true
 };
 
-// Floor for emitting resize — below this the layout hasn't settled (app-resume
-// reconnect, soft-KB transition) and the shell would re-wrap scrollback to a
-// narrow width, permanently shrinking older output. Skip emit until cols/rows sane.
-// Cols is deliberately well above a "non-zero width" check: the narrowest genuine
-// container is a 320px phone (~37 cols) and a desktop pane can't go under
-// PANE_WIDTH.min = 400px (~47 cols), while a 10-col floor admits anything over
-// ~93px — so a pane measured mid-transition (panel sliding, soft keyboard, first
-// paint) passes it and locks the PTY narrow. Cols is one-way; there is no undo.
+// Floor for emitting resize to avoid locking PTY to an unsettled transition width.
 export const MIN_COLS = 30;
 export const MIN_ROWS = 2;
 
-// Debounce before force-refitting a freshly mounted pane whose size was under floor at
-// first fit (group-switch mount storm). Lets surrounding layout settle, then ResizeObserver
-// or this timer drives a settled resize that fires the deferred join at the right cols.
 export const SETTLE_DEBOUNCE_MS = 100;
-
-// Delay after orientationchange before force-refitting. Mobile rotate fires a storm of
-// ResizeObserver events with intermediate widths; fitting too early locks cols to a
-// mid-transition width → content renders narrower than the real (settled) container width.
-// PTY cols is one-way, so wait for the layout to truly settle before emitting.
+// Wait for mobile orientation change layout to settle before refitting PTY.
 export const ORIENTATION_SETTLE_MS = 600;
-
-// Resume recovery: a resume fires several triggers within ms (visibilitychange,
-// bus connect, pane focus). Debounce them into ONE peekSeq round-trip so a
-// single decision drives a single recovery.
+// Debounce resume triggers into a single peekSeq recovery round-trip.
 export const RECOVER_DEBOUNCE_MS = 150;
-
-// How long a peekSeq ack may take before recovery stops waiting on it. A zombie carrier
-// swallows the ack without ever firing a reconnect, and the single-flight guard would
-// then block every later recovery for the pane's lifetime.
 export const PEEK_TIMEOUT_MS = 4000;
-
-// Gap recovery (seq-based): how long the transfer may go SILENT — no ack, no new
-// chunk — before giving up and doing a full reset+rejoin. Re-armed on every chunk
-// that lands, so a long gap streams for as long as it makes progress. Live output
-// stays queued while it runs, so keep it short enough that a real stall is not
-// felt as a freeze.
 export const GAP_FETCH_TIMEOUT_MS = 3000;
-
-// Maximum wait for joinSession ack before giving up and clearing the spinner.
-// Prevents infinite spinner wedging if the carrier drops the ack mid-switch.
 export const JOIN_ACK_TIMEOUT_MS = 8000;
-
-// Detected TUI agent CLIs (new-terminal modal) — how long the client trusts the
-// cached detection before re-asking the agent to rescan PATH.
 export const AGENT_CLIS_TTL_MS = 60000;
-
-// Agent CLI conversation history, per cwd. Shorter than the CLI detection TTL:
-// a conversation started in the terminal above should show up soon after.
 export const AGENT_HISTORY_TTL_MS = 30000;
-// The history section scrolls inside its own box, so it lists plenty of rows and
-// lets the cap decide how many are on screen — a short "show more" list wastes
-// the scroll it already has. Height is a share of the sidebar, keeping the
-// session list above it the larger half.
 export const AGENT_HISTORY_ROWS = 40;
 export const AGENT_HISTORY_MAX_HEIGHT = "28%";
-
-// Delay before typing a queued agent-CLI startup command after the join ack —
-// lets the login shell reach its prompt so the TUI boots against a settled tty.
 export const STARTUP_CMD_DELAY_MS = 400;
 
-// Touch-scroll → TUI wheel (SGR mouse) when app uses alternate buffer
+// Touch-scroll to TUI SGR mouse wheel mapping for alternate buffer apps.
 export const TOUCH_SCROLL = {
-  lineHeight: 18, // px per line step
-  sensitivity: 1.0, // 1:1 finger-to-content drag
-  friction: 0.95, // inertia glide (~native iOS)
+  lineHeight: 18,
+  sensitivity: 1.0,
+  friction: 0.95,
   minVelocity: 0.3,
-  maxVelocity: 55, // cap inertia so a hard flick doesn't pile up SGR/render frames in TUI
-  wheelStepLines: 1, // max TUI wheel notches per scroll step
-  tuiThrottleMs: 50, // min interval between SGR wheel events (≈ PC wheel cadence)
-  momentumRenderCadenceMs: 33, // throttle scrollback repaint during inertia (~30fps)
-  tuiBackpressureTimeoutMs: 120, // safety: clear SGR backpressure flag even if TUI emits no output (opencode/lazygit)
+  maxVelocity: 55,
+  wheelStepLines: 1,
+  tuiThrottleMs: 50,
+  momentumRenderCadenceMs: 33,
+  tuiBackpressureTimeoutMs: 120,
   sgrUp: (x, y) => `\x1b[<64;${x};${y}M`,
   sgrDown: (x, y) => `\x1b[<65;${x};${y}M`
 };
 
-// Long-press to select text (mobile). Word under finger, drag to extend.
 export const TOUCH_SELECT = {
-  longPressMs: 450, // hold duration to enter select mode
-  moveTolerance: 10, // px finger jitter before it counts as scroll (cancels long-press)
-  wordChars: /[A-Za-z0-9._\-/~:@]/ // chars grouped as one "word"
+  longPressMs: 450,
+  moveTolerance: 10,
+  wordChars: /[A-Za-z0-9._\-/~:@]/
 };
 
-// Path-aware ghost suggestions: only query host when input matches a path-verb
-// regex, and only complete the partial arg. Cache listings client-side (TTL).
 export const PATH_SUGGEST = {
   verbs: ["cd", "ls", "ll", "cat", "less", "more", "head", "tail", "vim", "nvim", "nano", "bat", "code", "code-insiders", "rm", "cp", "mv", "mkdir", "touch", "chmod", "open", "grep"],
-  ttlMs: 5 * 60 * 1000, // dir listing cache lifetime
-  debounceMs: 120, // query throttle while typing
-  maxDirs: 20, // FIFO cap on cached dirs
-  maxResults: 8 // max entries shown in the path suggestion dropdown
+  ttlMs: 5 * 60 * 1000,
+  debounceMs: 120,
+  maxDirs: 20,
+  maxResults: 8
 };
 
-// Swipe-to-switch-tab thresholds (mobile)
 export const SWIPE_TAB = {
-  minDistance: 60, // px min horizontal travel
-  ratio: 1.5, // |dx| must exceed |dy| * ratio (horizontal intent)
-  maxDuration: 500 // ms max, faster = a swipe not a drag
+  minDistance: 60,
+  ratio: 1.5,
+  maxDuration: 500
 };
 
-// Real typing vs scroll/mouse: scroll in alt-screen apps emits arrow ESC seqs.
-// Treat data starting with ESC (0x1b) as non-typing so badges survive scrolling.
+// Treat ESC sequences as non-typing so badges survive scrolling in alt-screen apps.
 export const isUserTyping = (d) => !!d && d.charCodeAt(0) !== 0x1b;
 
-// Terminal report responses emitted automatically by xterm in response to escape queries
-// (DA1/DA2/DA3, CPR cursor position, DSR status, OSC responses). These must not leak to PTY
-// during history replay or when no program is actively awaiting them.
+// Escape response sequences emitted by xterm (must not leak to PTY).
 export const isTerminalReport = (d) => typeof d === "string" && (
   /^\x1b\[[?>=][0-9;]*c$/.test(d) ||
   /^\x1b\[[0-9]+;[0-9]+R$/.test(d) ||
@@ -389,13 +269,9 @@ export const isTerminalReport = (d) => typeof d === "string" && (
   /^\x1b\]\d+;/.test(d)
 );
 
-// macOS CMD key
 export const MAC_KEY = { label: "⌘", key: "Meta", modifier: true };
 
-// ── Key pool (shared customize) ────────────────────────────────────────────
-// Each key: { id, label, key, type }
-// type: "key" | "modifier" | "ctrl" | "arrow"
-// "ctrl" keys auto-apply Ctrl modifier on send.
+// Key pool for customizable terminal keyboard.
 export const TERMINAL_KEY_POOL = [
   // Modifiers
   { id: "ctrl", label: "Ctrl", key: "Ctrl", type: "modifier" },
@@ -457,16 +333,12 @@ export const TERMINAL_KEY_POOL = [
   { id: "underscore", label: "_", key: "_", type: "key" }
 ];
 
-// Default basic keys (main bar, always visible)
-// Note: "enter" is pinned separately next to the expand button, not included here.
 export const TERMINAL_DEFAULT_BASIC = [
   "esc", "up", "down", "ctrlC", "ctrl", "opt", "shift", "tab", "slash"
 ];
 
-// Pinned key id rendered fixed next to the expand button (not customizable)
 export const TERMINAL_PINNED_KEY_ID = "enter";
 
-// Default extended keys — fixed 3 rows, each scrolls horizontally
 export const TERMINAL_DEFAULT_EXTRA = [
   ["left", "right", "home", "end", "pgup", "pgdn", "del"],
   ["ctrlZ", "ctrlR", "ctrlL", "ctrlA", "ctrlE", "ctrlW", "ctrlD"],
@@ -474,10 +346,8 @@ export const TERMINAL_DEFAULT_EXTRA = [
 ];
 export const TERMINAL_EXTRA_ROW_COUNT = 3;
 
-// Keyboard button styles — aligned with Remote Desktop Btn visual language
 export const BUTTON_STYLES = {
   base: "flex items-center justify-center rounded-brand font-semibold transition-all duration-150 ease-out active:scale-[0.94]",
-  // Text size variants: long labels (Ctrl/Shift/PgUp...) use smaller text; single chars/icons keep normal size
   textNormal: "text-xs",
   textSmall: "text-[11px]",
   normal: "bg-surface-2 hover:bg-surface-3 text-text",
@@ -489,12 +359,9 @@ export const BUTTON_STYLES = {
   sizeSmall: { width: "28px", height: "28px" }
 };
 
-// Branches treated as "the workspace default" — never worth showing in the sidebar,
-// since a terminal sitting on main is the norm, not information.
 export const DEFAULT_BRANCHES = ["main", "master"];
 export const isDefaultBranch = (branch) => DEFAULT_BRANCHES.includes(branch);
 
-// Hover/focus tooltip for clipped labels (see shared/components/ui/OverflowTip.js)
 export const OVERFLOW_TIP = {
   DELAY_MS: 400,
   GAP_PX: 6,

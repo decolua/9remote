@@ -6,7 +6,7 @@ import { jsonOk, jsonErr } from "../lib/router.js";
 import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
 import { sendPushNotification } from "../features/terminal/pushManager.js";
-import { applyEvent, STATES, setConversationId, getConversation, requestAutoName } from "../features/terminal/statusManager.js";
+import { applyEvent, STATES, TYPE_TO_STATE, setConversationId, getConversation, requestAutoName, scheduleDoneCommit } from "../features/terminal/statusManager.js";
 import { sessionIdFromHookPayload, hookSessionIdKeys } from "../features/terminal/agentCatalog.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 import { onWorkerDone } from "../features/jarvis/jarvisWake.js";
@@ -56,16 +56,8 @@ export function handleNotifyGet(req, res, { query }) {
   jsonOk(res, { success: true });
 }
 
-function dispatchNotify(params) {
+function commitNotify(params, io, now) {
   const { type, sessionId, tool } = params;
-  const now = Date.now();
-  const io = getIO();
-  if (!io || !sessionId) return;
-
-  // The CLI's own conversation id — stored before the broadcast below carries it
-  const conversationId = conversationIdFrom(tool, params);
-  if (conversationId) setConversationId(sessionId, tool, conversationId, "hook");
-
   const notification = { type, sessionId, tool, timestamp: now };
 
   // State machine: applyEvent maps legacy type (stop/notification) and new (working/blocked/done).
@@ -96,4 +88,23 @@ function dispatchNotify(params) {
   pushLastTime[pushKey] = now;
 
   sendPushNotification({ ...notification, state });
+}
+
+function dispatchNotify(params) {
+  const { type, sessionId, tool } = params;
+  const now = Date.now();
+  const io = getIO();
+  if (!io || !sessionId) return;
+
+  // The CLI's own conversation id — stored before the broadcast below carries it
+  const conversationId = conversationIdFrom(tool, params);
+  if (conversationId) setConversationId(sessionId, tool, conversationId, "hook");
+
+  // A done waits out its debounce window so the next turn's first hook can
+  // cancel the flash; every other state commits now (and cancels it — applyEvent).
+  if (TYPE_TO_STATE[type] === STATES.DONE) {
+    scheduleDoneCommit(sessionId, () => commitNotify(params, io, Date.now()));
+    return;
+  }
+  commitNotify(params, io, now);
 }

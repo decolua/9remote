@@ -41,56 +41,39 @@ export const Composer = memo(function Composer({
 }) {
   const { t, locale } = useI18n();
   const hasKeyboard = useInputMode() === "mouse";
-  // Same chord the workspace shell already listens for (useGlobalShortcuts), so this is
-  // only the label — the tab switch itself needs no handler here.
   const tabHint = isMac() ? "Opt ←/→ · Opt 1…9 to switch tab" : "Ctrl+Shift+←/→ · 1…9 to switch tab";
   const engineConfig = getEngineConfig(engine);
   const CLAUDE_MODES = engineConfig.permissionModes;
   const SLASH_COMMANDS = engineConfig.slashCommands;
   const storeTurnRunning = useAiStore((s) => s.bySession[sessionId]?.isTurnRunning);
   const storeModel = useAiStore((s) => s.bySession[sessionId]?.metadata?.model);
-  // Models the host actually offers (its own CLI settings). The registry list is only
-  // a fallback for engines whose models are not host-specific.
   const hostModels = useAiStore((s) => s.bySession[sessionId]?.metadata?.modelOptions);
   const MODELS = hostModels?.length ? hostModels : engineConfig.models;
   const storeSkills = useAiStore((s) => s.bySession[sessionId]?.metadata?.skills) || EMPTY_ARRAY;
   const storeMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode);
-  // Reasoning tier beside the model: whichever name this engine publishes it under.
   const storeTier = useAiStore((s) => s.bySession[sessionId]?.metadata?.effort || s.bySession[sessionId]?.metadata?.variant);
-  // Before the host answers, the engine's own defaultMode is the truth.
   const permissionMode = storeMode || engineConfig.defaultMode;
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
   const rawModel = storeModel !== undefined ? storeModel : propModel;
 
   const [text, setText] = useState("");
-  // Messages sent while a turn is running. A list, not a single slot: sending a second
-  // one used to overwrite the first with no sign anything was lost.
-  //
-  // NOT persisted, deliberately: an item can carry a staged image as base64, and
-  // localStorage holds a few MB in total — one photo would fill it and the write would
-  // fail. Unsent text is worth keeping, but not at the cost of the draft mechanism itself.
+  // Queue of messages sent while turn is running (unpersisted to avoid storage quota).
   const [queue, setQueue] = useState(EMPTY_ARRAY);
   const [historyIdx, setHistoryIdx] = useState(-1);
-  // Whatever was in the box before the first ArrowUp — ArrowDown past the newest entry
-  // gives it back instead of wiping the box.
   const draftRef = useRef("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuType, setMenuType] = useState(null); // "/" or "@"
   const [menuFilter, setMenuFilter] = useState("");
   const [menuItems, setMenuItems] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
-  // The slash command whose second-level option list is open (e.g. /effort)
   const [submenuCmd, setSubmenuCmd] = useState(null);
-  // Keyboard-highlighted row in the prompt-history dropdown (-1 = none). Tab cycles.
   const [suggestActive, setSuggestActive] = useState(-1);
 
   const addCommand = useAiHistoryStore((s) => s.addCommand);
   const resolveAlias = useAiHistoryStore((s) => s.resolveAlias);
   const promptHistory = useAiHistoryStore((s) => s.history);
   const pinnedPrompts = useAiHistoryStore((s) => s.pinned);
-  // No commonCommands: an agent composer suggests past prompts and pinned snippets,
-  // not shell commands — those only make sense inside a terminal.
   const suggestItems = useMemo(
     () => (menuOpen ? [] : pickCommandItems(text, promptHistory, pinnedPrompts, [], !hasKeyboard)),
     [text, promptHistory, pinnedPrompts, hasKeyboard, menuOpen]
@@ -101,16 +84,12 @@ export const Composer = memo(function Composer({
   const [historyOpen, setHistoryOpen] = useState(false);
   const modelMenuRef = useRef(null);
 
-  // Staged files/images, held as base64 until send then handed to the host, which
-  // writes them where the CLI can read them. `bus` is unused by the hook on this
-  // path (that is the terminal's clipboard route) but it is what it is built around.
+  // Staged attachments held as base64 until send.
   const {
     attachments, setAttachments,
     removeAttachment, handleFileUpload, handleAttachPaste
   } = useAttachments({ bus: useConnectionStore((s) => s.bus), sessionId });
 
-  // Voice dictation language: persisted, defaults to the UI locale. Set in the
-  // voice settings modal (Plugins → Voice input).
   const [voiceLang] = useVoiceLang(locale);
   const voice = useVoiceInput({
     lang: localeToSpeechLang(voiceLang),
@@ -161,19 +140,11 @@ export const Composer = memo(function Composer({
   const justSentRef = useRef(0);
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
 
-  // Focus the box whenever this pane becomes the active one — switching tabs is how you
-  // get here to type, and a running turn is exactly when a prompt gets queued. Keyed on
-  // focus/modal only, never on the turn: a turn edge must not yank focus back from
-  // wherever the user moved it. Never while a modal is open — that would drag focus
-  // back out of the modal panel.
+  // Auto-focus input on desktop when pane becomes active.
   useEffect(() => {
-    // Desktop only: on touch devices an auto-focus here pops the soft keyboard mid-panes-creation
-    // and WebKit shoves the fixed layout around (terminals never auto-focus on mobile either).
-    // preventScroll: stops the first-mount scroll-into-view snap on desktop.
     if (isFocused && !modalOpen && hasKeyboard) textareaRef.current?.focus({ preventScroll: true });
   }, [isFocused, modalOpen, hasKeyboard]);
 
-  // Auto-close the model popover on outside click
   useEffect(() => {
     const onClick = (e) => {
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {
@@ -185,7 +156,6 @@ export const Composer = memo(function Composer({
     return () => document.removeEventListener("mousedown", onClick);
   }, []);
 
-  // Close model/tier popovers if a turn starts running
   useEffect(() => {
     if (isTurnRunning) {
       setModelMenuOpen(false);
@@ -193,7 +163,6 @@ export const Composer = memo(function Composer({
     }
   }, [isTurnRunning]);
 
-  // Autosize textarea — lower minimum height for a compact input
   useEffect(() => {
     const el = textareaRef.current;
     if (!el) return;
@@ -202,7 +171,6 @@ export const Composer = memo(function Composer({
     el.style.height = `${Math.max(nextH, 26)}px`;
   }, [text]);
 
-  // Keep active autocomplete item scrolled into view
   useEffect(() => {
     if (!menuOpen || !menuContainerRef.current) return;
     const items = menuContainerRef.current.querySelectorAll("[data-menu-item]");
@@ -212,8 +180,7 @@ export const Composer = memo(function Composer({
     }
   }, [selectedIdx, menuOpen]);
 
-  // Load draft on session change. The queue and staged attachments are per-conversation
-  // too: leaving them behind would dispatch another session's messages and files on send.
+  // Reset queue, attachments, and restore draft on session change.
   useEffect(() => {
     if (!sessionId) return;
     setQueue(EMPTY_ARRAY);
@@ -223,7 +190,6 @@ export const Composer = memo(function Composer({
     } catch {}
   }, [sessionId, setAttachments]);
 
-  // Save draft debounced
   useEffect(() => {
     if (!sessionId) return;
     const timer = setTimeout(() => {
@@ -235,12 +201,8 @@ export const Composer = memo(function Composer({
     return () => clearTimeout(timer);
   }, [text, sessionId]);
 
-  // Check trigger token for Autocomplete menu
   useEffect(() => {
-    // While a submenu is open it owns the popup. Picking a command sets the text to
-    // "/effort ", which would otherwise re-enter this effect and close the submenu
-    // before the user can pick — so keep it open as long as the text still ends in
-    // that command, and close it once the user types something else.
+    // Keep submenu open while text ends in the triggering command.
     if (submenuCmd) {
       const escaped = submenuCmd.name.replace(/[/@]/g, "\\$&");
       if (new RegExp(`(?:^|\\s)${escaped}\\s*$`).test(text)) return;
@@ -309,14 +271,8 @@ export const Composer = memo(function Composer({
 
   const executeSend = useCallback((overrideText) => {
     const raw = typeof overrideText === "string" ? overrideText : (textareaRef.current ? textareaRef.current.value : text);
-    // A bare snippet alias expands to its prompt before anything reads the text —
-    // history, the shell branch and the host must all see the prompt, not the alias.
     const trimmed = resolveAlias((raw || text).trim());
-    // Read the staged files live, not from this render's closure: the send button's
-    // own re-render does not update a memoized callback, so a file picked right
-    // before Send was silently dropped.
     const pending = attachmentsRef.current;
-    // An attachment with no caption is still a message — a picture needs no words.
     if (!trimmed && pending.length === 0) return;
     const now = Date.now();
     if (now - lastSendTimeRef.current < 250) return;
@@ -325,7 +281,6 @@ export const Composer = memo(function Composer({
 
     vibrate();
     if (trimmed) {
-      // Suggested prompts only, never a shell command the user ran with "!".
       if (!trimmed.startsWith("!")) addCommand(trimmed);
     }
     setHistoryIdx(-1);
@@ -336,44 +291,28 @@ export const Composer = memo(function Composer({
     }
     try { localStorage.removeItem(`9remote_draft_${sessionId}`); } catch {}
 
-    // A shell command is text-only — attachments would have nowhere to go, and the
-    // box must not be cleared for one the user is still composing.
     if (trimmed.startsWith("!")) {
       if (!pending.length) onRunShell?.(trimmed.slice(1).trim());
       return;
     }
 
-    // Typing a new message over an open gate IS the answer: the user moved on. Denied
-    // first, so the CLI does not sit waiting for a card this message is about to push
-    // out of the way — that wait is what used to end two minutes later with the
-    // watchdog killing the turn.
+    // Auto-skip active permission gate when typing a new message.
     const gate = useAiStore.getState().bySession[sessionId]?.activePermission;
     if (gate) onResolvePermission?.(gate.requestId, SKIP_BEHAVIOR, SKIP_MESSAGE);
 
-    // Turn state read live, not from this render's closure — a memoized callback
-    // would otherwise queue a prompt for a turn that has already ended.
     if (useAiStore.getState().bySession[sessionId]?.isTurnRunning) {
-      // Attachments ride with the item: staged files belong to the message that was
-      // being typed, not to whatever gets composed next.
       setQueue((q) => [...q, { id: `q-${now}`, text: trimmed, attachments: pending }]);
       setAttachments([]);
       return;
     }
 
     if (pending.length) setAttachments([]);
-    // Send only what the host needs; the terminal's `name`/`size` fields are for its
-    // own chips, and the resume path never sees them.
     onSend?.(trimmed, {
       attachments: pending.map(({ name, type, content }) => ({ filename: name, type, content }))
     });
   }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias, setQueue]);
 
-  // Dispatch one item that has ALREADY been decided: it sat in the queue because a turn
-  // was running, and now it is its turn to go. No `force` — this is reached from the
-  // falling edge below, so the store has genuinely moved on and the running guard passes
-  // on its own. Forcing it would let a prompt start before the previous turn's `stopped`
-  // had been applied, and that event measures its span from the CURRENT turn's start mark:
-  // the new prompt reset it a moment earlier, so the old turn summarised as "Worked for 0s".
+  // Dispatch next queued message after previous turn ends.
   const dispatchQueued = useCallback((item) => {
     if (item.text.startsWith("!")) {
       onRunShell?.(item.text.slice(1).trim());
@@ -383,9 +322,7 @@ export const Composer = memo(function Composer({
     onSend?.(item.text, files.length ? { attachments: files } : undefined);
   }, [onSend, onRunShell]);
 
-  // A turn ended: take exactly ONE item off the queue. Keyed on the running→idle edge
-  // only — with `queue` in the deps the effect re-ran on its own setQueue, draining the
-  // whole list in a single tick while the host still refused every prompt but the first.
+  // Dispatch one queued item on transition from running to idle.
   const queueRef = useRef(queue);
   useEffect(() => { queueRef.current = queue; }, [queue]);
   const prevRunningRef = useRef(isTurnRunning);
@@ -398,44 +335,31 @@ export const Composer = memo(function Composer({
     dispatchQueued(next);
   }, [isTurnRunning, dispatchQueued, setQueue]);
 
-  // Stop the turn. The queue is NOT drained here: the item goes out when the host says the
-  // turn ended (the falling edge above), which is also what the previous turn's `turnMs`
-  // rides on. Dispatching from this handler started the next prompt before that number
-  // arrived, and it was then measured against the new turn's start mark — "Worked for 0s"
-  // over a turn that had run for minutes.
   const handleStopClick = useCallback(() => {
     vibrate();
     onStop?.();
   }, [onStop]);
 
-  // Dispatch a picked slash command by its declared action. The action lives in
-  // the engine registry, so this switch never needs an engine-specific branch.
   const runSlashAction = useCallback((item) => {
     const action = item.action || "send";
     const [kind, arg] = action.split(":");
 
     if (kind === "modal") {
-      // End any in-flight composition here, not in the modal's own autoFocus target.
       textareaRef.current?.blur();
       onOpenModal?.(arg);
       return;
     }
     if (kind === "clear") {
-      // Host-side reset — works mid-turn, so it is not dropped by the running guard.
       onSend?.("/clear", { force: true });
       setText("");
       return;
     }
     if (kind === "setMode") {
-      // A command that switches the session's mode (codex `/plan`); the mode lives in
-      // the engine's permission list, so this never needs an engine-specific branch.
       onModeChange?.(item.mode);
       setText("");
       return;
     }
     if (kind === "send" || action === "send") {
-      // CLI-owned command (e.g. /compact, /review). Mid-turn it would be dropped by
-      // the running guard, so queue it the same way a normal prompt is queued.
       if (isTurnRunning) {
         setQueue((q) => [...q, { id: `q-${Date.now()}`, text: item.name, attachments: EMPTY_ARRAY }]);
         setText("");
@@ -445,7 +369,6 @@ export const Composer = memo(function Composer({
       setText("");
       return;
     }
-    // Unknown/local action → leave the token in the box for the user to complete.
     textareaRef.current?.focus();
   }, [onOpenModal, onSend, isTurnRunning, onModeChange, setQueue]);
 
@@ -456,14 +379,8 @@ export const Composer = memo(function Composer({
 
     const token = lastWordMatch[1];
     const prefix = text.slice(0, text.length - token.length);
-    // A modal command is an action, not text: writing the token into the box first
-    // would flash it and leave it behind when the modal closes. Only the token goes —
-    // anything typed before it is the user's draft and stays.
     const opensModal = menuType === "/" && item.action?.startsWith("modal:");
     const replacement = menuType === "@" ? `@${item.name} ` : `${item.name} `;
-    // A submenu keeps its token in the box: the effect above holds the submenu open
-    // only while the text still ends in that command, so clearing it would close the
-    // list the user just opened. The text is cleared when an option is picked.
     setText(opensModal ? prefix : `${prefix}${replacement}`);
     setMenuOpen(false);
 
@@ -471,7 +388,6 @@ export const Composer = memo(function Composer({
       textareaRef.current?.focus();
       return;
     }
-    // A submenu command opens a second-level list instead of dispatching.
     if (item.action === "submenu" && Array.isArray(item.subOptions) && item.subOptions.length > 0) {
       if (isTurnRunning && (item.optionKey === "effort" || item.optionKey === "variant")) {
         setText("");
@@ -485,7 +401,6 @@ export const Composer = memo(function Composer({
     runSlashAction(item);
   }, [text, menuType, runSlashAction]);
 
-  // Pick a value from a submenu (e.g. an effort level) and apply it to the session.
   const selectSubOption = useCallback((option) => {
     vibrate();
     const cmd = submenuCmd;
@@ -497,8 +412,6 @@ export const Composer = memo(function Composer({
     textareaRef.current?.focus();
   }, [submenuCmd, onOptionChange]);
 
-  // Picking a suggested prompt replaces the word being typed, it does not send it —
-  // the user still gets to edit and press Enter themselves.
   const selectSuggestion = useCallback((cmd) => {
     vibrate();
     const lastWordMatch = /(?:^|\s)(\S*)$/.exec(text);
@@ -509,19 +422,12 @@ export const Composer = memo(function Composer({
   }, [text]);
 
   const handleKeyDown = (e) => {
-    // A modal above owns the keyboard: the composer keeps focus underneath, so an
-    // unguarded Escape would stop the turn and Enter would send a prompt.
     if (modalOpen) return;
-    // Mid-composition keys belong to the IME. On a phone Enter is also the key that
-    // commits the word being typed, so acting on it opens a modal with the composition
-    // still open — and the word lands in whatever the modal focuses (its search box).
     if (e.nativeEvent?.isComposing || e.keyCode === 229) return;
 
     // Shift+Tab: cycle permission modes (matching Claude Code CLI)
     if (e.shiftKey && e.key === "Tab") {
       e.preventDefault();
-      // The pane's container handler is a fallback for focus outside the composer;
-      // without this the event bubbles and the mode advances twice per press.
       e.stopPropagation();
       vibrate();
       const modes = CLAUDE_MODES || [];
@@ -561,7 +467,6 @@ export const Composer = memo(function Composer({
       }
     }
 
-    // Submenu option navigation
     if (submenuCmd) {
       const opts = submenuCmd.subOptions || [];
       if (e.key === "ArrowDown") {
@@ -581,7 +486,6 @@ export const Composer = memo(function Composer({
       }
     }
 
-    // Autocomplete navigation
     if (menuOpen && menuItems.length > 0) {
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -600,8 +504,6 @@ export const Composer = memo(function Composer({
       }
     }
 
-    // Prompt-history suggestions: Tab cycles, Enter replaces the trailing word with
-    // the picked prompt. Sits after the slash/at menu so those keep priority.
     if (suggestItems.length > 0) {
       const activeIdx = suggestActive < 0 ? -1 : ((suggestActive % suggestItems.length) + suggestItems.length) % suggestItems.length;
       if (e.key === "Tab" && !e.shiftKey) {
@@ -616,9 +518,6 @@ export const Composer = memo(function Composer({
       }
     }
 
-    // History traversal, newest-first (index 0 is the most recent prompt). Arrow keys
-    // only reach history from the box's edge — inside a multi-line draft they still
-    // move the caret, which is what every shell does.
     const el = textareaRef.current;
     const caret = el?.selectionStart ?? 0;
     const value = el?.value ?? "";
@@ -647,9 +546,6 @@ export const Composer = memo(function Composer({
       return;
     }
 
-    // Enter sends on a physical keyboard; on touch it inserts a newline, because a
-    // phone's Enter key is how you start the next line and there is a Send button
-    // right there. Cmd/Ctrl+Enter is the shortcut that sends either way.
     if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
       e.preventDefault();
       executeSend();
@@ -661,11 +557,7 @@ export const Composer = memo(function Composer({
     }
   };
 
-  // The raw id is what the CLI reports and what `--model` must receive — `[1m]` picks
-  // the 1M-context variant, so it is never stripped from the value that goes back.
-  // Matching is looser than equality on purpose: the host catalog lists bare slugs
-  // (`gpt-5.6-luna`) while the config may run a gateway id for the same model
-  // (`cx/gpt-5.6-luna`), and an exact compare left the tier picker with nothing to show.
+  // Match model IDs allowing for provider prefixes and context suffixes.
   const modelKey = (id) => String(id || "").toLowerCase().replace(/\[[^\]]*\]$/, "");
   const matchedModel = useMemo(() => {
     if (!rawModel) return null;
@@ -677,17 +569,10 @@ export const Composer = memo(function Composer({
       || null;
   }, [rawModel, MODELS]);
 
-  // `short` is the real id for host slot models; the alias label is the no-custom fallback.
   const displayModel = matchedModel?.short || matchedModel?.label || rawModel || "Model";
 
-  // The reasoning tier the CLI is actually running with. Engines name this field
-  // differently (claude/codex say effort, opencode says variant) and some have none at
-  // all (antigravity folds the tier into the model id) — so the chip is simply absent
-  // when there is nothing to say, never a placeholder.
   const displayTier = storeTier || engineConfig.defaultEffort || "";
 
-  // The running model may not be in the host's list (set from another surface, or a
-  // settings change since) — show it anyway rather than pretending another is active.
   const allModels = useMemo(() => {
     const list = [...(MODELS || [])];
     if (rawModel && !list.some((m) => m.id === rawModel)) {
@@ -696,11 +581,6 @@ export const Composer = memo(function Composer({
     return list;
   }, [MODELS, rawModel]);
 
-  // The tiers beside the model, picked in their own popover. The engine's submenu names
-  // the option key to send them under (claude/codex say effort, opencode says variant)
-  // and carries a fallback ladder. The running model's OWN tiers win when the host
-  // catalog has them: they differ per model (luna takes `max`, 5.5 stops at `xhigh`),
-  // and offering a level the model rejects fails the next turn.
   const tierSpec = useMemo(
     () => (SLASH_COMMANDS || []).find((c) => c.action === "submenu" && (c.optionKey === "effort" || c.optionKey === "variant")),
     [SLASH_COMMANDS]
@@ -802,8 +682,7 @@ export const Composer = memo(function Composer({
         </div>
       )}
 
-      {/* Queued messages. Each one goes on its own when the turn that is running ends;
-          Send promotes it to the head instead of waiting its turn. */}
+      {/* Queued messages */}
       {queue.length > 0 && (
         <div className="mb-1 space-y-0.5">
           {queue.map((item, idx) => (
@@ -828,8 +707,6 @@ export const Composer = memo(function Composer({
                   type="button"
                   onClick={() => {
                     vibrate();
-                    // The head is already next, so "send" there means now: stop the turn
-                    // and hand it over. Deeper items just move up.
                     if (idx === 0) { handleStopClick(); return; }
                     setQueue((q) => [item, ...q.filter((x) => x.id !== item.id)]);
                   }}
@@ -852,12 +729,9 @@ export const Composer = memo(function Composer({
         </div>
       )}
 
-      {/* Voice Waveform & Action Pill */}
       <VoicePill voice={voice} onDone={handleVoiceDone} onCancel={handleVoiceCancel} className="mb-1.5" />
 
-      {/* Main Composer Box — Transparent, compact height */}
       <div className="relative rounded-brand border border-border-subtle/80 bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
-        {/* Staged attachments — image thumbnails, or a name chip for other files */}
         {attachments.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scroll-thin-x pt-0.5">
             {attachments.map((att) => (
@@ -896,8 +770,6 @@ export const Composer = memo(function Composer({
           onSelect={selectSuggestion}
         />
 
-        {/* Textarea and clear button share a row: absolute-positioning the X on top of
-            the text meant a long first line ran underneath it. */}
         <div className="flex items-start gap-1">
           <textarea
             ref={textareaRef}
@@ -931,8 +803,6 @@ export const Composer = memo(function Composer({
             className="ai-conversation ai-composer-input flex-1 min-w-0 bg-transparent resize-none text-xs text-text placeholder-text-muted focus:outline-none custom-scrollbar leading-snug min-h-[24px]"
           />
 
-          {/* Wipe the draft without sending it, and only while there is one — an empty
-              box shows the history door in this slot instead. */}
           {text.trim().length > 0 ? (
             <button
               type="button"
@@ -957,7 +827,6 @@ export const Composer = memo(function Composer({
         {/* Action strip: Model selector, Mode selector & Send button */}
         <div className="relative flex items-center justify-between text-xs pt-0.5 border-t border-border-subtle/30">
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
-            {/* Model Selector Dropdown */}
             <div ref={modelMenuRef} className="relative min-w-0 flex items-center gap-1">
               <button
                 type="button"
@@ -967,8 +836,6 @@ export const Composer = memo(function Composer({
                 title={isTurnRunning ? "Cannot change model while turn is running" : "Select model (/model)"}
               >
                 <img src={agentIconUrl(`${engine}-ui`)} alt="" className={`w-3.5 h-3.5 object-contain shrink-0 ${AGENT_ICON_CLS}`} />
-                {/* dir=rtl keeps the tail visible when the id is too long, so the
-                    version suffix (the part that distinguishes models) survives. */}
                 <span dir="rtl" className="truncate min-w-0"><bdi>{displayModel}</bdi></span>
                 <ChevronUp size={11} className={`text-text-muted shrink-0 transition-transform ${modelMenuOpen ? "" : "rotate-180"}`} />
               </button>
@@ -1009,8 +876,6 @@ export const Composer = memo(function Composer({
                 </div>
               )}
 
-              {/* Reasoning tier — its own button, so picking a level no longer costs a
-                  trip through the model list. No background: it is a word, not a badge. */}
               {tierOptions.length > 0 && (
                 <>
                   <button
@@ -1060,7 +925,6 @@ export const Composer = memo(function Composer({
           </div>
 
           <div className="flex items-center gap-1.5 shrink-0 pl-1.5">
-            {/* Attach a file or image — the host stages it where the CLI can read it */}
             <label
               className="p-1.5 rounded text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer flex items-center justify-center"
               title="Attach file or image"
@@ -1069,7 +933,6 @@ export const Composer = memo(function Composer({
               <input type="file" multiple onChange={handleFileUpload} className="hidden" accept="*/*" />
             </label>
 
-            {/* Dictate into the box, same engine the terminal input uses */}
             {voice.active && (
               <button
                 type="button"
@@ -1126,8 +989,6 @@ export const Composer = memo(function Composer({
         </div>
       </div>
 
-      {/* Prompt history — the same modal the terminal uses, on the AI store so it
-          lists prompts and pinned snippets rather than shell commands. */}
       <CommandHistoryModal
         isOpen={historyOpen}
         store={useAiHistoryStore}

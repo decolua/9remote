@@ -38,7 +38,7 @@ for b in "\${BROWSERS[@]}"; do
   fi
 done
 
-osascript -e 'display alert "${cfg.appName}" message "Cần cài Google Chrome, Edge, Brave hoặc Chromium để chạy ứng dụng này." as critical'
+osascript -e 'display alert "${cfg.appName}" message "Install Google Chrome, Edge, Brave, or Chromium to run this app." as critical'
 exit 1
 `;
 

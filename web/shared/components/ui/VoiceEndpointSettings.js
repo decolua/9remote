@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Mic, X } from "@/shared/components/ui/Icon";
+import { Mic, X, ExternalLink } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
@@ -159,7 +159,12 @@ function VoiceConfigModal({ onClose }) {
 
           {preset === "gemini" && (
             <div>
-              <div className="text-xs font-semibold text-text mb-1">API keys — one per line, rotated per request</div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-text">API keys — one per line</span>
+                <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-brand-500 hover:text-brand-400 hover:underline transition-colors">
+                  AI Studio <ExternalLink size={10} />
+                </a>
+              </div>
               <textarea
                 rows={3}
                 value={store.geminiKeys.join("\n")}
@@ -172,7 +177,12 @@ function VoiceConfigModal({ onClose }) {
           )}
           {preset === "openrouter" && (
             <div>
-              <div className="text-xs font-semibold text-text mb-1">API key</div>
+              <div className="flex items-center justify-between mb-1">
+                <span className="text-xs font-semibold text-text">API key</span>
+                <a href="https://openrouter.ai/settings/keys" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-brand-500 hover:text-brand-400 hover:underline transition-colors">
+                  OpenRouter <ExternalLink size={10} />
+                </a>
+              </div>
               <input
                 type="password"
                 value={store.openrouterKey}

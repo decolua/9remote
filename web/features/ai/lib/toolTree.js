@@ -63,8 +63,10 @@ function scanRunningRows(messages = []) {
   const walk = (tools) => {
     for (const t of tools || []) {
       if (t?.status === "running") {
-        if (LAUNCH_TOOLS.has(t?.name)) out.push({ kind: "agent", id: t.id, label: agentLabel(t) });
-        else if (t?.async) out.push({ kind: "shell", id: t.id, label: shellLabel(t) });
+        const startedAt = t.startedAt || t.timestamp;
+        const extra = startedAt ? { startedAt } : null;
+        if (LAUNCH_TOOLS.has(t?.name)) out.push({ kind: "agent", id: t.id, label: agentLabel(t), ...extra });
+        else if (t?.async) out.push({ kind: "shell", id: t.id, label: shellLabel(t), ...extra });
       }
       if (t?.children?.length) walk(t.children);
     }

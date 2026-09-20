@@ -10,17 +10,11 @@ import { sameList } from "@/shared/utils/shallowEqual";
 import { termLog } from "@/shared/utils/termLog";
 import { debugLog } from "@/shared/utils/debugLog";
 
-// Resume on mobile triggers several list-refresh paths within a few ms; this
-// window collapses them into one round-trip.
+// Mobile resume collapses multiple list-refresh triggers into one round-trip.
 const FETCH_COALESCE_MS = 120;
-// The two carriers (RTC, then WS ~200ms later) each announce terminal:ready, and the
-// resume/retry effects fire alongside them. Past the coalesce window they still describe
-// the SAME load, so a fetch this soon after the last one is dropped rather than repeated.
-// CRUD refreshes pass force and ignore this.
+// Drop duplicate list fetches across carriers (RTC then WS) within freshness window.
 const FETCH_FRESH_MS = 1000;
 
-// The agent-facing hook: owns the transport bus and every agent event the
-// workspace reacts to (sessions, workspaces, approval, agent version).
 export function useAgentBus() {
   const [sessions, setSessions] = useState([]);
   const [workspaces, setWorkspaces] = useState([]);
@@ -33,20 +27,11 @@ export function useAgentBus() {
   const [updateAvailable, setUpdateAvailable] = useState(null);
   const [canSelfUpdate, setCanSelfUpdate] = useState(false);
   const [approvalStatus, setApprovalStatus] = useState(null); // null | APPROVAL_STATUS
-  // A carrier being open is not the same as the agent having let us in: the
-  // TAIL is proven after the bus connects, so there is a window where we are
-  // "connected" but not admitted. Sticky for the page's lifetime — a later
-  // carrier flap must not re-gate a session the agent already accepted.
+  // Sticky admission flag: carrier connection precedes TAIL proof.
   const [admitted, setAdmitted] = useState(false);
   const { getAuth } = useSessionStorage();
 
-  // Approval arrives on TWO independent carriers — socket.io device:* events
-  // and the DO signaling relay (which answers before any bus exists). Both
-  // funnel through here so the verdict follows one set of rules instead of
-  // whichever path happened to fire last.
-  //   pending/rejected  = a policy answer from the host; only the host changes it
-  //   approved          = terminal for this session
-  //   carrier-reconnect = NOT an answer, must never clear a standing verdict
+  // Unified handler for device approval arriving from either socket.io or DO signaling relay.
   const applyApproval = useCallback((next) => {
     setApprovalStatus((prev) => {
       // Updater stays pure — the arrival log lives outside (StrictMode double-invokes updaters).
@@ -73,28 +58,22 @@ export function useAgentBus() {
     }
   }, [getAuth]);
 
-  // Handle disconnect - mark codespace as disconnected
   const handleDisconnect = useCallback((reason) => {
     if (codespaceInfo?.isCodespaces) {
       setCodespaceDisconnected(true);
     }
   }, [codespaceInfo]);
 
-  // Handle codespace stopping event - server is about to shut down
   const [codespaceStopping, setCodespaceStopping] = useState(false);
   const handleCodespaceStopping = useCallback(() => {
     setCodespaceStopping(true);
   }, []);
 
-  // Ref to the disconnect function from useBus (set below).
-  // Needed here because bus.on("device:rejected") must call it, but it's defined after.
+  // Ref to disconnect function from useBus needed before its definition.
   const disconnectRef = useRef(null);
 
-  // Whether each list has ever received a response — gates the retry below.
-  // An empty [] response counts; only lost packets keep retrying.
+  // Track whether lists have loaded (empty array counts as loaded).
   const loadedRef = useRef({ sessions: false, workspaces: false });
-  // "Both lists answered" is asked from three places (the two reset sites, the
-  // freshness guard, the retry loop) — one definition so they cannot disagree.
   const bothLoaded = () => loadedRef.current.sessions && loadedRef.current.workspaces;
 
   const markLoaded = (key) => { loadedRef.current[key] = true; };
@@ -104,9 +83,7 @@ export function useAgentBus() {
     loadedRef.current = { sessions: false, workspaces: false };
   }, []);
 
-  // A non-array ack is a carrier failure, not an answer: PM rejects every pending ack
-  // with { error: "rtc-closed" } when RTC dies. Marking it loaded would stop the retry
-  // below forever and leave the lists empty until a full reload.
+  // Reject non-array ack (carrier failure) to allow retry loop to continue.
   const applySessions = useCallback((list) => {
     if (!Array.isArray(list)) return;
     markLoaded("sessions");
@@ -115,9 +92,7 @@ export function useAgentBus() {
         useTerminalStore.getState().setSessionAgent(s.id, s.agent);
       }
     }
-    // Four sources refetch this list, one of them on every return to the tab, and the
-    // answer is nearly always what we already have. Keeping the old array keeps every
-    // consumer's identity check true instead of re-rendering the whole workspace.
+    // Keep previous array reference if unchanged to avoid unnecessary re-renders.
     setSessions((prev) => (sameList(prev, list) ? prev : list));
   }, []);
 
@@ -127,14 +102,7 @@ export function useAgentBus() {
     setWorkspaces((prev) => (sameList(prev, list) ? prev : list));
   }, []);
 
-  // Four independent sources ask for these lists (terminal:ready, the bus
-  // "connect" rejoin, the visibility refetch, and the 2s retry) — a single
-  // resume used to fire up to 8 emits at once, and their acks can land out of
-  // order, letting an older snapshot overwrite a newer one. Collapse the burst
-  // and stamp each request so only the newest answer is applied.
-  // One counter PER LIST: a shared one made the two requests cancel each other
-  // (getSessions bumped the seq the getWorkspaces ack was waiting on, so the
-  // workspace list never applied).
+  // Sequence counters per list to discard out-of-order responses from multiple triggers.
   const sessionSeqRef = useRef(0);
   const workspaceSeqRef = useRef(0);
   const fetchTimerRef = useRef(null);
@@ -142,7 +110,7 @@ export function useAgentBus() {
 
   const emitSessions = useCallback((bus) => {
     const seq = ++sessionSeqRef.current;
-    bus.emit("getSessions", (list) => { // TEMP DIAGNOSTIC — bug: stuck loading after key login
+    bus.emit("getSessions", (list) => {
       termLog("diag", `getSessions ack seq=${seq} type=${Array.isArray(list) ? "list" : typeof list} n=${Array.isArray(list) ? list.length : "-"}`);
       if (seq === sessionSeqRef.current) applySessions(list);
     });
@@ -153,46 +121,34 @@ export function useAgentBus() {
     bus.emit("getWorkspaces", (list) => { if (seq === workspaceSeqRef.current) applyWorkspaces(list); });
   }, [applyWorkspaces]);
 
-  // THE one door to both lists: every trigger (terminal:ready per carrier, bus connect,
-  // visibility, retry, CRUD) funnels here so a load is one round-trip per list, not one per
-  // trigger. force = a local mutation whose result we must see now.
+  // Coalesce list fetch triggers into a single round-trip.
   const fetchLists = useCallback((bus, force = false) => {
     if (!bus) return;
-    if (force) clearTimeout(fetchTimerRef.current); // restart so the emit lands after THIS write
-    else if (fetchTimerRef.current) return; // burst already pending
+    if (force) clearTimeout(fetchTimerRef.current);
+    else if (fetchTimerRef.current) return;
     else if (bothLoaded() && Date.now() - lastFetchAtRef.current < FETCH_FRESH_MS) return;
     fetchTimerRef.current = setTimeout(() => {
       fetchTimerRef.current = null;
       lastFetchAtRef.current = Date.now();
-      termLog("diag", `fetchLists FIRE (bus=${bus ? "ok" : "null"} connected-already=${loadedRef.current.sessions}/${loadedRef.current.workspaces})`); // TEMP DIAGNOSTIC
+      termLog("diag", `fetchLists FIRE (bus=${bus ? "ok" : "null"} connected-already=${loadedRef.current.sessions}/${loadedRef.current.workspaces})`);
       emitWorkspaces(bus);
       emitSessions(bus);
     }, FETCH_COALESCE_MS);
   }, [emitSessions, emitWorkspaces]);
 
-  // What this client understands. Sent once on first bind and again on every
-  // carrier rejoin — the agent gates __ping (hb), binary output (binOut),
-  // fragmented prefixes (fragOut) and its v2 sender (env2) on this announcement.
-  // fragCtl is this side of the same bargain: the agent may slice an oversize
-  // control envelope at us only because we reassemble it.
+  // Client capability announcement required by agent for binary/fragmented transport.
   const CAPS = { fragOut: true, binOut: true, hb: 1, env2: 1, fragCtl: 1 };
   const announceCaps = (bus) => {
     termLog("switch", `caps → ${JSON.stringify(CAPS)} announced`);
     bus.emit("caps", CAPS);
   };
 
-  // The bus this hook's listeners are bound to. onConnect fires again on every
-  // carrier reconnect after a full outage, but the bus — and everything registered
-  // on it — survives, so re-binding would stack a fresh closure set per outage.
-  // A new ProtocolManager hands out a new bus, which is exactly when rebinding IS
-  // wanted (see web/test/clientBusIntegration.test.mjs).
+  // Track bound bus instance to prevent duplicate listener registration on carrier reconnect.
   const boundBusRef = useRef(null);
 
   const handleBusReady = useCallback((bus, auth) => {
-    // A carrier coming up is not a verdict — see applyApproval.
     applyApproval(APPROVAL_STATUS.reconnect);
-    // A reconnect may have missed create/delete done elsewhere while we were away,
-    // so neither list is trustworthy until the agent answers again.
+    // Invalidate cached lists on reconnect until refetched.
     resetLoaded("pm-connect");
 
     if (boundBusRef.current === bus) {
@@ -201,7 +157,6 @@ export function useAgentBus() {
     }
     boundBusRef.current = bus;
 
-    // Listen for device approval flow
     bus.on("device:pendingApproval", () => {
       termLog("diag", "EVENT device:pendingApproval arrived");
       debugLog("auth", "[auth] agent says: waiting for host approval");
@@ -209,32 +164,21 @@ export function useAgentBus() {
     });
 
     bus.on("device:approved", () => {
-      termLog("diag", "EVENT device:approved arrived → applying"); // TEMP DIAGNOSTIC
+      termLog("diag", "EVENT device:approved arrived → applying");
       applyApproval(APPROVAL_STATUS.approved);
       setAdmitted(true);
-      // The agent accepted this key — the first moment anything checked the
-      // TAIL, and so the first moment it is worth remembering.
+      // Persist key now that agent has verified and accepted it.
       commitPendingKey();
       removeTempKey();
     });
 
-    // Server emits "terminal:ready" AFTER getSessions/getWorkspaces handlers are registered
-    // (async setupSocketFeatures). Fetching here avoids the F5 race that returned empty.
-    // NOT an admission signal: the agent wires features while the key TAIL is
-    // still inside its proof window, so this fires for a device that may yet be
-    // refused. Only device:approved says the agent accepted us.
+    // terminal:ready signals handlers are registered, but is not an admission verdict.
     bus.on("terminal:ready", () => {
       debugLog("auth", "[auth] terminal:ready (NOT an admission signal)");
       fetchLists(bus);
     });
 
-    // Carrier rejoin (resume from background, RTC<->WS switch). The agent keeps the
-    // same session, so it may not re-emit "terminal:ready" — refetch here or the
-    // lists keep showing what was true before the device went to sleep.
-    // clientReady re-asserts per connection: onConnect above fires once per PM
-    // lifetime, but the agent defers per-bus device:* answers on this event —
-    // a reconnect that skips it (e.g. zombie RTC kept "connected") would never
-    // get its pending/approved notification.
+    // Re-assert readiness and refetch lists on carrier reconnect.
     bus.on("connect", () => {
       resetLoaded("carrier-connect");
       bus.emit("device:clientReady");
@@ -243,30 +187,17 @@ export function useAgentBus() {
     });
 
     bus.on("device:rejected", () => {
-      termLog("diag", "EVENT device:rejected arrived → applying"); // TEMP DIAGNOSTIC
+      termLog("diag", "EVENT device:rejected arrived → applying");
       applyApproval(APPROVAL_STATUS.rejected);
       // Stop auto-reconnect — user must re-submit key to try again
       disconnectRef.current?.();
     });
 
     bus.on("device:tailRejected", (data) => {
-      // seal-unreadable = stale pin (agent rotated its host key): deviceTrust
-      // drops the pin and the agent's disconnect triggers a plain-tail retry.
+      // seal-unreadable = stale pin (agent rotated its host key): deviceTrust drops pin and retries.
       if (data?.reason === TAIL_REJECT_REASON.sealUnreadable) return;
-      // A wrong key is a failed LOGIN, not a device awaiting approval — there is
-      // nothing for the host to approve. Drop the session the way logout does
-      // (the stored key is the wrong one; keeping it would walk straight back
-      // in), then hand the login page a reason to show. Stamped AFTER the
-      // clear, which wipes everything in sessionStorage.
+      // Failed tail verification drops session and redirects to login with error reason.
       disconnectRef.current?.();
-      // Drop the TAIL that failed, under whichever key holds it: a one-time
-      // login keeps it under the CODE, an API key login under the key's HEAD.
-      // Clearing only the HEAD left a bad code's tail behind, so the next
-      // attempt presented the same wrong secret again.
-      //
-      // The saved-keys list is left alone: this key was never committed there
-      // (that only happens on acceptance), and any key that IS there was
-      // accepted at some point — a bad attempt must not take it away.
       const auth = getAuth();
       forgetRejectedTail(auth?.apiKey);
       forgetRejectedTail(auth?.tempKey);
@@ -299,22 +230,17 @@ export function useAgentBus() {
 
     bus.on("sessionClosed", (sessionId) => {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
-      // Drop everything else keyed by this terminal in the same breath: a pane
-      // left open on a dead id renders nothing, and a history row still pointing
-      // at it would focus a terminal that isn't there.
+      // Clean up terminal store state for closed session.
       useTerminalStore.getState().closeSession(sessionId);
     });
 
-    // The agent renames a terminal on its own once its conversation has a title,
-    // so the name can change without this client having asked for it.
+    // The agent renames a terminal on its own once its conversation has a title.
     bus.on("session-renamed", ({ sessionId, name } = {}) => {
       if (!sessionId) return;
       setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, name } : s)));
     });
 
-    // The host switched a terminal between its CLI and the chat UI, so the pane
-    // this client renders for it is no longer the right one. The history rows
-    // carry that surface too, so they are re-read rather than waiting out the poll.
+    // Update session agent surface and invalidate history cache when mode changes.
     bus.on("sessionAgentChanged", ({ sessionId, agent } = {}) => {
       if (!sessionId || !agent) return;
       useTerminalStore.getState().setSessionAgent(sessionId, agent);
@@ -324,19 +250,13 @@ export function useAgentBus() {
     // A terminal opened on another device; force, or the freshness guard eats it.
     bus.on("sessionsChanged", () => fetchLists(bus, true));
 
-    // Workspaces changed elsewhere — refresh both lists
     bus.on("workspacesChanged", () => fetchLists(bus));
 
     bus.on("codespace:stopping", handleCodespaceStopping);
 
-    // The "connect" listener above only fires on LATER carrier changes (a rejoin):
-    // on the first bind the link is already up before that listener exists, so the
-    // agent would never learn our capabilities — no __ping heartbeat, no binary
-    // output, no v2 frames from its side. Announce on first bind too; both emits
-    // are idempotent on the agent.
+    // Announce capabilities on first bind in addition to carrier reconnects.
     announceCaps(bus);
 
-    // Signal server that client listeners are ready
     bus.emit("device:clientReady");
   }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval, getAuth, resetLoaded]);
 
@@ -349,22 +269,16 @@ export function useAgentBus() {
     onApproval: applyApproval
   });
 
-  // Keep ref in sync so event handlers registered above can call disconnect
   useEffect(() => {
     disconnectRef.current = disconnect;
   }, [disconnect]);
 
-  // The one public refresh (mount, visibility, retry). Both lists always travel together —
-  // every caller wanted both, and asking separately cost two round-trips for one answer.
   const loadSessions = useCallback(() => fetchLists(busRef.current), [busRef, fetchLists]);
 
-  // Skips the freshness guard. Two callers need that: a local create/rename/delete
-  // whose own write must not be hidden, and a resume, where the lists were just
-  // declared untrustworthy and a pending burst would land stale.
+  // Force refresh lists bypassing the freshness guard.
   const refreshLists = useCallback(() => fetchLists(busRef.current, true), [busRef, fetchLists]);
 
-  // Pending coalesce timer must not outlive the hook — it captures the bus
-  // and would fire after unmount.
+  // Pending coalesce timer must not outlive the hook.
   useEffect(() => () => {
     if (fetchTimerRef.current) { clearTimeout(fetchTimerRef.current); fetchTimerRef.current = null; }
   }, []);
@@ -382,15 +296,7 @@ export function useAgentBus() {
     return () => clearInterval(timer);
   }, [connected, loadSessions]);
 
-  // Coming back from background. Carrier events can't be relied on here: if WS stayed
-  // up while only RTC died and recovered, the agent keeps the same session (no
-  // "terminal:ready") and PM skips the rejoin because the other carrier is ready — so
-  // nothing else would refetch, and the lists would still show pre-sleep state.
-  // A silent refetch, NOT a reset: becoming visible is not evidence the session
-  // broke, and gating on it flashed the overlay every time the user glanced away.
-  // Gated on `connected`: with no carrier ready PM buffers control sends in an
-  // unbounded array, and a phone toggled on/off while offline would pile them up.
-  // Re-running on `connected` also covers becoming visible while still offline.
+  // Refetch lists when tab becomes visible if connected.
   useEffect(() => {
     if (!connected) return;
     const refetch = () => {
@@ -402,10 +308,7 @@ export function useAgentBus() {
     return () => document.removeEventListener("visibilitychange", refetch);
   }, [connected, loadSessions]);
 
-  // Create new session (workspaceId optional). cwd = a folder picked in the tree, else
-  // inherited from the last session in the workspace.
-  // `nameIsAuto` marks a name the UI filled in rather than the user typing it —
-  // the agent keeps renaming such a terminal after the conversation it runs.
+  // Create session; nameIsAuto indicates UI-generated placeholder name.
   const createSession = useCallback((name, shellId, workspaceId, cwd, callback, nameIsAuto = false, agent = null, replaces = null) => {
     if (!busRef.current) return;
     // Backward compat: createSession(name, callback) / createSession(name, shellId, callback)
@@ -420,8 +323,7 @@ export function useAgentBus() {
           if (agentId) useTerminalStore.getState().setSessionAgent(result.sessionId, agentId);
           const wsPath = workspaces.find((w) => w.id === workspaceId)?.path || null;
           setSessions((prev) => [
-            // The terminal this one replaced goes in the same update, so the list (and
-            // the pane row built from it) never holds both.
+            // The terminal this one replaced goes in the same update to avoid holding both.
             ...prev.filter((s) => s.id !== result.sessionId && s.id !== result.replaced),
             {
               id: result.sessionId,
@@ -443,7 +345,6 @@ export function useAgentBus() {
     });
   }, [busRef, refreshLists, workspaces]);
 
-  // Workspace CRUD + move
   const createWorkspace = useCallback((name, wsPath, callback) => {
     if (typeof wsPath === "function") { callback = wsPath; wsPath = null; }
     busRef.current?.emit("createWorkspace", { name, path: wsPath }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
@@ -465,18 +366,15 @@ export function useAgentBus() {
     busRef.current?.emit("moveSession", { sessionId, workspaceId }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
   }, [busRef, refreshLists]);
 
-  // Reorder sessions within a workspace; orderedIds = desired order of its sessions
   const reorderSession = useCallback((orderedIds, callback) => {
     busRef.current?.emit("reorderSession", { orderedIds }, (result) => { if (result?.success) refreshLists(); callback?.(result); });
   }, [busRef, refreshLists]);
 
-  // Fetch available shells from agent
   const getShells = useCallback((callback) => {
     if (!busRef.current) return;
     busRef.current.emit("getShells", (result) => callback?.(result));
   }, [busRef]);
 
-  // Delete session
   const deleteSession = useCallback((sessionId, callback) => {
     if (!busRef.current) return;
 
@@ -486,7 +384,6 @@ export function useAgentBus() {
     });
   }, [busRef, refreshLists]);
 
-  // Rename session
   const renameSession = useCallback((sessionId, newName, callback) => {
     if (!busRef.current) return;
 
@@ -496,11 +393,10 @@ export function useAgentBus() {
     });
   }, [busRef, refreshLists]);
 
-  // Stop codespace
   const stopCodespace = useCallback(async () => {
     const auth = getAuth();
     if (!auth?.tunnelUrl || !codespaceInfo?.isCodespaces) return false;
-    
+
     try {
       const response = await fetch(`${auth.tunnelUrl}/api/codespace/stop`, {
         method: "POST"

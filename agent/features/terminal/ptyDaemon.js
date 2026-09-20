@@ -1,9 +1,5 @@
 #!/usr/bin/env node
-/**
- * PTY Daemon - Runs independently from main server
- * Manages PTY sessions that persist across server restarts
- * Communicates via Unix Domain Socket (or Named Pipe on Windows)
- */
+// PTY Daemon: manages persistent PTY sessions across server restarts.
 
 import net from "net";
 import fs from "fs";
@@ -16,36 +12,27 @@ import { createRouter } from "./daemonRouter.js";
 import { createKvStore, kvRoutes } from "./daemonKv.js";
 import { takeBufferTail, takeBufferRange, bufferTotal } from "./bufferSlice.js";
 
-// Socket path. NREMOTE_HOME keeps the daemon's own state inside the root the client
-// relocated to — a test daemon must not share snapshots with the live one.
+// NREMOTE_HOME keeps daemon state inside client root to isolate test daemon.
 const SOCKET_DIR = process.env.NREMOTE_HOME || path.join(os.homedir(), ".9remote");
 const SOCKET_PATH = process.platform === "win32"
   ? "\\\\.\\pipe\\9remote-pty"
   : path.join(SOCKET_DIR, "pty-daemon.sock");
 
-// PID file so the updater + app can find & kill us on demand. Kept in the
-// same layout as agent/cloudflared PIDs (see agent/cli/utils/pids.js).
+// PID file for updater and app lifecycle management.
 const PID_FILE = path.join(SOCKET_DIR, "pids", "ptyDaemon.pid");
 
-// Sessions: sessionId -> { pty, buffer, name, createdAt }
 const sessions = new Map();
-
-// Connected clients (main server connections)
 const clients = new Set();
 
-// Constants
-const MAX_BUFFER_SIZE = 2 * 1024 * 1024; // 2MB raw fallback per session
-const JOIN_REPLAY_SIZE = 256 * 1024; // 256KB tail on join — older history fetched on scroll-up
-const HISTORY_CHUNK_SIZE = 256 * 1024; // 256KB per scroll-up fetch chunk
-const MAX_LOG_SIZE = 5 * 1024 * 1024; // 5MB log file limit
+const MAX_BUFFER_SIZE = 2 * 1024 * 1024;
+const JOIN_REPLAY_SIZE = 256 * 1024;
+const HISTORY_CHUNK_SIZE = 256 * 1024;
+const MAX_LOG_SIZE = 5 * 1024 * 1024;
 
-// Buffer storage = Buffer[] (byte-accurate). The web mirror also counts BYTES, so total/have
-// stay consistent across CJK/emoji/ANSI output. (Previously string[] + char-length → offset
-// drift on multibyte → "load more" loaded wrong/duplicate segments.)
+// Buffer storage = Buffer[] (byte-accurate) to keep total/have consistent across multibyte/ANSI.
 const RESTORE_MODES = ["1049", "1047", "1000", "1002", "1003", "1006", "1015", "1005"];
 const DEC_PRIVATE_RE = /\x1b\[\?([0-9;]+)([hl])/g;
 
-// Track terminal modes from PTY output so reconnect replay can re-emit them
 function applyModes(modes, data) {
   if (typeof data !== "string") data = String(data);
   for (const m of data.matchAll(DEC_PRIVATE_RE)) {
@@ -59,33 +46,24 @@ function restoreSeq(modes) {
   return active.length ? `\x1b[?${active.join(";")}h` : "";
 }
 
-// Log file path — under ~/.9remote/logs/ for consistency with agent.log
 const LOG_DIR = path.join(SOCKET_DIR, "logs");
 const LOG_PATH = path.join(LOG_DIR, "daemon.log");
 try { if (!fs.existsSync(LOG_DIR)) fs.mkdirSync(LOG_DIR, { recursive: true }); } catch {}
 
-/**
- * Check and truncate log file if exceeds limit
- */
 function checkLogSize() {
   try {
     if (fs.existsSync(LOG_PATH)) {
       const stats = fs.statSync(LOG_PATH);
       if (stats.size > MAX_LOG_SIZE) {
-        // Keep last 1MB of logs
         const content = fs.readFileSync(LOG_PATH, "utf8");
         const truncated = content.slice(-1024 * 1024);
         fs.writeFileSync(LOG_PATH, truncated);
       }
     }
   } catch (e) {
-    // Ignore log management errors
   }
 }
 
-/**
- * Log error with timestamp to file
- */
 function logError(message, error = null) {
   checkLogSize();
   const timestamp = new Date().toISOString();
@@ -94,31 +72,22 @@ function logError(message, error = null) {
     logLine += ` - ${error.message || error}`;
   }
   logLine += "\n";
-  
+
   try {
     fs.appendFileSync(LOG_PATH, logLine);
   } catch (e) {
-    // Ignore write errors
   }
-  
-  // Also output to stderr for immediate visibility
+
   console.error(logLine.trim());
 }
 
-/**
- * Get default working directory
- */
 function getDefaultCwd() {
-  // Codespaces environment
   if (process.env.CODESPACES === "true") {
     return process.env.CODESPACE_VSCODE_FOLDER || "/workspaces";
   }
   return process.env.HOME || process.env.USERPROFILE || os.homedir();
 }
 
-/**
- * Build shell environment based on selected shell path
- */
 function buildShellEnv(shellPath) {
   const env = {
     ...process.env,
@@ -126,7 +95,7 @@ function buildShellEnv(shellPath) {
     COLORTERM: "truecolor",
     LANG: process.env.LANG || "en_US.UTF-8"
   };
-  // Don't leak agent internals into user shells: PORT breaks their npm run dev, dev NODE_ENV flips their apps
+  // Don't leak agent internals (PORT, NODE_ENV) into user shells.
   delete env.PORT;
   delete env.NODE_ENV;
 
@@ -139,8 +108,7 @@ function buildShellEnv(shellPath) {
     zdotDir = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-zsh-"));
     const tmpZshrc = path.join(zdotDir, ".zshrc");
     const home = env.HOME || os.homedir();
-    // zsh login order under $ZDOTDIR: .zshenv → .zshrc → .zlogin (.zprofile sits in $HOME, not ZDOTDIR).
-    // We point ZDOTDIR at a temp dir to inject OSC 7, so explicitly source the HOME login files we skipped.
+    // Temp ZDOTDIR injected for OSC 7; source HOME login files skipped by zsh.
     let body = "";
     body += `[ -f "${home}/.zprofile" ] && source "${home}/.zprofile"\n`;
     body += `[ -f "${home}/.zshrc" ] && source "${home}/.zshrc"\n`;
@@ -155,7 +123,7 @@ function buildShellEnv(shellPath) {
     env.PROMPT_COMMAND = `printf "\\e]7;file://%s\\a" "\${HOSTNAME}\${PWD}"${existingPrompt ? `; ${existingPrompt}` : ""}`;
   }
 
-  // cmd.exe: OSC 7 via PROMPT env var (native default; setTimeout re-inject in createSession covers AutoRun override).
+  // cmd.exe: OSC 7 via PROMPT env var.
   if (/cmd\.exe$/i.test(shellPath)) {
     env.PROMPT = `$E]7;file://${process.env.COMPUTERNAME || ""}/$P$E\\$G$S`;
   }
@@ -163,54 +131,29 @@ function buildShellEnv(shellPath) {
   return { env, zdotDir };
 }
 
-/**
- * Send message to all connected clients
- */
 function broadcast(message) {
   const data = JSON.stringify(message) + "\n";
   for (const client of clients) {
     try {
       client.write(data);
     } catch (e) {
-      // Client disconnected
     }
   }
 }
 
-/**
- * Send message to specific client
- */
 function send(client, message) {
   try {
     client.write(JSON.stringify(message) + "\n");
   } catch (e) {
-    // Client disconnected
   }
 }
 
-// ═══════════════════════════════════════════════════════════════════
-// Managed child processes.
-//
-// A proc is a long-lived CLI the agent drives (a chat engine today). The daemon
-// owns it — that is what makes a running turn outlive an agent restart — but it
-// knows nothing about what the CLI speaks: lines in, lines out, each numbered so a
-// fresh agent can ask for exactly the ones it has not consumed. Parsing prompts,
-// history and snapshots all live agent-side, so a change to an engine's protocol
-// never touches this file.
-// ═══════════════════════════════════════════════════════════════════
-const procs = new Map(); // procId -> proc
-// Bumped for every process started under a proc id. An exit from a process that has
-// already been replaced must not reach the agent as the current one's — a restart
-// (mode/model change) kills the old CLI, and its SIGINT lands after the new process is
-// already running.
+// Managed child processes: daemon owns the process, agent handles parsing/protocol.
+const procs = new Map();
+// procEpoch identifies process incarnation so stale exits are ignored.
 let procEpoch = 0;
-// Raw output kept per proc. This is a re-delivery buffer, not a history: the agent
-// holds the conversation and only asks for lines it has not read, so it only has to
-// cover the gap while no agent is attached. Deliberately smaller than a terminal's
-// buffer — that one is the scrollback, this one is a landing strip.
 const PROC_BUFFER_SIZE = 512 * 1024;
-// A single stream-json line (a big tool result) is large but bounded; past this the
-// "line" is flushed as-is rather than accumulating forever.
+// Bound max stream line length before flushing as-is.
 const PROC_MAX_LINE = 256 * 1024;
 const PROC_KILL_GRACE_MS = 3000;
 
@@ -237,18 +180,11 @@ function createProc(procId, { bin, args = [], cwd, env } = {}) {
 
   const proc = {
     id: procId,
-    // Identifies THIS process: the agent echoes it back on every line and exit it
-    // accepts, so output from a torn-down process can never be attributed to its
-    // replacement.
     epoch: ++procEpoch,
     child,
     cwd,
     lines: [],
-    // 1-based and never reused: the agent stores the last number it consumed, so a
-    // number that shifted would make it re-parse or skip a line of the conversation.
     lineCount: 0,
-    // Running byte total of `lines`, so trimming is O(1) per line instead of a full
-    // re-sum on a path that runs for every line a chat streams.
     bytes: 0,
     exited: false,
     exitCode: null,
@@ -268,8 +204,6 @@ function createProc(procId, { bin, args = [], cwd, env } = {}) {
     broadcast({ type: "procLine", procId, epoch: proc.epoch, n: proc.lineCount, enc: "b64", data: data.toString("base64") });
   };
 
-  // stderr is relayed the same way: an engine that fails to start explains itself
-  // there, and how to show that is the agent's decision, not ours.
   const pump = (stream) => {
     stream.on("data", (chunk) => {
       proc.tail += chunk.toString("utf8");
@@ -291,7 +225,6 @@ function createProc(procId, { bin, args = [], cwd, env } = {}) {
     broadcast({ type: "procExit", procId, epoch: proc.epoch, code: null, error: err.message });
   });
   child.on("close", (code, signal) => {
-    // A last line with no trailing newline still belongs to the conversation.
     if (proc.tail) { emitLine(proc.tail); proc.tail = ""; }
     proc.exited = true;
     proc.exitCode = code;
@@ -307,11 +240,6 @@ function attachProc(procId, from = 0) {
   from = Number(from) || 0;
   const proc = procs.get(procId);
   if (!proc) return { success: false, error: "Process not found" };
-  // Attaching never starts anything: the running process IS the session, and a
-  // second one would resume the same conversation as a second writer.
-  // `oldest` is the lowest line still held: the ring drops its head once it fills, and
-  // a reader that asks from further back than this would otherwise be handed a
-  // conversation with a silent hole in it.
   return {
     success: true,
     alive: !proc.exited,
@@ -330,8 +258,7 @@ function writeProc(procId, data, enc = "b64") {
   return { success: true };
 }
 
-// A turn-per-CLI engine (codex, opencode, agy) is not interactive: an open stdin only
-// risks the CLI waiting on a pipe nobody will write to.
+// Close stdin for non-interactive CLI engines.
 function endInputProc(procId) {
   const proc = procs.get(procId);
   if (!proc?.child?.stdin?.writable) return { success: false, error: "Process not writable" };
@@ -355,29 +282,21 @@ function stopProc(procId) {
   if (!proc) return { success: false, error: "Process not found" };
   const child = proc.child;
   if (child) {
-    // Asked first, killed only if it will not go: a CLI interrupting its own turn
-    // is how it gets to flush the transcript.
     try { child.kill("SIGINT"); } catch {}
     const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, PROC_KILL_GRACE_MS);
     timer.unref?.();
     child.once("close", () => clearTimeout(timer));
   }
-  // Gone from the registry at once so a new chat reusing this id can start: the
-  // exit event still goes out to whoever was attached.
   procs.delete(procId);
   return { success: true };
 }
 
-/**
- * Create new PTY session
- */
 function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cwd = null) {
   if (sessions.has(sessionId)) {
     return { success: false, error: "Session already exists" };
   }
 
   const shellConfig = resolveShell(shellId);
-  // Agent-supplied cwd (restore prior dir); fall back to default if missing/invalid
   if (!cwd || !fs.existsSync(cwd)) cwd = getDefaultCwd();
 
   try {
@@ -393,9 +312,7 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       useConpty: process.platform === "win32"
     });
 
-    // PowerShell/pwsh: OSC 7 prompt is injected via `-NoExit -Command` arg (see buildShellArgs) —
-    // no stdin write, so PSReadLine never echoes the setup line. cmd keeps using PROMPT env.
-
+    // PowerShell OSC 7 prompt is injected via -NoExit -Command arg.
     const session = {
       pty: ptyProcess,
       buffer: [],
@@ -406,16 +323,13 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       shellId: shellConfig.id,
       shellLabel: shellConfig.label,
       zdotDir,
-      pending: null,          // coalesced output (concat of same-tick chunks)
-      flushScheduled: false,  // setImmediate flush guard
-      procTimer: null,        // debounce timer for process check on output settle
+      pending: null,
+      flushScheduled: false,
+      procTimer: null,
       foregroundProcess: getSessionForegroundProcess({ pty: ptyProcess }) || shellConfig.id
     };
 
-    // Coalesce same-tick onData chunks into one output packet. setImmediate runs after
-    // the poll phase (~0.1ms), so a lone keystroke echo flushes immediately while TUI
-    // redraw bursts collapse to a single packet. Rapid-typing lag is NOT caused by this
-    // (it was the agent's sync git spawn on every keystroke — fixed in GitHandler).
+    // Coalesce same-tick onData chunks into one output packet via setImmediate.
     const flushOutput = () => {
       session.flushScheduled = false;
       const pending = session.pending;
@@ -429,14 +343,10 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
       });
     };
 
-    // Buffer output and broadcast to clients
     ptyProcess.onData((data) => {
-      // Store as Buffer (byte-accurate) — web mirror counts bytes, so total/have stay
-      // consistent across CJK/emoji. applyModes + OSC 7 parse keep using the raw `data` string.
       session.buffer.push(Buffer.from(data, "utf-8"));
-      // Track terminal modes (alt buffer, mouse) so reconnect replay can restore them
       applyModes(session.modes, data);
-      // Track live cwd from OSC 7 escape: \e]7;file://host/path\a (or ST terminator)
+      // Track live cwd from OSC 7 escape sequence.
       const osc7 = data.match(/\x1b\]7;file:\/\/[^/]*([^\x07\x1b]*)/);
       if (osc7) {
         let next;
@@ -448,20 +358,17 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
           broadcast({ type: "cwdChange", sessionId, cwd: next });
         }
       }
-      // Trim by BYTE length keeping the tail — avoids cutting whole chunks mid-ANSI/mid-UTF8
       const totalSize = bufferTotal(session.buffer);
       if (totalSize > MAX_BUFFER_SIZE) {
         session.buffer = [takeBufferTail(session.buffer, MAX_BUFFER_SIZE)];
       }
 
-      // Coalesce: append to pending, schedule one flush at end of this tick.
       session.pending = session.pending === null ? data : session.pending + data;
       if (!session.flushScheduled) {
         session.flushScheduled = true;
         setImmediate(flushOutput);
       }
 
-      // Check foreground process when output settles (terminal prompt returns or command exits)
       if (session.procTimer) clearTimeout(session.procTimer);
       session.procTimer = setTimeout(() => {
         session.procTimer = null;
@@ -484,7 +391,6 @@ function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cw
   }
 }
 
-// Event-driven foreground process tracking (checked on output settle or input)
 function getSessionForegroundProcess(session) {
   if (!session?.pty) return null;
   try {
@@ -512,14 +418,6 @@ function checkSessionForegroundProcess(session, sessionId) {
   }
 }
 
-// ── Route handlers ──
-// One entry per thing an agent may ask for, grouped by domain (see daemonRoutes.js for
-// the table these must cover). Each is a plain function over the state it needs, so a
-// new capability is a new entry here instead of another arm of a switch.
-
-// `client` is the socket that asked; `answer` replies on its requestId. Routes whose
-// table entry has no `reply` are fire-and-forget (terminal input/resize) — they call
-// neither, and an ack for them would be pure overhead on the typing hot path.
 const kvStore = createKvStore(500);
 
 const router = createRouter({
@@ -551,17 +449,11 @@ const terminalRoutes = {
     const session = sessions.get(m.sessionId);
     if (!session) return { success: false, error: "Session not found" };
     const client = m.client;
-    // Re-emit terminal mode sequences BEFORE history tail — client called reset() on
-    // reconnect which wiped alt-buffer/mouse modes; without this, replay lands in the
-    // normal buffer and wheel/touch scroll breaks for TUI apps (e.g. opencode).
-    // replay:true lets the client ORDER these packets strictly before live output that
-    // races between reset() and ack — otherwise a live packet writes into the wrong buffer
-    // (alt-screen mode not yet restored) and content is lost/garbled, especially Claude Code.
+    // Restore terminal modes before history replay so alt-screen/mouse modes persist.
     const restore = restoreSeq(session.modes);
     if (restore) {
       s(client, { type: "output", sessionId: m.sessionId, enc: "b64", replay: true, data: Buffer.from(restore).toString("base64") });
     }
-    // Replay only tail of buffered output to avoid network burst on join
     const history = takeBufferTail(session.buffer, JOIN_REPLAY_SIZE);
     if (history && history.length) {
       s(client, { type: "output", sessionId: m.sessionId, enc: "b64", replay: true, data: history.toString("base64") });
@@ -572,23 +464,18 @@ const terminalRoutes = {
       cwd: session.cwd,
       shellId: session.shellId,
       shellLabel: session.shellLabel,
-      // total = bytes agent still holds; web uses it to know the older-history ceiling
       total: bufferTotal(session.buffer),
       replaySize: history ? history.length : 0
     };
   },
 
   requestHistory: (m) => {
-    // Client scrolled to top → return a CHUNK of bytes just before the bytes it holds.
-    // have = bytes the client currently has (its tail). We return the newest older chunk:
-    // buffer[total-have-chunkLen .. total-have]. Client splices it before its mirror and
-    // replays, then re-requests for the next older chunk. Prefix travels in the ack (not a
-    // broadcast output) so only the requesting socket receives it.
+    // Return chunk of older buffer history preceding what client currently has.
     const session = sessions.get(m.sessionId);
     if (!session) return { success: false, error: "Session not found" };
     const total = bufferTotal(session.buffer);
     const have = Math.max(0, Math.min(m.have || 0, total));
-    const remaining = total - have;          // bytes older than what client holds
+    const remaining = total - have;
     const chunkLen = Math.min(HISTORY_CHUNK_SIZE, remaining);
     const { prefix, extra = 0 } = chunkLen > 0 ? takeBufferRange(session.buffer, have, chunkLen) : { prefix: Buffer.alloc(0), extra: 0 };
     return {
@@ -598,8 +485,6 @@ const terminalRoutes = {
       prefix: prefix && prefix.length ? prefix.toString("base64") : "",
       prefixLen: prefix ? prefix.length : 0,
       total,
-      // remaining = older bytes not yet sent. The prefix may extend back `extra` bytes to an ESC
-      // boundary; the next fetch covers from there, so remaining shrinks by chunkLen only.
       remaining: Math.max(0, remaining - chunkLen)
     };
   },
@@ -622,7 +507,6 @@ const terminalRoutes = {
     try {
       session.pty.resize(m.cols, m.rows);
     } catch (e) {
-      // Ignore resize errors
     }
     return {};
   },
@@ -643,8 +527,6 @@ const procRoutes = {
   start: (m) => createProc(m.procId, m),
   attach: (m) => attachProc(m.procId, m.from),
 
-  // Everything the agent missed while it was not attached, by line number. Also the
-  // tail-fetch a hydrating agent uses for its first parse.
   lines: (m) => {
     const p = procs.get(m.procId);
     if (!p) return { success: false, error: "Process not found" };
@@ -671,21 +553,14 @@ const procRoutes = {
 router.register("terminal", terminalRoutes);
 router.register("proc", procRoutes);
 router.register("kv", kvRoutes);
-// Every route the table promises must exist here, or an agent waits out a timeout for
-// an answer that can never come. Failing at boot is the only cheap way to catch it.
+// Ensure all promised routes are registered at startup.
 router.assertComplete();
 
-/** Hand a client message to the single-threaded dispatcher. */
 function handleMessage(client, message) {
   router.enqueue({ client, message: { ...message, client } });
 }
 
-/**
- * Start daemon server
- */
 function startDaemon() {
-
-  // Ensure socket directory exists
   if (!fs.existsSync(SOCKET_DIR)) {
     try {
       fs.mkdirSync(SOCKET_DIR, { recursive: true });
@@ -695,7 +570,6 @@ function startDaemon() {
     }
   }
 
-  // Remove stale socket file
   if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {
     try {
       fs.unlinkSync(SOCKET_PATH);
@@ -751,8 +625,7 @@ function startDaemon() {
     }
   });
 
-  // Write own PID so the updater / app can kill us by PID only. Kill-by-image
-  // (taskkill /IM node.exe) would nuke unrelated node processes on the machine.
+  // Write PID for targeted process cleanup.
   try {
     fs.mkdirSync(path.dirname(PID_FILE), { recursive: true });
     fs.writeFileSync(PID_FILE, String(process.pid), { mode: 0o600 });
@@ -765,9 +638,6 @@ function startDaemon() {
         try { session.pty.kill(); } catch {}
       }
     }
-    // Take the managed CLIs down with us, the same way the PTYs above are. Leaving
-    // them running would orphan a process whose pipes the next daemon cannot adopt,
-    // and whose conversation the next agent would resume as a second writer.
     for (const [, proc] of procs) {
       try { proc.child?.kill("SIGINT"); } catch {}
     }
@@ -779,10 +649,8 @@ function startDaemon() {
     process.exit(0);
   };
 
-  // Graceful shutdown
   process.on("SIGTERM", cleanupAndExit);
   process.on("SIGINT", cleanupAndExit);
 }
 
-// Run daemon
 startDaemon();

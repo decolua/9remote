@@ -1,35 +1,19 @@
-// Adapter for Claude Code CLI using --input-format=stream-json
-//
-// The CLI process itself is not owned here. Two carriers implement the same small
-// surface — spawn it directly, or ask the daemon to (so the turn outlives an agent
-// restart) — and everything below them (the stream-json parser, control requests,
-// stats) is one copy, because a second copy is how the two paths drift apart.
+// Claude Code CLI adapter (--input-format=stream-json). Two carriers (direct spawn /
+// daemon) share this one parser so the paths cannot drift apart.
 import { getExtendedEnv } from "./env.js";
 import { stageAttachment } from "../aiAttachment.js";
 import { LocalProc } from "../proc/localProc.js";
 import { decodeLine } from "../proc/daemonProc.js";
 import { claudeBin } from "../constants.js";
 
-// A control request that reads or rewrites a conversation: the CLI may be mid-turn, and
-// a cut of a 200-turn session is not instant. The client's own timeout is opt-in for
-// exactly this reason — see JsonRpcClient.request.
+// A rewind of a long session is not instant; timeout is opt-in — see JsonRpcClient.request.
 const REWIND_CONTROL_TIMEOUT_MS = 60000;
 import { asyncHandle } from "../toolEvent.js";
 import { JsonRpcClient } from "../proc/jsonRpcClient.js";
 
-// Every record the CLI writes reaches the pane. The list of what it can write is the
-// SDK's own SDKMessage union — thirty-nine shapes, checked against
-// @anthropic-ai/claude-agent-sdk's sdk.d.ts — and this adapter used to name six of them
-// and let the rest fall through its last `if` into silence.
-//
-// What it does NOT do is rename them. Six shapes are drawn here (text, thinking, tool
-// calls, diffs, the turn's own edges) because the pane needs a stable vocabulary for the
-// things it lays out; everything else travels WHOLE, under the harness's own type/subtype
-// and field names, so the pane reads exactly what the TUI reads. A translation layer is
-// what the two would drift apart on, and every renamed field is a place to drift.
+// Records travel to the pane WHOLE under the harness's own field names — every renamed field is a place for pane and TUI to drift.
 
-// Images ride as content blocks; other files are staged to disk and named in the
-// text. Same shape the terminal path writes, so both read identically to the CLI.
+// Images ride as content blocks; files are staged to disk and named in the text — same shape the terminal path writes.
 function buildContent(prompt, attachments) {
   if (!Array.isArray(attachments) || attachments.length === 0) {
     return [{ type: "text", text: prompt }];
@@ -43,23 +27,7 @@ function buildContent(prompt, attachments) {
   ];
 }
 
-/**
- * A result the CLI persisted to a file becomes the path it saved to.
- *
- * Measured on a real session: 9 `Bash` results carried a `<persisted-output>` frame — 15.8KB
- * of XML saying the real output went to a file, drawn verbatim in the chat. The frame is the
- * harness talking to itself; the path is what a reader can act on, and the file holds the
- * rest. The CLI's own TUI does the same fold.
- */
-/**
- * A `<persisted-output>` frame as the path it saved to.
- *
- * The frame is a 15KB notice saying the real output went to a file; the file is the useful
- * part and the preview inside is a duplicate of it. Exported because BOTH doors need it:
- * the live one collapses as it emits, and the replay read the frame whole until a
- * reopen was found drawing the entire XML block (132 transcripts on this machine carry
- * one).
- */
+// A `<persisted-output>` frame folds to the path it saved to; exported because the live stream and the replay both collapse it.
 export function collapsePersisted(text) {
   const s = String(text || "");
   if (!s.startsWith("<persisted-output>")) return text;
@@ -67,10 +35,7 @@ export function collapsePersisted(text) {
   return m ? `saved to: ${m[1]}` : "";
 }
 
-// Tools whose whole point is a file change. Their input carries the edit as old/new
-// strings rather than a patch, so the diff event is built from them here. Shared with the
-// client's row builder, which hides the matching tool row — the two must agree or a file
-// shows twice.
+// Edit tools carry old/new strings, not patches. The client hides their tool rows — the two lists must agree or a file shows twice.
 export const DIFF_TOOL_NAMES = Object.freeze(["Edit", "Write", "MultiEdit", "NotebookEdit"]);
 const DIFF_TOOLS = new Set(DIFF_TOOL_NAMES);
 
@@ -78,11 +43,7 @@ const DIFF_TOOLS = new Set(DIFF_TOOL_NAMES);
 const editFilePath = (input = {}) =>
   input.file_path || input.notebook_path || input.path || "";
 
-// Turn an edit tool's input into the `+`/`-` line form the diff card colours and counts.
-// Codex already sends a real patch through the same event, so building one keeps the card
-// engine-neutral instead of teaching it each CLI's shape. Write returns "" — a whole-file
-// add has no old lines, and the card renders `content` as additions on its own.
-// Exported for the test that pins the line shape the diff card parses.
+// `+`/`-` lines from edit input keep the diff card engine-neutral (Codex sends a real patch); Write returns "" — the card renders `content` as additions.
 export function buildEditPatch(name, input = {}) {
   if (name === "Write") return "";
   const edits = name === "MultiEdit" ? input.edits || [] : [input];
@@ -100,7 +61,6 @@ export function buildEditPatch(name, input = {}) {
   return lines.join("\n");
 }
 
-// What an edit contributes to the diff card, or null when there is nothing to show.
 export function buildEditDiff(name, input = {}) {
   const file = editFilePath(input);
   if (!file) return null;
@@ -123,64 +83,38 @@ export class ClaudeAdapter {
     // Reasoning effort (--effort); empty means the CLI default.
     this.effort = "";
     this.pendingRequests = new Map();
-    // Tool calls awaiting their result, by tool_use id — see handleMessage.
     this.toolCalls = new Map();
     this.turnStreamedText = "";
     this.stats = { totalCost: 0, inputTokens: 0, outputTokens: 0, cacheReadInputTokens: 0, cacheCreationInputTokens: 0, contextWindow: 0 };
-    // Set when OUR interrupt went out, so the CLI's own `result` echo of that stop can be
-    // told from a real ending. The session already emitted `stopped` when the control
-    // request was written; the echo that follows would end the turn a second time — and
-    // if a queued prompt has started meanwhile, from the NEW turn's start mark ("Worked
-    // for 0s"). Consumed by the echo itself; a new prompt must NOT clear it, because the
-    // CLI answers the interrupt before it starts reading the next prompt.
+    // Set when OUR interrupt went out: the CLI's `result` echo of it must not end a newer turn; consumed by the echo, never by a prompt.
     this._interrupted = false;
     this.metadata = { model: "", sessionId: "", tools: [], skills: [], slashCommands: [] };
-    // Set when the resume id was refused, so the caller can drop it from its snapshot
-    // instead of retrying a conversation the CLI does not have.
+    // Set when the resume id was refused, so the caller drops it instead of retrying a conversation the CLI does not have.
     this.resumeRejected = false;
     this._initializedThisSpawn = false;
-    // A prompt being re-sent after the CLI was found dead. Held across the rebuild so a
-    // second refusal cannot start a second one.
+    // A prompt held across the respawn so a second refusal cannot start a second rebuild.
     this._respawning = false;
   }
 
-  /**
-   * Spawn the CLI and start parsing it. Returns the lines it emitted before the
-   * handlers were in place, for the caller to parse before live output arrives.
-   */
+  /** Returns lines emitted before handlers were in place, for the caller to parse first. */
   async start(mode = "default", resumeSessionId = null) {
     this._reset(mode);
-    // `keepStdin`: this CLI is interactive — it takes every later turn, interrupt and
-    // permission answer on the same pipe, so closing it after the handshake would end
-    // the conversation at birth (the chat then shows the prompt and nothing back).
+    // keepStdin: every later turn and answer rides this same pipe — closing it ends the conversation at birth.
     return await this.proc.start({ bin: claudeBin(), args: this._args(mode, resumeSessionId), cwd: this.cwd, env: getExtendedEnv({ hostSessionId: this.hostSessionId }), keepStdin: true });
   }
 
-  /**
-   * Re-attach to the process the daemon is already running, asking only for the lines
-   * this agent has not parsed. `alive: false` means there is nothing to adopt.
-   */
+  /** Re-attach to the daemon's process from a line offset; `alive:false` means nothing to adopt. */
   async adopt(from = 0, epoch = null) {
     const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
     const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
     this._reset(this.currentMode);
     const fetch = await this.proc.attach(f, ep);
-    // A live process is NOT a running turn: this CLI holds ONE process for the whole
-    // conversation and sits idle between turns, so `alive` would leave the flag stuck
-    // true for the rest of the chat's life — a rewind then refuses with "stop the
-    // running turn" while nothing is running.
+    // A live process is NOT a running turn — this CLI idles between turns; `alive` alone would wedge the flag and block rewinds.
     if (fetch.alive) this.isTurnRunning = this._midTurn(fetch);
     return fetch;
   }
 
-  /**
-   * Is the adopted process in the middle of a turn?
-   *
-   * Read from the last line it printed: every turn ends with a `result` record, and
-   * anything the CLI emits afterwards (stream deltas, a control_request gate) is the
-   * next turn already in flight. No lines at all means nothing to judge by, so the
-   * answer falls back to the old rule — a process that just answered has none pending.
-   */
+  /** Mid-turn iff the last line is not a `result` record; no lines means nothing to judge by. */
   _midTurn(fetch) {
     const last = fetch?.lines?.[fetch.lines.length - 1];
     if (!last) return false;
@@ -200,25 +134,13 @@ export class ClaudeAdapter {
     this.turnStreamedText = "";
     this.resumeRejected = false;
     this._initializedThisSpawn = false;
-    // A stop whose echo never came — the CLI died between our interrupt and its answer.
-    // Kept through the respawn, the replayed history's old `result` would be eaten as
-    // that echo and a past turn would lose its ending in the pane.
+    // Cleared: a respawn replays old `result` records that would be eaten as an unanswered interrupt's echo.
     this._interrupted = false;
-    // Bind before starting: a line can arrive while start() is still awaiting, and a
-    // handler attached afterwards would drop it.
-    // Every line goes through the RPC client. It owns the correlation between a gate the
-    // CLI opens (`control_request`) and the answer we write back — the same job codex's
-    // app-server does, in one place instead of two. What is NOT JSON-RPC (the whole
-    // conversation: assistant, stream_event, result, user) comes back through `onMessage`
-    // and is parsed exactly as before.
+    // Bind before start(): a line can arrive while start() is still awaiting.
+    // The RPC client owns the control_request/answer correlation; non-RPC records parse as before via onMessage.
     this.rpc = new JsonRpcClient(this.proc, {
-      // Claude spells its envelope its own way: `type`/`request_id`, not `jsonrpc`/`id`.
-      //
-      // `extractMethod` answers null for a `control_request` ON PURPOSE. Reporting it as a
-      // method made the client treat the CLI's gate as a server request and answer
-      // `unhandled server request: can_use_tool` on the spot — refusing every permission
-      // prompt before the adapter ever saw it. The gate is not a request to route; it is
-      // part of the conversation, and it travels with the rest through `onMessage`.
+      // Claude spells its envelope `type`/`request_id`, not `jsonrpc`/`id`.
+      // extractMethod is null ON PURPOSE: the CLI's `control_request` gate is conversation, not a server request — routing it auto-refused every permission prompt.
       extractId: (m) => (typeof m.id === "number" ? m.id : null),
       extractMethod: (m) => null,
       encodeResponse: (id, result) => ({ type: "control_response", response: { subtype: "success", request_id: id, response: result } }),
@@ -228,24 +150,19 @@ export class ClaudeAdapter {
       }),
       // Outgoing messages this CLI spells as its own `type`, not as JSON-RPC methods.
       encodeNotification: (method, params) => ({ type: method, ...params }),
-      // A control request is the same spelling, with an id of our own and the payload
-      // nested under `request` — the shape its own `control_request` records use.
+      // Control requests nest the payload under `request`, matching the CLI's own records.
       encodeRequest: (id, method, params) => ({ type: method, request_id: id, request: params }),
-      // The answer carries the id INSIDE `response`, so the envelope's own fields say
-      // nothing about which request it settles.
+      // The id rides inside `response` — the envelope itself says nothing about which request it settles.
       decodeResponse: (m) => ({
         id: m.type === "control_response" ? (m.response?.request_id ?? null) : null,
         error: m.response?.subtype === "error" ? (m.response.error || "request failed") : null,
         result: m.response?.subtype === "error" ? null : m.response?.response
       }),
-      // The client hands back a parsed object, which is exactly what the parser takes —
-      // no re-serializing a line just to parse it again.
+      // Already a parsed object — no re-serializing just to parse it again.
       onMessage: (msg) => this.handleMessage(msg)
     });
     this.proc.onExit = (info) => this._handleExit(info);
-    // The daemon turning a write away is the only notice a dead CLI gives before its
-    // exit lands — and it is the one that proves the prompt never arrived. Bound here,
-    // beside onExit, so both carriers are wired at the same moment.
+    // A refused write is the only notice of a dead CLI before its exit lands — bound beside onExit so both carriers wire together.
     this.proc.onRefused = () => this._handleRefusal();
   }
 
@@ -268,11 +185,7 @@ export class ClaudeAdapter {
     return args;
   }
 
-  /**
-   * A restart is a respawn with the options this adapter already holds. `resume` is
-   * a one-shot action, not a sticky option: keeping it would make every later
-   * rebuild re-bind the thread we just left.
-   */
+  /** `resume` is one-shot: kept, every later rebuild would re-bind the thread we just left. */
   async setOptions({ mode, model, resume, effort }) {
     let fetch = null;
     let restartNeeded = false;
@@ -282,8 +195,7 @@ export class ClaudeAdapter {
     if (effort && effort !== this.effort) { this.effort = effort; restartNeeded = true; }
     if (resume && resume !== this.metadata.sessionId) { this.metadata.sessionId = resume; restartNeeded = true; }
     if (restartNeeded) {
-      // stop() must not close the adapter's own line hook: start() rebinds it right
-      // after, and a hook cleared in between holds every line the new process writes.
+      // stop() must not clear the line hook — start() rebinds it right after, and a gap holds every new line.
       await this.proc.stop();
       this.isTurnRunning = false;
       fetch = await this.start(this.currentMode, this.metadata.sessionId || null);
@@ -297,8 +209,7 @@ export class ClaudeAdapter {
     return { command: "claude", args: ["doctor"] };
   }
 
-  /** Parse one raw line from the CLI. The caller feeds these in line order, so a
-   *  re-attach cannot interleave old and new. */
+  /** Caller feeds lines in order, so a re-attach cannot interleave old and new. */
   feed(line) {
     if (!String(line).trim()) return;
     let data;
@@ -309,40 +220,21 @@ export class ClaudeAdapter {
     this.handleMessage(data);
   }
 
-  /**
-   * The daemon turned a write away: the child is gone.
-   *
-   * Deliberately NOT `_handleExit`. That one is the CLI's own obituary — it emits `exit`
-   * (which the pane paints as "the process died") and, when the id was never confirmed,
-   * sets `resumeRejected` and throws the conversation id away. Both are wrong here: the
-   * chat is about to be rebuilt ON that id, and a recovery nobody asked for must not
-   * report a failure on its way. What is shared with a real exit is the truth that
-   * nothing is running any more, so the gates go and the turn flag drops.
-   */
+  /** Not `_handleExit`: the id is about to be rebuilt on, so no `exit` event and no resumeRejected — just drop gates and flag. */
   _handleRefusal() {
     this.isTurnRunning = false;
     this.pendingRequests.clear();
-    // A refusal always ends the recovery attempt that was in flight — whether it arrived
-    // for the ORIGINAL prompt (the rebuild below will retry once) or for the resend itself
-    // (which passes `retried` and so starts no second rebuild). Left set, it would be the
-    // last word for the rest of the chat's life: every later refusal returns early and the
-    // session goes quietly un-recoverable.
+    // Left set, every later refusal returns early and the session goes quietly un-recoverable.
     this._respawning = false;
   }
 
   _handleExit({ code, error } = {}) {
     this.isTurnRunning = false;
-    // A real exit ends any recovery that was mid-flight: `_respawning` is what stops a
-    // second refusal from starting a second rebuild, and left set it would also stop the
-    // NEXT dead CLI — the chat silently un-recoverable from then on.
+    // Left set, the NEXT dead CLI would also find recovery blocked — silently un-recoverable.
     this._respawning = false;
-    // A dead CLI cannot be waiting on anything; leaving the entries would keep the idle
-    // watchdog stood down for a gate no process is holding.
+    // A dead CLI waits on nothing; stale entries keep the idle watchdog stood down.
     this.pendingRequests.clear();
-    // An engine that dies before it ever initialized may have refused the resume id
-    // (verified: a bad --resume exits non-zero with "No conversation found"). The CLI
-    // emits no init until the first prompt, so a clean pre-init exit proves nothing
-    // and must keep the id; only a failure is evidence.
+    // Only a FAILED pre-init exit proves the resume id was refused — a clean one emits nothing before the first prompt.
     if (this.metadata.sessionId && !this._initializedThisSpawn && (code || error)) {
       this.resumeRejected = true;
     }
@@ -350,9 +242,7 @@ export class ClaudeAdapter {
   }
 
   handleMessage(data) {
-    // A sub-agent's events carry the id of the Agent/Task call that spawned them.
-    // Pass it through so the UI nests them under that card instead of showing one
-    // flat timeline with no way to tell whose tool call is whose.
+    // Sub-agent events carry their spawner's id, so the UI nests them under that card.
     const parentToolUseId = data.parent_tool_use_id || "";
 
     if (data.type === "system" && data.subtype === "init") {
@@ -364,8 +254,7 @@ export class ClaudeAdapter {
         skills: data.skills || [],
         slashCommands: data.slash_commands || [],
       };
-      // Empty effort means "the CLI's own config decides" — sending it would wipe the
-      // level the init published for display, so the chip vanished on the first prompt.
+      // Empty effort means the CLI decides — sending it would wipe the level init published.
       this.onEvent?.("init", { ...this.metadata, ...(this.effort ? { effort: this.effort } : {}) });
       return;
     }
@@ -374,11 +263,7 @@ export class ClaudeAdapter {
       const event = data.event;
       if (event?.type === "content_block_delta" && event.delta?.type === "text_delta") {
         const text = event.delta.text || "";
-        // Output only ever comes from a turn, so this is what marks one running. An
-        // adopted process has no `sendPrompt` of its own to set the flag — and an agent
-        // that restarts mid-turn would otherwise think the CLI is idle and let a
-        // spawn-time option (a mode/model/effort pick) restart it, killing the answer
-        // the user was watching.
+        // Output proves a turn: adopted processes never see sendPrompt, and a wrong idle flag lets an option change restart the CLI mid-answer.
         this.isTurnRunning = true;
         this.turnStreamedText += text;
         this.onEvent?.("delta", { text });
@@ -386,9 +271,7 @@ export class ClaudeAdapter {
         this.isTurnRunning = true;
         this.onEvent?.("thinking", { text: event.delta.thinking });
       } else if (event?.usage?.input_tokens) {
-        // Per-step usage: each API step resends the whole conversation, so THIS reading
-        // is the window's current fill. result.usage is the sum over every step of the
-        // turn (measured 26915 + 27656 = 54571), which overstates the window.
+        // Per-step usage is the window's current fill; result.usage sums every step and overstates it.
         const u = event.usage;
         this.stats.contextTokens = (u.input_tokens || 0)
           + (u.cache_read_input_tokens || 0) + (u.cache_creation_input_tokens || 0);
@@ -401,8 +284,7 @@ export class ClaudeAdapter {
       const { request_id, request = {} } = data;
       const toolName = request.tool_name || "";
       const toolInput = request.input || request.tool_input || {};
-      // A gate is only ever held mid-turn, so this proves one is running even when the
-      // turn was adopted and never saw a `sendPrompt` (see the delta case above).
+      // A gate is only ever held mid-turn — adopted-turn proof, like the delta case above.
       this.isTurnRunning = true;
       this.pendingRequests.set(request_id, { toolName, input: toolInput });
 
@@ -416,11 +298,7 @@ export class ClaudeAdapter {
     }
 
     if (data.type === "result") {
-      // The CLI echoing the turn WE stopped. The pane already drew `stopped` when the
-      // control request went out; letting this through would end the turn again — over
-      // a newer turn's start mark when a queued prompt has since started (see the
-      // constructor note on `_interrupted`). State is still consumed: the CLI considers
-      // the turn over, and so do we.
+      // The echo of OUR stop — swallowed, but state consumed: the CLI considers the turn over (see `_interrupted`).
       if (this._interrupted) {
         this._interrupted = false;
         this.isTurnRunning = false;
@@ -428,27 +306,19 @@ export class ClaudeAdapter {
         return;
       }
       this.isTurnRunning = false;
-      // A gate only ever belongs to the turn that asked it. The turn is over, so any
-      // request still in the map was walked away from, killed by an interrupt, or is the
-      // model's own call sitting in a transcript ahead of the prompt — and every one of
-      // them is unanswerable now. Kept, they came back from a replay as a live question
-      // card: the user tapped an option, the CLI had no such request, and the pane stayed
-      // stuck on a card that could never clear until the next F5 dropped it.
+      // The turn is over: any gate left in the map is unanswerable, and a replayed one returns as a stuck card.
       this.pendingRequests.clear();
       if (data.total_cost_usd) {
         this.stats.totalCost += Number(data.total_cost_usd) || 0;
       }
-      // The top-level `usage` is THIS turn's own count — the tokens the CLI resent for
-      // it, which is the context window's current fill. Verified on 2.1.270: turn 2
-      // reported input 26923 while modelUsage (a session-running sum) said 53829.
+      // result.usage is THIS turn's count — the window's current fill, unlike modelUsage's running sum.
       if (data.usage) {
         this.stats.inputTokens = data.usage.input_tokens || 0;
         this.stats.outputTokens = data.usage.output_tokens || 0;
         this.stats.cacheReadInputTokens = data.usage.cache_read_input_tokens || 0;
         this.stats.cacheCreationInputTokens = data.usage.cache_creation_input_tokens || 0;
       }
-      // modelUsage is the only place the window's size is stated. Summed across models
-      // because a turn can span more than one; the widest is the one that can overflow.
+      // modelUsage alone states the window size; the widest across models is what can overflow.
       if (data.modelUsage) {
         let contextWindow = 0;
         for (const usage of Object.values(data.modelUsage)) {
@@ -463,16 +333,7 @@ export class ClaudeAdapter {
       }
 
       this.turnStreamedText = "";
-      // The subtype and `is_error` travel with the end of the turn. `turn_complete` alone
-      // says a turn ended; it does not say it ended BADLY, and a pane that only hears the
-      // first cannot tell a failure from a success.
-      //
-      // `error_during_execution` with an empty `result` is the CLI reporting an INTERRUPT,
-      // not a failure: it is the subtype it emits when the user stops a turn (measured on
-      // every Stop/Esc — `turn failed: subtype=error_during_execution result=` throughout
-      // the agent log). Passed through, the pane drew "The turn ended in an error." over a
-      // turn the user ended themselves, which reads as a crash. A real failure always
-      // names itself in `result`, so that is what the flag is gated on.
+      // `error_during_execution` with empty `result` is the CLI reporting an INTERRUPT, not a failure — a real failure names itself in `result`.
       const failed = Boolean(data.is_error) && !(data.subtype === "error_during_execution" && !String(data.result || "").trim());
       this.onEvent?.("turn_complete", {
         stats: this.stats,
@@ -483,8 +344,7 @@ export class ClaudeAdapter {
       return;
     }
 
-    // Assistant message: Tool calls and text fallback. Its `usage` is zeroed in
-    // stream-json output — the real counts only arrive on `result` (see above).
+    // Assistant `usage` is zeroed in stream-json — real counts arrive on `result`.
     if (data.type === "assistant" && data.message) {
       const msg = data.message;
       const contents = msg.content || [];
@@ -492,8 +352,7 @@ export class ClaudeAdapter {
       for (const item of contents) {
         if (item.type === "tool_use") {
           rendered = true;
-          // Kept until its result arrives: `tool_result` carries only the id, and the
-          // diff for an edit needs the name and input the call was made with.
+          // Kept for the diff: `tool_result` carries only the id, not the name/input.
           this.toolCalls.set(item.id, { name: item.name, input: item.input });
           this.onEvent?.("tool_start", {
             id: item.id,
@@ -503,7 +362,6 @@ export class ClaudeAdapter {
           });
         } else if (item.type === "text" && item.text) {
           rendered = true;
-          // Fallback only if text was not streamed already
           if (!this.turnStreamedText) {
             this.turnStreamedText = item.text;
             this.onEvent?.("delta", { text: item.text });
@@ -514,14 +372,11 @@ export class ClaudeAdapter {
           }
         }
       }
-      // An assistant record with nothing this pane draws (an empty content array, a block
-      // type the pane has no card for) still happened, and the pane is a re-render of the
-      // TUI rather than a summary of it — so it travels whole rather than vanishing.
+      // Undrawn records still travel whole — the pane re-renders the TUI, it does not summarize it.
       if (!rendered) this.emitCliEvent(data, parentToolUseId);
       return;
     }
 
-    // User message: Tool execution result from CLI
     if (data.type === "user" && data.message) {
       const contents = data.message.content || [];
       let rendered = false;
@@ -530,10 +385,7 @@ export class ClaudeAdapter {
           rendered = true;
           const isError = Boolean(item.is_error);
           const output = typeof item.content === "string" ? item.content : JSON.stringify(item.content);
-          // A launch ack is not a result: the CLI returns the instant a sub-agent or a
-          // background shell is handed off, naming the handle it will report on later.
-          // Reporting it as `done` is what left the agent strip permanently empty — the
-          // row was finished two events after it started, while the work ran on.
+          // A launch ack is not a result — reporting it `done` finished the row while the work ran on.
           const async = isError ? null : asyncHandle(output, this.toolCalls.get(item.tool_use_id)?.name || "");
           const call = this.toolCalls.get(item.tool_use_id);
           this.onEvent?.("tool_result", {
@@ -545,9 +397,7 @@ export class ClaudeAdapter {
             ...(async ? { async: true, handle: async.id } : null),
             parentToolUseId
           });
-          // The diff comes from the RESULT, not the call: an edit the user denied never
-          // reaches here, so a rejected change cannot paint itself as one that landed.
-          // (Codex is gated the same way — it emits on `file_change`.)
+          // The diff comes from the RESULT — a denied edit must not paint itself as landed.
           this.toolCalls.delete(item.tool_use_id);
           if (call && !isError && DIFF_TOOLS.has(call.name)) {
             const diff = buildEditDiff(call.name, call.input);
@@ -555,16 +405,12 @@ export class ClaudeAdapter {
           }
         }
       }
-      // A user record with no tool_result is one the CLI wrote under the user role, or a
-      // replayed prompt. Opening a prompt bubble for the first would show a question
-      // nobody asked; dropping either would be the pane deciding what the harness meant.
+      // Undrawn user records (CLI-written or replayed prompts) travel whole.
       if (!rendered) this.emitCliEvent(data, parentToolUseId);
       return;
     }
 
-    // Nothing above claimed it, and the pane is a re-render of the TUI rather than a
-    // summary of it — so it travels whole, under the harness's own name, for whatever
-    // the pane learns to draw next.
+    // Unclaimed records travel whole under the harness's own name.
     this.emitCliEvent(data, parentToolUseId);
   }
 
@@ -585,9 +431,7 @@ export class ClaudeAdapter {
   _send(prompt, attachments, retried) {
     this.isTurnRunning = true;
     this.turnStreamedText = "";
-    // Re-run this prompt on the CLI that replaces a dead one. Only a REFUSAL earns that:
-    // the daemon turned the write away, so the bytes provably never arrived and sending
-    // them again cannot be a second turn. A real procExit never re-sends.
+    // Only a REFUSAL re-sends — the daemon turned the write away, so the bytes never arrived. A real exit never re-sends.
     this.rpc.notify(
       "user",
       { message: { role: "user", content: buildContent(prompt, attachments) } },
@@ -595,28 +439,13 @@ export class ClaudeAdapter {
     );
   }
 
-  // The CLI died with this prompt still in hand: rebuild it and send the prompt again, so
-  // a chat whose process was killed from outside comes back on its own instead of sitting
-  // on a turn nothing is running. Rebuilt through the same door `start` always uses, which
-  // respawns with `--resume <this conversation>` — the session survives, the text arrives.
-  //
-  // ONCE per prompt. A CLI that dies again on the resend is a machine that cannot run it,
-  // and retrying forever would spin a spawn loop against the daemon — the user gets the
-  // error below instead, which is a thing they can act on.
-  //
-  // No `exit` is emitted on the way: an exit is what the pane renders as "the process died",
-  // and a recovery nobody had to ask for must not paint a failure over it. The rebuild is
-  // silent too — the session's `init` (which a `start` always emits) states the recovered
-  // conversation on its own, and a second event for it would be a second claim about it.
+  // Rebuild and re-send ONCE after a refusal (the session survives via --resume); silent — an unasked recovery must not paint a failure, a loop would spin the daemon.
   _resendAfterRefusal(prompt, attachments) {
     if (this.resumeRejected || this._respawning) return;
     this._respawning = true;
-    // Deferred, and outside the refusal's own call stack: the rebuild swallows the old
-    // `rpc` and rebinds `proc`, so it must not run inside a handler those own.
+    // Deferred: the rebuild swallows `rpc` and rebinds `proc` — it must not run inside a handler those own.
     setTimeout(() => {
-      // Wrapped, not chained: `start` can throw SYNCHRONOUSLY (it rebuilds the RPC client
-      // before its first await), and inside a setTimeout that lands as an uncaught
-      // exception — which takes the whole agent down, not just this recovery.
+      // Wrapped, not chained: start() can throw synchronously, and that inside a setTimeout is an uncaught exception.
       Promise.resolve()
         .then(() => this.start(this.currentMode, this.metadata.sessionId || null))
         .then(
@@ -636,14 +465,10 @@ export class ClaudeAdapter {
   resolvePermission(requestId, behavior, message = "") {
     const pending = this.pendingRequests.get(requestId);
     this.pendingRequests.delete(requestId);
-    // The CLI is no longer waiting for this id (it was restarted, or another surface
-    // answered it). Writing the response anyway put a stray control_response on the
-    // pipe and reported success for an answer nobody received.
+    // Not waiting any more — answering anyway put a stray success on the pipe for an answer nobody received.
     if (!pending) return false;
 
-    // Through the RPC client, so the envelope is spelled in ONE place — the same one the
-    // refusal path uses. Writing it here by hand is what made "how Claude spells an
-    // answer" a thing two call sites had to agree on.
+    // Through the RPC client so the envelope is spelled in one place, refusal path included.
     this.rpc.respond(requestId, behavior === "allow"
       ? { behavior: "allow", updatedInput: pending.input || {} }
       : { behavior: "deny", message: message || "Permission denied." });
@@ -665,19 +490,10 @@ export class ClaudeAdapter {
     return true;
   }
 
-  /**
-   * Interrupt the TURN, not the process: the CLI keeps its conversation, so the next
-   * prompt resumes the same context. Killing it would drop everything queued in it.
-   * Returns false when the request could not be written, so the caller can fall back
-   * to a signal.
-   */
+  /** Interrupt the TURN — the conversation survives; false lets the caller fall back to a signal. */
   interrupt() {
     try {
-      // The client's own return: false when the carrier reports the write did not go out
-      // (the CLI is gone). Reported as it is, because the caller uses this to decide
-      // between a real stop and telling the user nothing could be stopped — and a `true`
-      // here against a dead pipe is exactly the lie that left the pane and the agent
-      // disagreeing about whether a turn was running.
+      // False when the write did not go out — a `true` against a dead pipe desyncs pane and agent.
       const sent = this.rpc.notify("control_request", {
         request_id: `int-${Date.now()}`,
         request: { subtype: "interrupt", cancel_queued: true }
@@ -689,18 +505,12 @@ export class ClaudeAdapter {
     }
   }
 
-  /**
-   * Last resort when the control request could not be written — the CLI is wedged, or its
-   * pipe is gone. SIGINT reaches the carrier that owns the process; `LocalProc` and
-   * `DaemonProc` both take one. Reports whether the signal went out, for the same reason
-   * `interrupt` does: the caller tells the user the truth about what was stopped.
-   */
+  /** Last resort when the control request could not be written; reports whether the signal went out. */
   signal(sig = "SIGINT") {
     if (typeof this.proc?.signal !== "function") return false;
     try {
       this.proc.signal(sig);
-      // SIGINT gets the same `result` echo a control request does — stdin can be dead
-      // while stdout still answers, so the swallow must arm here too.
+      // SIGINT earns the same `result` echo — arm the swallow here too.
       this._interrupted = true;
       return true;
     } catch {
@@ -708,13 +518,7 @@ export class ClaudeAdapter {
     }
   }
 
-  /**
-   * Stop ONE background task, by the id the CLI named in `task_started`.
-   *
-   * The turn is untouched — this is the TUI's per-row stop, not its kill-all. Fire and
-   * forget: the CLI answers with a `task_notification` carrying the status, which is what
-   * settles the row, so the ack itself is not worth a second reader here.
-   */
+  /** Stop ONE background task (not the turn); the CLI's `task_notification` settles the row — fire and forget. */
   stopTask(taskId) {
     if (!taskId) return false;
     try {
@@ -728,19 +532,7 @@ export class ClaudeAdapter {
     }
   }
 
-  /**
-   * Cut the conversation at `targetUuid`, in the CLI's own memory.
-   *
-   * The target is the turn that GOES — the opposite of what the transcript-rewriting path
-   * used to compute — and the CLI answers with the text of that turn (`prefillText`) so
-   * it can be put back in the composer. `lastSeenUuid` is the newest turn the caller has
-   * seen, and is not optional: without it the CLI cannot tell "the user wants this" from
-   * "the client is behind and would discard turns it never rendered", and refuses.
-   *
-   * `interrupt_if_running` lets the CLI deal with a turn in flight rather than the cut
-   * landing half-applied; a refusal comes back as `{rewound:false, reason}` rather than
-   * throwing.
-   */
+  /** targetUuid is the turn that GOES; lastSeenUuid is required or the CLI refuses — it cannot tell a rewind from a lagging client. */
   async rewindConversation(targetUuid, lastSeenUuid) {
     try {
       const res = await this.rpc.request("control_request", {
@@ -755,15 +547,7 @@ export class ClaudeAdapter {
     }
   }
 
-  /**
-   * Put the files back the way they were at `uuid` — the same work `--rewind-files`
-   * does, without spawning a second CLI. `dryRun` is the preview: it answers what would
-   * change and changes nothing.
-   *
-   * `uuid` is the FIRST turn that goes, the same one `rewindConversation` takes: undoing
-   * a turn's writes means undoing its own as well as everything after it (measured — a
-   * turn that created a file, rewound to itself, leaves the file gone).
-   */
+  /** Undo writes from `uuid` onward — the same target rewindConversation takes; `dryRun` answers without changing. */
   async rewindFiles(uuid, { dryRun = false } = {}) {
     try {
       const res = await this.rpc.request("control_request", {

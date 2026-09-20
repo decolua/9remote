@@ -13,27 +13,13 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPDATE_CHECK_TIMEOUT = 3000;
 const SAFETY_TIMEOUT = 8000;
 const SERVER_PORT = 2208;
-// Legacy path from pre-pids.js installs — clean up once so old instances
-// can still be killed during upgrade from older versions.
+// Legacy cloudflared PID path for cleanup during upgrade from older versions
 const LEGACY_CLOUDFLARED_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
 
-/**
- * Kill all 9remote-related child processes to release file locks before npm install.
- *
- * Critical on Windows: node.exe / tray helper / cloudflared.exe lock files inside
- * node_modules\9remote\dist, so `npm i -g` fails with EBUSY when trying to rename
- * the old dist folder.
- *
- * We kill ONLY by PID (from ~/.9remote/pids/) — never by image name (taskkill /IM)
- * or by commandline match, because those would also kill unrelated apps on the
- * machine that happen to use cloudflared.exe, tray_windows_release.exe, or node.exe.
- */
+// Releases file locks by PID before update to avoid EBUSY on Windows
 function cleanupBeforeUpdate() {
-  // 1. Kill tracked processes (cloudflared + agent tree) via pids.js.
-  //    Agent kill with taskkill /F /T sweeps its server child + tray helper.
   try { killAllPids(); } catch {}
 
-  // 2. Legacy: older versions stored cloudflared PID at a different path.
   try {
     if (existsSync(LEGACY_CLOUDFLARED_PID_FILE)) {
       const pid = parseInt(readFileSync(LEGACY_CLOUDFLARED_PID_FILE, "utf8"));
@@ -42,8 +28,6 @@ function cleanupBeforeUpdate() {
     }
   } catch {}
 
-  // 3. Safety net for stale server on SERVER_PORT (e.g. crashed without clearing PID).
-  //    Scoped to one specific port, so we only touch 9remote's own server.
   try {
     if (process.platform === "win32") {
       execSync(`for /f "tokens=5" %a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %a`, { stdio: "ignore", windowsHide: true });
@@ -52,23 +36,17 @@ function cleanupBeforeUpdate() {
     }
   } catch {}
 
-  // 4. Give Windows a moment to release file handles before npm tries to rename.
   if (process.platform === "win32") {
     const end = Date.now() + 1500;
-    while (Date.now() < end) { /* spin-wait; Atomics.wait not worth importing */ }
+    while (Date.now() < end) {}
   }
 }
 
-/**
- * Get current version
- */
 function getCurrentVersion() {
-  // When bundled, version is injected at build time
   if (typeof __CLI_VERSION__ !== "undefined") {
     return __CLI_VERSION__;
   }
-  
-  // Dev mode: read from package.json (cli/utils → agent root is two levels up)
+
   try {
     const packagePath = path.resolve(__dirname, "../../package.json");
     const packageJson = JSON.parse(readFileSync(packagePath, "utf-8"));
@@ -78,10 +56,6 @@ function getCurrentVersion() {
   }
 }
 
-/**
- * Compare semver versions
- * Returns true if latest > current
- */
 export function isNewerVersion(current, latest) {
   const currentParts = current.split(".").map(Number);
   const latestParts = latest.split(".").map(Number);
@@ -93,9 +67,6 @@ export function isNewerVersion(current, latest) {
   return false;
 }
 
-/**
- * Check if running in restricted environment (Codespaces, Docker)
- */
 function isRestrictedEnvironment() {
   if (process.env.CODESPACES === "true" || process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN) {
     return "GitHub Codespaces";
@@ -106,13 +77,6 @@ function isRestrictedEnvironment() {
   return null;
 }
 
-/**
- * Check for npm updates (non-blocking, notification only)
- */
-/**
- * Kill running 9remote processes so user can safely run `npm i -g 9remote@latest`.
- * Called when user chooses manual update from startup menu.
- */
 export function stopRunningInstances() {
   cleanupBeforeUpdate();
 }
@@ -138,14 +102,9 @@ export async function checkForUpdates() {
       console.log(chalk.gray(`   Run: npm i -g ${PACKAGE_NAME}\n`));
     }
   } catch {
-    // Silent fail - don't block CLI
   }
 }
 
-/**
- * Check if a newer version exists — returns { current, latest } or null.
- * Silent fail, no auto-update, no spinner.
- */
 export async function checkLatestVersion() {
   try {
     const currentVersion = getCurrentVersion();
@@ -164,17 +123,12 @@ export async function checkLatestVersion() {
   }
 }
 
-/**
- * Check and auto-update if new version available
- * Returns true if update started (process will exit), false otherwise
- */
 export async function checkAndUpdate(skipUpdate = false) {
   if (skipUpdate) return false;
 
   const currentVersion = getCurrentVersion();
   if (!currentVersion) return false;
 
-  // Spinner frames
   const frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
   let frameIndex = 0;
   let spinnerInterval = null;
@@ -209,7 +163,6 @@ export async function checkAndUpdate(skipUpdate = false) {
       }
     };
 
-    // Safety timeout to prevent hanging
     const safetyTimer = setTimeout(() => safeResolve(false), SAFETY_TIMEOUT);
 
     startSpinner("Checking for updates...");
@@ -229,7 +182,6 @@ export async function checkAndUpdate(skipUpdate = false) {
         stopSpinner();
         console.log(chalk.green(`✅ New version available: ${currentVersion} → ${latestVersion}`));
 
-        // Check restricted environment
         const restrictedEnv = isRestrictedEnvironment();
         if (restrictedEnv) {
           console.log(chalk.yellow(`   ⚠️  ${restrictedEnv} detected - manual update required`));
@@ -240,17 +192,11 @@ export async function checkAndUpdate(skipUpdate = false) {
 
         console.log(chalk.yellow("🔄 Auto-updating...\n"));
 
-        // Build update script
         const args = process.argv.slice(2).filter((a) => a !== "--skip-update");
         const argsStr = args.join(" ");
         const platform = process.platform;
 
         let scriptPath, shellCmd;
-
-        // The update script must kill our tracked processes by PID ONLY.
-        // Never use `taskkill /IM <image>` or `pkill -f <name>` — those match
-        // by binary name / commandline and would nuke unrelated apps on the
-        // machine (other cloudflared tunnels, other tray apps, any node.exe).
         const pidsDir = getPidsDir();
 
         if (platform === "win32") {
@@ -338,10 +284,8 @@ fi
           shellCmd = ["sh", [scriptPath]];
         }
 
-        // Cleanup child processes to release file locks before npm install
         cleanupBeforeUpdate();
 
-        // Execute update script in background
         const child = spawn(shellCmd[0], shellCmd[1], {
           detached: true,
           stdio: "inherit"
@@ -357,11 +301,9 @@ fi
   });
 }
 
-// ── Web-triggered update ─────────────────────────────────────────────────────
-
 const LOCK_PATH = path.join(PATHS.STATE, UPDATE.lockFile);
 
-// Concurrent guard: skip if a fresh lock held by a live process exists (R6)
+// Skip if a fresh lock held by a live process exists
 function acquireUpdateLock() {
   try {
     if (existsSync(LOCK_PATH)) {
@@ -376,7 +318,6 @@ function acquireUpdateLock() {
   return true;
 }
 
-// Fetch latest version from registry; null on failure
 async function fetchLatestVersion() {
   try {
     const res = await browserFetch(NPM_REGISTRY_URL, { signal: AbortSignal.timeout(UPDATE_CHECK_TIMEOUT) });
@@ -386,7 +327,6 @@ async function fetchLatestVersion() {
   } catch { return null; }
 }
 
-// Registry flag for npm inside the script (Verdaccio test). Empty on invalid/unset.
 function registryFlag() {
   try {
     if (process.env.NREMOTE_REGISTRY) return `--registry ${new URL(process.env.NREMOTE_REGISTRY).origin}`;
@@ -394,9 +334,7 @@ function registryFlag() {
   return "";
 }
 
-// Install back into the prefix we're running from. The Electron shell installs the
-// agent into ~/.9remote/npm, so a bare `npm install -g` would target the wrong root
-// and the verify step would then roll back the user's system-global install.
+// Install back into prefix to avoid mislocating Electron-bundled installs
 function prefixFlag() {
   const cli = getCliEntry();
   const sep = path.sep;
@@ -407,8 +345,7 @@ function prefixFlag() {
   return "";
 }
 
-// The shell that runs npm. Under Electron there may be no system Node/npm at all,
-// so fall back to the npm bundled in the app, run by Electron's own Node.
+// Fallback to bundled npm and Electron Node if system npm is missing
 function npmCommand() {
   const bundled = process.env.NREMOTE_NPM_CLI;
   if (bundled && existsSync(bundled)) {
@@ -419,9 +356,6 @@ function npmCommand() {
   return "npm";
 }
 
-// Build the self-contained update script. Runs detached from the agent:
-// waits for agent to die → kills tracked PIDs (never ptyDaemon) → npm install
-// with retry → verifies version == latest → rolls back on mismatch → restarts.
 function buildUpdateScript({ currentVersion, latest, agentPid }) {
   const pidsDir = getPidsDir();
   const reg = registryFlag();
@@ -429,7 +363,6 @@ function buildUpdateScript({ currentVersion, latest, agentPid }) {
   const nodeEnv = nodeBinEnvPrefix();
   const cliEntry = getCliEntry();
   const lock = LOCK_PATH;
-  // Shared npm flags: prefer-online (revalidate cache), skip audit/fund round-trips
   const npmFlags = `--prefer-online --no-audit --no-fund ${reg} ${prefixFlag()}`.trim();
   const npm = npmCommand();
 
@@ -547,7 +480,6 @@ ${nodeEnv}"${nodeBin}" "${cliEntry}" --tray --skip-update --start
   return { shellCmd: ["sh", [scriptPath]], windowsVerbatim: false };
 }
 
-// Entry point for web-triggered update (called by cmdPoller on "update" command).
 export async function runWebUpdate() {
   const currentVersion = getCurrentVersion();
   if (!currentVersion) return false;
@@ -560,8 +492,6 @@ export async function runWebUpdate() {
 
   const { shellCmd, windowsVerbatim } = buildUpdateScript({ currentVersion, latest, agentPid: process.pid });
 
-  // Spawn detached BEFORE we exit; script waits for us to die then does the work.
-  // windowsVerbatimArguments keeps the quoted script path intact for `start`.
   const child = spawn(shellCmd[0], shellCmd[1], { detached: true, stdio: "ignore", windowsHide: true, windowsVerbatimArguments: windowsVerbatim });
   child.unref();
 

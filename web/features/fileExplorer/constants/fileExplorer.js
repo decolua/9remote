@@ -1,11 +1,7 @@
-// File Explorer constants
-
-// Agent returns OS-native separators (\\ on Windows). Web helpers assume POSIX (/),
-// so normalize at every boundary where a path enters web state.
+// Normalize OS-native separators to POSIX.
 export const toPosixPath = (p) => (typeof p === "string" ? p.replace(/\\/g, "/") : p);
 
-// Field names that carry a filesystem path in bus responses — only these get
-// normalized, so file *content* (readFile/gitDiff) is never touched.
+// Path fields in bus responses to normalize.
 const PATH_FIELDS = new Set([
   "path", "currentPath", "parentPath", "dirPath", "filePath",
   "repoPath", "oldPath", "newPath", "fullPath", "relativePath",
@@ -40,10 +36,10 @@ export function normalizePathsResponse(res) {
   return next || res;
 }
 
-export const MAX_FILE_SIZE = 1024 * 1024; // 1MB text read limit
+export const MAX_FILE_SIZE = 1024 * 1024;
 // ponytail: media preview over base64 bus is slow for very large files;
 // upgrade to HTTP range streaming when users routinely open >5MB media.
-export const MAX_MEDIA_SIZE = 5 * 1024 * 1024; // 5MB previewable media limit
+export const MAX_MEDIA_SIZE = 5 * 1024 * 1024;
 
 export const IGNORED_DIRS = [
   "node_modules",
@@ -117,13 +113,8 @@ export function getTextPreviewKind(filePath) {
   return null;
 }
 
-// Marks the nav reports the agent's preview route injects into every HTML page it
-// serves. The frame is sandboxed onto an opaque origin, so postMessage is the only
-// way its address can reach the viewer — and this tag is how the viewer knows it is
-// one of ours rather than a message from the previewed page itself.
+// Tag for sandboxed preview iframe postMessage navigation.
 export const PREVIEW_NAV_SOURCE = "9remote-preview";
-// Previewable = browser/lib can render without the text editor. Used to route
-// away from the text editor and the binary rejection in readFile.
 export const isPreviewableFile = (p) =>
   isImageFile(p) || isVideoFile(p) || isAudioFile(p) || isPdfFile(p)
   || isDocxFile(p) || isSheetFile(p);
@@ -157,7 +148,6 @@ export const LANGUAGE_MAP = {
   ".env": "env", ".gitignore": "gitignore"
 };
 
-// Icon names for Lucide icons (rendered in components)
 export const FILE_ICON_NAMES = {
   folder: "Folder",
   file: "File",
@@ -180,7 +170,6 @@ export const GIT_STATUS = {
   untracked: "?"
 };
 
-// VS Code's muted git decoration palette (tokens in globals.css), not bright tailwind hues.
 export const GIT_STATUS_COLORS = {
   M: "text-git-modified",
   A: "text-git-added",
@@ -189,30 +178,19 @@ export const GIT_STATUS_COLORS = {
   U: "text-git-modified"
 };
 
-// Explorer row metrics. "compact" is the narrow tree docked beside a terminal, where
-// horizontal space is scarce; "normal" is the standalone file explorer. Rows read a step
-// larger on phones — a 12px row is fine next to a mouse, not under a thumb.
 export const EXPLORER_ROW = {
   normal:  { indentBase: 12, indentStep: 12, icon: 16, chevron: 14, text: "text-[15px] sm:text-sm",     padY: "py-1 sm:py-0.5" },
   compact: { indentBase: 8,  indentStep: 8,  icon: 14, chevron: 12, text: "text-[13px] sm:text-[12px]", padY: "py-0.5 sm:py-[1px]" }
 };
 
-// Where the hover actions sit, measured from the row's right edge. They float over the
-// name (no reserved space), so they must clear whatever git badge the row happens to
-// carry — and only that row: a fixed inset left an empty gap on every unmarked row.
 export const EXPLORER_ACTION_RIGHT = { none: 4, dot: 22, status: 32 };
 export const actionRightFor = (status) =>
   !status ? EXPLORER_ACTION_RIGHT.none
   : status === "folder-changed" ? EXPLORER_ACTION_RIGHT.dot
   : EXPLORER_ACTION_RIGHT.status;
 
-// Auto-save is gone: an editor that writes behind the user's back cannot be trusted
-// with a file they are halfway through changing, and it hides write failures.
-
-// Git diff: side-by-side (VSCode-like) at/above this width, unified below
 export const DIFF_SIDE_BY_SIDE_BREAKPOINT = 768;
 
-// Virtual tab for git diff view: `git-diff:<status>:<absPath>`
 export const DIFF_TAB_PREFIX = "git-diff:";
 export const makeDiffPath = (status, absPath) => `${DIFF_TAB_PREFIX}${status}:${absPath}`;
 export const isDiffPath = (p) => typeof p === "string" && p.startsWith(DIFF_TAB_PREFIX);
@@ -222,11 +200,6 @@ export const parseDiffPath = (p) => {
   return { status: rest.slice(0, i), absPath: rest.slice(i + 1) };
 };
 
-// Same tab id, plus the repo the path is relative to. Needed where one view lists several
-// repos (a workspace holding nested repos or worktrees): the file path alone is relative
-// to its own repo, so without this the diff would be read from the wrong one.
-// The two are joined by a NUL byte — the one character a filesystem path can never
-// contain, so a name with spaces in it cannot split the id in the wrong place.
 const REPO_SEP = "\u0000";
 export const makeRepoDiffPath = (status, repoPath, filePath) =>
   `${DIFF_TAB_PREFIX}${status}:${repoPath}${REPO_SEP}${filePath}`;
@@ -237,38 +210,25 @@ export const parseRepoDiffPath = (p) => {
   return { status, repoPath: absPath.slice(0, i), filePath: absPath.slice(i + 1) };
 };
 
-// VSCode-like layout constants
-export const SIDEBAR_DEFAULT_WIDTH = 18; // percent
+export const SIDEBAR_DEFAULT_WIDTH = 18;
 export const SIDEBAR_MIN_WIDTH = 12;
 export const SIDEBAR_MAX_WIDTH = 40;
-export const ACTIVITY_BAR_WIDTH = 48; // px
-// Status bar height now lives in shared/constants/layout.js — one bar, one number.
-export const BOTTOM_PANEL_DEFAULT_HEIGHT = 30; // percent
+export const ACTIVITY_BAR_WIDTH = 48;
+export const BOTTOM_PANEL_DEFAULT_HEIGHT = 30;
 export const BOTTOM_PANEL_MIN_HEIGHT = 10;
 export const BOTTOM_PANEL_MAX_HEIGHT = 70;
 export const MAX_RECENT_WORKSPACES = 20;
 export const MAX_RECENT_FILES = 20;
 
-// Live tree updates. Only the directories the user actually has open are watched, newest
-// first: an expanded tree can hold hundreds of folders, and watching all of them would put
-// load on the user's machine for rows nobody is looking at. Changes are coalesced so a
-// burst of writes reloads each affected directory once, and watching stops entirely while
-// the tab is hidden — a backgrounded browser has no tree to keep fresh.
 export const FILE_WATCH = {
   MAX_DIRS: 40,
   DEBOUNCE_MS: 300,
-  // A file the AI is mid-write gets saved several times in a row; a preview that
-  // re-renders on each one flickers. The tree keeps the shorter wait — a row
-  // appearing late is more noticeable there than a render landing late here.
   PREVIEW_DEBOUNCE_MS: 1000,
   IDLE_UNWATCH_MS: 60000
 };
 
-// Broadcast when the repo state changed outside the panels (branch switch in a terminal),
-// so every git-backed view reloads without the user hitting refresh.
 export const GIT_REFRESH_EVENT = "fileExplorer:gitRefresh";
 
-// LocalStorage keys
 export const STORAGE_KEYS = {
   sidebarWidth: "fileExplorer.sidebarWidth",
   sidebarVisible: "fileExplorer.sidebarVisible",
@@ -283,7 +243,6 @@ export const STORAGE_KEYS = {
   showHidden: "fileExplorer.showHidden"
 };
 
-// Activity panels
 export const ACTIVITY_PANELS = {
   explorer: "explorer",
   search: "search",
@@ -291,24 +250,13 @@ export const ACTIVITY_PANELS = {
   settings: "settings"
 };
 
-// Auto-save modes
-
-// Editor font size
 export const EDITOR_FONT_DEFAULT = 14;
-// The editor docked beside a terminal is ~420px wide, so it runs well below the
-// full-screen editor. Subtracted from the user's own size, never replacing it.
 export const EDITOR_FONT_COMPACT_DELTA = 4;
-// Floor for the docked editor only — below the standalone minimum, because at this width
-// fitting the line matters more than comfortable reading.
 export const EDITOR_FONT_COMPACT_MIN = 9;
 export const EDITOR_FONT_MIN = 10;
 export const EDITOR_FONT_MAX = 28;
 
-// Max open editor tabs on desktop; newest at head (LRU), oldest evicted past this
 export const MAX_OPEN_TABS = 5;
 
-// Mobile WebKit decodes whatever bytes it is given into a full-resolution bitmap,
-// and an oversized one gets the whole page killed ("The page could not load").
-// The agent normally streams a pre-scaled JPEG (≤3MB); a blob past this cap is
-// withheld behind an explicit "Open anyway" instead of auto-decoded.
+// Mobile WebKit crash prevention: limit max image size before explicit opt-in.
 export const IMAGE_RENDER_MAX_BYTES = 4 * 1024 * 1024;

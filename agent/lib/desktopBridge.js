@@ -1,22 +1,4 @@
-// Windows desktop bridge orchestrator — builds the worker/launcher, registers a
-// boot-time scheduled task that spawns the SYSTEM worker, and exposes a tiny
-// pipe client for desktop state detection + text typing (used to unlock the
-// login screen remotely).
-//
-// Boot persistence: an AtStartup task running as SYSTEM launches
-// desktop-elevate.exe, which duplicates the console-session winlogon token so
-// the worker lands on the user's Winlogon desktop (not session 0). AtStartup —
-// not AtLogon — because a rebooted machine sits at the lock screen with nobody
-// logged on, which is exactly when remote unlock is needed.
-//
-// UAC is prompted ONLY when the user toggles the feature On/Off. Agent startup
-// never elevates and never stops a healthy worker.
-//
-// Mirrors the ptyDaemon runtime pattern: .cs sources ship inside the package,
-// .exe artifacts live in ~/.9remote/bin/ (PATHS.BIN) so they never lock files
-// in node_modules/9remote and survive `npm i -g 9remote@latest` (autoupdate).
-// The worker runs as Local System, independent of the agent process — autoupdate
-// only kills cloudflared + agent PIDs, never this worker.
+// Windows desktop bridge: SYSTEM worker for lock screen remote unlock and state detection.
 
 import { spawn } from "child_process";
 import { existsSync, mkdirSync, copyFileSync, readdirSync, readFileSync, writeFileSync, unlinkSync } from "fs";
@@ -36,7 +18,7 @@ const ELEVATE_EXE = "desktop-elevate.exe";
 const BRIDGE_CS = "desktop-bridge.cs";
 const ELEVATE_CS = "desktop-elevate.cs";
 
-// .cs sources ship inside the package: dev layout agent/lib/bin/, dist agent/dist/bin/.
+// C# sources ship inside package: dev layout agent/lib/bin/, dist agent/dist/bin/.
 const SOURCE_DIR = (() => {
   const primary = path.join(__dirname, "bin");
   if (existsSync(path.join(primary, BRIDGE_CS))) return primary;
@@ -45,10 +27,7 @@ const SOURCE_DIR = (() => {
   return primary;
 })();
 
-// csc.exe candidates — prefer Framework64 v4 (C# 5), fall back to 32-bit + v3.5
-// (C# 3) so the build works on machines with only older .NET installed. Our C#
-// deliberately avoids C# 4+ features (no `dynamic`, no `async`, no `$""`, no `=>`
-// members) so it compiles on every candidate here.
+// Candidates for csc.exe: prefer Framework64 v4, fall back to 32-bit and v3.5.
 function findCsc() {
   const windir = process.env.WINDIR || "C:\\Windows";
   const candidates = [
@@ -63,9 +42,6 @@ function findCsc() {
 
 export function isSupported() { return isWin; }
 
-// Persisted "user toggled On" flag — the user's INTENT, independent of whether
-// the worker happens to be running. Boot persistence comes from the scheduled
-// task, so the agent never needs to elevate at startup to honour this flag.
 const ENABLED_FLAG = path.join(PATHS.ROOT, "unlock.enabled");
 export function isEnabled() { return existsSync(ENABLED_FLAG); }
 function setEnabled(v) {
@@ -75,13 +51,11 @@ function setEnabled(v) {
   } catch (e) { logger.warn(`setEnabled(${v}) failed: ${e.message}`); }
 }
 
-// Version declared by the shipped worker source. Null if unreadable.
 function sourceVersion() {
   try { return _parseVersion(readFileSync(path.join(SOURCE_DIR, BRIDGE_CS), "utf8")); }
   catch { return null; }
 }
 
-// Runtime path of the worker exe for the shipped version (may not exist yet).
 function bridgeExePath() {
   const v = sourceVersion();
   return v ? path.join(RUNTIME_DIR, _exeNameFor(v)) : null;
@@ -92,10 +66,6 @@ export function isBuilt() {
   return !!bridge && existsSync(bridge) && existsSync(path.join(RUNTIME_DIR, ELEVATE_EXE));
 }
 
-// Ask the running worker its version.
-// Returns {version, reachable}: a reply of "ERR unknown" means a live worker
-// that predates the VERSION command (stale), whereas no reply at all means the
-// pipe was busy or gone (unknown). _isWorkerStale treats those differently.
 async function probeWorkerVersion() {
   if (!isWin) return { version: null, reachable: false };
   try {
@@ -105,33 +75,23 @@ async function probeWorkerVersion() {
   } catch { return { version: null, reachable: false }; }
 }
 
-// Shared by install() and getStatus() — one probe, one verdict.
 async function checkStale() {
   const { version, reachable } = await probeWorkerVersion();
   return _isWorkerStale({ workerVersion: version, sourceVersion: sourceVersion(), reachable });
 }
 
-// Delete superseded desktop-bridge-<n>.exe builds. Best-effort: the copy still
-// running is locked by Windows and simply fails to unlink — retried next build,
-// once a reboot has moved the worker onto the newer exe.
+// Prune superseded desktop-bridge-<n>.exe binaries.
 function pruneOldExes(keepName) {
   try {
     for (const f of readdirSync(RUNTIME_DIR)) {
-      // Also drops the pre-versioning desktop-bridge.exe left by older agents.
-      const obsolete = /^desktop-bridge-\d+\.exe$/.test(f) || f === "desktop-bridge.exe";
+      const obsolete = /^desktop-bridge-(\d+)\.exe$/.test(f) || f === "desktop-bridge.exe";
       if (!obsolete || f === keepName) continue;
       try { unlinkSync(path.join(RUNTIME_DIR, f)); } catch {}
     }
   } catch {}
 }
 
-// Ask the running worker to exit gracefully (frees the locked .exe for rebuild).
-// Poll until the pipe stops answering — a STATE reply means it is still up, so
-// keep waiting rather than returning on the first probe. Returns true if gone.
-// The pipe closes slightly before the process exits and releases its mutex, so
-// a replacement worker can start while the old one still holds the lock. That
-// gap is closed on the worker side: a starting instance waits out the handoff
-// (HANDOFF_WAIT_MS in desktop-bridge.cs) instead of exiting immediately.
+// Stop running worker via pipe and wait until it exits.
 async function stopWorker() {
   try { await pipeCmd("STOP", 2000); } catch {}
   for (let i = 0; i < 10; i++) {
@@ -141,9 +101,6 @@ async function stopWorker() {
   return false;
 }
 
-// Spawn a process hidden, capturing stderr so compile errors surface.
-// Async (event-loop friendly) — replaces execSync which blocked the server
-// during compile and caused the UI to lose CSS on first load.
 function runHidden(cmd, args) {
   return new Promise((resolve) => {
     try {
@@ -156,14 +113,7 @@ function runHidden(cmd, args) {
   });
 }
 
-// Copy .cs → runtime dir + compile via csc. Idempotent: skips when the target
-// exe already exists. Returns true on success.
-//
-// The worker exe is version-stamped (desktop-bridge-<v>.exe), so a rebuild never
-// touches the copy currently running — no file lock, no need to stop the worker,
-// no UAC. The launcher picks the highest version at next boot.
-// The launcher exe keeps a fixed name: it exits immediately after spawning the
-// worker, so it is never locked and can be overwritten in place.
+// Copy C# sources to runtime dir and compile via csc.
 async function buildBinaries() {
   if (!isWin) return false;
   const version = sourceVersion();
@@ -178,8 +128,6 @@ async function buildBinaries() {
     const rtCs = path.join(RUNTIME_DIR, cs);
     const rtExe = path.join(RUNTIME_DIR, exe);
     if (!existsSync(srcCs)) { logger.warn(`source missing: ${cs}`); return false; }
-    // Versioned worker: existence alone means it's current (name encodes the
-    // version). The launcher is unversioned, so always recompile it.
     if (exe !== ELEVATE_EXE && existsSync(rtExe)) continue;
     copyFileSync(srcCs, rtCs);
     const r = await runHidden(csc, ["-nologo", "-target:winexe", `-out:${rtExe}`, rtCs]);
@@ -189,14 +137,9 @@ async function buildBinaries() {
   return true;
 }
 
-
-// Best-effort: is the worker process alive even though the pipe is dead?
-// Distinguishes "task never started" from "worker spawned then crashed".
 function diagnoseWorkerProcess() {
   try {
     const p = spawn("cmd.exe",
-      // Wildcard: the worker exe is version-stamped (desktop-bridge-<v>.exe), so
-      // an exact-name filter would report NOT RUNNING for a perfectly live worker.
       ["/c", `tasklist /FI "IMAGENAME eq desktop-bridge*" /FO CSV /NH`],
       { windowsHide: true, stdio: ["ignore", "pipe", "ignore"] });
     let out = "";
@@ -209,26 +152,16 @@ function diagnoseWorkerProcess() {
   } catch {}
 }
 
-// --- PowerShell helpers (exported as _* for unit testing) ---
-// Escape a string for safe embedding inside a PowerShell single-quoted string.
 export function _escapePs(s) { return String(s).replace(/'/g, "''"); }
 
-// Boot task name. Exported so tests and diagnostics reference one constant.
 export const TASK_NAME = "9remoteDesktopUnlock";
 
-// Register + start the AtStartup SYSTEM task that launches desktop-elevate.exe.
-// -AtStartup (not -AtLogon): after a reboot nobody is logged on — the machine
-// sits at the lock screen, which is precisely when remote unlock is needed.
-// The launcher then duplicates the console-session winlogon token, so the worker
-// still lands on the user's interactive desktop rather than session 0.
-// New-ScheduledTaskAction -Execute takes the path natively, so paths with
-// spaces need no cmdline quoting (the schtasks /TR footgun).
+// Register and start AtStartup SYSTEM task launching desktop-elevate.exe.
 export function _buildInstallTaskCmd(launcherPath, taskName) {
   const inner = [
     `$a = New-ScheduledTaskAction -Execute '${_escapePs(launcherPath)}'`,
     `$t = New-ScheduledTaskTrigger -AtStartup`,
     `$p = New-ScheduledTaskPrincipal -UserId 'SYSTEM' -LogonType ServiceAccount -RunLevel Highest`,
-    // Daemon: no time limit, and never stopped for running "too long".
     `$s = New-ScheduledTaskSettingsSet -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries -ExecutionTimeLimit ([TimeSpan]::Zero)`,
     `Register-ScheduledTask -TaskName '${_escapePs(taskName)}' -Action $a -Trigger $t -Principal $p -Settings $s -Force | Out-Null`,
     `Start-ScheduledTask -TaskName '${_escapePs(taskName)}'`
@@ -236,35 +169,22 @@ export function _buildInstallTaskCmd(launcherPath, taskName) {
   return `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','${_escapePs(inner)}' -Wait`;
 }
 
-// Remove the boot task so the worker stays off across reboots.
 export function _buildDeleteTaskCmd(taskName) {
   const inner = `Unregister-ScheduledTask -TaskName '${_escapePs(taskName)}' -Confirm:$false -ErrorAction SilentlyContinue; exit 0`;
   return `Start-Process powershell -Verb RunAs -WindowStyle Hidden -ArgumentList '-NoProfile','-Command','${_escapePs(inner)}' -Wait`;
 }
 
-// Should install() raise a UAC prompt? Only when admin is actually required:
-// the boot task is missing (a reboot would lose the worker), or the worker is
-// down and needs starting. Re-toggling On with both healthy is a silent no-op.
 export function _shouldElevate({ alive, hasTask }) { return !alive || !hasTask; }
 
-// --- Versioning (mirrors DAEMON_VERSION for the pty daemon) ---
-// The shipped .cs declares `const string VERSION = "n"`. mtime comparison used
-// to fill this role and was unreliable: copyFileSync restamps the copy, npm
-// unpack order isn't guaranteed, clocks skew.
 export function _parseVersion(src) {
   if (!src) return null;
   const m = /const\s+string\s+VERSION\s*=\s*"([^"]+)"/.exec(src);
   return m ? m[1] : null;
 }
 
-// Version-stamped worker filename. Building under a NEW name means the copy
-// currently running is never overwritten — no file lock, so no STOP and no UAC
-// just to rebuild (overwriting is what produced csc CS0016 before).
 export function _exeNameFor(version) { return `desktop-bridge-${version}.exe`; }
 
-// Highest desktop-bridge-<n>.exe from a directory listing, or null.
-// Numeric compare — lexicographic would rank "9" above "10". Mirrors
-// PickNewestWorker in desktop-elevate.cs; keep both in step.
+// Pick highest version desktop-bridge-<n>.exe from directory listing.
 export function _pickNewestExe(files) {
   let best = null, bestV = -1;
   for (const f of files || []) {
@@ -276,14 +196,7 @@ export function _pickNewestExe(files) {
   return best;
 }
 
-// Is the running worker behind the shipped source?
-// `reachable` distinguishes the two ways workerVersion can be null:
-//   reachable + null → worker answered "ERR unknown", predates VERSION → stale.
-//   unreachable      → the probe timed out. The pipe is single-threaded, so a
-//                      long TYPE blocks VERSION for seconds; that is UNKNOWN,
-//                      not old, and stopping a current worker over it is worse
-//                      than waiting. Same reasoning as the lock poll's debounce.
-// An unreadable source also yields false: never churn on a bad read.
+// Check if running worker version is older than shipped source version.
 export function _isWorkerStale({ workerVersion, sourceVersion, reachable = true }) {
   if (!sourceVersion) return false;
   if (!reachable) return false;
@@ -291,8 +204,6 @@ export function _isWorkerStale({ workerVersion, sourceVersion, reachable = true 
   return parseInt(workerVersion, 10) < parseInt(sourceVersion, 10);
 }
 
-// Run a PowerShell command hidden. Resolves true on exit code 0 (for the UAC
-// wrappers: the user accepted the prompt and the inner script ran).
 function runPs(ps, label) {
   return new Promise((resolve) => {
     try {
@@ -305,7 +216,6 @@ function runPs(ps, label) {
   });
 }
 
-// Is the boot task registered? Exit code 0 → present. No UAC (query is read-only).
 function hasBootTask() {
   return new Promise((resolve) => {
     try {
@@ -317,15 +227,12 @@ function hasBootTask() {
   });
 }
 
-// Register the boot task + start it now (single UAC prompt).
 function installBootTask() {
   const launcher = path.join(RUNTIME_DIR, ELEVATE_EXE);
   if (!existsSync(launcher)) { logger.error("installBootTask: launcher exe missing"); return Promise.resolve(false); }
   return runPs(_buildInstallTaskCmd(launcher, TASK_NAME), "installBootTask");
 }
 
-// Off: STOP the worker + delete the boot task so it stays off across reboots.
-// One UAC prompt (task removal); the STOP itself needs no elevation.
 export async function uninstall() {
   if (!isWin) return { ok: false, reason: "unsupported" };
   setEnabled(false);
@@ -337,7 +244,6 @@ export async function uninstall() {
   return { ok: !stillAlive, reason: stillAlive ? "worker_alive" : "stopped" };
 }
 
-// One-shot pipe command. Local pipe → fast; avoids stale persistent connections.
 function pipeCmd(cmd, timeoutMs = 4000) {
   return new Promise((resolve, reject) => {
     const c = net.connect(PIPE);
@@ -354,8 +260,6 @@ function pipeCmd(cmd, timeoutMs = 4000) {
   });
 }
 
-// Cached liveness — set by pipeCmd on connect (true) / error or timeout (false).
-// Sync so remoteSocket + UI can read without awaiting.
 let _running = false;
 
 export async function isAlive() {
@@ -370,33 +274,22 @@ export async function isAlive() {
   }
 }
 
-// Sync snapshot of last known liveness (updated by isAlive / pipeCmd side-effects).
 export function isRunningCached() { return _running; }
 
-// User toggled On. Registers the AtStartup boot task (so the worker survives
-// reboot) and starts it now. This is the ONLY path that raises a UAC prompt —
-// agent startup never calls it.
-//
-// Ordering matters: check liveness BEFORE building. A running worker holds a
-// lock on desktop-bridge.exe, so compiling first would fail with CS0016 and
-// abort the whole install even when nothing needed rebuilding.
+// Enable desktop unlock: build binaries, register AtStartup task, and start worker.
 export async function install() {
   if (!isWin) return { ok: false, reason: "unsupported" };
-  setEnabled(true);  // user intent, persisted independently of worker liveness
+  setEnabled(true);
 
   let alive = await isAlive();
   const hasTask = await hasBootTask();
   const stale = await checkStale();
 
-  // Build first: version-stamped output never collides with the running worker,
-  // so this is safe whether or not one is alive. No stop, no lock, no UAC.
   if (!isBuilt() && !await buildBinaries()) {
     logger.error("install: build failed");
     return { ok: false, reason: "build_failed" };
   }
 
-  // A stale worker needs replacing, not just starting: stop it so the task
-  // relaunch picks the newly built exe. STOP goes over the pipe — no elevation.
   if (stale && alive) {
     if (!await stopWorker()) {
       logger.warn("install: stale worker did not stop");
@@ -408,7 +301,6 @@ export async function install() {
 
   if (!_shouldElevate({ alive, hasTask })) return { ok: true, reason: "already_running" };
 
-  // One UAC prompt: register the boot task + start it now.
   if (!await installBootTask()) {
     logger.warn("install: task registration failed (UAC denied?)");
     return { ok: false, reason: "elevate_failed" };
@@ -427,19 +319,12 @@ export async function getStatus() {
   return {
     supported: isWin,
     built: isBuilt(),
-    // enabled = user intent (persisted, survives reboot); running = worker
-    // liveness right now. The toggle reflects intent so a transient worker
-    // restart doesn't make the switch flip itself back to Off.
     enabled: isEnabled(),
     running: await isAlive(),
-    // Worker is older than the shipped source (agent was updated). Read-only —
-    // surfacing it lets the UI offer an update instead of silently running an
-    // outdated worker until the user happens to toggle Off/On.
     stale: await checkStale(),
   };
 }
 
-// Returns desktop name ("Winlogon" | "Default" | "none" | "unknown") or null on error.
 export async function getDesktopState() {
   if (!isWin) return null;
   try {
@@ -452,8 +337,7 @@ export async function getDesktopState() {
 export async function typeText(text) {
   if (!isWin) return { ok: false, reason: "unsupported" };
   if (typeof text !== "string" || !text) return { ok: false, reason: "empty" };
-  // Pipe protocol is line-based — reject newlines so the worker reads the full
-  // text on one ReadLine instead of truncating at the first \n.
+  // Pipe protocol is line-based; reject newlines to prevent truncation.
   if (/[\r\n]/.test(text)) return { ok: false, reason: "newline_forbidden" };
   try {
     const r = await pipeCmd("TYPE " + text, 15000);

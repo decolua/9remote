@@ -478,7 +478,7 @@ export default function FolderPickerModal({ fileBus, initialPath, onSelect, onCl
         aria-modal="true"
         aria-label={t("workspaces.newWorkspace")}
         onKeyDown={onDialogKeyDown}
-        className="bg-surface w-full sm:w-[560px] sm:max-w-full h-[85vh] sm:h-[70vh] sm:max-h-[560px] rounded-[3px] flex flex-col shadow-elev overflow-hidden"
+        className="bg-surface w-full sm:w-[560px] sm:max-w-full h-[min(85%,calc(var(--app-height,85vh)-2rem))] sm:h-[70vh] sm:max-h-[560px] mt-4 mb-auto sm:my-auto rounded-[3px] flex flex-col shadow-elev overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Inset from the viewport edges, so no notch/home-bar padding is needed. */}

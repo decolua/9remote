@@ -1,4 +1,3 @@
-// TileManager for Remote Desktop Screen Capture
 import fs from "fs";
 import path from "path";
 import sharp from "sharp";
@@ -15,9 +14,7 @@ import { remoteLog } from "./utils/remoteLog.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Run async fn over items with bounded concurrency, preserving output order.
-// fn receives (item, index, slotId) — slotId is stable per worker (0..limit-1),
-// letting callers reuse per-slot scratch buffers safely (each slot runs serially).
+// Map with bounded concurrency, preserving order; slotId (0..limit-1) is stable per worker.
 export async function mapLimit(items, limit, fn) {
   const ret = new Array(items.length);
   let i = 0;
@@ -60,24 +57,15 @@ export class TileManager {
     this.compressionQuality = REMOTE_CONFIG.pipeline.jpegQuality;
     // Focus region: Set<tileIndex> of active tiles, null = all tiles (full screen)
     this.activeTileSet = null;
-    // Focus effectiveness stats — aggregated per N frames
     this.focusStats = { frames: 0, scanned: 0, changed: 0, bytes: 0 };
 
-    // Per-slot scratch buffers (reused across frames to cut malloc churn).
-    // One buffer per concurrency slot — each slot runs serially so no data race.
-    // Sized to the largest tile (tileSize² × 4 channels). Lazily allocated.
     this._scratchExtract = [];
     this._scratchSwap = [];
-    // Batch-resize scratch (win GPU path): packed input + packed output. Single
-    // slot — the batch runs once per frame, before the concurrent encode pool.
     this._scratchPack = [];
     this._scratchPackOut = [];
-    // Prefetch: capture frame N+1 starts while frame N is still encoding.
-    // Holds a Promise resolving to next screenData, cutting capture latency off the critical path.
     this._prefetchCapture = null;
 
-    // Multi-monitor: when a node-screenshots Monitor is supplied, capture uses
-    // its native physical pixels directly (no robot.getScreenSize/DPI detection).
+    // When monitor is supplied, capture uses native physical pixels directly.
     this._monitor = opts.monitor ?? null;
 
     if (!fs.existsSync(this.tempDir)) {
@@ -92,10 +80,7 @@ export class TileManager {
     }
   }
 
-  // Initialize geometry from a node-screenshots Monitor.
-  // Win: width()/height() are already physical px → dpiScale stays 1.
-  // Mac: they are logical points while captureImage() returns points × scaleFactor
-  // (Retina), so capture dims must be scaled up or tiling reads past the buffer.
+  // Darwin monitor dims are points while captureImage() returns pixels (scaled by scaleFactor).
   _initFromMonitor(mon) {
     this.screenWidth = mon.width();
     this.screenHeight = mon.height();
@@ -105,8 +90,6 @@ export class TileManager {
     this._applyTileGeometry();
   }
 
-  // Switch the active monitor at runtime: re-pin capture ref, recompute tile
-  // grid, and invalidate every cache so the next frame is a full refresh.
   setMonitor(mon) {
     if (!mon) return;
     this._monitor = mon;
@@ -119,11 +102,9 @@ export class TileManager {
     this._scratchSwap = [];
     this._scratchPack = [];
     this._scratchPackOut = [];
-    // Tile grid changed → old focus set indices are meaningless.
     this.activeTileSet = null;
   }
 
-  // Compute scaled dims + adaptive tileSize from current captureWidth/Height.
   _applyTileGeometry() {
     this.tileSize = REMOTE_CONFIG.pipeline.tileSize;
     this.scaledWidth = this.captureWidth;
@@ -147,10 +128,7 @@ export class TileManager {
       const { width, height } = this.robot.getScreenSize();
       this.screenWidth = width;
       this.screenHeight = height;
-
-      // Detect DPI scale once at initialization
       this.detectDpiScale();
-
       this._applyTileGeometry();
     } catch (error) {
       remoteLog.error("Screen dimensions error:", error);
@@ -170,12 +148,10 @@ export class TileManager {
 
   detectDpiScale() {
     if (process.platform === "darwin") {
-      // macOS: capture full screen to detect actual pixel density
       const testCapture = this.robot.screen.capture(0, 0, this.screenWidth, this.screenHeight);
       const actualWidth = testCapture.byteWidth / testCapture.bytesPerPixel;
       const scale = actualWidth / this.screenWidth;
 
-      // Only accept 1x or 2x (Retina)
       if (scale >= 1.9 && scale <= 2.1) {
         this.dpiScale = 2;
       } else {
@@ -184,7 +160,6 @@ export class TileManager {
     } else if (process.platform === "win32") {
       this.dpiScale = this._detectDpiScaleWin32();
     } else {
-      // Linux (X11): always logical pixels
       this.dpiScale = 1;
     }
 
@@ -195,8 +170,6 @@ export class TileManager {
   _detectDpiScaleWin32() {
     remoteLog.dpi(`🔍 [DPI Detection] screenWidth from robot: ${this.screenWidth}x${this.screenHeight}`);
 
-    // Strategy 1: Read AppliedDPI from WindowMetrics registry (Windows 10/11)
-    // 96 DPI = 100%, 120 = 125%, 144 = 150%, 192 = 200%
     try {
       const out = execSync(
         "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"try{Get-ItemPropertyValue 'HKCU:\\Control Panel\\Desktop\\WindowMetrics' -Name AppliedDPI}catch{0}\"",
@@ -213,7 +186,6 @@ export class TileManager {
       remoteLog.dpi(`❌ [DPI Detection] Strategy 1 failed: ${err.message}`);
     }
 
-    // Strategy 2: Query physical resolution via WMI and compare with logical
     try {
       const out = execSync(
         "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"(Get-WmiObject -Class Win32_VideoController | Select-Object -First 1).CurrentHorizontalResolution\"",
@@ -230,7 +202,6 @@ export class TileManager {
       remoteLog.dpi(`❌ [DPI Detection] Strategy 2 failed: ${err.message}`);
     }
 
-    // Strategy 3: Query physical resolution via EnumDisplaySettings and compare with logical
     try {
       const out = execSync(
         "powershell -NonInteractive -NoProfile -WindowStyle Hidden -command \"Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class Disp{[DllImport(\\\"user32\\\")]public static extern bool EnumDisplaySettings(string d,int m,ref DEVMODE dm);[StructLayout(LayoutKind.Sequential,CharSet=CharSet.Ansi)]public struct DEVMODE{[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmDeviceName;public short dmSpecVersion,dmDriverVersion,dmSize,dmDriverExtra;public int dmFields;public int dmPositionX,dmPositionY,dmDisplayOrientation,dmDisplayFixedOutput;public short dmColor,dmDuplex,dmYResolution,dmTTOption,dmCollate;[MarshalAs(UnmanagedType.ByValTStr,SizeConst=32)]public string dmFormName;public short dmLogPixels;public int dmBitsPerPel,dmPelsWidth,dmPelsHeight,dmDisplayFlags,dmDisplayFrequency;}}'; $dm=New-Object Disp+DEVMODE; $dm.dmSize=[System.Runtime.InteropServices.Marshal]::SizeOf($dm); [Disp]::EnumDisplaySettings($null,-1,[ref]$dm) | Out-Null; Write-Output $dm.dmPelsWidth\"",
@@ -252,10 +223,6 @@ export class TileManager {
   }
 
   async captureFullScreen() {
-    // Capture via adapter — returns native format (BGRA or RGBA).
-    // NOTE: downscale is NOT applied here anymore. scaleFactor is applied
-    // per-tile in compressTileImage so canvas dimensions stay stable across
-    // adaptive profile switches (client doesn't need to resync size).
     const result = await capture.captureFull(this._monitor);
     return {
       buffer: result.buffer,
@@ -275,19 +242,12 @@ export class TileManager {
     return this.sharedScreenCache;
   }
 
-  // Streaming capture with prefetch: frame N+1 is captured in parallel with
-  // encode of frame N. First call falls back to synchronous capture.
   async getCaptureForStreaming() {
     if (!this._prefetchCapture) {
-      // First frame — capture synchronously, then kick off prefetch for next
       const data = await this.captureFullScreen();
       this._prefetchCapture = this.captureFullScreen();
       return data;
     }
-    // Await the prefetched capture (started during previous frame's encode).
-    // A rejected prefetch must be dropped — otherwise it is held forever and
-    // every subsequent frame re-awaits the same rejected promise (capture
-    // stays dead until agent restart, even after the underlying monitor recovers).
     let data;
     try {
       data = await this._prefetchCapture;
@@ -295,14 +255,11 @@ export class TileManager {
       this._prefetchCapture = null;
       throw err;
     }
-    // Immediately start capturing the next frame while we go encode this one
     this._prefetchCapture = this.captureFullScreen();
     return data;
   }
 
-  clearScreenCache() {
-    // Intentionally empty
-  }
+  clearScreenCache() {}
 
   async detectChangedTiles() {
     const result = await this.detectChangedTilesWithHashes();
@@ -313,7 +270,6 @@ export class TileManager {
     if (this.isProcessing) return { tiles: [], currentHashes: Array.from(this.lastTileChecksums.values()) };
     this.isProcessing = true;
 
-    // Metrics: stage timers (performance.now() returns 0 when enabled)
     const tStart = this.metrics.now();
     let tCaptureEnd = tStart, tChecksumEnd = tStart;
 
@@ -326,10 +282,8 @@ export class TileManager {
       const currentTileHashes = new Map();
       this.frameCount++;
 
-      // Focus-based streaming: skip tiles outside client viewport+padding
       const activeSet = this.activeTileSet;
 
-      // Calculate hashes directly without extracting tiles (lazy extraction)
       for (let i = 0; i < this.totalTiles; i++) {
         if (activeSet && !activeSet.has(i)) continue;
         const checksum = this.calculateTileChecksumDirect(screenData, i);
@@ -339,8 +293,6 @@ export class TileManager {
 
       const currentHashes = Array.from(currentTileHashes.values());
 
-      // First frame - extract and send all tiles (within focus set)
-      // Hash NOT committed here; committed only after tiles are actually sent (commitHashes)
       if (this.lastTileChecksums.size === 0) {
         const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
@@ -353,7 +305,6 @@ export class TileManager {
         return { tiles: changedTiles, currentHashes };
       }
 
-      // Find changed tiles by comparing hashes (hash committed later via commitHashes)
       for (let i = 0; i < this.totalTiles; i++) {
         if (activeSet && !activeSet.has(i)) continue;
         const checksum = currentTileHashes.get(i);
@@ -366,7 +317,6 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        // Full refresh - extract all tiles (within focus set)
         const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
@@ -375,7 +325,6 @@ export class TileManager {
         const results = await this._runTiles(screenData, indices, currentTileHashes);
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
-        // Only extract changed tiles (lazy extraction benefit)
         const results = await this._runTiles(screenData, changedTileIndices, currentTileHashes);
         changedTiles.push(...results);
       }
@@ -389,9 +338,6 @@ export class TileManager {
   }
 
   async processTileAsync(screenData, tileIndex, cachedTileData = null, hashOverride = null, slotId = null, preResized = null) {
-    // Batch path already resized this tile on the GPU — encode straight from it
-    // and skip both extractTile and the per-tile resize. Header still reports
-    // the original tile rect so the client stretches it as before.
     const pre = preResized?.get(tileIndex);
     const { row, col } = this.getTilePosition(tileIndex);
     if (pre) {
@@ -411,7 +357,6 @@ export class TileManager {
     }
 
     const tileData = cachedTileData || this.extractTile(screenData, tileIndex, slotId);
-    // Don't overwrite checksum here - detectChangedTilesWithHashes already updated it correctly
     const imageBuffer = await this.compressTileImage(tileData.buffer, tileData.width, tileData.height, slotId);
 
     return {
@@ -428,13 +373,10 @@ export class TileManager {
     };
   }
 
-  // Commit sent tiles' hashes so next frame won't resend them.
-  // Tiles dropped (not sent) keep old hash and are retried next interval.
   commitHashes(sentTiles) {
     for (const t of sentTiles) this.lastTileChecksums.set(t.tileIndex, t.hash);
   }
 
-  // Calculate checksum directly from screenData without extracting tile
   calculateTileChecksumDirect(screenData, tileIndex) {
     const { row, col } = this.getTilePosition(tileIndex);
     const startX = col * this.tileSize;
@@ -450,14 +392,12 @@ export class TileManager {
     const { rowStep, colStep } = REMOTE_CONFIG.pipeline.checksumSampling;
 
     for (let y = 0; y < tileHeight; y += rowStep) {
-      // Sheared grid: shift each sampled row by +1px (mod colStep) so over one
-      // colStep-period every x column is sampled — catches 1px vertical carets
-      // that a regular grid misses between columns. Same sample count/cost.
+      // Sheared grid: shift sampled row by +1px (mod colStep) to catch 1px vertical carets.
       const ox = ((y / rowStep) | 0) % colStep;
       const rowOffset = (startY + y) * screenRowBytes + (startX + ox) * channels;
       for (let x = ox; x < tileWidth; x += colStep) {
         const offset = rowOffset + (x - ox) * channels;
-        // Position-weighted: prevents thin-caret pixel deltas cancelling out
+        // Position-weighted to prevent thin-caret pixel deltas cancelling out.
         const w = x + 1;
         sum = (sum + screenData.buffer[offset] * w) >>> 0;
         sum ^= screenData.buffer[offset + 1] << 1;
@@ -468,9 +408,6 @@ export class TileManager {
     return sum >>> 0;
   }
 
-  // Set focus region from client viewport (canvas-space pixels).
-  // rect={x,y,w,h} → active tile set with configured padding. null → full screen.
-  // Newly exposed tiles have their checksum cleared so they re-send on next frame.
   setFocusRect(rect) {
     if (!rect) {
       this.activeTileSet = null;
@@ -488,7 +425,6 @@ export class TileManager {
         nextSet.add(r * this.tilesPerRow + c);
       }
     }
-    // Force re-send for tiles newly entering focus (pan to new area)
     const prevSet = this.activeTileSet;
     if (prevSet) {
       for (const idx of nextSet) {
@@ -505,8 +441,6 @@ export class TileManager {
     };
   }
 
-  // Get a reusable scratch buffer of exact size for a concurrency slot.
-  // pool: this._scratchExtract | this._scratchSwap. Grows buffer if too small.
   _getScratch(pool, slotId, size) {
     let buf = pool[slotId];
     if (!buf || buf.length < size) {
@@ -528,12 +462,10 @@ export class TileManager {
     const rowBytes = tileWidth * channels;
     const size = tileWidth * tileHeight * channels;
 
-    // Reuse per-slot scratch when slotId given (streaming path); else fresh alloc
     const tileBuffer = slotId === null
       ? Buffer.allocUnsafe(size)
       : this._getScratch(this._scratchExtract, slotId, size);
 
-    // Copy row by row using Buffer.copy (much faster than pixel loop)
     for (let y = 0; y < tileHeight; y++) {
       const srcOffset = ((startY + y) * screenData.width + startX) * channels;
       const dstOffset = y * rowBytes;
@@ -543,7 +475,6 @@ export class TileManager {
     return { buffer: tileBuffer, width: tileWidth, height: tileHeight, channels, tileIndex, x: startX, y: startY };
   }
 
-  // Resize-path counters, lazily created so prototype-only instances work too.
   _stats() {
     if (!this._resizeStats) {
       this._resizeStats = { frames: 0, tiles: 0, gpuBatch: 0, gpu: 0, vImage: 0, sharp: 0, fallbacks: 0, batchMs: 0, procMs: 0 };
@@ -551,11 +482,6 @@ export class TileManager {
     return this._resizeStats;
   }
 
-  // Win GPU batch: resize every full-size (square, non-edge) tile of this frame
-  // in ONE dispatch instead of 3 blocking round-trips per tile. Returns
-  // Map(tileIndex → {buffer, width, height, srcWidth, srcHeight}) for the tiles
-  // it handled; anything absent (edge tiles, overflow past maxBatchTiles, any
-  // failure) is left to the existing per-tile path. Never throws.
   _batchResize(screenData, indices) {
     const p = REMOTE_CONFIG.pipeline;
     const scale = this.scaleFactor;
@@ -564,14 +490,9 @@ export class TileManager {
     if (!gpu) return null;
 
     const ts = this.tileSize;
-    // The kernel reads uchar4 and the pre-allocated buffers bound tile size —
-    // check both here so an oversized grid skips the batch silently instead of
-    // throwing (and logging) once per frame.
     if (screenData.channels !== 4 || ts * ts * 4 > gpu.maxTileBytes) return null;
     const targetW = Math.max(1, Math.floor(ts * scale));
     const targetH = targetW;
-    // Only interior tiles: edge tiles are clipped by the screen bounds and so
-    // don't share dimensions with the rest of the batch.
     const full = indices.filter((i) => {
       const { row, col } = this.getTilePosition(i);
       return col * ts + ts <= screenData.width && row * ts + ts <= screenData.height;
@@ -583,8 +504,6 @@ export class TileManager {
     const rowBytes = ts * channels;
     const outTileBytes = targetW * targetH * 4;
     const chunkMax = gpu.maxBatchTiles;
-    // One accumulator for the whole frame; each chunk resizes into its own
-    // slice, so a full refresh (>chunkMax tiles) still avoids the slow path.
     const outAll = this._getScratch(this._scratchPackOut, 0, full.length * outTileBytes);
     const packed = this._getScratch(this._scratchPack, 0, Math.min(full.length, chunkMax) * tileBytes);
 
@@ -624,8 +543,6 @@ export class TileManager {
     return map;
   }
 
-  // Run the frame's tiles: one batched GPU resize (when eligible) then the
-  // bounded encode pool. Shared by every call site so stats stay consistent.
   async _runTiles(screenData, indices, currentTileHashes) {
     const t0 = performance.now();
     const pre = this._batchResize(screenData, indices);
@@ -636,8 +553,6 @@ export class TileManager {
     return results;
   }
 
-  // Aggregate resize-path counters; flush a single line every N frames so a
-  // real-hardware run shows which path actually ran and what it cost.
   _recordResizeStats(tiles, batchMs, procMs) {
     if (!REMOTE_CONFIG.logging.resizeStats) return;
     const s = this._stats();
@@ -645,32 +560,21 @@ export class TileManager {
     const every = REMOTE_CONFIG.logging.resizeStatsEveryFrames || 60;
     if (s.frames < every) return;
     const per = (v) => (v / s.frames).toFixed(2);
-    // "resized" is 0 when scaleFactor==1 (nothing to downscale) — that is why
-    // it can be far below the scanned tile count. Printed so the gap reads as
-    // "no resize needed", not "tiles went missing".
     const resized = s.gpuBatch + s.gpu + s.vImage + s.sharp;
     remoteLog.stats(`📐 [Resize/${s.frames}f] ${per(s.tiles)} tiles/f | scale ${this.scaleFactor} | resized ${resized}/${Math.round(s.tiles)} → gpuBatch ${s.gpuBatch} gpu ${s.gpu} vImage ${s.vImage} sharp ${s.sharp} | fallback ${s.fallbacks} | batch ${per(s.batchMs)}ms encode ${per(s.procMs)}ms per frame`);
     this._resizeStats = { frames: 0, tiles: 0, gpuBatch: 0, gpu: 0, vImage: 0, sharp: 0, fallbacks: 0, batchMs: 0, procMs: 0 };
   }
 
   async compressTileImage(buffer, width, height, slotId = null) {
-    // Adaptive per-tile downscale: when scaleFactor < 1, resize raw RGBA/BGRA
-    // tile buffer before JPEG encode. Tile header still reports original
-    // width/height (canvas-space), so client drawImage() stretches the smaller
-    // JPEG into the original rect — no client-side changes needed.
     const scale = this.scaleFactor;
     if (scale && scale > 0 && scale < 1) {
       const targetW = Math.max(1, Math.floor(width * scale));
       const targetH = Math.max(1, Math.floor(height * scale));
-      // sharp requires RGBA; BGRA is swapped inside encoderAdapter. Here we
-      // must feed sharp raw, so swap BGRA→RGBA in a copy first if needed.
+      // Sharp requires RGBA; swap BGRA->RGBA in a copy first if needed.
       const { inputFormat } = REMOTE_CONFIG.pipeline;
       let raw = buffer;
       let channels = 4;
       if (inputFormat === "bgra") {
-        // Reuse per-slot scratch to avoid a fresh copy per tile (cuts churn).
-        // sharp reads raw lazily, but each slot runs serially so scratch is
-        // free again only after the previous tile's toBuffer() resolved.
         if (slotId === null) {
           raw = Buffer.from(buffer);
         } else {
@@ -679,9 +583,6 @@ export class TileManager {
         }
         bgraToRgbaInPlace(raw);
       }
-      // GPU OpenCL resize (win32 only). Bench: bilinear ~11ms full-frame vs
-      // sharp lanczos3 ~140ms; per-tile with buffer reuse is faster still.
-      // Handle is null on non-win / init-failed → falls through to sharp.
       const gpu = REMOTE_CONFIG.pipeline.gpuResize ? getGpuResize() : null;
       if (gpu) {
         try {
@@ -689,14 +590,11 @@ export class TileManager {
           this._stats().gpu++;
           return encodeJpeg(resized, targetW, targetH, channels, this.compressionQuality);
         } catch (e) {
-          // One bad tile must not poison the frame — log + fall back to sharp.
           this._stats().fallbacks++;
           remoteLog.error("gpuResize failed, sharp fallback:", e.message);
         }
       }
-      // Mac: vImage matches sharp closely on square tiles (bench RMSE <=0.67)
-      // but diverges on non-square ones at non-even ratios, so edge tiles at the
-      // screen's right/bottom keep the sharp path.
+      // vImage matches sharp on square tiles; edge tiles use sharp.
       const vi = REMOTE_CONFIG.pipeline.vImageResize && width === height ? getVImageResize() : null;
       if (vi) {
         try {
@@ -708,7 +606,6 @@ export class TileManager {
           remoteLog.error("vImageResize failed, sharp fallback:", e.message);
         }
       }
-      // Single pipeline: resize + encode in one pass (avoids second sharp instance)
       this._stats().sharp++;
       const { tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;
       const resized = sharp(raw, { raw: { width, height, channels } })
@@ -720,11 +617,6 @@ export class TileManager {
     return encodeJpeg(buffer, width, height, 4, this.compressionQuality);
   }
 
-  // Pick adaptive profile by effective pixel density viewer needs.
-  // effective = (viewerWidth * zoom * dpr) / agentWidth
-  // scaleMode "smooth": outputScale = clamp(effective, min, max) → encoded bitmap
-  //   ≈ viewer physical pixels (sharp, minimal bytes). Quality stays floored.
-  // scaleMode "tier": legacy stepped tiers with hysteresis on tier boundary.
   pickProfile({ zoom = 1, viewerWidth = 0, dpr = 1 } = {}) {
     const agentW = this.captureWidth || this.screenWidth || 1;
     const vw = viewerWidth > 0 ? viewerWidth : agentW;
@@ -750,7 +642,6 @@ export class TileManager {
       return last;
     }
 
-    // Smooth: 1:1 scale to effective, clamped. Quality flat at floor.
     const minS = pipeline.minOutputScale ?? 0.25;
     const maxS = pipeline.maxOutputScale ?? 1;
     const outputScale = Math.max(minS, Math.min(maxS, effective));
@@ -759,11 +650,6 @@ export class TileManager {
     return profile;
   }
 
-  // Apply a quality profile — mutates scaleFactor/compressionQuality only.
-  // scaleFactor is applied PER-TILE inside compressTileImage (downscale before
-  // JPEG encode), so server canvas dimensions + tile grid stay STABLE.
-  // Tile headers still carry original canvas-space width/height; client draws
-  // the smaller JPEG bitmap into the original rect → browser upsamples for free.
   setProfile(profile) {
     if (!profile) return;
     const nextScale = profile.outputScale ?? this.scaleFactor;
@@ -772,7 +658,6 @@ export class TileManager {
 
     this.scaleFactor = nextScale;
     this.compressionQuality = nextQuality;
-    // Resend all tiles with new encoding (checksums valid, bitmaps stale)
     this.lastTileChecksums.clear();
   }
 
@@ -794,7 +679,6 @@ export class TileManager {
     });
   }
 
-  // Aggregate focus effectiveness and log every N frames
   _recordFocusFrame(tiles) {
     const s = this.focusStats;
     s.frames++;
@@ -821,7 +705,6 @@ export class TileManager {
       this.tilesPerColumn = Math.ceil(screenData.height / this.tileSize);
       this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
     } catch (error) {
-      // Throttle log — repeats every frame while screen locked / display off.
       const now = Date.now();
       if (!this.lastDimErrorAt || now - this.lastDimErrorAt > 10000) {
         remoteLog.error("Error getting dimensions:", error);
@@ -851,10 +734,8 @@ export class TileManager {
       const changedTileIndices = [];
       this.frameCount++;
 
-      // Focus-based streaming: skip tiles outside client viewport+padding
       const activeSet = this.activeTileSet;
 
-      // Calculate hashes directly without extracting tiles (lazy extraction)
       const currentTileHashes = new Map();
       for (let i = 0; i < this.totalTiles; i++) {
         if (activeSet && !activeSet.has(i)) continue;
@@ -864,7 +745,6 @@ export class TileManager {
       }
 
       if (!clientTileHashes || clientTileHashes.length === 0) {
-        // First request - extract all tiles (within focus set)
         const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
@@ -875,7 +755,6 @@ export class TileManager {
         return { tiles: changedTiles, currentHashes: Array.from(currentTileHashes.values()) };
       }
 
-      // Find changed tiles by comparing hashes
       for (let i = 0; i < this.totalTiles; i++) {
         if (activeSet && !activeSet.has(i)) continue;
         if (clientTileHashes[i] !== currentTileHashes.get(i)) {
@@ -886,7 +765,6 @@ export class TileManager {
       const changePercentage = changedTileIndices.length / this.totalTiles;
 
       if (changePercentage > this.changeThreshold) {
-        // Full refresh - extract all tiles (within focus set)
         const indices = [];
         for (let i = 0; i < this.totalTiles; i++) {
           if (activeSet && !activeSet.has(i)) continue;
@@ -895,7 +773,6 @@ export class TileManager {
         const results = await mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results.map(t => ({ ...t, fullRefresh: true })));
       } else if (changedTileIndices.length > 0) {
-        // Only extract changed tiles (lazy extraction benefit)
         const results = await mapLimit(changedTileIndices, REMOTE_CONFIG.pipeline.tileConcurrency, i => this.processTileAsync(screenData, i));
         changedTiles.push(...results);
       }
@@ -911,11 +788,9 @@ export class TileManager {
     this.sharedScreenCache = null;
     this.lastCaptureTime = 0;
     this.lastTileChecksums.clear();
-    // Release reusable scratch buffers so idle sessions don't hold RAM
     this._scratchExtract = [];
     this._scratchSwap = [];
-    this._traceFrames = 50; // Reset trace limit for next stream start
-    // Cancel any in-flight prefetched capture so it doesn't hold RAM while idle
+    this._traceFrames = 50;
     this._prefetchCapture = null;
   }
 

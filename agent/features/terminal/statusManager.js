@@ -331,10 +331,53 @@ export function onAgentChange(cb) {
 // it is, and never by forgetting the session (see clearSessionAgent).
 const reaped = new Set();
 
+// A done that waits: the source reporting it (a hook's Stop, a stream's
+// turn_complete) may be followed within moments by the next turn's first event,
+// and committing immediately painted a yellow flash between the two. One door
+// for every source — schedule here, and any non-done applyEvent cancels it.
+export const DONE_DEBOUNCE_MS = 2000;
+const pendingDoneCommits = new Map(); // sessionId -> { timer, commits }
+
+export function cancelDoneCommit(sessionId) {
+  if (!sessionId) return;
+  const pending = pendingDoneCommits.get(sessionId);
+  if (!pending) return;
+  clearTimeout(pending.timer);
+  pendingDoneCommits.delete(sessionId);
+}
+
+export function scheduleDoneCommit(sessionId, commit) {
+  if (!sessionId || typeof commit !== "function") return;
+  // Two sources report the same done (a hook's Stop and the stream's
+  // turn_complete) with different side-effects — the push rides only the hook's.
+  // Append, never replace: last-wins dropped the hook's commit and its push.
+  const pending = pendingDoneCommits.get(sessionId);
+  if (pending) { pending.commits.push(commit); return; }
+  const entry = { timer: null, commits: [commit] };
+  entry.timer = setTimeout(() => {
+    pendingDoneCommits.delete(sessionId);
+    for (const run of entry.commits) run();
+  }, DONE_DEBOUNCE_MS);
+  if (entry.timer.unref) entry.timer.unref();
+  pendingDoneCommits.set(sessionId, entry);
+}
+
+// Test door: run the pending commits now instead of waiting out the window.
+export function flushDoneCommits() {
+  for (const [id, pending] of [...pendingDoneCommits]) {
+    cancelDoneCommit(id);
+    for (const run of pending.commits) run();
+  }
+}
+
 export function applyEvent({ type, sessionId, tool, message } = {}) {
   if (!sessionId) return null;
   const state = TYPE_TO_STATE[type] || STATES.IDLE;
   const prev = sessionStatus.get(sessionId);
+
+  // Any non-done event is proof the turn moved on: a done still waiting in its
+  // debounce window must not land on top of it (see scheduleDoneCommit).
+  if (state !== STATES.DONE) cancelDoneCommit(sessionId);
 
   // done only makes sense after working/blocked — a stray done on idle is ignored, except
   // for a session the reaper blanked mid-turn, where it is the completion arriving late.

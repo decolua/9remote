@@ -16,6 +16,7 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { SIDEBAR_WIDTH, isDefaultBranch } from "../constants/terminalConfig";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
+import { AGENT_PORT } from "@/shared/constants/API";
 import { groupSessionsByWorkspace, shortenHomePath, workspaceGitPath } from "../lib/workspaceGrouping";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
 import { sessionWorkspaceId } from "../lib/paneLayout";
@@ -29,9 +30,12 @@ import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { isChatEngine, SWITCHABLE_STATES } from "./TerminalHeader";
 import SessionBackgroundModal from "./SessionBackgroundModal";
 
-// Inside the Tauri shell or on loopback agent, the sidebar's brand row
-// becomes a back-to-dashboard button instead (standalone web keeps the brand).
-const SHOW_PAIR_DEVICE = typeof window !== "undefined" && (!!window.__TAURI__ || isLoopbackOrigin());
+// Inside the Tauri shell or on a page the agent itself serves (its own port), the
+// sidebar's brand row becomes a back-to-dashboard button instead. The web app keeps
+// the brand — including the web dev server, which is loopback but not the agent.
+const SHOW_PAIR_DEVICE = typeof window !== "undefined" && (
+  !!window.__TAURI__ || (isLoopbackOrigin() && window.location.port === String(AGENT_PORT))
+);
 
 // Second line of a terminal item: the branch of its live checkout, plus the state
 // when something is happening. The agent's name is not repeated — the icon in the row
@@ -328,11 +332,7 @@ function TerminalSidebar({
             </button>
           ) : (
             <>
-              <div className="flex items-center gap-1.5 flex-shrink-0">
-                <span className="w-[10px] h-[10px] rounded-full bg-[#ff5f57]" />
-                <span className="w-[10px] h-[10px] rounded-full bg-[#febc2e]" />
-                <span className="w-[10px] h-[10px] rounded-full bg-[#28c840]" />
-              </div>
+              <img src="/icon-192.png" alt="9Remote" className="w-4 h-4 rounded-[4px] object-contain flex-shrink-0" />
               <span className="text-[13px] font-semibold text-text truncate">9Remote</span>
             </>
           )}

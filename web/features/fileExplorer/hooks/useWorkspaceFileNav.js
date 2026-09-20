@@ -7,7 +7,7 @@ import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath } fr
 // workspace selection (recent workspaces), folder browsing, the mobile editor overlay,
 // and per-workspace last-folder persistence. Verbatim moves from the workspace layout.
 export function useWorkspaceFileNav({
-  pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileBus
+  pushView, viewStack, setViewStack, currentView, cwdBySession, sessions = [], isDesktop, fileBus
 }) {
   const [systemInfo, setSystemInfo] = useState(null);
   // Mobile-only: file opened as an overlay above the files view (no viewStack entry), so the
@@ -33,9 +33,12 @@ export function useWorkspaceFileNav({
       pushView({ type: "files", workspace: prefWorkspace, currentPath: prefWorkspace });
       return;
     }
-    // From terminal: open the explorer at the active terminal's cwd
+    // From terminal: open the explorer at the active terminal's cwd. Chat UI panes
+    // emit no terminal OSC 7, so their dir comes from the session record.
     if (currentView.type === "terminal") {
-      const cwd = currentView.sessionId ? cwdBySession[currentView.sessionId] : null;
+      const cwd = currentView.sessionId
+        ? cwdBySession[currentView.sessionId] || sessions.find((s) => s.id === currentView.sessionId)?.cwd || null
+        : null;
       if (cwd) {
         addRecentWorkspace(cwd);
         pushView({ type: "files", workspace: cwd, currentPath: cwd });
@@ -50,7 +53,7 @@ export function useWorkspaceFileNav({
       return;
     }
     handleOpenWorkspaceList();
-  }, [pushView, handleOpenWorkspaceList, currentView, cwdBySession]);
+  }, [pushView, handleOpenWorkspaceList, currentView, cwdBySession, sessions]);
 
   const handleSelectWorkspace = useCallback((workspacePath) => {
     addRecentWorkspace(workspacePath);

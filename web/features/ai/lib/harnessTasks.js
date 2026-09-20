@@ -46,7 +46,11 @@ function collapsePersistedOutput(text) {
 export const TASK_ENDED = new Set(["completed", "failed", "killed", "stopped"]);
 
 /** How long a task has been running, from the marks the pane keeps on its own clock. */
-export const taskElapsedMs = (task, now = Date.now()) => (task?.startedAt ? Math.max(0, now - task.startedAt) : 0);
+export const taskElapsedMs = (task, now = Date.now()) => {
+  if (task?.usage?.duration_ms > 0) return task.usage.duration_ms;
+  if (task?.endedAt && task?.startedAt) return Math.max(0, task.endedAt - task.startedAt);
+  return task?.startedAt ? Math.max(0, now - task.startedAt) : 0;
+};
 
 /**
  * The mark a task's clock counts from — the host states the task's AGE, never its start.
@@ -86,8 +90,9 @@ export const lastIndexOfCompacting = (messages = []) => {
 const COMPACTING_STATUSES = new Set(["compacting"]);
 
 /** Fold one harness record into the task list. Returns the SAME array when nothing moved. */
-export function applyTaskRecord(tasks, type, subtype, record) {
+export function applyTaskRecord(tasks, type, subtype, record, ageMs = undefined) {
   if (type !== "system") return tasks;
+  const effectiveAge = Number.isFinite(ageMs) ? ageMs : record?.ageMs;
   switch (subtype) {
     case "task_started": {
       if (!record?.task_id) return tasks;
@@ -104,7 +109,7 @@ export function applyTaskRecord(tasks, type, subtype, record) {
         ...(record.description ? { description: record.description } : null),
         ...(record.subagent_type ? { subagentType: record.subagent_type } : null),
         ...(record.task_type ? { taskType: record.task_type } : null),
-        ...startedAtPatch(record.ageMs, tasks.find((t) => t.taskId === record.task_id))
+        ...startedAtPatch(effectiveAge, tasks.find((t) => t.taskId === record.task_id))
       });
     }
     case "task_updated": {
@@ -127,7 +132,7 @@ export function applyTaskRecord(tasks, type, subtype, record) {
       if (resumed) delete merged.endedAt;
       // A task resumed after this client saw it start is running from where it left off —
       // a mark left at its ORIGINAL start would print the pause as work.
-      if (resumed && next[at].endedAt) Object.assign(merged, startedAtPatch(record.ageMs, null));
+      if (resumed && next[at].endedAt) Object.assign(merged, startedAtPatch(effectiveAge, null));
       next[at] = merged;
       return next;
     }
@@ -138,6 +143,7 @@ export function applyTaskRecord(tasks, type, subtype, record) {
       next[at] = {
         ...next[at],
         status: record.status || "completed",
+        endedAt: next[at].endedAt || Date.now(),
         ...(record.output_file ? { outputFile: record.output_file } : null),
         ...(record.summary ? { summary: record.summary } : null),
         // The CLI's own token and duration totals for the task, kept under its names.
@@ -156,7 +162,9 @@ export function applyTaskRecord(tasks, type, subtype, record) {
       // else ended" would settle every sub-agent the moment a shell task changed.
       if (next.some((t) => t.background && !TASK_ENDED.has(t.status) && !live.has(t.taskId))) {
         next = next.map((t) =>
-          t.background && !TASK_ENDED.has(t.status) && !live.has(t.taskId) ? { ...t, status: "stopped" } : t
+          t.background && !TASK_ENDED.has(t.status) && !live.has(t.taskId)
+            ? { ...t, status: "stopped", endedAt: t.endedAt || Date.now() }
+            : t
         );
       }
       for (const t of record?.tasks || []) {
@@ -171,7 +179,7 @@ export function applyTaskRecord(tasks, type, subtype, record) {
           ...(t.task_type ? { taskType: t.task_type } : null),
           // A client that joined mid-task gets the live set, not the history of it — so
           // the record's own age is the only edge this clock can count from.
-          ...startedAtPatch(record.ageMs, next.find((x) => x.taskId === t.task_id))
+          ...startedAtPatch(effectiveAge, next.find((x) => x.taskId === t.task_id))
         });
       }
       return next;
@@ -215,7 +223,7 @@ export function foldTaskRecords(hostRecords, windowTasks) {
   let tasks = [];
   for (const rec of hostRecords || []) {
     if (!rec) continue;
-    tasks = applyTaskRecord(tasks, rec.type || "system", rec.subtype || "", rec.record || null);
+    tasks = applyTaskRecord(tasks, rec.type || "system", rec.subtype || "", rec.record || null, rec.ageMs);
   }
   // The window came folded already (reduceSessionEvents). Merged by task id — NOT through
   // taskList's upsertTask, whose rules are TaskCreate's (it only opens a row on a

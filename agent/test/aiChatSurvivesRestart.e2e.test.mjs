@@ -1,15 +1,5 @@
-// E2E: an AI chat must survive an agent restart exactly the way a terminal does.
+// Tests AI chat persistence across agent restarts via daemon.
 // Run: node agent/test/aiChatSurvivesRestart.e2e.test.mjs
-//
-// This is the test that freezes the daemon/agent split. The daemon owns the CLI
-// process and nothing else — it does not know what the CLI speaks. The agent parses
-// its stream, owns the conversation log and the snapshot. The hard property: kill
-// the agent mid-turn, bring it back, and the turn's output is neither lost nor
-// replayed twice, because the agent re-attaches to the process and asks for the
-// lines it has not consumed.
-//
-// A fake `claude` stands in for the CLI (a stream-json program that streams a turn
-// forever), so the test needs no login, no network and no model.
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import net from "node:net";
@@ -33,19 +23,12 @@ const test = async (name, fn) => {
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DAEMON_SRC = path.join(root, "agent/features/terminal/ptyDaemon.js");
 
-// A private root for the whole run: the daemon's socket, its runtime copy and the
-// chat snapshots all land here, so a live agent on the machine is neither disturbed
-// nor able to leak its own sessions into the assertions.
 const TEST_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-home-"));
 const SOCKET_PATH = process.platform === "win32"
   ? "\\\\.\\pipe\\9remote-pty-e2e"
   : path.join(TEST_HOME, "pty-daemon.sock");
 
-// Hard ceiling: a phase that never resolves ends the run with a failure instead of
-// hanging the terminal (the daemon under test is a separate process and can die).
 const DEADLINE_MS = 30000;
-// The deadline must go through cleanup() — a bare process.exit() skips the finally
-// below and leaks the daemon + CLIs this run spawned.
 let cleanup = () => {};
 const deadline = setTimeout(() => {
   console.error(`\n✗ timed out after ${DEADLINE_MS / 1000}s — a phase never resolved`);
@@ -57,10 +40,6 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 const b64 = (s) => Buffer.from(s).toString("base64");
 const unb64 = (s) => Buffer.from(s, "base64").toString("utf8");
 
-// ── Fake claude ───────────────────────────────────────────────────────────────
-// Speaks the subset of stream-json the chat depends on. It streams a short text
-// delta per tick forever, so a turn is always in flight when the agent is killed,
-// and answers a control_response by echoing what it received.
 const FAKE_CLAUDE = `#!/usr/bin/env node
 const SESSION_ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
 let buf = "";
@@ -86,8 +65,6 @@ process.stdin.on("data", (chunk) => {
     if (msg.type === "control_response") {
       out({ type: "assistant", message: { content: [{ type: "text", text: "answered:" + msg.response.response.behavior }] } });
     }
-    // Test hook: flood the daemon's ring so it drops its head — output produced while
-    // no agent was attached, past the buffer's ceiling.
     if (msg.type === "user" && /FLOOD/.test(JSON.stringify(msg.message || {}))) {
       const big = "z".repeat(60000);
       for (let i = 0; i < 12; i++) {
@@ -97,8 +74,6 @@ process.stdin.on("data", (chunk) => {
   }
 });
 
-// The CLI writes its own transcript, which is what the agent rebuilds a dropped window
-// from. Anchored where the real lookup looks: $HOME/.claude/projects/<dir>/<id>.jsonl.
 const fs = require("fs");
 const path = require("path");
 const os2 = require("os");
@@ -124,14 +99,9 @@ function makeFakeClaude() {
   return dir;
 }
 
-// ── Agent child ───────────────────────────────────────────────────────────────
-// Runs the real AiSession against the daemon and reports on stdout. A separate
-// process is the point: the test kills it to prove the turn outlives it.
 const AGENT_CHILD = path.join(os.tmpdir(), `9remote-agent-child-${process.pid}.mjs`);
 
 function writeAgentChild() {
-  // Bare specifiers would not resolve from a tmp dir; the child is written next to
-  // the repo's absolute paths instead.
   fs.writeFileSync(AGENT_CHILD, `
 import { AiSession } from ${JSON.stringify(path.join(root, "agent/features/ai/aiSession.js"))};
 import { initDaemonClient } from ${JSON.stringify(path.join(root, "agent/features/terminal/ptyDaemonClient.js"))};
@@ -152,8 +122,6 @@ say({ kind: "ready", history: session.history.map((e) => e.event), adopted: Bool
 
 if (process.env.CHILD_PERMISSION) session.adapter.resolvePermission(process.env.CHILD_PERMISSION, "allow");
 if (process.env.CHILD_PROMPT) session.sendPrompt(process.env.CHILD_PROMPT);
-// A mode switch mid-chat restarts the CLI on the same proc id, which is the branch
-// that has no other coverage: the new process numbers its lines from 1 again.
 if (process.env.CHILD_MODE) {
   await new Promise((r) => setTimeout(r, 300));
   try {
@@ -172,7 +140,6 @@ setInterval(() => {}, 1 << 30);
 `, "utf8");
 }
 
-// ── Minimal daemon client (the test's own, independent of the app's) ──────────
 function connectDaemon() {
   return new Promise((resolve, reject) => {
     const sock = net.connect(SOCKET_PATH);
@@ -188,7 +155,6 @@ function connectDaemon() {
         pending.set(rid, res);
         sock.write(JSON.stringify({ ...msg, requestId: rid }) + "\n");
       }),
-      // Resolves with the first matching event, live or already seen.
       waitFor: (match, ms = 5000) => {
         const seen = events.find(match);
         if (seen) return Promise.resolve(seen);
@@ -225,16 +191,11 @@ function connectDaemon() {
   });
 }
 
-// Every child this run started, so a failure anywhere still ends with all of them
-// dead — killing them only at the end of a passing test is how they leaked.
 const liveChildren = [];
 
-// Spawns the agent child and collects its stdout report.
 function startChild(env, sessionId = "chat-1") {
   const child = spawn(process.execPath, [AGENT_CHILD, sessionId, daemonDir], {
     cwd: root,
-    // NREMOTE_CLAUDE_BIN pins the stand-in: the agent prepends its own PATH entries,
-    // so a fake that only rides PATH would lose to a real install on the machine.
     env: {
       ...process.env,
       NREMOTE_HOME: TEST_HOME,
@@ -249,8 +210,6 @@ function startChild(env, sessionId = "chat-1") {
   child.stdout.on("data", (c) => {
     for (const line of c.toString().split("\n")) {
       if (!line.trim()) continue;
-      // A stray stdout line must not crash the harness — an exception in this
-      // handler is an uncaughtException that skips cleanup entirely.
       let msg;
       try { msg = JSON.parse(line); } catch { continue; }
       if (msg.kind === "ready") state.ready = msg;
@@ -263,7 +222,6 @@ function startChild(env, sessionId = "chat-1") {
 
 const deltasOf = (state) => state.events.filter((e) => e.event === "delta").map((e) => e.data.text).join("");
 
-// ── Setup ─────────────────────────────────────────────────────────────────────
 const fakeDir = makeFakeClaude();
 const daemonDir = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-daemon-"));
 writeAgentChild();
@@ -273,8 +231,6 @@ const daemon = spawn(process.execPath, [DAEMON_SRC], {
   env: {
     ...process.env,
     NREMOTE_HOME: TEST_HOME,
-    // The CLI's transcript is found under the HOME it runs with; isolating it keeps
-    // this run out of the developer's real conversations.
     HOME: TEST_HOME,
     NREMOTE_CLAUDE_BIN: path.join(fakeDir, "claude"),
     PATH: `${fakeDir}${path.delimiter}${process.env.PATH}`
@@ -288,11 +244,7 @@ cleanup = () => {
   clearTimeout(deadline);
   for (const st of liveChildren) { try { st.child.kill("SIGKILL"); } catch {} }
   client?.close();
-  // SIGTERM, not SIGKILL: the daemon's shutdown handler takes its managed CLIs
-  // down with it; a kill -9 orphans them and they stream forever.
   try { daemon.kill("SIGTERM"); } catch {}
-  // An agent child whose client auto-reconnected may have respawned the daemon
-  // from the runtime copy — the PID file is the only handle to that one too.
   try {
     const pid = parseInt(fs.readFileSync(path.join(TEST_HOME, "pids", "ptyDaemon.pid"), "utf8"), 10);
     if (pid) process.kill(pid, "SIGTERM");
@@ -310,8 +262,6 @@ try {
     const started = await client.send({ type: "procStart", procId: "chat-1", bin: "claude", args: [], cwd: daemonDir, env: {} });
     assert.equal(started.success, true, `procStart failed: ${started.error}`);
     await client.waitFor((m) => m.type === "procLine" && m.procId === "chat-1");
-    // The daemon hands over raw lines; it never parses them. The first one is the
-    // CLI's own init line, still JSON as the CLI wrote it.
     const all = await client.send({ type: "procLines", procId: "chat-1", from: 0 });
     assert.equal(all.success, true);
     assert.ok(all.lines.length > 0, "no lines buffered");
@@ -320,8 +270,6 @@ try {
 
   await test("procLines returns only the lines after `from`, numbered consecutively", async () => {
     const from = 4;
-    // The fake streams one line per tick, so wait until there is something past `from`
-    // — otherwise the test asserts on a race, not on the protocol.
     let res;
     for (let i = 0; i < 50; i++) {
       res = await client.send({ type: "procLines", procId: "chat-1", from });
@@ -329,7 +277,6 @@ try {
       await wait(50);
     }
     assert.ok(res.lines.length > 0);
-    // A gap would silently drop chat output; a duplicate would double a message.
     assert.deepEqual(res.lines.map((l) => l.n), res.lines.map((_, i) => from + i + 1));
     assert.equal(res.total, from + res.lines.length);
   });
@@ -345,13 +292,10 @@ try {
     child = startChild({ CHILD_PROMPT: "hello" });
     while (!child.ready) await wait(30);
     while (!deltasOf(child)) await wait(20);
-    // The log has to be on disk BEFORE the kill: a turn in flight is persisted on a
-    // debounce, and without that a hard kill would leave an empty pane behind.
     const snapDir = path.join(TEST_HOME, "ai-sessions");
     for (let i = 0; i < 150 && !(fs.existsSync(snapDir) && fs.readdirSync(snapDir).length); i++) await wait(20);
     const onDisk = fs.existsSync(snapDir) ? fs.readdirSync(snapDir) : [];
     assert.ok(onDisk.length > 0, "no snapshot was written while the turn was running");
-    // Hard kill — what an update or a crash looks like, with no flush path.
     child.child.kill("SIGKILL");
     await wait(250);
 
@@ -372,24 +316,15 @@ try {
     while (!revived.ready) await wait(30);
     await wait(400);
 
-    // History came back from the snapshot, so the pane is not empty after a restart…
     assert.ok(revived.ready.history.includes("delta"), `history lost its deltas: ${JSON.stringify(revived.ready.history)}`);
-    // …and it adopted the same process: a second spawn would double-write the
-    // transcript the CLI is resuming.
     assert.equal(revived.ready.adopted, true);
-    // The turn is still running and its output keeps arriving.
     const revivedText = deltasOf(revived);
     assert.ok(revivedText.length > 0, "the revived agent saw no new output from the live turn");
-    // No duplication across the kill — the property that makes re-attach safe.
     const tail = deltasOf(child).slice(-40);
     assert.ok(!revivedText.startsWith(tail), "the revived agent replayed text the first one had already streamed");
   });
 
   await test("a mode switch mid-chat keeps the new process's output flowing", async () => {
-    // Restarting the CLI under the same proc id is where a stale line watermark would
-    // silently swallow every later line — the chat would go quiet with no error.
-    // Its own proc id: restarting shared "chat-1" would kill the process the other
-    // tests are still asserting on.
     const ch = startChild({ CHILD_MODE: "plan" }, "chat-mode");
     while (!ch.ready) await wait(30);
     const restarted = await (async () => {
@@ -403,8 +338,6 @@ try {
     assert.ok(restarted, "the child never reported the restart");
     assert.equal(restarted.mode, "plan");
 
-    // Output produced by the NEW process must reach the agent. Before the fix the
-    // watermark from the old process dropped all of it.
     const before = ch.events.filter((e) => e.event === "delta").length;
     for (let i = 0; i < 100 && ch.events.filter((e) => e.event === "delta").length <= before; i++) await wait(30);
     const after = ch.events.filter((e) => e.event === "delta").length;
@@ -413,8 +346,6 @@ try {
   });
 
   await test("a permission answer reaches the running CLI", async () => {
-    // The answer is written by the agent; the CLI echoes it back as a line the
-    // daemon relays. This is the whole permission round-trip, minus the UI.
     const res = await client.send({
       type: "procWrite",
       procId: "chat-1",
@@ -425,15 +356,8 @@ try {
   });
 
   await test("a ring the agent outran is healed from the CLI's transcript", async () => {
-    // The hard case: the turn keeps running while no agent is attached, past the
-    // daemon's buffer ceiling. The dropped lines can never be fetched again — but the
-    // CLI wrote its own transcript, so the agent rebuilds the conversation from there
-    // instead of opening on a silent hole.
     const ch = startChild({}, "chat-gap");
     while (!ch.ready) await wait(30);
-    // Let the session persist first: the conversation id it learned from the CLI's init
-    // is what a later agent needs to find the transcript, and it only reaches disk on
-    // the debounced snapshot.
     const snapFile = path.join(TEST_HOME, "ai-sessions", "claude-chat-gap.json");
     for (let i = 0; i < 150 && !fs.existsSync(snapFile); i++) await wait(20);
     assert.ok(fs.existsSync(snapFile), "the session was killed before it persisted anything");
@@ -441,14 +365,10 @@ try {
     ch.child.kill("SIGKILL");
     await wait(200);
 
-    // Flood the ring with nobody reading: ~720KB against a 512KB buffer.
     const flood = Buffer.from(JSON.stringify({
       type: "user", message: { role: "user", content: [{ type: "text", text: "FLOOD" }] }
     }) + "\n").toString("base64");
     await client.send({ type: "procWrite", procId: "chat-gap", data: flood });
-    // Wait for the RING to actually drop its head, not merely for lines to accumulate:
-    // the periodic stream also raises the line count, and a test that stopped there
-    // would prove nothing about a gap.
     let trimmed = false;
     for (let i = 0; i < 200; i++) {
       const p = await client.send({ type: "procLines", procId: "chat-gap", from: 0 });
@@ -459,10 +379,7 @@ try {
 
     const back = startChild({}, "chat-gap");
     while (!back.ready) await wait(30);
-    // The gap must have been DETECTED: the reader asked from line 0 and the ring no
-    // longer held it, so it was told how much it can never fetch.
     assert.ok(back.ready.missed > 0, `no gap was detected (missed=${back.ready.missed})`);
-    // ...and filled from the CLI's transcript rather than left as an apology line.
     assert.ok(back.ready.history.includes("user_message"),
       `the conversation was not rebuilt: ${JSON.stringify(back.ready.history.slice(0, 12))}`);
     assert.ok(back.ready.history.length > 2, "the rebuilt log carried no turns");
@@ -472,10 +389,7 @@ try {
   await test("procStop ends the process and reports the exit once", async () => {
     const stopped = await client.send({ type: "procStop", procId: "chat-1" });
     assert.equal(stopped.success, true);
-    // The exit may arrive as a code or a signal — SIGINT is how a CLI interrupts its
-    // own turn, so either is a real end and the test must not insist on a number.
     await client.waitFor((m) => m.type === "procExit" && m.procId === "chat-1" && (m.code !== null || Boolean(m.signal)), 5000);
-    // A stopped process stops answering, so a later agent cannot adopt a corpse.
     const gone = await client.send({ type: "procLines", procId: "chat-1", from: 0 });
     assert.equal(gone.success, false);
   });

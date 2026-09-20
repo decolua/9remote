@@ -1,4 +1,4 @@
-// Adapter for OpenAI Codex CLI using exec --json
+// Adapter for the OpenAI Codex CLI.
 import { getExtendedEnv } from "./env.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 import { AgentProc } from "../proc/agentProc.js";
@@ -13,49 +13,31 @@ import { createLogger } from "../../../lib/logger.js";
 
 const logger = createLogger("ai");
 
-// Composer permission mode → codex sandbox policy. The CLI has no single "mode" flag:
-// what a mode means is decided by how much the sandbox allows. These mirror the TUI's
-// own presets (Read Only / Default / Full Access).
+// Composer mode → codex sandbox policy (codex has no single mode flag); mirrors the TUI presets.
 const MODE_TO_SANDBOX = {
   readOnly: "read-only",
   default: "workspace-write",
   fullAccess: "danger-full-access"
 };
 
-// Plan is a separate axis in codex (collaboration_mode), not a sandbox: it keeps the
-// gate where it is and makes the model propose instead of execute. Verified: a write
-// under this mode is rejected with "writing is blocked by read-only sandbox".
+// Plan is a collaboration mode, not a sandbox — the gate stays; writes stay blocked by the sandbox.
 const PLAN_MODE_ARG = ["-c", 'collaboration_mode="plan"'];
 
-// Widening ladder: a blocked action is resolved by the next mode up. Plan sits at the
 export class CodexAdapter {
   constructor({ cwd, onEvent, proc = null, threadId = null, model = "", hostSessionId = null, transport = null } = {}) {
     this.cwd = cwd || process.cwd();
     this.onEvent = onEvent;
     this.hostSessionId = hostSessionId;
-    // Two transports, one protocol's worth of difference between them. `exec` spawns a
-    // process per turn and reads stdout one way; `app-server` keeps one process for the
-    // chat and talks JSON-RPC both ways, which is what makes thinking stream and lets a
-    // permission gate hold a turn.
-    //
-    // app-server is the default: it is the transport that behaves like the CLI's own TUI
-    // (streamed reasoning, the CLI's parse of every command), and `exec` is kept as the
-    // way back — `NREMOTE_CODEX_TRANSPORT=exec` — for a machine where the app-server
-    // cannot start. Anything not exactly "exec" is the default, so a typo cannot silently
-    // switch a deployment to the older path either.
+    // app-server (one process, two-way JSON-RPC) is the default; `NREMOTE_CODEX_TRANSPORT=exec` is the fallback — anything but exactly "exec" keeps the default.
     const asked = transport || process.env.NREMOTE_CODEX_TRANSPORT;
     this.transport = asked === "exec" ? "exec" : "app-server";
     this.appServer = null;
     this._restarting = false;
     // Prompts that arrived while the server was being replaced; drained once it is up.
     this._heldPrompts = [];
-    // One prompt held while OUR interrupt is landing — see sendPrompt. Sister of
-    // `_heldPrompts` (the restart window), with the same one-deep patience.
+    // One prompt held while OUR interrupt is landing — sister of `_heldPrompts`, same one-deep patience.
     this._pendingAfterStop = null;
-    // Turn-per-CLI: a process is born per turn. Under the daemon it outlives an agent
-    // restart, and adopt() picks that turn back up.
-    // An injected proc is the caller's (a test's); otherwise the transport decides —
-    // AgentProc for exec, a two-way carrier for the app-server, chosen lazily in start().
+    // An injected proc is the caller's (a test's); the transport's own carrier is chosen lazily in start().
     this._procOverride = proc;
     this.proc = proc || new AgentProc({ procId: "" });
     this.activeThreadId = threadId || null;
@@ -63,11 +45,9 @@ export class CodexAdapter {
     this.currentModel = model || "";
     this.reasoningEffort = "xhigh";
     this.sandboxMode = "workspace-write";
-    // The composer sends `mode`; without this it was dropped and every turn ran at the
-    // default policy, so switching modes changed nothing.
+    // The composer sends `mode` — dropped here, every turn ran the default policy.
     this.permissionMode = "default";
-    // Plan mode reasoning is a separate knob in codex (`plan_mode_reasoning_effort`),
-    // not a separate model — left empty it falls back to the CLI's own default.
+    // Plan-mode reasoning is codex's own knob; empty falls back to the CLI default.
     this.planEffort = "";
     // Codex's own persona for the assistant's tone: friendly | pragmatic | none.
     this.personality = "";
@@ -81,27 +61,20 @@ export class CodexAdapter {
     this.disable = [];
     this.planMode = false;
     this.stats = { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0, totalTurns: 0 };
-    // Empty model means "CLI default" — never a label. This metadata is echoed back by
-    // the session and later fed to `-m`, so a display string here would be sent to the
-    // CLI as a real model id and get the provider to 404.
-    // The Config modal reads its current values back from this metadata, so every
-    // option the modal can set has to be here — otherwise reopening it shows defaults
-    // and silently reverts what the user chose.
+    // Empty model means CLI default — metadata is later fed to `-m`, a display string would 404.
+    // The Config modal reads its values back from here — every settable option must be present or reopening reverts it.
     this.metadata = { model: this.currentModel, sandbox: this.sandboxMode, permissionMode: this.permissionMode, planMode: false, effort: this.reasoningEffort, planEffort: this.planEffort, personality: this.personality, networkAccess: this.networkAccess, addDirs: this.addDirs, enable: this.enable, disable: this.disable, skipGitRepoCheck: this.skipGitRepoCheck, ephemeral: this.ephemeral };
     this.setThreadId(this.activeThreadId);
   }
 
-  // The thread id is codex's conversation id. The shared init consumer reads that
-  // off `sessionId` (every other adapter names it so), so publish it under both:
-  // `threadId` for the goal RPC, `sessionId` for the conversation mirror.
+  // Publish the thread id under both names: `threadId` for the goal RPC, `sessionId` for the shared consumer.
   setThreadId(id) {
     this.activeThreadId = id || null;
     this.metadata.threadId = this.metadata.sessionId = id || "";
   }
 
   setOptions({ model, effort, planEffort, sandbox, mode, resume, personality, networkAccess, addDirs, enable, disable, skipGitRepoCheck, ephemeral }) {
-    // Read once, before anything is written: a feature flag lives on the PROCESS, so a
-    // change to it is only visible by comparing what it was.
+    // Read before writing: feature flags live on the PROCESS — change is only visible by comparison.
     const featuresBefore = `${this.enable.join(",")}|${this.disable.join(",")}`;
     if (model) {
       this.currentModel = model;
@@ -111,8 +84,7 @@ export class CodexAdapter {
       this.reasoningEffort = effort;
       this.metadata.effort = effort;
     }
-    // Empty string is a real choice here — it means "use the CLI's own default", so
-    // these two take any string, unlike the ones where empty means "not sent".
+    // Empty string is a real choice (CLI default), unlike fields where empty means not sent.
     if (typeof planEffort === "string") {
       this.planEffort = planEffort;
       this.metadata.planEffort = planEffort;
@@ -120,8 +92,7 @@ export class CodexAdapter {
     if (mode && MODE_LABELS[mode]) {
       this.permissionMode = mode;
       this.metadata.permissionMode = mode;
-      // Plan is a collaboration mode, not a sandbox — it keeps whatever sandbox the
-      // session already had, so the two stay independent axes here.
+      // Plan keeps whatever sandbox the session had — the two are independent axes.
       this.planMode = mode === "plan";
       this.metadata.planMode = this.planMode;
       const sandbox = MODE_TO_SANDBOX[mode];
@@ -168,24 +139,7 @@ export class CodexAdapter {
     this.onEvent?.("init", { ...this.metadata });
   }
 
-  /**
-   * Push the options onto the running server, restarting it only when something needs a
-   * new process.
-   *
-   * On the exec transport every option was an argv flag on the turn's own process, so a
-   * change cost nothing. Here the process is the chat, and the two kinds of option are
-   * not alike:
-   *
-   *   request fields  sandbox, approval, plan, effort, personality, model — a
-   *                   `thread/settings/update`, effective on the spot
-   *   process flags   feature enable/disable — probed on the real server: thread/start's
-   *                   `config` does NOT apply them and `experimentalFeature/enablement/set`
-   *                   answers `{}` without changing anything. Only `-c features.X=true`
-   *                   at spawn does, so the server is respawned.
-   *
-   * A restart drops the turn in flight, so it is never taken while one is running —
-   * the same rule the exec path followed when a spawn-time option changed.
-   */
+  /** Request fields apply on the spot; feature flags only work at spawn (probed), so they respawn the server — never mid-turn. */
   _syncAppServer(featuresChanged) {
     if (!this.appServer || this.isTurnRunning) return;
 
@@ -199,23 +153,13 @@ export class CodexAdapter {
       effort: this.reasoningEffort,
       personality: this.personality
     });
-    // Fire and forget: a settings call that fails must not take the turn's options with
-    // it, and every one of them is repeated on `turn/start` anyway.
+    // Fire and forget: a failed settings call must not take the turn's options; turn/start repeats them.
     this.appServer.updateSettings(changed).catch(() => {});
 
     if (featuresChanged) this.restart().catch(() => {});
   }
 
-  /**
-   * Respawn the server with the options this adapter now holds, keeping the thread.
-   * `thread/resume` on the same id is what makes this a restart rather than a new chat.
-   *
-   * `this.appServer` is left in place until the replacement exists. Clearing it first
-   * made `sendPrompt` fall through to the exec branch for the width of the restart —
-   * a chat on this transport would spawn `codex exec`, a second writer on the same
-   * conversation. The old session is detached from the proc right before the respawn,
-   * so its exit cannot be read as this chat dying.
-   */
+  /** Respawn keeping the thread; `appServer` stays until the replacement exists or sendPrompt falls through to exec — a second writer. */
   async restart() {
     if (!this.persistent || this._restarting) return;
     this._restarting = true;
@@ -223,12 +167,7 @@ export class CodexAdapter {
     const previous = this.appServer;
     try {
       previous?.detach();
-      // The carrier this chat's server runs on, not `this.proc` — that one is exec's
-      // AgentProc, and stopping it would ask a daemon that never ran this process.
-      //
-      // Stopped even when the caller injected it: that carrier IS this chat's server, and
-      // a respawn without stopping it leaves two codex processes on one thread. DaemonProc
-      // is keyed by procId, so this ends the process for this chat and nothing else.
+      // Stop the carrier this chat's server actually runs on (not `this.proc`, exec's) — even when injected, or two codex processes share one thread.
       const carrier = this._activeCarrier();
       this._appServerProc = null;
       await carrier?.stop();
@@ -252,28 +191,12 @@ export class CodexAdapter {
     return { command: "codex", args: ["doctor"] };
   }
 
-  /**
-   * True for a transport that holds ONE process for the whole chat. `aiSession` starts
-   * those eagerly (as it does for Claude) and leaves a turn-per-CLI engine alone until
-   * the user asks for a turn.
-   */
+  /** True for a one-process-per-chat transport — aiSession starts those eagerly, leaves turn-per-CLI alone. */
   get persistent() {
     return this.transport === "app-server";
   }
 
-  /**
-   * The carrier to run the app-server on.
-   *
-   * `AgentProc` — codex's own default — is for `exec`: it only READS the CLI's stdout and
-   * has no `write()` at all, so a chat built on it could never send its first
-   * `initialize`. The app-server is two-way and needs a carrier that can both write and
-   * spawn: the caller's when it gave one (aiSession hands down a DaemonProc, a test hands
-   * its own), otherwise a direct child.
-   *
-   * ONE accessor, deliberately: `_appServerProc` used to be set here and read in
-   * restart()/stop(), so with an injected carrier those two saw `null` and the old
-   * process was never stopped — a respawn that left the previous codex running.
-   */
+  /** AgentProc is read-only (exec's); the app-server needs this two-way carrier — ONE accessor so restart()/stop() stop the real one. */
   _carrierFor() {
     if (this._procOverride) return this._procOverride;
     if (!this._appServerProc) this._appServerProc = new LocalProc();
@@ -285,36 +208,22 @@ export class CodexAdapter {
     return this._procOverride || this._appServerProc || null;
   }
 
-  /**
-   * Spawn the app-server and open (or rejoin) a thread. The exec path has nothing to do
-   * here — its process is born with the turn — so it falls through to the same
-   * "nothing fetched" answer the session already handles.
-   */
+  /** Spawn the app-server and open (or rejoin) a thread; exec falls through with nothing fetched. */
   async start(mode = "default", resumeSessionId = null) {
     if (!this.persistent) return null;
     if (resumeSessionId) this.setThreadId(resumeSessionId);
 
-    // TEMP DIAGNOSTIC — a codex chat that opens and then says nothing has no other trace:
-    // the adapter logs nothing, so a failed spawn and a spawn that was never attempted
-    // look identical from outside. Remove once the app-server path has settled.
     const diag = (msg) => logger.info(`[codex-adapter] ${msg}`);
     diag(`start begin transport=${this.transport} mode=${mode} resume=${resumeSessionId} managed=${daemonClient.isConnected()}`);
 
     this.permissionMode = mode || this.permissionMode;
-    // ONE carrier, used for both the spawn and the session. Spawning on `this.proc` was
-    // the bug: that one is AgentProc — exec's carrier, which talks to the daemon — so the
-    // session held a LocalProc nobody had started while the spawn asked a daemon that
-    // never ran this chat. It answered "Not connected to daemon" in 1ms, and on a machine
-    // WITH a daemon it would have been worse: the process spawned under one carrier and
-    // the protocol written to another, so the turn would hang with no error at all.
+    // ONE carrier for spawn and session — `this.proc` is exec's AgentProc and never ran this chat.
     const carrier = this._carrierFor();
     this.appServer = new CodexAppServer({
       proc: carrier,
       cwd: this.cwd,
       onEvent: (ev, data) => this._forward(ev, data),
-      // The interrupt's landing is the one ending this adapter never hears as an event
-      // (the pane-facing echo is swallowed in the app-server), so the flag release and
-      // the prompt held for that window both hang off this callback instead.
+      // The interrupt's landing never reaches this adapter as an event — flag release and the held prompt hang off this.
       onInterruptSettled: () => {
         this.isTurnRunning = false;
         this._flushPendingAfterStop();
@@ -324,10 +233,7 @@ export class CodexAdapter {
       effort: this.reasoningEffort,
       personality: this.personality || null
     });
-    // The app's options are set BEFORE the handshake: a chat that opens in Plan must
-    // open its thread in Plan, not switch into it a call later. The session holds them
-    // itself — assigning the returned patch back onto it made a second copy that the
-    // turn overrides read instead of the first.
+    // Options set BEFORE the handshake — a Plan chat opens its thread in Plan; the session keeps them itself.
     this.appServer.applyOptions({
       mode: this.permissionMode,
       networkAccess: this.networkAccess,
@@ -339,10 +245,7 @@ export class CodexAdapter {
       personality: this.personality
     });
 
-    // `-c features.<name>=true` is the ONLY way to turn a feature on — probed: neither
-    // thread/start's config nor experimentalFeature/enablement/set has any effect. So
-    // the flags belong to the process, and changing them means a new process (see
-    // setOptions).
+    // `-c features.X=true` is the only way to enable a feature (probed) — flags own the process.
     const started = await carrier.start({
       bin: "codex",
       args: ["app-server", ...spawnArgsFor({ enable: this.enable, disable: this.disable, skipGitRepoCheck: this.skipGitRepoCheck })],
@@ -354,16 +257,7 @@ export class CodexAdapter {
       (err) => { diag(`carrier start FAILED: ${err.message}`); throw err; }
     );
 
-    // `commit` is not optional on every carrier. DaemonProc opens a HOLD around the
-    // spawn — every line the process prints is buffered until the caller releases it —
-    // so skipping this left the server's `initialize` answer sitting in that buffer for
-    // good, and the handshake timed out after 15s on a server that had answered at once.
-    // LocalProc has no hold, which is exactly why the same code worked without a daemon
-    // and failed with one. `commit(feed)` is the one door: feed what was fetched, let
-    // the held lines through, then (for a non-keepStdin engine) close stdin.
-    //
-    // The feed goes to the JSON-RPC client, not to this adapter's `feed`: these are
-    // protocol envelopes, and the exec parser would only turn them into ANSI noise.
+    // commit is not optional: DaemonProc holds the spawn's lines until released — skip it and the handshake starves; the feed is protocol envelopes for the RPC client, not this parser.
     started?.commit?.((line) => this.appServer?.rpc?.feed(line));
     diag("carrier committed");
 
@@ -385,16 +279,10 @@ export class CodexAdapter {
     this.onEvent?.(ev, ev === "turn_complete" ? { stats: this.stats, ...data } : data);
   }
 
-  /**
-   * Re-attach to the turn the daemon is still running after an agent restart. A turn
-   * that ended while nobody was watching is replayed too — every line it printed is
-   * in the daemon's buffer, so the chat shows the answer instead of a blank pane.
-   */
+  /** Re-attach to the daemon's turn; one that ended unwatched replays from the daemon's buffer. */
   async adopt(from = 0, epoch = null) {
     if (this.persistent) {
-      // The app-server is a stateful JSON-RPC session that cannot be adopted across
-      // process boundaries without re-initialization. Stop any orphan daemon proc
-      // and let _startManaged call start() to resume the thread cleanly via JSON-RPC.
+      // The app-server session cannot cross process boundaries — stop the orphan and resume the thread via start().
       const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
       const ep = typeof from === "object" && from !== null ? from.epoch ?? null : epoch ?? null;
       const fetch = await this.proc.attach(f, ep);
@@ -415,12 +303,9 @@ export class CodexAdapter {
     return fetch;
   }
 
-  // Handlers bind to the process that owns them, and the same process can carry a
-  // second turn later — so this is idempotent, not a one-shot wiring.
+  // Idempotent — the same process can carry a later turn.
   _bind() {
-    // The app-server owns the pipe AND the exit hook: it parses JSON-RPC itself and has
-    // to hear the process die to end the turn. Re-pointing either one here would leave a
-    // dead server looking alive and the pane spinning forever.
+    // The app-server owns the pipe and the exit hook — re-pointing either leaves a dead server looking alive.
     if (this.persistent) return;
     this.proc.onLine = (line) => this.feed(line);
     this.proc.onExit = ({ code, error }) => {
@@ -430,7 +315,6 @@ export class CodexAdapter {
     };
   }
 
-  /** Parse one raw line from the CLI. */
   feed(line) {
     if (!String(line).trim()) return;
     try {
@@ -454,18 +338,14 @@ export class CodexAdapter {
     if (this.ephemeral) args.push("--ephemeral");
   }
 
-  // The argv for one turn. Split out of sendPrompt so the flags stay testable without
-  // spawning a CLI — the two branches (fresh exec vs resume) differ in more than one way.
+  // Split from sendPrompt so the flags stay testable without spawning a CLI.
   buildArgs(prompt, images = []) {
     const args = ["exec"];
-    // Full Access means no prompts anywhere. `-s danger-full-access` alone still stops
-    // at the approval gate, so the bypass flag has to ride along.
+    // `-s danger-full-access` alone still stops at the approval gate — the bypass flag rides along.
     const bypass = this.permissionMode === "fullAccess";
 
     if (this.activeThreadId) {
-      // `codex exec resume` has no `-s` flag (verified against the CLI: it rejects it
-      // with "unexpected argument '-s'"). Sandbox and the other typed flags go through
-      // config overrides instead; the boolean ones it does accept ride along directly.
+      // `exec resume` rejects `-s` (verified) — typed flags go through `-c` overrides instead.
       args.push("resume", "--json");
       if (this.currentModel) args.push("-m", this.currentModel);
       if (this.reasoningEffort) args.push("-c", `model_reasoning_effort="${this.reasoningEffort}"`);
@@ -495,31 +375,22 @@ export class CodexAdapter {
     const held = this._pendingAfterStop;
     this._pendingAfterStop = null;
     if (!held) return;
-    // Same shape as the restart drain: a throw here has no caller to catch it, so it
-    // becomes the pane's error instead of an unhandled rejection.
+    // A throw here has no caller — it becomes the pane's error, not an unhandled rejection.
     try { this.sendPrompt(held.prompt, held.attachments); }
     catch (err) { this.onEvent?.("error", { message: err.message }); }
   }
 
   sendPrompt(prompt, attachments = null) {
     if (this.isTurnRunning) {
-      // A stop we sent is still landing: the turn ends the moment the server's echo
-      // arrives, and this prompt goes right after it — held for the width of that
-      // window, not refused into the user's face (the client drains its queue the
-      // instant `stopped` arrives, which is before the server has finished stopping).
+      // Held for the stop window, not refused — the client drains its queue before the server finished stopping.
       if (this.persistent && this.appServer?.interrupting && !this._pendingAfterStop) {
-        // Raw, like `_heldPrompts`: the flush re-enters sendPrompt, which stages —
-        // staging here too would stage twice, and the second pass has no content.
+        // Raw: the flush re-enters sendPrompt, which stages — staging here too would stage twice.
         this._pendingAfterStop = { prompt, attachments: attachments?.length ? attachments : null };
         return;
       }
       throw new Error("Codex turn is already running.");
     }
-    // This transport has no per-turn fallback: `exec` here would be a SECOND writer on a
-    // conversation the server still owns. So a prompt that lands mid-restart is held
-    // until the replacement is up. It is HELD, not retried on a promise chain — a chain
-    // whose link re-runs this method spins through microtasks forever while the restart
-    // is still in flight, because each link sees the same "not ready" and makes another.
+    // Held, not chained: a chain link that re-runs this method spins microtasks while the restart is in flight (exec here would be a second writer).
     if (this.persistent && (!this.appServer || this._restarting)) {
       this._heldPrompts.push({ prompt, attachments });
       return;
@@ -527,16 +398,11 @@ export class CodexAdapter {
 
     const staged = attachments?.length ? attachments.map(stageAttachment) : null;
 
-    // One process for the chat: the prompt is a turn on the server that is already up,
-    // and the server carries the mode/sandbox it was opened with.
+    // The server carries the mode/sandbox it was opened with.
     if (this.persistent && this.appServer) {
       this.isTurnRunning = true;
-      // `/review` is handled inside app-server.sendPrompt, which routes it to the
-      // server's own `review/start`. The exec transport below has no such call — a chat
-      // forced onto it (`NREMOTE_CODEX_TRANSPORT=exec`) sends the text as prose, which is
-      // the honest behaviour for a one-process-per-turn CLI that offers no review RPC.
-      // Attachments ride as `localImage` entries; a file is named in the text for the
-      // agent to read (the server takes no file input).
+      // `/review` routes to review/start inside app-server; exec sends it as prose — honest for a CLI with no review RPC.
+      // Attachments ride as `localImage` entries; a file is named in the text (the server takes no file input).
       this.appServer.sendPrompt(prompt, staged).catch((err) => {
         this.isTurnRunning = false;
         this.onEvent?.("error", { message: err.message });
@@ -544,10 +410,7 @@ export class CodexAdapter {
       return;
     }
 
-    // Images ride as files (`--image=`); other files — and the caption — join the text
-    // as a path list, which codex reads on its own. Verified against the CLI: `exec` and
-    // `exec resume` both take the flag, and an image-only prompt is fine (an empty
-    // PROMPT is accepted).
+    // Images ride as `--image=` files; other files and the caption join the text (both exec forms take the flag).
     const images = (staged || []).filter((a) => a.kind === "image").map((a) => a.path);
     this.isTurnRunning = true;
     this._bind();
@@ -559,11 +422,7 @@ export class CodexAdapter {
       cwd: this.cwd,
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     }).then(
-      // commit, not just closeStdin: the process prints its first items while the start
-      // handshake is still in flight, and anything it printed before the handlers were
-      // live has to be fed here — then the held lines let through, then stdin closed
-      // (codex exec blocks on a pipe nobody closes). Skipping it made the whole turn
-      // silent: the chat showed the prompt and then nothing.
+      // commit feeds lines printed before handlers were live, then closes stdin — codex exec blocks on a pipe nobody closes.
       (started) => started.commit((line) => this.feed(line)),
       // A missing binary or a daemon that refused the start reports here.
       (err) => {
@@ -581,10 +440,7 @@ export class CodexAdapter {
       return;
     }
 
-    // A tool item is announced while it runs and completed later, carrying the same id —
-    // so ONE mapping opens the card and, once the item is done, closes it with its output.
-    // That mapping is codexItems.js, shared with the rollout reader: a replayed card and
-    // a live one are the same object, which is what keeps the two doors honest.
+    // ONE shared mapping (codexItems.js) opens and closes cards — a replayed card and a live one are the same object.
     if (type === "item.started" || type === "item.completed") {
       const item = event.item;
       if (!isCodexToolItem(item?.type)) {

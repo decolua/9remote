@@ -3,14 +3,9 @@ import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { probeRtcLiveness } from "./pmWatchers";
 
-// The data path: control sends (with ack + carrier fallback), the pending-send
-// buffer, inbound dispatch and binary routing.
-// Extracted verbatim from ProtocolManager.
+// Control message sending, ack tracking, buffering, and inbound dispatch.
 
-/**
- * Send control event with multi-arg + optional callback (last fn arg = ack).
- * WS adapter uses socket.io native multi-arg/ack; RTC uses {event, args, ackId} envelope.
- */
+// Send control event with multi-arg and optional ack callback.
 export function sendControl(pm, event, args) {
   const last = args[args.length - 1];
   const cb = typeof last === "function" ? args.pop() : null;
@@ -21,24 +16,16 @@ export function sendControl(pm, event, args) {
     pm._buffer.push({ event, args, cb });
     return;
   }
-  // One carrier per message, chosen by the adapters' state — never per payload.
-  // RTC is a real carrier, not a fast path for small messages: an envelope too big
-  // for one SCTP message is sliced by the adapter that owns the DC, so it still
-  // rides the carrier that is up.
   debugLog("transport", `[pm] send control event=${event} via=${adapter.constructor.id}`);
   if (adapter.constructor.id === "rtc") {
     let ackId = null;
     if (cb) {
       ackId = `c_${++pm._ackSeq}`;
       pm._pendingAcks.set(ackId, cb);
-      // Short timeout — zombie RTC (open but bytes lost) means ack never arrives.
-      // On expiry the timer retries a safe read over WS, else escalates a restart.
+      // Timeout detects zombie RTC and retries safe reads over WS or triggers restart.
       pm._scheduleAckTimeout(ackId, { event, args });
     }
-    // A refusal means the DC is gone before the adapter's state caught up. Ask the
-    // picker once more (it may already know about a carrier switch); otherwise the
-    // message waits in the buffer — same contract as "no adapter ready" — and is
-    // flushed onto whatever carrier is live then.
+    // If RTC send fails, retry alternative adapter or buffer for next available carrier.
     if (!adapter.send(CHANNELS.control, { event, args, ackId })) {
       const retry = pm._pickAdapter(CHANNELS.control);
       if (retry && retry !== adapter && retry.send(CHANNELS.control, cb ? { event, args, ackId, cb } : { event, args, ackId })) return;
@@ -46,7 +33,6 @@ export function sendControl(pm, event, args) {
       pm._buffer.push({ event, args, cb });
     }
   } else {
-    // WS path — pass through to socket.io native (multi-arg + ack supported)
     adapter.send(CHANNELS.control, { event, args, cb });
   }
 }
@@ -55,8 +41,7 @@ export function flushBuffer(pm) {
   if (!pm._buffer.length) return;
   const adapter = pm._pickAdapter(CHANNELS.control);
   if (!adapter) return;
-  // Taken out in one go: a message the carrier refuses goes back on the buffer, and
-  // a loop that re-read the live array would spin on it forever.
+  // Drain buffer in one pass to prevent infinite loops on send refusals.
   const queued = pm._buffer.splice(0);
   debugLog("transport", `[pm] flush ${queued.length} buffered via=${adapter.constructor.id}`);
   for (const { event, args, cb } of queued) {
@@ -64,20 +49,12 @@ export function flushBuffer(pm) {
   }
 }
 
-/**
- * Dispatch incoming message. RTC payloads carry {args} array; WS payloads carry {data}
- * (legacy single-arg from raw socket.io onAny).
- */
+// Dispatch incoming message from RTC or WS carrier.
 export function dispatch(pm, event, payload, source) {
-  // Agent capability announcement. It rides whichever carrier is up first — after
-  // a cold start that is usually WS, since RTC is still gathering ICE — so it is
-  // read here, not off the RTC channel, and handed to the adapter it configures.
+  // Cache agent capabilities on PM and forward to RTC adapter.
   if (event === "srvCaps") {
     const caps = source === "rtc" ? payload?.args?.[0] : payload;
     debugLog("transport", `[pm] srvCaps from agent via ${source}: ${JSON.stringify(caps)}`);
-    // Remembered on the PM, not only handed to the adapter: RTC may not exist yet
-    // (its start is deferred until signaling is ready) and it is torn down and
-    // rebuilt on every renegotiation — a fresh instance re-reads this.
     pm._srvCaps = caps || {};
     pm._adapters.get("rtc")?.setPeerCaps?.(pm._srvCaps);
   }
@@ -93,9 +70,7 @@ export function dispatch(pm, event, payload, source) {
     }
     return;
   }
-  // Host approved (from either carrier) → recovery paths may renegotiate again.
-  // If ICE timed out while waiting (host took >30s), the peer is gone — the
-  // agent's buffered answer can't revive it, so renegotiate a fresh offer.
+  // Renegotiate fresh offer on device approval if previous RTC attempt died while waiting.
   if (event === "device:approved") {
     pm._awaitingApproval = false;
     const rtc = pm._adapters.get("rtc");
@@ -112,14 +87,11 @@ export function dispatch(pm, event, payload, source) {
     }
     return;
   }
-  // Agent announced updated tunnel/lan status over RTC/WS
   if (event === "tunnel:updated") {
     const data = source === "rtc" ? payload?.args?.[0] : payload;
     if (data) {
       const { tunnelUrl, localIp, status } = data;
-      // The carrier IS the page's own origin (agent-served workspace): the
-      // agent's tunnel URL is someone else's road — adopting it would tear down
-      // a healthy loopback connection and reroute data through Cloudflare.
+      // Ignore tunnel update when current page origin is the agent workspace.
       if (typeof window !== "undefined" && pm._auth.tunnelUrl === window.location?.origin) {
         termLog("switch", `tunnel:updated ignored (carrier is the page origin; got url=${tunnelUrl || "none"})`);
         return;
@@ -142,41 +114,21 @@ export function dispatch(pm, event, payload, source) {
     }
     return;
   }
-  // RTC control envelope carries {event, args}; binary path (tiles-data) keeps raw data
   const args = source === "rtc" && Array.isArray(payload?.args)
     ? payload.args
     : [payload];
-  // The app's listeners, which all live on the one bus — the carrier that
-  // delivered this is not its business. (Previously the WS path returned here
-  // because socket.io had already invoked the handlers itself; now nothing is
-  // registered on the bus, so every carrier ends the same way.)
   pm._bus?.dispatch(event, args);
 }
 
-/**
- * Incoming binary frame from an adapter's "binary" event (RTC DC "file").
- * Route to socket.io-style "file-bin" listeners so WS and RTC paths share one
- * handler (WS delivers "file-bin" natively via socket.io onAny).
- */
+// Route incoming binary file frame to shared file-bin bus.
 export function onBinary(pm, msg) {
   if (!msg || msg.channel !== "file") return;
-  // Same door as every other event: WS delivers "file-bin" through the normal
-  // dispatch, RTC arrives here as a raw frame — both end at the one registry.
   pm._bus?.dispatch("file-bin", [msg.buffer]);
 }
 
-// Requests that may be re-sent as-is after an ack timeout. Reads only: a retried
-// create/rename would run twice on the agent. This is the list-loading pair that
-// a first-connect RTC blip strands (fresh browser → RTC-first → young trickling
-// DC eats an ack → restart ladder refuses to act while state=open → stuck UI).
-// `ai:create` rides along because the host treats a repeat as a hydrate, not a spawn
-// (the session is already live, or the in-flight create is awaited) — and it is the
-// one request whose loss leaves a chat pane empty with no other way back.
+// Idempotent read/create requests safe to retry over WS upon RTC ack timeout.
 const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces", "bg:get", "bg:list", "ai:create", "ai:peekSeq"]);
 
-// Short ack timeout — if ack doesn't arrive, RTC is likely zombie (open but bytes lost).
-// Safe reads retry once over WS immediately (the UI recovers in ~5s, no restart);
-// anything else escalates the restart ladder.
 export function scheduleAckTimeout(pm, ackId, ctx) {
   const timer = setTimeout(() => {
     pm._ackTimers.delete(ackId);
@@ -185,7 +137,6 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
     const rtc = pm._adapters.get("rtc");
     const ws = pm._adapters.get("ws");
 
-    // Safe reads retry once over WS immediately (the UI recovers in ~5s, no restart)
     if (cb && ctx && ws?.ready && ACK_RETRY_SAFE.has(ctx.event)) {
       pm._pendingAcks.delete(ackId);
       termLog("switch", `ack-timeout ${ctx.event} → retry via ws (rtc zombie?)`);
@@ -193,9 +144,7 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
       return;
     }
 
-    // Check liveness: if RTC recently delivered inbound data (< RTC_HEARTBEAT_TIMEOUT_MS),
-    // RTC is clearly alive and moving bytes — this timeout is just a slow/unanswered
-    // request, NOT a dead carrier. Never tear down a healthy connection for one stalled ack.
+    // Ignore timeout if RTC recently received inbound traffic (slow request, not dead carrier).
     const now = Date.now();
     const rtcLastInbound = rtc?.lastInboundAt || 0;
     if (rtc?.ready && rtcLastInbound && (now - rtcLastInbound < RTC_HEARTBEAT_TIMEOUT_MS)) {
@@ -203,8 +152,7 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
       return;
     }
 
-    // A state=open peer that went silent: probe it (ICE keepalive/byte counter)
-    // and let the probe force-restart ONLY if it confirms the peer is truly dead.
+    // Probe silent open peer via ICE keepalive before forcing restart.
     if (rtc?.state === ADAPTER_STATE.open) {
       probeRtcLiveness(pm, `ack-timeout:${ctx?.event || "?"}`);
       return;

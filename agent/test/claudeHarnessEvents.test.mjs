@@ -1,16 +1,4 @@
-// Every event the Claude harness emits must reach the chat pane.
-//
-// The pane is a re-render of the TUI, so its vocabulary is supposed to BE the harness's.
-// It was not: handleMessage named six record types and let the other thirty-three fall
-// through its last `if` into silence — including the whole task model the TUI draws its
-// task panel from. The gap was papered over by guessing: a regex over tool output text
-// (toolEvent.asyncHandle) and a 120s timer (AiSession.armAsyncWatchdog) stood in for
-// signals the CLI was already sending.
-//
-// The list below is the SDK's own SDKMessage union (checked against
-// @anthropic-ai/claude-agent-sdk sdk.d.ts). A record whose type/subtype is on it and
-// still reaches the pane is the contract; one that vanishes is the bug.
-//
+// Tests that all Claude harness SDKMessage events reach the chat pane.
 // Run: node agent/test/claudeHarnessEvents.test.mjs
 import assert from "node:assert/strict";
 import { ClaudeAdapter } from "../features/ai/adapters/claudeAdapter.js";
@@ -21,7 +9,6 @@ const test = (name, fn) => {
   catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
 };
 
-// A proc that swallows writes and lets a test feed the adapter raw CLI lines.
 function fakeProc() {
   return {
     written: [],
@@ -39,12 +26,11 @@ function feeding(lines = []) {
   const events = [];
   const proc = fakeProc();
   const adapter = new ClaudeAdapter({ cwd: "/w", onEvent: (e, d) => events.push([e, d]), proc });
-  adapter._reset("default"); // binds onLine, the way start() does before any line arrives
+  adapter._reset("default");
   for (const line of lines) proc.emit(line);
   return { adapter, events, of: (n) => events.filter(([e]) => e === n) };
 }
 
-// Recorded verbatim from a live `claude -p --output-format=stream-json` run (2.1.270).
 const RECORDED = {
   taskStarted: {
     type: "system", subtype: "task_started", task_id: "bny62e391",
@@ -73,13 +59,6 @@ const RECORDED = {
     usage: { total_tokens: 1200, tool_uses: 2, duration_ms: 3400 }, uuid: "u-5", session_id: "s-1"
   }
 };
-
-// ── the task model, carried rather than translated ──
-//
-// No `taskStart`-shaped helper sits between the CLI and the pane: the record travels
-// whole, under the harness's own type/subtype, so the pane reads the SAME fields the TUI
-// reads and nothing has to be updated when the CLI adds one. Translation is what this
-// file used to assert, and every field it renamed was a place the two could drift.
 
 const harness = (events, type, subtype) =>
   events.filter(([e, d]) => e === "cli_event" && d.type === type && d.subtype === subtype).map(([, d]) => d.record);
@@ -144,12 +123,6 @@ test("the live task set arrives as the CLI published it", () => {
   assert.equal(set.tasks[0].task_type, "local_bash");
 });
 
-// ── nothing else may vanish either ──
-
-// One realistic record per member of the SDK's SDKMessage union — all 39, so the sweep
-// below covers every DOOR a record can come through, not just the `system` one. The
-// earlier version of this test only walked `system` subtypes and therefore passed while
-// three other doors were still dropping records on the floor.
 const SDK_MESSAGES = [
   ["SDKAssistantMessage", { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "hi" }] }, parent_tool_use_id: null, uuid: "u", session_id: "s" }],
   ["SDKUserMessage", { type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "t1", content: "ok" }] }, parent_tool_use_id: null, uuid: "u", session_id: "s" }],
@@ -193,8 +166,6 @@ const SDK_MESSAGES = [
 ];
 
 test("the fixture set is the whole SDK union, not a subset", () => {
-  // Guards the guard: a fixture list that quietly shrank would make the sweep below pass
-  // by covering less.
   assert.equal(SDK_MESSAGES.length, 39, "the SDK declares 39 message shapes");
   const seen = new Set(SDK_MESSAGES.map(([n]) => n));
   assert.equal(seen.size, 39, "every shape appears once");
@@ -210,9 +181,6 @@ test("no record of any shape is dropped on the floor", () => {
 });
 
 test("a user record the harness wrote itself does not open a bubble", () => {
-  // `claude -p` writes its own messages under the user role — the same injected turns
-  // isClaudeInjectedTurn exists for in the transcript. Opening a prompt bubble for one
-  // leaves the pane with a question nobody asked, and a turn that never closes.
   const { of } = feeding([{
     type: "user",
     message: { role: "user", content: [{ type: "text", text: "<task-notification>x</task-notification>" }] },
@@ -235,8 +203,6 @@ test("a replayed user record arrives too, marked as a replay", () => {
 });
 
 test("a failed result keeps the failure, not just the end of the turn", () => {
-  // turn_complete alone says a turn ended; it does not say it ended BADLY. The subtype
-  // and the CLI's own error are what the pane needs to say why.
   const { of } = feeding([{
     type: "result", subtype: "error_during_execution", is_error: true,
     result: "Command failed", num_turns: 2, uuid: "u", session_id: "s"
@@ -249,11 +215,6 @@ test("a failed result keeps the failure, not just the end of the turn", () => {
 });
 
 test("an interrupted turn is not reported as a failure", () => {
-  // Stop/Esc makes the CLI answer with `error_during_execution` and an EMPTY result —
-  // measured on every interrupt in a real agent log (`turn failed: subtype=
-  // error_during_execution result=`). Passed through as a failure, the pane drew "The
-  // turn ended in an error." over a turn the user ended themselves, which reads as a
-  // crash. A real failure names itself in `result`; an interrupt has nothing to name.
   const { of } = feeding([{
     type: "result", subtype: "error_during_execution", is_error: true,
     result: "", num_turns: 2, uuid: "u", session_id: "s"
@@ -299,12 +260,7 @@ test("a stream_event is still parsed for its text, not passed through raw", () =
   assert.equal(of("cli_event").length, 0, "a record the pane parses must not ALSO flood through");
 });
 
-// ── the guess must not outlive the signal ──
-
 test("the CLI's own task_started and the launch ack agree on the same tool call", () => {
-  // Both signals name the same `tool_use_id`. They are kept on one wire because they
-  // answer different questions: the ack says this row is not finished, the task record
-  // says what the work IS and when it ended.
   const { of, events } = feeding([
     { type: "assistant", message: { content: [{ type: "tool_use", id: "call_x", name: "Bash", input: { command: "sleep 9" } }] } },
     { type: "system", subtype: "task_started", task_id: "t-1", tool_use_id: "call_x", description: "sleep", is_backgrounded: true },
@@ -317,13 +273,7 @@ test("the CLI's own task_started and the launch ack agree on the same tool call"
   assert.equal(result[1].async, true, "the row still reads as handed off");
 });
 
-// ── the RPC client must not answer the CLI's own gate ──
-
 test("a permission gate reaches the adapter, not the RPC client's refusal path", () => {
-  // The migration this pins: routing every line through JsonRpcClient made `control_request`
-  // look like a server request, so the client answered `unhandled server request` on the
-  // spot — refusing every permission prompt before the adapter ever saw it, and the user's
-  // Allow button then answered an id the CLI had already been told was unknown.
   const proc = fakeProc();
   const events = [];
   const written = [];
@@ -355,10 +305,6 @@ test("answering a gate writes the envelope Claude expects, through the client", 
 });
 
 test("a prompt and an interrupt go out in the CLI's own shape", () => {
-  // Both used to build their envelope by hand; both now go through the RPC client's
-  // notification encoder. The BYTES on the wire must not change — a prompt the CLI cannot
-  // read is a turn that never starts, and an interrupt it cannot read is a stop button
-  // that does nothing.
   const proc = fakeProc();
   const written = [];
   proc.write = (t) => written.push(t);
@@ -379,11 +325,6 @@ test("a prompt and an interrupt go out in the CLI's own shape", () => {
 });
 
 test("the CLI's own echo of our interrupt is swallowed", () => {
-  // The session emits `stopped` the moment the control request goes out. The CLI then
-  // answers the interrupt with a `result` of its own — a SECOND ending for the same
-  // turn. Let through after a queued prompt had started, it stamped that newer turn's
-  // span ("Worked for 0s") and killed its running flag. The echo must be consumed
-  // silently; the NEXT turn's result must still announce itself.
   const events = [];
   const proc = fakeProc();
   const adapter = new ClaudeAdapter({ cwd: "/w", onEvent: (e, d) => events.push([e, d]), proc });
@@ -391,12 +332,10 @@ test("the CLI's own echo of our interrupt is swallowed", () => {
 
   adapter.sendPrompt("turn a", null);
   assert.equal(adapter.interrupt(), true);
-  // The echo of OUR stop: same record the CLI emits on every Esc.
   proc.emit({ type: "result", subtype: "error_during_execution", is_error: true, result: "", uuid: "u1", session_id: "s" });
   assert.equal(events.filter(([e]) => e === "turn_complete").length, 0, "the echo draws nothing");
   assert.equal(adapter.isTurnRunning, false, "the adapter still knows the turn is over");
 
-  // The queued prompt goes in — the echo is gone, this one must end normally.
   adapter.sendPrompt("turn b", null);
   proc.emit({ type: "result", subtype: "success", is_error: false, result: "ok", uuid: "u2", session_id: "s" });
   const done = events.filter(([e]) => e === "turn_complete");
@@ -404,9 +343,6 @@ test("the CLI's own echo of our interrupt is swallowed", () => {
 });
 
 test("a stop whose echo never came does not eat the next spawn's history", () => {
-  // The CLI can die between our interrupt and its answer. The flag must not survive the
-  // respawn: the replacement replays the conversation, and a stale flag would swallow
-  // the first old `result` it sees — a past turn losing its ending in the pane.
   const events = [];
   const proc = fakeProc();
   const adapter = new ClaudeAdapter({ cwd: "/w", onEvent: (e, d) => events.push([e, d]), proc });
@@ -414,16 +350,12 @@ test("a stop whose echo never came does not eat the next spawn's history", () =>
   adapter.sendPrompt("turn a", null);
   assert.equal(adapter.interrupt(), true);
 
-  // The CLI dies here — no echo. The respawn rebuilds through _reset, then replays.
   adapter._reset("default");
   proc.emit({ type: "result", subtype: "success", is_error: false, result: "ok", uuid: "u1", session_id: "s" });
   assert.equal(events.filter(([e]) => e === "turn_complete").length, 1, "a replayed result still ends its turn");
 });
 
 test("the SIGINT fallback arms the same echo swallow", () => {
-  // `stop` falls back to a signal when the write path is dead — and stdin dying does
-  // not kill stdout, so the CLI answers SIGINT with the same `result` echo. Unarmed,
-  // that echo would land as a real second ending.
   const events = [];
   const proc = fakeProc();
   proc.signal = () => {};

@@ -1,8 +1,4 @@
-// GPU OpenCL per-tile resize — win32-only, fallback to sharp on any failure.
-// Reuses pre-allocated src/dst buffers + cached kernel buffer-args across
-// calls so a tile resize is just WriteBuffer → set dims → NDRange → ReadBuffer
-// (no per-call CreateBuffer/Release, no kernel recompile). Designed for the
-// hot path in TileManager.compressTileImage where only changed tiles resize.
+// OpenCL per-tile resize for win32 with pre-allocated buffers and fallback to sharp.
 import koffi from "koffi";
 
 const CL_DEVICE_TYPE_GPU = 4n;
@@ -10,18 +6,13 @@ const CL_DEVICE_TYPE_ALL = 0xFFFFFFFFn;
 const CL_MEM_READ_ONLY = 4;
 const CL_MEM_WRITE_ONLY = 2;
 
-// Upper bound on a tile dimension we'll ever feed in. Buffers are sized to this
-// so a resize never needs to (re)allocate an OpenCL buffer.
 const MAX_TILE = 512;
 const MAX_BYTES = MAX_TILE * MAX_TILE * 4;
 
-// Batch path: N equally-sized tiles packed back-to-back resize in ONE dispatch.
-// Per-call cost (write + finish + read) is what dominates the single-tile path,
-// so collapsing 3N round-trips to 3 is the whole win. Buffers are sized to
-// batchTiles × MAX_BYTES, so this trades address space for round-trips.
+// Batch resize path for N equally-sized tiles packed in one OpenCL dispatch.
 const DEFAULT_BATCH_TILES = 32;
 
-// nearest + bilinear. bilinear matches sharp "linear" closely (bench RMSE ~4).
+// OpenCL resize kernels (nearest, bilinear, and bilinearBatch).
 const SRC = `
 __kernel void nearest(__global const uchar4* s, int sw, int sh, int dw, int dh, __global uchar4* d){
   int x=get_global_id(0), y=get_global_id(1); if(x>=dw||y>=dh) return;
@@ -38,8 +29,6 @@ __kernel void bilinear(__global const uchar4* s, int sw, int sh, int dw, int dh,
   float4 p10=convert_float4(s[y1c*sw+x0c]), p11=convert_float4(s[y1c*sw+x1c]);
   d[y*dw+x]=convert_uchar4_sat_rte(mix(mix(p00,p01,tx),mix(p10,p11,tx),ty));
 }
-// Same math as bilinear; global id z selects which packed tile to read/write.
-// All tiles share sw/sh/dw/dh, so offsets are plain multiplies — no meta buffer.
 __kernel void bilinearBatch(__global const uchar4* s, int sw, int sh, int dw, int dh, __global uchar4* d){
   int x=get_global_id(0), y=get_global_id(1), t=get_global_id(2);
   if(x>=dw||y>=dh) return;
@@ -55,44 +44,29 @@ __kernel void bilinearBatch(__global const uchar4* s, int sw, int sh, int dw, in
 
 const rdU32 = (p) => koffi.decode(p, "uint32_t");
 
-// Allocate a koffi pointer holding one int32 value.
 function intArg(v) {
   const p = koffi.alloc("int32_t", 1);
   koffi.encode(p, "int32_t", v);
   return p;
 }
 
-// Allocate a koffi pointer holding one void* (OpenCL mem handle).
 function ptrArg(v) {
   const p = koffi.alloc("void *", 1);
   koffi.encode(p, "void *", v);
   return p;
 }
 
-// Module-level cache: one OpenCL handle per process. _tried guards against
-// retrying every frame after a failure (e.g. no opencl.dll) — a missing GPU is
-// a static condition, not a transient one, so we resolve once and stick to it.
 let _gpu = null;
 let _tried = false;
 
-// Sync read of the cached handle. null until initGpuResize() has resolved (and
-// stays null if init failed). Callers in the hot path check this to decide
-// whether to use the GPU path or fall back to sharp — no await, no throw.
 export function getGpuResize() { return _gpu; }
 
-// Has initGpuResize() been attempted? Lets tests assert "tried and fell back"
-// without waiting on a promise, and lets callers skip re-attempting.
 export function isGpuTried() { return _tried; }
 
-// Convenience for the hot path: "should I use the GPU path?" — true only when
-// init ran on win32 AND OpenCL came up. Compresses `getGpuResize() != null`.
 export function isGpuAvailable() { return _gpu !== null; }
 
-// Reset cache — test-only hook so a fresh init can be exercised in-process.
 export function _resetGpuResize() { _gpu = null; _tried = false; }
 
-// Create the OpenCL handle + pre-allocate reused buffers. Throws on any failure.
-// Internal — callers use initGpuResize() which caches and never throws.
 async function _createGpu(batchTiles = DEFAULT_BATCH_TILES) {
   if (process.platform !== "win32") throw new Error("gpuResize: win32 only");
   const cl = koffi.load("C:/Windows/System32/opencl.dll");
@@ -112,7 +86,6 @@ async function _createGpu(batchTiles = DEFAULT_BATCH_TILES) {
     Finish: cl.func("int clFinish(void *q)")
   };
 
-  // platform
   let p = koffi.alloc("uint32_t", 1);
   if (F.GetPlatformIDs(0, null, p) !== 0) throw new Error("clGetPlatformIDs failed");
   const np = rdU32(p);
@@ -121,7 +94,6 @@ async function _createGpu(batchTiles = DEFAULT_BATCH_TILES) {
   F.GetPlatformIDs(np, platBuf, null);
   const platform = koffi.decode(platBuf, "void *", np)[0];
 
-  // device — prefer GPU, fall back to any
   p = koffi.alloc("uint32_t", 1);
   F.GetDeviceIDs(platform, CL_DEVICE_TYPE_GPU, 0, null, p);
   let nd = rdU32(p), devType = CL_DEVICE_TYPE_GPU;
@@ -138,7 +110,6 @@ async function _createGpu(batchTiles = DEFAULT_BATCH_TILES) {
   const queue = F.CreateCommandQueue(ctx, device, 0n, errP);
   if (!queue) throw new Error("clCreateCommandQueue err=" + koffi.decode(errP, "int32_t"));
 
-  // program + kernels
   const srcBuf = Buffer.from(SRC + "\0");
   const strArr = koffi.alloc("void *", 1); koffi.encode(strArr, "void *", srcBuf);
   const prog = F.CreateProgramWithSource(ctx, 1, strArr, null, errP);
@@ -152,8 +123,6 @@ async function _createGpu(batchTiles = DEFAULT_BATCH_TILES) {
     kernels[name] = k;
   }
 
-  // Pre-allocate src + dst sized for a whole batch — reused for every resize.
-  // The single-tile path just uses the first tile's slice of the same buffers.
   const nBatch = Math.max(1, batchTiles);
   const poolBytes = MAX_BYTES * nBatch;
   const srcMem = F.CreateBuffer(ctx, BigInt(CL_MEM_READ_ONLY), BigInt(poolBytes), null, errP);
@@ -161,7 +130,6 @@ async function _createGpu(batchTiles = DEFAULT_BATCH_TILES) {
   const dstMem = F.CreateBuffer(ctx, BigInt(CL_MEM_WRITE_ONLY), BigInt(poolBytes), null, errP);
   if (!dstMem) throw new Error("CreateBuffer(dst) err=" + koffi.decode(errP, "int32_t"));
 
-  // Bind buffer args once (arg 0 = src, arg 5 = dst) for every kernel.
   const srcArg = ptrArg(srcMem);
   const dstArg = ptrArg(dstMem);
   for (const k of Object.values(kernels)) {
@@ -169,22 +137,16 @@ async function _createGpu(batchTiles = DEFAULT_BATCH_TILES) {
     F.SetKernelArg(k, 5, 8, dstArg);
   }
 
-  // Persistent dim-arg pointers — overwritten in place each call (no realloc).
   const dimArgs = [intArg(0), intArg(0), intArg(0), intArg(0)];
 
   return {
     F, ctx, queue, kernels, srcMem, dstMem, dimArgs,
-    // Bound on input size the pre-allocated buffers can hold.
     maxTileBytes: MAX_BYTES,
-    // Max tiles one batched dispatch can carry.
     maxBatchTiles: nBatch,
-    release() { /* best-effort; OpenCL objects freed on process exit */ }
+    release() { }
   };
 }
 
-// Initialize once, cache the handle. Never throws — on any failure (non-Win,
-// missing opencl.dll, no GPU, build error) it resolves null and the caller
-// transparently falls back to sharp. Idempotent: safe to await repeatedly.
 export async function initGpuResize(batchTiles = DEFAULT_BATCH_TILES) {
   if (_tried) return _gpu;
   _tried = true;
@@ -193,10 +155,6 @@ export async function initGpuResize(batchTiles = DEFAULT_BATCH_TILES) {
   return _gpu;
 }
 
-// Resize one tile. Reuses gpu.srcMem/dstMem + cached buffer args; only uploads
-// src bytes, updates dims, dispatches, and reads back. outBuf optional — when
-// supplied (>= outBytes) it's written into instead of allocating.
-// Returns the resized RGBA buffer. Synchronous (Finish) so callers stay simple.
 export function resizeTile(gpu, mode, srcBuf, sw, sh, dw, dh, outBuf = null) {
   if (!gpu) throw new Error("gpuResize: handle is null (init failed or not win32)");
   const kernel = gpu.kernels[mode];
@@ -211,7 +169,6 @@ export function resizeTile(gpu, mode, srcBuf, sw, sh, dw, dh, outBuf = null) {
   if (F.EnqueueWriteBuffer(queue, srcMem, 1, 0n, BigInt(inBytes), srcBuf, 0, null, null) !== 0) {
     throw new Error("gpuResize: WriteBuffer rc");
   }
-  // Update dims in-place (args 1..4 = sw, sh, dw, dh)
   koffi.encode(dimArgs[0], "int32_t", sw);
   koffi.encode(dimArgs[1], "int32_t", sh);
   koffi.encode(dimArgs[2], "int32_t", dw);
@@ -233,11 +190,6 @@ export function resizeTile(gpu, mode, srcBuf, sw, sh, dw, dh, outBuf = null) {
   return out;
 }
 
-// Resize N equally-sized tiles in ONE dispatch. `packed` holds the tiles back
-// to back (n × sw × sh × 4 bytes); the result is written the same way into
-// outBuf (or a fresh buffer), so tile t is out.subarray(t*dw*dh*4, ...) — a
-// view, no copy. Bench (M2, 30 tiles): ~15× the per-tile loop, identical bytes.
-// Synchronous (Finish), like resizeTile.
 export function resizeTilesBatch(gpu, packed, n, sw, sh, dw, dh, outBuf = null) {
   if (!gpu) throw new Error("gpuResize: handle is null (init failed or not win32)");
   if (n < 1) throw new Error("gpuResize: batch is empty");
@@ -245,8 +197,6 @@ export function resizeTilesBatch(gpu, packed, n, sw, sh, dw, dh, outBuf = null) 
   const kernel = gpu.kernels.bilinearBatch;
   if (!kernel) throw new Error("gpuResize: bilinearBatch kernel missing");
 
-  // Per-tile bound + batch bound together keep inBytes/outBytes inside the
-  // pre-allocated pool (maxTileBytes × maxBatchTiles).
   if (sw * sh * 4 > gpu.maxTileBytes || dw * dh * 4 > gpu.maxTileBytes) {
     throw new Error("gpuResize: tile exceeds pre-allocated buffer");
   }

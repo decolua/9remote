@@ -1,12 +1,6 @@
-// The line at the tail of a live turn: what the agent is doing right now.
-//
-// This is a read model over state the pane already has, not a new source of truth —
-// one pure function so the wording is testable without a renderer. The verb names the
-// kind of work; the detail names the specific thing it is working on.
-
+// Formats live activity status for the active turn.
 import { getToolCategory } from "../registry";
 
-/** What a handed-off task is doing, in the two words a strip row has room for. */
 export function describeActivity(tool, engine = "claude") {
   if (!tool?.name) return "";
   const { name, input = {} } = tool;
@@ -29,20 +23,12 @@ export function describeActivity(tool, engine = "claude") {
   }
 }
 
-// Longest detail worth showing before it pushes the token readout off the row.
 const MAX_DETAIL = 60;
-
-// How far back to look for the last line. A status detail is clipped to MAX_DETAIL, so
-// the tail that won is a few hundred chars at most — scanning the whole streamed block
-// on every token made this O(content) per token, O(content²) per answer.
+// Scan only tail of streamed block to find last line efficiently.
 const TAIL_SCAN = 512;
 
-// Basename only: a detail line is a glance, and the full path is already in the card.
 const baseName = (p) => (typeof p === "string" ? p.replace(/\\/g, "/").split("/").filter(Boolean).pop() || "" : "");
 
-// Last non-empty line of a streamed block — the freshest thing written, and short.
-// Only the tail is scanned: blank lines at the end are skipped by walking back rather
-// than by filtering the whole block, which is what made this O(content) per token.
 const lastLine = (text) => {
   if (typeof text !== "string") return "";
   const lines = text.slice(-TAIL_SCAN).split("\n");
@@ -61,22 +47,9 @@ const toolLabel = (name = "") => {
   return mcp ? mcp[1] : name;
 };
 
-// The argument that says WHAT this call is about, in the order that reads best.
 const argOf = (input = {}) =>
   input.url || input.query || input.pattern || input.name || baseName(input.path) || baseName(input.file_path) || "";
 
-/**
- * What to print while a turn is streaming.
- *
- * @param {object} state
- * @param {boolean} state.connected  Transport is up.
- * @param {boolean} state.hydrating  Re-pulling the host's log (mount/resume/reconnect).
- * @param {object}  [state.retryStatus] { isRetrying, attempt, maxAttempts } from useBus.
- * @param {object}  [state.activeTool] A tool with status "running", or null.
- * @param {string}  [state.engine]
- * @param {object}  [state.lastMsg]    Last message; its thinking/content say which phase.
- * @returns {{verb: string, detail: string, tone: string}} tone: "normal" | "wait" | "alert"
- */
 export function describeLive({ connected = true, hydrating = false, retryStatus = null, activeTool = null, engine = "", lastMsg = null } = {}) {
   // Offline outranks everything: no other line is true while there is no carrier.
   if (!connected) {
@@ -97,13 +70,11 @@ export function describeLive({ connected = true, hydrating = false, retryStatus 
       case "bash":
         return { verb: "Running", detail: clip(input.command || "", MAX_DETAIL), tone: "wait" };
       case "file": {
-        // Read / view / read_resource list a file; list_dir and friends list a folder.
         const listing = /^(list|list_dir|ls)$/i.test(name);
         const line = input.offset ? `:L${input.offset}` : "";
         return { verb: listing ? "Listing" : "Reading", detail: clip(`${path}${line}`, MAX_DETAIL), tone: "wait" };
       }
       case "search": {
-        // Grep-style tools carry a pattern; WebSearch/WebFetch carry a query or a URL.
         const q = input.pattern ? `"${input.pattern}"` : (input.query || input.url || "");
         const where = baseName(input.path);
         return {
@@ -113,10 +84,8 @@ export function describeLive({ connected = true, hydrating = false, retryStatus 
         };
       }
       case "diff": {
-        // The category is "file was modified"; Write creates, the rest rewrite in place.
         const creating = /^(Write|write_to_file)$/i.test(name);
-        // Same key ladder as turnRows' editTarget — opencode sends filePath, its adapter
-        // normalizes to file_path, claude sends file_path.
+        // Normalize target file path across engine adapters.
         const file = input.file_path || input.filePath || input.file || input.path;
         return { verb: creating ? "Writing" : "Editing", detail: clip(baseName(file) || argOf(input), MAX_DETAIL), tone: "wait" };
       }
@@ -137,7 +106,6 @@ export function describeLive({ connected = true, hydrating = false, retryStatus 
     }
   }
 
-  // No tool: the phase is whichever stream is currently arriving.
   if (lastMsg?.thinking) return { verb: "Thinking", detail: clip(lastLine(lastMsg.thinking), MAX_DETAIL), tone: "wait" };
   if (lastMsg?.content) return { verb: "Writing", detail: clip(lastLine(lastMsg.content), MAX_DETAIL), tone: "wait" };
   return { verb: "Working", detail: "", tone: "wait" };
@@ -152,47 +120,22 @@ export function formatTokens(n) {
   return `${scaled >= 100 ? Math.round(scaled) : scaled.toFixed(1).replace(/\.0$/, "")}${unit[1]}`;
 }
 
-// Roughly 4 characters per token, the same trick the CLIs use so the counter ticks
-// while the host has not reported usage yet.
+// Rough estimate of 4 characters per token while awaiting reported usage.
 const ESTIMATED_CHARS_PER_TOKEN = 4;
 
-/**
- * Tokens sitting in the session's context window — what the next turn has to resend.
- *
- * Engines count this differently and each field is already normalized by its adapter:
- * claude reports the turn's own `usage` (input + both cache fields), codex folds the
- * cached part into `inputTokens`, and opencode/antigravity publish the last step's
- * input as `contextTokens`. Prefer the explicit field; the sum is the fallback for a
- * session hydrated from a log written before the adapters normalized it.
- *
- * @param {object} [stats] The host's latest reported usage.
- * @returns {number}
- */
+// Tokens in session context window normalized across engine adapters.
 export function contextUsedTokens(stats = {}) {
   if (Number.isFinite(stats.contextTokens) && stats.contextTokens > 0) return stats.contextTokens;
   return (stats.inputTokens || 0) + (stats.cacheReadInputTokens || 0) + (stats.cacheCreationInputTokens || 0);
 }
 
-/**
- * Share of the window in use, 0–1, or null when the host never stated its size.
- * Engines that report no window (opencode) answer null rather than a made-up ceiling.
- */
 export function contextFill(stats = {}) {
   const used = contextUsedTokens(stats);
   const window = stats.contextWindow || 0;
   return window > 0 ? Math.min(1, used / window) : null;
 }
 
-/**
- * Tokens streamed so far in the turn the user is watching.
- *
- * Summed over the WHOLE turn, not the last message: a tool call closes the streaming
- * segment and opens an empty one, so reading `lastMsg.content` alone dropped the count
- * back to the host's lagging number every time the agent ran a command.
- *
- * @param {Array} messages The session's message list, oldest first.
- * @returns {number} Estimated output tokens since the last user message.
- */
+// Estimate tokens streamed across all messages in current turn.
 export function estimateTurnTokens(messages = []) {
   let chars = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -203,14 +146,12 @@ export function estimateTurnTokens(messages = []) {
   return Math.round(chars / ESTIMATED_CHARS_PER_TOKEN);
 }
 
-// Tools that write a file. `visibleTools` hides these once a diff card exists for the
-// same path, so counting both would double every edit — see countTurnChanges.
+// Tools that write files; excluded when diff cards exist for the same path.
 const WRITE_TOOLS = new Set(["Edit", "Write", "MultiEdit", "NotebookEdit", "edit", "write", "patch", "apply",
   "write_to_file", "replace_file_content", "multi_replace_file_content", "sed_file", "file_change"]);
 
 const lineCount = (text) => (typeof text === "string" && text ? text.split("\n").length : 0);
 
-/** Additions/deletions a single tool call would produce, from its input alone. */
 function countToolEdit(tool) {
   const input = tool.input;
   if (!input || typeof input === "string") return null;
@@ -227,7 +168,6 @@ function countToolEdit(tool) {
     }
     return { file: path, added, removed };
   }
-  // Write/new file: the whole content is new.
   if (typeof input.content === "string" && input.content) return { file: path, added: lineCount(input.content), removed: 0 };
   const oldText = input.old_string ?? input.oldString ?? input.old_str
     ?? input.target_content ?? input.TargetContent;
@@ -237,18 +177,7 @@ function countToolEdit(tool) {
   return { file: path, added: lineCount(newText), removed: lineCount(oldText) };
 }
 
-/**
- * Lines added and removed across the turn the user is watching, the way the CLIs report
- * it at the end of a run.
- *
- * A diff card wins over the tool that produced it: `visibleTools` already hides that
- * tool, and counting both would report every edit twice. Engines that only send tool
- * inputs (Claude, OpenCode, Antigravity — only Codex emits `diff`) are covered by the
- * input fallback instead, which is why both sources are needed.
- *
- * @param {Array} messages The session's message list, oldest first.
- * @returns {{added: number, removed: number}}
- */
+// Count lines added and removed across turn diffs and tool inputs.
 export function countTurnChanges(messages = []) {
   let added = 0, removed = 0;
   for (let i = messages.length - 1; i >= 0; i--) {
@@ -267,7 +196,6 @@ export function countTurnChanges(messages = []) {
     const diffFiles = new Set(diffs.map((d) => d.file).filter(Boolean));
     for (const t of m.tools || []) {
       if (!WRITE_TOOLS.has(t?.name)) continue;
-      // Already reported by a diff card for this file — the tool is hidden from the turn.
       const p = t.input?.file_path || t.input?.path || t.input?.file || "";
       if (p && diffFiles.has(p)) continue;
       const c = countToolEdit(t);

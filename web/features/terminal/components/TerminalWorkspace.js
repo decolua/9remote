@@ -176,7 +176,10 @@ function TerminalWorkspace({
     [activeWorkspace, onSetHiddenRepos]
   );
   // Where the focused terminal actually stands — the panel opens the worktree holding it.
-  const activeCwd = activeSessionId ? cwdBySession[activeSessionId] || null : null;
+  // Chat UI panes emit no terminal OSC 7 — their dir comes from the session record.
+  const activeCwd = activeSessionId
+    ? cwdBySession[activeSessionId] || sessions.find((s) => s.id === activeSessionId)?.cwd || null
+    : null;
   // Switching terminals drops a manual reveal: that pin belongs to the pane it was taken
   // from, and keeping it would strand the tree on another terminal's worktree.
   useEffect(() => {
@@ -721,7 +724,7 @@ function TerminalWorkspace({
       {/* One status bar for the whole view, spanning sidebar + panes + side panels */}
       {isDesktop && !showEmptyState && (
         <TerminalStatusBar
-          cwd={activeSessionId ? (cwdBySession[activeSessionId] || activeSession?.workspacePath || activeWorkspace?.path || "") : ""}
+          cwd={activeSessionId ? (cwdBySession[activeSessionId] || activeSession?.cwd || activeWorkspace?.path || "") : ""}
           sessionId={activeSessionId}
           busRef={activeBusRef}
           fileBus={activeFileBus}

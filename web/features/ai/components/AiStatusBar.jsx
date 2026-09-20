@@ -130,7 +130,15 @@ export const AiStatusBar = memo(function AiStatusBar({
 
       {/* Right: branch (mobile, non-default only), New chat */}
       <div className="flex items-center gap-2.5 shrink-0">
-        {branch && !isDefaultBranch(branch) && <BranchBadge branch={branch} dirty={dirty} size={11} />}
+        {branch && !isDefaultBranch(branch) && (
+          <BranchBadge
+            branch={branch}
+            dirty={dirty}
+            size={11}
+            className="text-text font-medium"
+            iconClassName="text-brand-500 opacity-100"
+          />
+        )}
 
         <button
           type="button"

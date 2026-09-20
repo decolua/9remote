@@ -1,7 +1,4 @@
-/**
- * PTY Daemon Client - Connects to the PTY Daemon
- * Used by main server to communicate with persistent PTY sessions
- */
+// PTY Daemon Client: connects to persistent PTY daemon over local socket.
 
 import net from "net";
 import fs from "fs";
@@ -14,32 +11,23 @@ import { NODE_BIN, nodeSpawnEnv, PATHS } from "../../lib/constants.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// Socket path (same as daemon)
 const SOCKET_DIR = PATHS.ROOT;
 const SOCKET_PATH = process.platform === "win32"
   ? "\\\\.\\pipe\\9remote-pty"
   : path.join(SOCKET_DIR, "pty-daemon.sock");
 
-// Daemon script locations
-// - Source: dev mode (server/features/terminal/ptyDaemon.js)
-// - Dist: package mode (dist/ptyDaemon.cjs)
 const DAEMON_SCRIPT_SOURCE = path.join(__dirname, "ptyDaemon.js");
 const DAEMON_SCRIPT_DIST = path.join(__dirname, "ptyDaemon.cjs");
 
-// Local modules the daemon imports by relative path. The dev-mode runtime copy has
-// to carry every one of them: a missing file is not a degraded daemon, it is one
-// that dies at import — and the AI chat silently falls back to a separate session.
+// Local modules copied to runtime dir so dev-mode daemon imports resolve.
 const DAEMON_LOCAL_MODULES = ["constants.js", "bufferSlice.js", "daemonRouter.js", "daemonRoutes.js", "daemonKv.js"];
 
-// Runtime copy location — daemon runs from here so it never locks files
-// inside node_modules/9remote. That lock is what makes `npm i -g 9remote@latest`
-// fail with EBUSY on Windows when the daemon is still alive.
+// Run from runtime copy to avoid locking node_modules on Windows during upgrades.
 const DAEMON_RUNTIME_DIR = path.join(SOCKET_DIR, "daemon");
 
 function getCliVersion() {
   if (typeof __CLI_VERSION__ !== "undefined") return __CLI_VERSION__;
   try {
-    // Walk up from agent/features/terminal → agent/ → find package.json
     const pkgPath = path.resolve(__dirname, "..", "..", "package.json");
     return JSON.parse(fs.readFileSync(pkgPath, "utf8")).version;
   } catch {
@@ -47,11 +35,7 @@ function getCliVersion() {
   }
 }
 
-/**
- * Copy a directory tree recursively. Node 16+ supports fs.cpSync but we use
- * a hand-rolled version to stay compatible with the 14.x envs we still see
- * in the wild (some GitHub Codespaces images).
- */
+// Hand-rolled recursive copy for Node 14 compatibility.
 function copyDirSync(src, dest) {
   if (!fs.existsSync(src)) return;
   fs.mkdirSync(dest, { recursive: true });
@@ -63,10 +47,6 @@ function copyDirSync(src, dest) {
   }
 }
 
-/**
- * Find the node-pty package folder by walking up from the daemon script.
- * Returns null if not found (caller falls back to running from original path).
- */
 function findPackageDir(startDir, pkg) {
   let dir = startDir;
   for (let i = 0; i < 6; i++) {
@@ -80,22 +60,10 @@ function findPackageDir(startDir, pkg) {
 }
 const findNodePtyDir = (startDir) => findPackageDir(startDir, "node-pty");
 
-/**
- * Prepare a self-contained daemon folder at ~/.9remote/daemon/v<version>/.
- * Layout:
- *   v<version>/
- *     ptyDaemon.cjs            ← copied from source/dist
- *     node_modules/node-pty/   ← full package (lib + prebuild for this platform)
- *
- * Returns { script, cwd } pointing at the copy, or null if copy failed
- * (caller falls back to running from original path).
- */
-// Remove daemon version folders other than current — only if daemon is not alive.
-// Prevents disk bloat from accumulated upgrades while keeping live sessions safe.
+// Clean older daemon version folders when daemon is not alive.
 function cleanupOldDaemonVersions(currentVersion) {
   try {
     if (!fs.existsSync(DAEMON_RUNTIME_DIR)) return;
-    // Read PID lazy so we don't import pids.js into the daemon process itself
     const pidFile = path.join(SOCKET_DIR, "pids", "ptyDaemon.pid");
     let alive = false;
     try {
@@ -116,17 +84,12 @@ function prepareDaemonCopy(sourceScript) {
   cleanupOldDaemonVersions(DAEMON_VERSION);
   const runtimeDir = path.join(DAEMON_RUNTIME_DIR, `v${DAEMON_VERSION}`);
 
-  // Dev daemon (.js) imports local constants via relative paths (./constants.js,
-  // ../../lib/constants.js) → mirror that tree so imports resolve. Bundled .cjs
-  // has no local imports → keep it flat at runtimeDir root.
+  // Dev mode mirrors relative paths for local imports; bundled .cjs stays flat.
   const isDev = sourceScript.endsWith(".js");
   const scriptDir = isDev ? path.join(runtimeDir, "features", "terminal") : runtimeDir;
   const copiedScript = path.join(scriptDir, path.basename(sourceScript));
   const copiedPtyDir = path.join(scriptDir, "node_modules", "node-pty");
 
-  // Already prepared — skip work. Every local module is part of that test: a folder
-  // copied before one of them joined the list would otherwise stay permanently
-  // broken, since the script and node-pty it does check are already there.
   const copiedModules = () => DAEMON_LOCAL_MODULES.map((n) => path.join(scriptDir, n));
   const isPrepared = () => !isDev
     ? fs.existsSync(copiedScript) && fs.existsSync(copiedPtyDir)
@@ -137,14 +100,9 @@ function prepareDaemonCopy(sourceScript) {
 
   try {
     fs.mkdirSync(scriptDir, { recursive: true });
-
-    // Copy daemon script
     fs.copyFileSync(sourceScript, copiedScript);
 
-    // Dev mode: copy the local modules the daemon imports, preserving relative
-    // layout. This is an allowlist on purpose — the rest of features/terminal pulls
-    // in agent-side deps the daemon must not drag along. A missing entry is not a
-    // failed copy but a daemon that dies at import, so it is asserted in the tests.
+    // Dev mode: copy only allowlisted local modules preserving layout.
     if (isDev) {
       const srcDir = path.dirname(sourceScript);
       for (const name of DAEMON_LOCAL_MODULES) {
@@ -155,8 +113,6 @@ function prepareDaemonCopy(sourceScript) {
       fs.copyFileSync(path.resolve(srcDir, "..", "..", "lib", "constants.js"), path.join(libDest, "constants.js"));
     }
 
-    // Locate node-pty relative to the source script so this works in both dev
-    // (agent/features/terminal/) and bundled (dist/) layouts.
     const ptyDir = findNodePtyDir(path.dirname(sourceScript));
     if (!ptyDir) return null;
     copyDirSync(ptyDir, copiedPtyDir);
@@ -167,7 +123,6 @@ function prepareDaemonCopy(sourceScript) {
   }
 }
 
-// Client state
 let client = null;
 let connected = false;
 let messageBuffer = "";
@@ -175,16 +130,10 @@ let requestId = 0;
 const pendingRequests = new Map();
 const eventHandlers = new Map();
 
-/**
- * Generate unique request ID
- */
 function nextRequestId() {
   return ++requestId;
 }
 
-/**
- * Register event handler
- */
 export function on(event, handler) {
   if (!eventHandlers.has(event)) {
     eventHandlers.set(event, []);
@@ -192,9 +141,6 @@ export function on(event, handler) {
   eventHandlers.get(event).push(handler);
 }
 
-/**
- * Remove event handler
- */
 export function off(event, handler) {
   const handlers = eventHandlers.get(event);
   if (handlers) {
@@ -205,9 +151,6 @@ export function off(event, handler) {
   }
 }
 
-/**
- * Emit event to handlers
- */
 function emit(event, data) {
   const handlers = eventHandlers.get(event);
   if (handlers) {
@@ -221,9 +164,6 @@ function emit(event, data) {
   }
 }
 
-/**
- * Send message to daemon
- */
 function send(message) {
   if (!client || !connected) {
     return false;
@@ -237,9 +177,6 @@ function send(message) {
   }
 }
 
-/**
- * Send request and wait for response
- */
 function request(message, timeout = 5000) {
   return new Promise((resolve, reject) => {
     const id = nextRequestId();
@@ -260,13 +197,9 @@ function request(message, timeout = 5000) {
   });
 }
 
-/**
- * Handle incoming message from daemon
- */
 function handleMessage(message) {
   const { type, requestId: reqId, ...data } = message;
 
-  // Handle response to pending request
   if (reqId && pendingRequests.has(reqId)) {
     const { resolve, timer } = pendingRequests.get(reqId);
     clearTimeout(timer);
@@ -275,18 +208,13 @@ function handleMessage(message) {
     return;
   }
 
-  // Handle events
   switch (type) {
     case "output":
-      // Pass base64 through untouched when daemon marks enc:"b64" — avoids a
-      // pointless base64→Buffer encode here only to be re-encoded by socket.io.
-      // Older daemons without enc still send raw bytes → decode to Buffer.
-      // Forward enc so the browser knows to decode instead of writing raw b64.
+      // Pass base64 untouched when enc="b64" to avoid re-encoding over socket.io.
       emit("output", {
         sessionId: data.sessionId,
         enc: data.enc,
-        // replay:true marks join-replay packets (mode restore + tail) so the client can order
-        // them strictly before racing live output — preserves alt-screen mode sequencing.
+        // replay:true marks join-replay packets for alt-screen mode sequencing.
         replay: data.replay === true,
         data: data.enc === "b64" ? data.data : Buffer.from(data.data, "base64")
       });
@@ -309,8 +237,6 @@ function handleMessage(message) {
       break;
 
     case "procLine":
-      // Raw output of a managed CLI. The agent parses it — the daemon only counts
-      // and relays lines, so it stays out of every engine's protocol.
       emit("procLine", {
         procId: data.procId,
         epoch: data.epoch,
@@ -324,14 +250,10 @@ function handleMessage(message) {
       break;
 
     case "error":
-      // A route answered with a failure it has no reply type for (a fire-and-forget
-      // route, e.g. terminal.input). Surfaced, not swallowed: silent input loss is
-      // the hardest kind of bug to see.
       console.error("[DaemonClient] ❌", data.error || "Daemon error");
       break;
 
     case "pong":
-      // Heartbeat response
       break;
 
     default:
@@ -339,9 +261,6 @@ function handleMessage(message) {
   }
 }
 
-/**
- * Check if daemon is running by attempting to connect
- */
 function isDaemonRunning() {
   return new Promise((resolve) => {
     const testClient = net.connect(SOCKET_PATH);
@@ -349,21 +268,19 @@ function isDaemonRunning() {
       testClient.destroy();
       resolve(false);
     }, 1000);
-    
+
     testClient.on("connect", () => {
       clearTimeout(timeout);
       testClient.destroy();
       resolve(true);
     });
-    
+
     testClient.on("error", () => {
       clearTimeout(timeout);
-      // Remove stale socket file on Unix
       if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {
         try {
           fs.unlinkSync(SOCKET_PATH);
         } catch (e) {
-          // Ignore
         }
       }
       resolve(false);
@@ -371,23 +288,11 @@ function isDaemonRunning() {
   });
 }
 
-/**
- * Get daemon script path.
- *
- * Strategy: copy the daemon + its node-pty dependency to ~/.9remote/daemon/
- * so node.exe only ever locks files under the user's home directory. This
- * lets `npm i -g 9remote@latest` rename node_modules\9remote on Windows even
- * while the daemon is still running.
- *
- * Falls back to the original location if the copy fails (e.g. readonly home).
- */
 function getDaemonScript() {
-  // Ensure socket directory exists
   if (!fs.existsSync(SOCKET_DIR)) {
     fs.mkdirSync(SOCKET_DIR, { recursive: true });
   }
 
-  // Pick source: dev (source) preferred over dist (bundled).
   const sourceScript = fs.existsSync(DAEMON_SCRIPT_SOURCE)
     ? DAEMON_SCRIPT_SOURCE
     : (fs.existsSync(DAEMON_SCRIPT_DIST) ? DAEMON_SCRIPT_DIST : null);
@@ -397,20 +302,13 @@ function getDaemonScript() {
     return null;
   }
 
-  // Try runtime copy first — this is what unblocks `npm i -g 9remote@latest`.
   const copy = prepareDaemonCopy(sourceScript);
   if (copy) return copy;
 
-  // Fallback: run from original location (old behaviour). Update will still
-  // EBUSY on Windows in this case, but the daemon at least works.
   return { script: sourceScript, cwd: __dirname };
 }
 
-/**
- * Start daemon process
- */
 async function startDaemon() {
-  // Ensure socket directory exists
   if (!fs.existsSync(SOCKET_DIR)) {
     try {
       fs.mkdirSync(SOCKET_DIR, { recursive: true });
@@ -427,38 +325,34 @@ async function startDaemon() {
 
   const { script, cwd } = daemonInfo;
 
-  // Capture daemon output for debugging — co-located with agent.log under logs/
   const logDir = path.join(SOCKET_DIR, "logs");
   try { fs.mkdirSync(logDir, { recursive: true }); } catch {}
   const logPath = path.join(logDir, "daemon.log");
   let logFd;
 
   try {
-    logFd = fs.openSync(logPath, "w"); // Use 'w' to clear old logs
+    logFd = fs.openSync(logPath, "w");
   } catch (e) {
     console.error("[DaemonClient] Failed to open log file:", e.message);
     logFd = "ignore";
   }
-  
+
   const daemon = spawn(NODE_BIN, [script], {
     detached: true,
     stdio: ["ignore", logFd, logFd],
-    cwd: cwd, // Run from script's directory so it can find node_modules
+    cwd: cwd,
     env: nodeSpawnEnv(),
   });
 
   daemon.unref();
-  
-  // Close log fd after spawn
+
   if (typeof logFd === "number") {
     try {
       fs.closeSync(logFd);
     } catch (e) {
-      // Ignore close errors
     }
   }
 
-  // Wait for daemon to start
   for (let i = 0; i < 20; i++) {
     await new Promise(r => setTimeout(r, 100));
     if (await isDaemonRunning()) {
@@ -466,7 +360,6 @@ async function startDaemon() {
     }
   }
 
-  // Show daemon log if failed
   console.error("[DaemonClient] ❌ Failed to start daemon");
   try {
     const log = fs.readFileSync(logPath, "utf8");
@@ -475,13 +368,11 @@ async function startDaemon() {
       console.error(log);
     }
   } catch (e) {
-    // Ignore
   }
   return false;
 }
 
-// Ask a running daemon its version over a throwaway connection.
-// Returns version string, or null if unreachable/no answer.
+// Probe running daemon version over a throwaway socket.
 function probeDaemonVersion() {
   return new Promise((resolve) => {
     const probe = net.connect(SOCKET_PATH);
@@ -501,7 +392,6 @@ function probeDaemonVersion() {
   });
 }
 
-// Kill the running daemon by PID and wait until its socket is gone.
 async function killStaleDaemon() {
   try {
     const pidFile = path.join(SOCKET_DIR, "pids", "ptyDaemon.pid");
@@ -514,19 +404,11 @@ async function killStaleDaemon() {
   }
 }
 
-/**
- * Connect to daemon
- */
-// In-flight connect shared by every concurrent caller. Without it a second
-// caller arriving mid-connect returned undefined (falsy) and its socket fell
-// back to buffer mode even though the daemon was coming up fine.
+// Shared in-flight connect promise to avoid duplicate concurrent connections.
 let connectingPromise = null;
 
 async function connectToDaemon() {
   if (connected) return true;
-  // connectingPromise is the single gate: callers arriving mid-connect await
-  // the same attempt instead of getting undefined (which read as "failed" and
-  // dropped the socket to buffer mode).
   if (connectingPromise) return connectingPromise;
   connectingPromise = _connectToDaemon().finally(() => { connectingPromise = null; });
   return connectingPromise;
@@ -535,10 +417,8 @@ async function connectToDaemon() {
 async function _connectToDaemon() {
   if (connected) return true;
 
-  try {    
-    // Check if daemon is running
+  try {
     if (await isDaemonRunning()) {
-      // Running but stale version → kill so a fresh one spawns below
       const v = await probeDaemonVersion();
       if (v !== DAEMON_VERSION) {
         console.log(`[DaemonClient] Daemon v${v} != v${DAEMON_VERSION}, restarting`);
@@ -546,14 +426,12 @@ async function _connectToDaemon() {
       }
     }
     if (!(await isDaemonRunning())) {
-      // Start daemon
       if (!(await startDaemon())) {
         console.error("[DaemonClient] ❌ Failed to start daemon");
         return false;
       }
     }
 
-    // Connect
     return new Promise((resolve) => {
       const timeout = setTimeout(() => {
         console.error("[DaemonClient] ❌ Connection timeout after 5s");
@@ -590,11 +468,8 @@ async function _connectToDaemon() {
         connected = false;
         client = null;
         emit("disconnected");
-        
-        // Auto-reconnect after 2s
+
         setTimeout(() => {
-          // connectToDaemon's own gate decides whether an attempt is already
-          // running — no separate flag to go stale here.
           if (!connected) connectToDaemon();
         }, 2000);
       });
@@ -612,20 +487,11 @@ async function _connectToDaemon() {
   }
 }
 
-/**
- * Initialize daemon client
- */
 export async function initDaemonClient() {
   return connectToDaemon();
 }
 
-/**
- * Check if connected
- */
-/**
- * The daemon's per-process KV. Values are the chat's own state (token counters,
- * the turn marker); keys are the agent's session ids.
- */
+// Daemon per-process KV for agent session state.
 export async function kvSet(key, value) {
   return await call("kv.set", { key, value });
 }
@@ -643,25 +509,16 @@ export function isConnected() {
   return connected;
 }
 
-/**
- * List sessions from daemon
- */
 export async function listSessions() {
   const result = await call("terminal.listSessions");
   return result.sessions || [];
 }
 
-/**
- * Create new session
- */
 export async function createSession(name, cols = 80, rows = 24, shellId = null, sessionId = `session-${Date.now()}`, cwd = null) {
   const result = await call("terminal.createSession", { sessionId, name, cols, rows, shellId, cwd });
   return result;
 }
 
-/**
- * Get live cwd of a session (for persisting last working dir)
- */
 export async function getSessionCwd(sessionId) {
   try {
     const result = await call("terminal.getCwd", { sessionId });
@@ -671,31 +528,21 @@ export async function getSessionCwd(sessionId) {
   }
 }
 
-/**
- * Join session (get buffered output)
- */
 export async function joinSession(sessionId) {
   const result = await call("terminal.joinSession", { sessionId });
   return result;
 }
 
-// Fetch older-than-tail prefix when web scrolls to top. have = bytes web already holds.
+// Fetch older-than-tail prefix when web scrolls to top.
 export async function requestHistory(sessionId, have) {
   const result = await call("terminal.requestHistory", { sessionId, have });
   return result;
 }
 
-/**
- * Send input to session
- */
-// ── Requests ──
-// One call per route, named exactly as the daemon's table names it (daemonRoutes.js).
-// A route added there needs one line here; nothing else in the client changes.
 export function call(type, args = {}, timeout) {
   return request({ type, ...args }, timeout);
 }
 
-/** Fire-and-forget: no ack is coming (the route table declares no reply). */
 function post(type, args = {}) {
   return send({ type, ...args });
 }
@@ -708,11 +555,7 @@ export function resizeSession(sessionId, cols, rows) {
   return post("terminal.resize", { sessionId, cols, rows });
 }
 
-/**
- * Managed child processes — the long-lived CLIs the agent drives (chat engines).
- * The daemon owns the process so a running turn survives an agent restart; the
- * agent owns everything the process says, which is why only raw lines cross here.
- */
+// Managed child processes owned by daemon to survive agent restarts.
 export function procStart(procId, { bin, args, cwd, env } = {}) {
   return call("proc.start", { procId, bin, args, cwd, env });
 }

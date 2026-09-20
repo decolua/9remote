@@ -1,11 +1,4 @@
-// 9Remote site proxy service worker.
-// Serves /browse/<port>/... documents from the agent over the live transport
-// (RTC data channel preferred, WS tunnel fallback) by relaying each request to
-// a bridge page that owns the transport socket. The tunnel HTTP proxy (/proxy/*)
-// is untouched — this is a parallel, RTC-capable path.
-//
-// The browser may terminate this worker any idle moment; module state (the
-// bridge pointer) dies with it. Every request re-discovers the bridge on demand.
+// Site proxy service worker: serves /browse/<port>/... documents via transport bridge.
 
 importScripts("/swBridgeClaim.js");
 
@@ -15,11 +8,7 @@ const BRIDGE_DISCOVER_MS = 3000;
 const MAX_REQUEST_BODY_BYTES = 512 * 1024;
 const REDIRECT_STATUSES = [301, 302, 303, 307, 308];
 
-// 'self' is this origin, which the worker serves entirely from the agent — so a
-// site keeps working while losing the ability to post what it finds elsewhere.
-// frame-ancestors names the shell AND the app above it: the directive is checked
-// against every ancestor, so omitting the app cancels the load (CSP3 §frame-
-// ancestors) — and a cancelled one renders as an empty 200, with nothing logged.
+// Restrict framing and origin communication via Content Security Policy.
 const SITE_CSP = [
   "connect-src 'self'",
   "form-action 'self'",
@@ -28,8 +17,8 @@ const SITE_CSP = [
 ].join("; ");
 
 let bridgeClient = null;
-let bridgeDiscover = null; // in-flight discovery promise
-let bridgeResolve = null;  // its resolver — hello handler fires it
+let bridgeDiscover = null;
+let bridgeResolve = null;
 let reqCounter = 0;
 
 self.addEventListener("install", (event) => event.waitUntil(self.skipWaiting()));
@@ -39,9 +28,7 @@ self.addEventListener("message", (event) => {
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
   if (msg.type === "bridge-hello") {
-    // Every browsed site shares this origin and can send this message. Only the
-    // shell may hold the role, or a site would receive the other tabs' requests
-    // and get to answer them.
+    // Verify source is shell to prevent cross-site privilege escalation.
     if (!canBeBridge(event.source?.url, self.location.origin)) return;
     bridgeClient = event.source;
     if (bridgeResolve) {
@@ -71,7 +58,6 @@ function bytesToBase64(buffer) {
   return btoa(bin);
 }
 
-// Ask every same-origin page "are you the bridge?" and wait for a hello.
 function discoverBridge() {
   if (bridgeClient) return Promise.resolve();
   if (!bridgeDiscover) {
@@ -80,12 +66,10 @@ function discoverBridge() {
       setTimeout(() => {
         bridgeDiscover = null;
         bridgeResolve = null;
-        resolve(); // no hello in time — caller reports "not connected"
+        resolve();
       }, BRIDGE_DISCOVER_MS);
     });
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
-      // Asking only the shell — a site that answered would be claiming a role it
-      // cannot have anyway, and there is no reason to prompt it.
       for (const client of clients) {
         if (canBeBridge(client.url, self.location.origin)) client.postMessage({ type: "sw-hello" });
       }
@@ -94,12 +78,7 @@ function discoverBridge() {
   return bridgeDiscover;
 }
 
-
-// Injected into every HTML page served here. Top-level navigations to paths
-// OUTSIDE the SW scope are never handed to this worker (scope gates navigation,
-// unlike subresources), so absolute-path links must be rewritten in the page.
-// location.replace keeps the parent app's history clean — an iframe navigation
-// would otherwise push an entry and swallow the app's own Back button.
+// Injected script rewriting absolute links/forms into /browse/<port> scope.
 function inScopeScript(port) {
   return `<script data-9remote="site-proxy">
 (function () {
@@ -110,8 +89,7 @@ function inScopeScript(port) {
     if (!path || path.indexOf(BASE + "/") === 0 || path === BASE) return null;
     return path.charAt(0) === "/" ? BASE + path : null;
   }
-  // Bubble phase on purpose: an SPA router gets its click first and calls
-  // preventDefault for routes it owns, so its soft navigation is left alone.
+  // Bubble phase allows SPA routers to handle owned routes first.
   document.addEventListener("click", function (e) {
     if (e.defaultPrevented || e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return;
     var a = e.target && e.target.closest && e.target.closest("a[href]");
@@ -124,21 +102,19 @@ function inScopeScript(port) {
     e.preventDefault();
     location.replace(next + url.search + url.hash);
   });
-  // Form submits are top-level navigations too — same out-of-scope 404 as links.
   document.addEventListener("submit", function (e) {
     if (e.defaultPrevented) return;
     var form = e.target;
     if (!form || form.tagName !== "FORM" || form.target && form.target !== "_self") return;
     var action = form.getAttribute("action");
-    if (action === null) return; // no action = posts to current (already scoped) URL
+    if (action === null) return;
     var url;
     try { url = new URL(action, location.href); } catch (err) { return; }
     if (url.origin !== location.origin) return;
     var next = scoped(url.pathname);
     if (next) form.setAttribute("action", next + url.search);
   }, true);
-  // pushState is downgraded to replaceState: an iframe entry lands on the parent
-  // app's joint history, so an SPA route change here would swallow the app's Back.
+  // Downgrade pushState to replaceState so iframe history doesn't swallow parent Back.
   var nativeReplace = history.replaceState.bind(history);
   ["pushState", "replaceState"].forEach(function (name) {
     history[name] = function (state, title, path) {
@@ -161,12 +137,10 @@ function inScopeScript(port) {
 function injectIntoHtml(html, port) {
   const tag = inScopeScript(port);
   const head = html.match(/<head[^>]*>/i);
-  // Function replacement — "$&" and friends in the tag must stay literal
   if (head) return html.replace(head[0], () => head[0] + tag);
   return tag + html;
 }
 
-// The port a controlled page belongs to: referrer first, then live clients.
 async function portFromReferrer(request) {
   try {
     if (request.referrer) {
@@ -182,8 +156,7 @@ async function portFromReferrer(request) {
   return null;
 }
 
-// One MessageChannel per request — port2 travels to the bridge, port1 waits for
-// the reply. Keeps concurrent requests isolated and worker-restart-safe.
+// MessageChannel per request to keep concurrent requests isolated.
 function requestViaBridge(reqId, port, method, target, headers, bodyB64) {
   return new Promise((resolve, reject) => {
     const channel = new MessageChannel();
@@ -203,10 +176,6 @@ function requestViaBridge(reqId, port, method, target, headers, bodyB64) {
   });
 }
 
-// Every failure below answers the frame with plain text, which the browser
-// renders as a bare white page with nothing on it to explain the problem. For a
-// navigation that is the only thing the user sees, so the shell is told too and
-// the app can say it in its own chrome.
 function fail(message, status, port) {
   if (port) {
     self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clients) => {
@@ -222,11 +191,7 @@ async function handle(request, url, inScope) {
   const port = inScope ? Number(inScope[1]) : await portFromReferrer(request);
   if (!port) return fail("no site context for this request", 503, null);
 
-  // Every site shares this origin, so nothing in the browser stops one from
-  // fetching another's paths — normally a different port is a different origin
-  // and the same-origin policy would. A subresource must belong to the page
-  // asking for it; a navigation is the shell opening a tab and has no referrer
-  // to match against.
+  // Prevent cross-site subresource access within shared origin.
   if (inScope && request.mode !== "navigate") {
     const from = await portFromReferrer(request);
     if (from && from !== port) {
@@ -237,12 +202,10 @@ async function handle(request, url, inScope) {
   await discoverBridge();
   if (!bridgeClient) return fail("bridge not connected — open the 9Remote app", 503, port);
 
-  // Drop the iframe cache-buster param before forwarding to the agent
   url.searchParams.delete("r");
   const path = inScope ? (inScope[2] || "/") : url.pathname;
   const target = path + (url.search || "");
 
-  // Let the app's address bar follow in-iframe navigations
   if (request.mode === "navigate") {
     bridgeClient.postMessage({ type: "site-nav", port, path });
   }
@@ -268,13 +231,10 @@ async function handle(request, url, inScope) {
   } catch {
     return fail("request timed out", 504, port);
   }
-  // The agent's own reason: no-session (the viewing session ended), bad-port,
-  // and so on. Worth showing verbatim — it names what to fix.
   if (!msg || msg.error) return fail(msg?.error || "no reply from the agent", 502, port);
 
   const resHeaders = new Headers(msg.headers || {});
 
-  // Redirects: point back into the browse scope so the next hop stays SW-served
   const location = resHeaders.get("location");
   if (location && REDIRECT_STATUSES.includes(msg.status)) {
     let next = null;
@@ -284,7 +244,6 @@ async function handle(request, url, inScope) {
       if (sameSite) next = abs.pathname + abs.search;
     } catch { /* keep null */ }
     if (next) return Response.redirect(`/browse/${port}${next}`, msg.status);
-    // External redirect — hand the browser the original absolute URL
     return Response.redirect(location, msg.status);
   }
 
@@ -292,10 +251,7 @@ async function handle(request, url, inScope) {
     return new Response(null, { status: msg.status, headers: resHeaders });
   }
 
-  // The site's own framing headers were stripped upstream so it can render
-  // here at all; put a policy of our own back in their place. The origin is
-  // already separate from the app's, so this is the second line, not the first:
-  // it keeps a page from carrying anything it reads out to a server of its own.
+  // Enforce CSP on proxied site content.
   resHeaders.set("Content-Security-Policy", SITE_CSP);
 
   const bytes = base64ToBytes(msg.bodyB64);
@@ -311,9 +267,9 @@ self.addEventListener("fetch", (event) => {
   let url;
   try { url = new URL(request.url); } catch { return; }
 
-  if (url.origin !== self.location.origin) return; // CDN/external — direct network
-  if (url.pathname === "/sw-site.js") return;      // own script
-  if (url.pathname.startsWith("/cdn-cgi/")) return; // Cloudflare's own endpoints
+  if (url.origin !== self.location.origin) return;
+  if (url.pathname === "/sw-site.js") return;
+  if (url.pathname.startsWith("/cdn-cgi/")) return;
 
   const inScope = url.pathname.match(BROWSE_RE);
   if (inScope) {
@@ -321,9 +277,7 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Out-of-scope top-level navigation never reaches this worker (scope gates
-  // navigation), so only subresources land here: dev servers request absolute
-  // paths like "/vite.svg" or "/@vite/client" from a page inside the scope.
+  // Handle root-relative subresource requests from in-scope pages.
   if (request.mode === "navigate") return;
   event.respondWith(handle(request, url, null));
 });

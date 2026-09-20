@@ -15,19 +15,11 @@ import { initSignalingClient, handleApprovalSignal, onSignalingReady, sendSignal
 import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout } from "./lib/pmMessaging";
 import { handleDeviceAuthEvent, maybeSendTailProof, DEVICE_AUTH_EVENTS } from "./lib/deviceTrust";
 
-// Auto-register built-in adapters
 registerProtocol(WsProtocol);
 registerProtocol(WebRtcProtocol);
 
-/**
- * ProtocolManager — orchestrator. Holds auth, instantiates adapters from profile,
- * routes messages by channel via priority, auto-reroutes on stateChange.
- *
- * Backward-compat API kept (emit/connect/disconnect, busRef, type, connected, connectionMode).
- */
 export class ProtocolManager {
   constructor(wsConfig, rtcConfig) {
-    // Map legacy config → unified shape
     const { profile, auth, wsCallbacks, rtcCallbacks, peerId } = buildConfig(wsConfig, rtcConfig);
     this._profile = profile;
     this._auth = auth;
@@ -36,18 +28,12 @@ export class ProtocolManager {
     this._peerId = peerId;
     Object.assign(this, initialState());
 
-    // The one handler host, mirroring the agent's AgentBus: it owns every
-    // app listener and outlives each carrier, so a WS reconnect or an RTC-only
-    // session changes nothing about who is registered.
+    // Outlives carriers so app listeners persist across carrier switches.
     this._bus = createClientBus(this);
     this.busRef = { current: this._bus };
-    // Device-auth events arrive on either carrier; one registration covers both
-    // because the bus is downstream of the carrier choice (see lib/deviceTrust).
     for (const ev of DEVICE_AUTH_EVENTS) {
       this._bus.on(ev, (data) => handleDeviceAuthEvent(this, ev, data));
     }
-    // Environment watchers (tab visibility/resume/freeze, network handover) drive the
-    // RTC recovery paths — see lib/pmWatchers.
     this._watchers = attachWatchers(this);
   }
 
@@ -56,37 +42,25 @@ export class ProtocolManager {
   get connectionMode() { return this._connectionMode; }
   get wsBlocked() { return this._adapters.get("ws")?.blocked || false; }
 
-  /** Dev/test: block WS reconnect to verify RTC standalone behavior. */
   setWsBlocked(blocked) {
     this._adapters.get("ws")?.setBlocked(blocked);
   }
 
-  /** Widen WS retry window while agent self-updates. */
   setUpdating(updating) {
     this._adapters.get("ws")?.setUpdating(updating);
   }
 
-  /** User-triggered immediate reconnect — skips backoff and revives a failed adapter. */
   retryNow(reason = "user") {
     const ws = this._adapters.get("ws");
     if (ws) { ws.retryNow?.(reason); return; }
     termLog("switch", `retryNow by=${reason}: no ws adapter → full connect()`);
-    // Adapter was torn down (PM.disconnect) — rebuild from scratch
     this.connect();
   }
 
-  // ─── Public API ────────────────────────────────────────────────────────────
-
-  /** Legacy emit — routes through control channel via best adapter. */
   emit(event, ...args) {
     this._sendControl(event, args);
   }
 
-  /**
-   * Send a binary payload on a channel (file transfer). Picks the best adapter
-   * (RTC preferred), falls back to WS on RTC backpressure/death — same pattern
-   * as _sendControl. Returns true if delivered on any adapter.
-   */
   sendBinary(channel, payload) {
     const adapter = this._pickAdapter(channel);
     if (!adapter) return false;
@@ -94,28 +68,16 @@ export class ProtocolManager {
   }
 
   connect() {
-    // RTC + WS in parallel: RTC is the preferred carrier (P2P, low latency); the
-    // WS tunnel stays warm as an instant-switch standby. Data routing still prefers
-    // RTC via _pickAdapter, so WS is near-idle when RTC is healthy — but always
-    // ready, making a carrier switch 0ms (no spawn-on-failure delay → no flicker).
+    // Connect RTC and WS in parallel: RTC preferred, WS warm standby for instant failover.
     this._sigDestroyed = false;
-    // The DO relay exists to trade RTC offers — with no rtc adapter enabled it
-    // would be a permanently idle internet connection (the local-agent mode).
     const hasRtc = this._profile.enabled.includes("rtc");
     if (hasRtc) this._initSignalingClient();
-    // RTC waits for the relay. Its connect timer starts the moment the offer is
-    // created, but an offer made before the relay is up only reaches _sigBuffer —
-    // the agent never sees it, and the whole 4s budget burns on a message that
-    // was never delivered (8.5s of relay startup was measured, so the first two
-    // attempts were guaranteed to fail). onSignalingReady starts it instead.
+    // Defer RTC start until relay is ready so offer connect timer doesn't burn before delivery.
     if (hasRtc) {
       if (this._canSignal()) {
         this._startSecondaryAdapters();
       } else {
         termLog("switch", "rtc deferred — waiting for signaling relay");
-        // Backstop: if the relay never reports ready, start anyway rather than
-        // sitting on WS forever. The offer may still be buffered, but the normal
-        // retry ladder takes over from there.
         clearTimeout(this._rtcDeferTimer);
         this._rtcDeferTimer = setTimeout(() => {
           if (this._sigDestroyed || this._adapters.has("rtc")) return;
@@ -129,15 +91,11 @@ export class ProtocolManager {
     termLog("switch", "connect: RTC + WS parallel");
   }
 
-  // Bring up the WS tunnel adapter (parallel standby or fallback after RTC death).
   async _startWsFallback() {
     if (this._adapters.has("ws") || this._sigDestroyed || this._adapters.get("rtc")?.isLoopback) return;
     termLog("switch", "ws-fallback: start (refresh url)");
-    // The cached tunnelUrl may be stale (cloudflared restarted → new trycloudflare
-    // URL). Re-fetch the latest from the Worker before connecting.
+    // Re-fetch latest tunnelUrl from Worker in case cloudflared restarted.
     await this._refreshTunnelUrl();
-    // Re-check after await: disconnect() may have run, or a concurrent call may
-    // have already attached ws while the fetch was in flight.
     if (this._adapters.has("ws") || this._sigDestroyed || this._adapters.get("rtc")?.isLoopback) {
       termLog("switch", "ws-fallback: aborted (destroyed, loopback or already attached)");
       return;
@@ -165,44 +123,29 @@ export class ProtocolManager {
     inst.on("binary", (msg) => this._onBinary(msg));
     if (id === "rtc") {
       inst.on("netFingerprint", (ip) => this._onNetFingerprint(ip));
-      // Caps announced before this instance existed (deferred start, or a
-      // renegotiation that replaced its predecessor) still apply to it.
       if (this._srvCaps) inst.setPeerCaps?.(this._srvCaps);
     }
     this._adapters.set(id, inst);
   }
 
-  /** STUN reported a different public egress IP. We do NOT reset the restart
-   * budget here anymore: dual-stack ISPs and carrier NAT pools make the IP
-   * flip-flop between IPv4/IPv6 and neighbours of the SAME network, which fired
-   * a false "network changed" on every restart and pinned RTC to the shortest
-   * backoff forever. A real network handover is detected via the browser's
-   * online/connection events (and resets the budget there); RTC OPEN itself
-   * also resets. This handler now only records the fingerprint for telemetry. */
+  // Records fingerprint for telemetry; does not reset restart budget on IP flip-flop.
   _onNetFingerprint(ip) {
     if (!ip || ip === this._netFingerprint) return;
     const prev = this._netFingerprint;
     this._netFingerprint = ip;
-    if (!prev) return; // first gather of the session — nothing changed yet
+    if (!prev) return;
     debugLog("transport", `[pm] net fingerprint ${prev}→${ip} (same network — no backoff reset)`);
   }
 
-  /** Lift an RTC give-up only on evidence: a STUN probe (public STUN, no DO call,
-   *  no agent) reporting a public IP different from the one we gave up on. Same
-   *  IP → the NAT that refused P2P is still there, so stay WS-only and spend
-   *  nothing. Rate-limited: resume/visibility can fire in bursts. */
+  // Re-arm RTC only if STUN probe detects a changed public IP.
   _maybeRearmRtc() {
     if (!this._rtcGivenUp) return;
     const now = Date.now();
     if (now - this._lastStunProbeAt < STUN_PROBE.minIntervalMs) return;
     this._lastStunProbeAt = now;
     probePublicIp().then((raw) => {
-      // The probe takes seconds — the PM may have been torn down meanwhile.
-      // Resurrecting RTC on a disconnected PM would leak a peer nobody owns.
       if (this._sigDestroyed) return;
-      if (!this._rtcGivenUp) return; // something else already re-armed us
-      // Compare like for like: a STUN-blocked network reports NO_PUBLIC_IP on both
-      // sides, so it reads as "unchanged" instead of re-arming on every resume.
+      if (!this._rtcGivenUp) return;
       const ip = raw || (this._giveUpIp === NO_PUBLIC_IP ? NO_PUBLIC_IP : null);
       if (!shouldRearmOnIpChange(this._giveUpIp, ip)) {
         termLog("switch", `rearm check: ip=${ip || "unknown"} same as give-up → stay WS-only`);
@@ -215,8 +158,6 @@ export class ProtocolManager {
       this._probeAttempts = 0;
       this._rtcRestartAttempts = 0;
       this._netFingerprint = raw;
-      // Relay may be down (we skipped its retry while WS-only) — kick it and let
-      // _onSignalingReady fire the restart once a signaling path exists again.
       if (!this._canSignal()) { this._sig?.retryNow("stun-rearm"); return; }
       if (this._shouldRenegotiate()) this._restartRtc("stun-rearm");
     }).catch(() => {});
@@ -227,7 +168,7 @@ export class ProtocolManager {
     debugLog("transport", `[pm] startSecondary rtcTestDisabled=${!!this._rtcTestDisabled}`);
     for (const id of this._profile.enabled) {
       if (id === "ws") continue;
-      if (id === "rtc" && this._rtcTestDisabled) continue; // agent test-toggle
+      if (id === "rtc" && this._rtcTestDisabled) continue;
       if (this._adapters.has(id)) continue;
       debugLog("transport", `[pm] start adapter ${id}`);
       this._instantiate(id);
@@ -235,41 +176,26 @@ export class ProtocolManager {
     }
   }
 
-  /** The agent answered "not approved" rather than failing to connect. Surface it
-   * as approval UI and stop renegotiating — retrying can't change a policy answer,
-   * and letting it reach the RTC adapter would tear the peer down and fall back to
-   * the tunnel, hiding the approval screen behind a connection error.
-   * @returns {boolean} true when handled (caller must not forward the message) */
+  // Stop renegotiating and surface approval UI when agent refuses connection.
   _handleApprovalSignal(msg) {
     return handleApprovalSignal(this, msg);
   }
 
-  /** Relay (re)connected — drain queued signaling, and renegotiate if RTC died
-   * while we had no carrier (resume from background, network handover). */
   _onSignalingReady() {
     onSignalingReady(this);
   }
 
-  /** Can a fresh offer/answer reach the agent? DO is the sole signaling carrier. */
   _canSignal() {
     return !!this._sig?.ready;
   }
 
-  /** Waiting on the host to approve this device — a new offer would just be
-   * refused again, so recovery paths stand down until approval arrives. */
   _shouldRenegotiate() {
     return !this._awaitingApproval && this._canSignal();
   }
 
-  /** Tear down RTC + renegotiate via new WS socket (called on WS reconnect). */
   _restartRtc(reason = "?") {
-    // Callers name themselves: reading the stack for a function name gave `by=`
-    // on every minified build, which is where this log was actually needed.
     termLog("switch", `restartRtc CALLED by=${reason} attempts=${this._rtcRestartAttempts}`);
     const rtc = this._adapters.get("rtc");
-    // Guards: agent test-toggle, hard-NAT give-up (every recovery path must stand
-    // down or the give-up only stops the probe timer), and a peer another path
-    // already spun up (don't kill it mid-handshake).
     const action = restartRtcAction({
       testDisabled: !!this._rtcTestDisabled,
       givenUp: this._rtcGivenUp,
@@ -288,8 +214,7 @@ export class ProtocolManager {
     this._startSecondaryAdapters();
   }
 
-  /** Force restart bypassing the open/connecting guard — used when the resume
-   * probe confirms the DC is dead despite rtc.state reporting "open". */
+  // Bypass open/connecting guard when resume probe confirms DC is dead.
   _forceRestartRtc(reason = "?") {
     termLog("switch", `forceRestartRtc CALLED by=${reason}`);
     const rtc = this._adapters.get("rtc");
@@ -298,8 +223,6 @@ export class ProtocolManager {
       this._adapters.delete("rtc");
       this._rtcSignalingHandler = null;
     }
-    // Hard NAT → tear the dead peer down but don't negotiate a new one; that
-    // would spend a DO round-trip the same NAT will refuse again.
     if (this._rtcGivenUp) {
       termLog("switch", "forceRestartRtc: torn down, no renegotiate (hard NAT)");
       return;
@@ -314,7 +237,7 @@ export class ProtocolManager {
     this._resumeProbeTimer = null;
     clearTimeout(this._rtcDeferTimer);
     this._rtcDeferTimer = null;
-    this._probeToken++; // invalidate any in-flight getStats probe
+    this._probeToken++;
     try { this._sig?.disconnect(); } catch {}
     this._sig = null;
     this._sigDestroyed = true;
@@ -326,13 +249,10 @@ export class ProtocolManager {
       try { inst.disconnect("pm-disconnect"); } catch {}
     }
     this._adapters.clear();
-    // App listeners live on the bus now (they used to die with the socket.io
-    // socket) — a torn-down PM must not keep panes and their closures alive.
     this._bus.clear();
     this._buffer = [];
     this._connected = false;
     this._rawSocket = null;
-    // Clear RTC zombie recovery state
     this._disarmRestart();
     termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=pm-disconnect`);
     this._rtcRestartAttempts = 0;
@@ -343,8 +263,6 @@ export class ProtocolManager {
     for (const t of this._ackTimers.values()) clearTimeout(t);
     this._ackTimers.clear();
   }
-
-  // ─── Internal ──────────────────────────────────────────────────────────────
 
   _buildCtx(adapterId, _inst) {
     const ctx = {
@@ -371,8 +289,6 @@ export class ProtocolManager {
 
   _onAdapterStateChange(adapterId, state) {
     debugLog("transport", `[pm] ${adapterId} state=${state}`);
-    // The adapter already logs its own transition with a reason — repeating it
-    // here doubles every line, so only log states adapters don't announce.
     if (!(adapterId === "rtc" && state === ADAPTER_STATE.closed)) {
       termLog("switch", `${adapterId}→${state}`);
     }
@@ -380,21 +296,13 @@ export class ProtocolManager {
     if (adapterId === "ws") handleWsStateChange(this, state);
     if (adapterId === "rtc") handleRtcStateChange(this, state);
 
-    // Pairing enrollment rides the RTC control channel — try as soon as it opens
     if (adapterId === "rtc" && state === ADAPTER_STATE.open) {
-      // RTC-first has no handshake to carry the TAIL, so the agent admits the
-      // session on a deadline and waits for this instead.
       debugLog("auth", "[seal] rtc OPEN → sending proof");
       maybeSendTailProof(this);
     }
 
     this._recomputeType();
-    // The one place the app learns a carrier came or went. Per-carrier handlers
-    // only run on THEIR adapter's transitions, so an outage where ws sits in
-    // "degraded" (it retries for ~30s before ever reaching "closed") while rtc
-    // dies separately left nobody to report it — `connected` stayed true, the
-    // app showed no gate and never retried. Deciding here means any transition
-    // that empties the set is caught, whatever order the carriers failed in.
+    // Track global connection state across carriers regardless of failure order.
     const ready = this._anyAdapterReady();
     if (ready !== this._connected) {
       this._connected = ready;
@@ -407,15 +315,7 @@ export class ProtocolManager {
     this._flushBuffer();
   }
 
-  /** Fire the bus "connect" rejoin on a carrier reconnect — UNLESS the other
-   * carrier is already carrying data, in which case this is a transparent switch
-   * and terminal panes must not reset+reload. Only the first adapter up after a
-   * full outage triggers the rejoin.
-   *
-   * Debounce: if WS reconnects while RTC is still connecting (typical after resume
-   * — WS via tunnel is faster than RTC ICE gather), wait briefly for RTC. If RTC
-   * opens, the switch is transparent (skip rejoin, no flicker). If RTC fails, the
-   * debounce fires the rejoin so content recovers via WS. */
+  // Debounce rejoin on carrier reconnect to allow pending RTC connection to settle first.
   _maybeFireRejoin(adapterId, reason) {
     const other = adapterId === "ws" ? this._adapters.get("rtc") : this._adapters.get("ws");
     if (other?.ready) {
@@ -423,8 +323,6 @@ export class ProtocolManager {
       termLog("switch", `${reason} → skip rejoin (other ready)`);
       return;
     }
-    // WS just reconnected but RTC is mid-handshake — debounce instead of resetting
-    // the terminal; RTC usually opens within ~500ms and the switch stays invisible.
     if (adapterId === "ws" && other && other.state === ADAPTER_STATE.connecting) {
       debugLog("transport", `[pm] ${reason} → debounce rejoin (rtc connecting)`);
       termLog("switch", `${reason} → debounce rejoin ${REJOIN_DEBOUNCE_MS}ms (rtc connecting)`);
@@ -446,7 +344,6 @@ export class ProtocolManager {
   }
 
   _recomputeType() {
-    // type follows binary channel preference (legacy behavior)
     const adapter = this._pickAdapter(CHANNELS.binary) || this._pickAdapter(CHANNELS.control);
     const next = !adapter ? "ws"
       : adapter.constructor.id === "rtc" ? (adapter.typeDetail || "dc-stun")
@@ -466,10 +363,6 @@ export class ProtocolManager {
     return pickAdapter(this._adapters, this._profile, channel);
   }
 
-  /**
-   * Send control event with multi-arg + optional callback (last fn arg = ack).
-   * WS adapter uses socket.io native multi-arg/ack; RTC uses {event, args, ackId} envelope.
-   */
   _sendControl(event, args) {
     sendControl(this, event, args);
   }
@@ -478,44 +371,25 @@ export class ProtocolManager {
     flushBuffer(this);
   }
 
-  /**
-   * Dispatch incoming message. RTC payloads carry {args} array; WS payloads carry {data}
-   * (legacy single-arg from raw socket.io onAny).
-   */
   _dispatch(event, payload, source) {
     dispatch(this, event, payload, source);
   }
 
-  /**
-   * Incoming binary frame from an adapter's "binary" event (RTC DC "file").
-   * Route to socket.io-style "file-bin" listeners so WS and RTC paths share one
-   * handler (WS delivers "file-bin" natively via socket.io onAny).
-   */
   _onBinary(msg) {
     onBinary(this, msg);
   }
 
-  // ─── RTC zombie recovery ───────────────────────────────────────────────────
-
-  // Short ack timeout — if ack doesn't arrive, RTC is likely zombie (open but bytes lost).
   _scheduleAckTimeout(ackId) {
     scheduleAckTimeout(this, ackId);
   }
 
-  // Two-phase RTC recovery: fast backoff (1s/2s/4s) right after failure, then a
-  // slow probe (30s) that keeps trying P2P while the tunnel carries data. Never
-  // gives up — network conditions improve, and a cheap STUN probe every 30s is
-  // negligible next to tunnel bandwidth. Reset-on-open and net-change restore the
-  // fast phase. DO-down skips the probe (_onSignalingReady restarts when it's back).
-  /** The restart timer and its due-time are one fact — always moved together, so
-   *  the pending-guard can never read a handle without knowing when it fires. */
+  // Two-phase RTC recovery: fast initial backoff followed by periodic background probe.
   _armRestart(fn, delay) {
     clearTimeout(this._rtcRestartTimer);
     this._rtcRestartDueAt = Date.now() + delay;
     this._rtcRestartTimer = setTimeout(fn, delay);
   }
 
-  /** @returns {number} ms until the pending rung fires, or -1 when none is armed. */
   _disarmRestart() {
     const left = this._rtcRestartTimer ? Math.max(this._rtcRestartDueAt - Date.now(), 0) : -1;
     clearTimeout(this._rtcRestartTimer);
@@ -526,18 +400,12 @@ export class ProtocolManager {
 
   _scheduleRtcRestart(reason = "?") {
     termLog("switch", `rtcRestart REQ by=${reason} attempts=${this._rtcRestartAttempts} probe=${this._probeAttempts} givenUp=${this._rtcGivenUp} pending=${!!this._rtcRestartTimer}`);
-    // A rung is the cost of ONE attempt, not of one caller asking for one. Three
-    // paths (rtc-closed, ack-timeout, resume) fire together on a network blip and
-    // used to burn nine rungs in ten seconds — reaching the 2-minute rungs with
-    // no attempt behind them, which is why RTC went quiet for minutes after a
-    // resume. A restart is already pending here: it will do the work.
+    // Deduplicate concurrent triggers while a restart rung is already armed.
     if (this._rtcRestartTimer) {
       const inMs = Math.max(this._rtcRestartDueAt - Date.now(), 0);
       termLog("switch", `rtcRestart SKIP by=${reason} (pending rung ${this._rtcRestartAttempts} fires in ${inMs}ms)`);
       return;
     }
-    // Hard NAT (symmetric / STUN-blocked, no TURN) → P2P can't succeed, stop
-    // spending DO signaling calls. Re-armed by network change / visibility resume.
     if (this._rtcGivenUp) {
       termLog("switch", "scheduleRtcRestart skipped (hard NAT → WS-only)");
       debugLog("transport", "[pm] rtc probe skipped (given up — hard NAT)");
@@ -553,19 +421,10 @@ export class ProtocolManager {
       debugLog("transport", `[pm] rtc nat verdict=${step.verdict} after ${step.probeAttempts} probes`);
     }
     if (step.giveUp) {
-      // Keep the counter the failed probe advanced — every re-arm path resets it,
-      // but leaving it stale would misreport the ladder position in diagnostics.
       this._probeAttempts = step.probeAttempts;
       this._rtcGivenUp = true;
-      // Remember the network we gave up on — a resume only re-arms RTC when
-      // the public IP differs (evidence of a real handover, not a timer).
       this._giveUpIp = this._netFingerprint;
       if (!this._giveUpIp) {
-        // The peer gathered no srflx (UDP blocked), so we have no baseline.
-        // Take one from the standalone probe — the same source the resume check
-        // uses — else every resume would compare against null, read it as
-        // "changed", and re-enter the ladder forever. A probe that also finds no
-        // public IP records NO_PUBLIC_IP so the baseline stays stable.
         probePublicIp().then((ip) => {
           if (this._rtcGivenUp && !this._giveUpIp) {
             this._giveUpIp = ip || NO_PUBLIC_IP;
@@ -584,11 +443,8 @@ export class ProtocolManager {
     const retry = () => {
       this._disarmRestart();
       if (this._awaitingApproval) return;
-      if (!this._sig?.ready) return; // DO down — _onSignalingReady will restart
-      // Only tear down a peer past its natural connect timeout. A younger peer
-      // is still doing ICE — killing it on the first 500ms tick restarted the
-      // loop forever. Let the adapter's own _connectTimer close it (→ the closed
-      // branch restarts) and just reschedule.
+      if (!this._sig?.ready) return;
+      // Avoid tearing down peer before ICE negotiation timeout has elapsed.
       const rtc = this._adapters.get("rtc");
       if (rtc) {
         const action = restartTimerAction({
@@ -599,15 +455,7 @@ export class ProtocolManager {
           connectTimeoutMs: RTC_CONNECT_TIMEOUT_MS
         });
         if (action === "wait") {
-          // Re-arm at the SAME rung. Routing this back through _scheduleRtcRestart
-          // spent a rung to wait — three of them burned in the fast phase before
-          // the peer had said anything, so the ladder reached the minute-long
-          // rungs without a single real attempt behind it. Waiting on a peer that
-          // is still trying is not an attempt, and must not cost like one.
-          //
-          // Sleep to the peer's own deadline rather than re-using `delay`: a
-          // 500ms rung against a 15s ICE window would wake thirty times to learn
-          // the same thing. One wake, exactly when there is something to decide.
+          // Re-arm at same rung until peer's ICE deadline without counting as an attempt.
           const until = Math.max(peerDeadline({
             connectingSince: rtc.connectingSince,
             connectDeadline: rtc.connectDeadline,
@@ -627,8 +475,6 @@ export class ProtocolManager {
     };
     this._armRestart(retry, delay);
   }
-
-  // ─── Signaling routing (cross-adapter for RTC) ────────────────────────────
 
   _sendSignaling(msg) {
     sendSignaling(this, msg);

@@ -16,36 +16,18 @@ import { termLog } from "@/shared/utils/termLog";
 import { RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { RESOLVE_ACK_TIMEOUT_MS } from "../constants";
 
-// The CLI reports skills as bare id strings; the agent-side scan reports objects.
-// Normalize both to one shape so the "/" menu and skills modal never render `undefined`.
+// CLI reports skills as bare id strings, the agent scan as objects; normalize to one shape.
 const normalizeSkills = (skills) =>
   Array.isArray(skills)
     ? skills.map((s) => (typeof s === "string" ? { id: s, name: s, description: "" } : s))
     : [];
-// How long live events are held while waiting for the ai:create snapshot ack.
 const HYDRATE_TIMEOUT_MS = 4000;
-// An ack wait budget for the scroll-up fetch. A carrier that dies mid-flight never
-// calls back, and the same guard is what keeps the terminal's history fetch alive
-// (see features/terminal/lib/reconnectState.js).
+// Ack-wait budget; a carrier that dies mid-flight never calls back.
 const HISTORY_TIMEOUT_MS = 4000;
-// Applying a rewind is not a fetch: claude's file half spawns its CLI twice, and the
-// host allows each spawn a minute (see agent/features/ai/claudeRewind.js). On the fetch
-// budget a working rewind was reported to the user as "the host did not answer", while
-// the host went on to finish it — a failure message for a success.
+// A rewind spawns the CLI twice on the host, each allowed a minute — the fetch budget reported a working one as failed.
 const REWIND_APPLY_TIMEOUT_MS = 130000;
-// A hydrate whose ack never arrived leaves the pane without the host's tail, and with
-// it the load-older affordance. The ladder that re-asks lives in lib/hydrateRetry, and
-// the lib owns the delays — this hook only drives its timer.
 
-/**
- * Has the tail of this log already printed `text`?
- *
- * The CLI reports some failures twice — a synthetic assistant message the pane streams
- * as prose, and the same sentence again in `result` — so the failure row must not repeat
- * a line the reader is looking at. Only the last message is checked: the duplicate is by
- * construction the answer the turn just made, and scanning the whole log per turn would
- * make this O(n) on every ending.
- */
+// The CLI reports some failures twice (streamed prose + `result`); only the last message is checked to stay cheap.
 function alreadySaid(messages, text) {
   const said = String(text || "").trim();
   if (!said) return false;
@@ -53,18 +35,14 @@ function alreadySaid(messages, text) {
   return Boolean(last && last.role === "assistant" && String(last.content || "").trim().endsWith(said));
 }
 
-// A prompt the host turned away (a busy engine). The text rides the row so an F5 still
-// shows what never sent; the live door draws the same sentence as the replay.
+// A refused prompt: the text rides the row so a reload still shows what never sent.
 const refusedNoticeContent = (data) =>
   data?.text ? `Not sent — ${data.reason || "the turn is still running"}: ${data.text}` : data?.reason || "Not sent";
 
-// Pure reducer that transforms an event log into a complete session snapshot in RAM
-// in <3ms, avoiding thousands of re-renders and synchronous store dispatches.
+// Reduces an event log to a full snapshot in RAM, avoiding thousands of store dispatches.
 export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) {  const messages = [];
   let tasks = [];
-  // The CLI's own records, in order, for whatever the pane learns to read next. The task
-  // model is folded out of them at the end rather than inside the switch: the rules live
-  // in lib/harnessTasks.js, so the live path and this replay call the same code.
+  // Folded at the end via lib/harnessTasks so replay and the live store share one reader.
   const harnessRecords = [];
   let metadata = { model: "", skills: [], mcpServers: [] };
   let stats = { inputTokens: 0, outputTokens: 0, totalTurns: 0, totalCost: 0, reasoningTokens: 0 };
@@ -98,12 +76,10 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         break;
       }
       case "init": {
-        // Engines emit init more than once (skills first, then thread/model). A later
-        // init that carries no skills must not wipe the ones already discovered.
+        // Engines emit init more than once; a later one without skills must not wipe known ones.
         const incoming = normalizeSkills(data?.skills);
         const skills = incoming.length > 0 ? incoming : metadata.skills;
-        // Nor the model: an adapter that never learned one publishes "" (the CLI's own
-        // config decides), which blanked the chip the connect metadata had just filled.
+        // An adapter that never learned a model publishes "" — must not blank the chip.
         const { model: initModel, ...initRest } = data || {};
         metadata = { ...metadata, ...initRest, skills, ...(initModel ? { model: initModel } : {}) };
         break;
@@ -142,8 +118,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         else diffs.push(data);
         break;
       }
-      // A sub-agent's tool call: nested under the Agent/Task card that spawned it,
-      // never a row of its own. Dropped when the parent is not in the log.
+      // A sub-agent tool call, nested under its parent card; dropped when the parent is absent.
       case "tool_child": {
         if (!data) break;
         for (let i = messages.length - 1; i >= 0; i--) {
@@ -250,16 +225,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         activePermission = null;
         if (data?.stats) stats = { ...stats, ...data.stats };
         if (messages.length > 0) messages[messages.length - 1].isLive = false;
-        // A turn that FAILED says so in the timeline, in the same row the harness's own
-        // errors use. `turn_complete` has always carried this — the adapter forwards
-        // `isError`, `subtype` and the CLI's `result` — and this reducer threw it away,
-        // so a turn that died (a model 404, a retry budget spent, the turn limit) looked
-        // exactly like one that answered. The text is the CLI's own sentence.
-        //
-        // Not when the answer already said it: the CLI reports some failures twice, once
-        // as a synthetic assistant message whose text streams to the pane as prose and
-        // again in `result` (verified on 2.1.274 — the two strings were byte-identical),
-        // and drawing both prints the same sentence back to back.
+        // A failed turn draws the CLI's own sentence; alreadySaid guards its double report.
         if (data?.isError && !alreadySaid(messages, data.result)) {
           messages.push({
             id: `n-${++msgSeq}`, role: "notice", subtype: data.subtype || "",
@@ -276,8 +242,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         activePermission = null;
         break;
       case "stall":
-        // The watchdog killed a silent turn. Ends the turn like `stopped`, but draws no
-        // bubble: it fires on a timeout guess, so a slow build must not read as an error.
+        // Watchdog timeout guess — end the turn, but a slow build must not read as an error.
         turnEnded = true;
         isTurnRunning = false;
         activePermission = null;
@@ -285,15 +250,11 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         break;
       case "exit":
         turnEnded = true;
-        // The CLI process went away. Turn ends either way — without this the pane
-        // kept spinning on a process that was already gone (only claudeAdapter emits it).
-        // The gate dies with it: a card replayed against a dead process answers nobody.
+        // The CLI process went away — end the turn and drop the gate (claudeAdapter only).
         isTurnRunning = false;
         activePermission = null;
         for (const m of messages) if (m.isLive) m.isLive = false;
-        // A process that went away mid-turn is a failure the pane has to name: the CLI
-        // crashed, was killed, or the spawn never worked. `code` 0 with no error is the
-        // ordinary exit after a completed turn, so only a bad one draws the row.
+        // `code` 0 with no error is an ordinary exit — only a bad one draws the row.
         if (data?.error || (data?.code != null && data.code !== 0)) {
           messages.push({
             id: `n-${++msgSeq}`, role: "notice", subtype: "exit", level: "error",
@@ -303,9 +264,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         break;
       case "error":
         turnEnded = true;
-        // An error can land mid-turn (opencode reports a blocked action this way), so the
-        // segment still streaming must be closed — otherwise its bubble keeps a live
-        // spinner even though the turn is over.
+        // An error can land mid-turn (opencode blocked actions) — close the streaming bubble.
         isTurnRunning = false;
         for (const m of messages) if (m.isLive) m.isLive = false;
         messages.push({
@@ -317,9 +276,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         });
         break;
       case "prompt_refused":
-        // The host turned this prompt away (a busy engine). Not a turn ending and no
-        // live row — the turn that IS running keeps its flag, and the text rides the
-        // notice so a reload still shows what never sent.
+        // Not a turn ending: the running turn keeps its flag; text rides the notice for reload.
         messages.push({
           id: `n-${++msgSeq}`, role: "notice", subtype: "prompt_refused", level: "error",
           content: refusedNoticeContent(data)
@@ -333,43 +290,24 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         activePermission = null;
         activeBlocked = null;
         break;
-      // A record the pane has no card for. Kept rather than dropped: the pane is a
-      // re-render of the TUI, and a record it cannot draw YET must not leave a hole
-      // that is invisible from both ends.
+      // Records with no card yet are kept, not dropped — the pane may learn to draw them.
       case "cli_event": {
         const type = data?.type || "";
         const record = data?.record || null;
-        harnessRecords.push([type, data?.subtype || "", record]);
-        // A record the harness gave something readable to is a line in the timeline, in
-        // the order it happened. Which ones those are is the harness's call — see
-        // noticeFrom.
+        harnessRecords.push([type, data?.subtype || "", record, data?.ageMs]);
         const notice = noticeFrom(type, record);
-        if (!notice) break;
-        // A settled compaction REPLACES the "Compacting…" row it ends — one happening, and
-        // the CLI states its start and its end as two frames. With an error to show it takes
-        // the row's place; a skipped one has nothing to say, so dropping the row IS the
-        // update. Same rule as the live store door (see addNotice).
-        // `compactSettled` is a wire between those two doors, not part of the row: the
-        // reducer has already used it here, and nothing downstream reads it.
+   if (!notice) break;
+        // A settled compaction replaces the "Compacting…" row it ends; compactSettled is a wire flag, not row data.
         const { compactSettled, ...row } = notice;
-        // Found by scanning back, not by looking at the last row: the CLI can put another
-        // readable record between the start and the end of a compaction (`api_error` does
-        // exactly that when the summarization call fails), and a rule that only checked its
-        // immediate neighbour then left the spinner running under the finished row.
+        // Scan back, not last row: another record can sit between a compaction's start and end.
         const runningAt = compactSettled ? lastIndexOfCompacting(messages) : -1;
         if (runningAt !== -1) {
           if (row.content?.trim()) messages[runningAt] = { id: `n-${++msgSeq}`, role: "notice", ...row };
           else messages.splice(runningAt, 1);
           break;
         }
-        // Nothing left to draw — a settled compaction that had no row to close, and every
-        // other reader already refuses empty text. Carrying it would put a blank row in the
-        // timeline that the pane then declines to paint.
         if (!row.content?.trim()) break;
-        // The placeholder `user_message` opened is for the answer, and the answer has not
-        // started. Dropping it here is what stops the pane drawing a bare turn (a bubble
-        // with nothing in it) ahead of a line that arrived first; the next `delta` opens
-        // a fresh one.
+        // Drop the empty assistant placeholder so a notice does not leave a bare bubble.
         const last = messages[messages.length - 1];
         if (last && last.role === "assistant" && !last.content && !last.thinking && !(last.tools || []).length) {
           messages.pop();
@@ -382,10 +320,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
     }
   }
 
-  // Nothing is still running once the turn is over. Settled here rather than in each of
-  // the ending events so every one of them is covered. Keyed on having SEEN the end,
-  // not on isTurnRunning: a page of older events is reduced on its own and carries no
-  // end event, and its tools must stay as they are.
+  // Keyed on turnEnded, not isTurnRunning: a reduced older page carries no end event.
   if (turnEnded) {
     for (const m of messages) if (m.tools) m.tools = settleRunningTools(m.tools);
   }
@@ -427,46 +362,31 @@ export function useAiSession({
   const finishTurn = useAiStore((s) => s.finishTurn);
   const setTurnRunning = useAiStore((s) => s.setTurnRunning);
   const addUserMessage = useAiStore((s) => s.addUserMessage);
-  // A boolean selector, so this re-renders on carrier changes only — not on the
-  // streamed frames the "don't read the session slice" note below is about.
+  // Boolean selector: re-renders on carrier changes only.
   const connected = useConnectionStore((s) => s.connected);
 
-  // Host events older than the replayed tail, still unfetched. The pane pages the
-  // in-RAM window first; only when it runs out does a scroll-up hit the host.
+  // Host events older than the replayed tail, unfetched until scroll-up.
   const [hasOlder, setHasOlder] = useState(false);
-  // Mirrors hydratingRef as state so the pane can say "Syncing" — a ref alone would
-  // never repaint the status line.
+  // Mirrors hydratingRef as state so the status line can repaint.
   const [hydrating, setHydrating] = useState(false);
-  // Whether the host has ever answered for this session. An empty store means "still
-  // loading" until it has: a pane that shows its empty state on an unanswered hydrate is
-  // telling the user the chat is new when the truth is that nobody has replied yet.
-  // Reset per session, and only an ok ack sets it — a rejected one is not an answer.
+  // Has the host ever answered this session; only an ok ack counts as an answer.
   const [synced, setSynced] = useState(false);
-  // The re-ask ladder ran out with nothing answered. Distinct from `synced`: the pane
-  // must offer a retry instead of spinning on a hydrate that is no longer in flight.
+  // The re-ask ladder ran out — the pane offers a retry instead of spinning.
   const [hydrateFailed, setHydrateFailed] = useState(false);
   const olderSeqRef = useRef(0);
   const loadingOlderRef = useRef(false);
 
-  // This hook does not read the session slice: it only dispatches into it, and the
-  // panes subscribe to what they need themselves. Subscribing here would rebuild the
-  // whole hook body — and every callback and effect hanging off it — once per streamed
-  // frame, which is the cost the delta buffering below exists to avoid.
+  // Dispatch-only by design: subscribing here would rebuild the hook per streamed frame.
 
-  // One reducer for BOTH live events and join-replay — the host (daemon) is the
-  // single source of truth, so replayed history must land in the same store
-  // actions a live event would.
+  // One door for live and replay alike: the host is the source of truth.
   const applyEvent = useCallback((sid, event, data) => {
     switch (event) {
       case "user_message":
-        // `replay` marks a log being re-sent (a hydrate rebuilt it, a rewind, a /resume):
-        // the prompt already happened, so it opens no turn here — see aiStore.addUserMessage.
+        // `replay` marks a re-sent log: the prompt already happened, so it opens no turn.
         addUserMessage(sid, data.text, data.attachments || null, Boolean(data?.replay));
         break;
       case "init": {
-        // The agent-side scan (with descriptions) and the CLI's init both land here.
-        // Keep the richer entry when the CLI's bare id arrives second.
-        // Current may still hold raw strings from state persisted before this normalization
+        // Keep persisted descriptions when the CLI's bare ids arrive second.
         const current = normalizeSkills(useAiStore.getState().bySession[sid]?.metadata?.skills);
         const byId = new Map(current.map((s) => [s.id || s.name, s]));
         const incoming = normalizeSkills(data.skills);
@@ -477,16 +397,13 @@ export function useAiSession({
               return known?.description ? { ...s, description: known.description } : s;
             })
           : current;
-        // Same rule as the replay reducer: an init with no model is not news, so the
-        // empty one an adapter publishes when the CLI's config decides must not blank
-        // the model the connect metadata already put on the chip.
+        // An init with no model is not news — must not blank the chip.
         const { model: initModel, ...initRest } = data || {};
         setMetadata(sid, { ...initRest, skills, ...(initModel ? { model: initModel } : {}) });
         break;
       }
       case "goal":
-        // Codex's own persistent goal, read from its state DB by the host. A null goal
-        // means "none set" and must clear the one already shown.
+        // A null goal means "none set" and clears the one already shown.
         setMetadata(sid, { goal: data?.goal || null });
         break;
       case "delta":
@@ -539,17 +456,10 @@ export function useAiSession({
         if (data?.model) setMetadata(sid, { model: data.model });
         if (data?.effort) setMetadata(sid, { effort: data.effort });
         break;
-      // A client that joined mid-turn measures from its own join, so the host's span —
-      // which rides with the event that ends the turn — is the honest number.
+      // The host's span is the honest number for a client that joined mid-turn.
       case "turn_complete":
         finishTurn(sid, data.stats, data.turnMs, Boolean(data?.replay));
-        // A turn that FAILED draws the CLI's own sentence, in the row the harness's own
-        // errors use. Drawn on the replayed door too: a reset clears the messages before
-        // it re-sends the log, so the row has to be rebuilt with them or an F5 would
-        // quietly drop the only record that the turn died.
-        //
-        // Same duplicate rule as the reducer: the CLI reports some failures as a synthetic
-        // assistant message AND in `result`, and the prose half has already printed it.
+        // A failed turn draws the CLI's own sentence, rebuilt on replay too; alreadySaid guards the double report.
         if (data?.isError && !alreadySaid(useAiStore.getState().bySession[sid]?.messages, data.result)) {
           useAiStore.getState().addNotice(sid, {
             subtype: data.subtype || "", level: "error",
@@ -563,15 +473,10 @@ export function useAiSession({
         break;
       case "stopped":
       case "exit":
-        // The CLI process went away or was interrupted. The reducer has always ended the
-        // turn on `exit`, but the live path had no case for it — so a CLI the watchdog
-        // killed mid-gate left the pane spinning on a process that was already gone.
-        // The gate goes with it: no process is left to answer it.
+        // The process is gone — drop the gate with it, nothing is left to answer it.
         clearPermission(sid);
-        // The span of the turn this event just ended, when the host measured one.
         useAiStore.getState().finishTurn(sid, null, data?.turnMs);
-        // Same row the replay draws for a process that died: `stopped` is a deliberate
-        // interrupt and says nothing, but a nonzero code or a spawn failure is news.
+        // `stopped` is a deliberate interrupt and says nothing; a nonzero exit is news.
         if (event === "exit" && (data?.error || (data?.code != null && data.code !== 0))) {
           useAiStore.getState().addNotice(sid, {
             subtype: "exit", level: "error",
@@ -585,10 +490,7 @@ export function useAiSession({
         finishTurn(sid, null, data?.turnMs);
         break;
       case "error":
-        // Spawn/CLI failure never produces a turn_complete — surface it and release the
-        // turn, or the pane spins on a process that is gone. The row, not appended text:
-        // a failure and an answer are two different things, and the pane paints the
-        // first red where the reader is looking (same rule as the replay door).
+        // Spawn failures never produce a turn_complete — surface the row and release the turn.
         useAiStore.getState().addNotice(sid, {
           subtype: "error", level: "error",
           content: data?.message || "AI process failed"
@@ -596,38 +498,28 @@ export function useAiSession({
         finishTurn(sid, null, data?.turnMs);
         break;
       case "prompt_refused":
-        // Deliberately NOT a finishTurn: the running turn never accepted this prompt,
-        // so its flag must survive the refusal (see the replay door's same case).
+        // Deliberately not a finishTurn — the running turn keeps its flag.
         useAiStore.getState().addNotice(sid, {
           subtype: "prompt_refused", level: "error",
           content: refusedNoticeContent(data)
         });
         break;
       case "conversation_reset":
-        // The reset arrives after the ack that hydrated this same log (the host broadcasts
-        // it alongside the replay), so it restates that log's turn state with it — the span
-        // of the turn it ends on, and, when that turn is still streaming, the fact that it
-        // is. Restoring only the span would print "Worked for …" over a running turn.
-        // TEMP DIAGNOSTIC — the reset's own view of the turn, and the order it landed in
-        // relative to the ack. Remove with the rest of the ai-status logging.
+        // The reset rides after the hydrate ack and restates the log's turn state with it.
         termLog("ai-status", "reset", {
           sessionId: sid, isTurnRunning: data?.isTurnRunning, elapsedMs: data?.elapsedMs,
           lastTurnMs: data?.lastTurnMs, fromSeq: data?.fromSeq
         });
         useAiStore.getState().clearMessages(sid);
-        // The host's task set, restated with the log it belongs to — the replayed window
-        // below carries only what fitted in its tail, so a task from the top of a long
-        // turn would come back missing. Applied BEFORE the replay, so the window's own
-        // records fold on top of it.
+        // Host task set applied before the replay — the tail alone may miss top-of-turn tasks.
         useAiStore.getState().setTaskRecords(sid, data?.taskRecords);
         useAiStore.getState().restoreTurnState(sid, data);
         break;
-      // Every CLI record the pane has no card for goes to the store as-is; the fold into
-      // a task list happens there, through the same reader the replay uses.
+      // Records go to the store as-is; the task fold happens there, like the replay's.
       case "cli_event": {
         const type = data?.type || "";
         const record = data?.record || null;
-        useAiStore.getState().applyTaskRecords(sid, [[type, data?.subtype || "", record]]);
+        useAiStore.getState().applyTaskRecords(sid, [[type, data?.subtype || "", record, data?.ageMs]]);
         // Same rule as the replay: the harness decides which records a person reads.
         const notice = noticeFrom(type, record);
         if (notice) useAiStore.getState().addNotice(sid, notice);
@@ -638,47 +530,32 @@ export function useAiSession({
     }
   }, [engine, addUserMessage, setMetadata, appendDelta, appendThinking, appendDiff, appendTool, updateToolResult, nestTool, nestToolResult, upsertTask, setPermission, clearPermission, finishTurn, setTurnRunning]);
 
-  // applyEvent changes identity whenever its store actions do; the hydrate effect
-  // below must NOT re-run for that — re-emitting ai:create would truncate and
-  // replay over a session that is mid-stream.
+  // Ref, not dep: the hydrate effect must not re-emit ai:create over a mid-stream session.
   const applyEventRef = useRef(applyEvent);
   useEffect(() => { applyEventRef.current = applyEvent; });
 
-  // Store action held by ref for the same reason as applyEvent: the hydrate effect
-  // must key on session identity, not on an action identity that changes per render.
+  // Same reason as applyEvent: key on session identity, not action identity.
   const initSessionRef = useRef(initSession);
   useEffect(() => { initSessionRef.current = initSession; });
 
-  // Highest host seq this client has applied. Events at or below it are already
-  // folded in (replayed or live) and must not be applied twice.
+  // Highest host seq applied; events at or below it must not be applied twice.
   const appliedSeqRef = useRef(0);
-  // Bumped whenever the host replaces the log (conversation_reset: /clear, /resume, rewind).
-  // A round in flight when that happens holds seqs of the conversation that just ended, and
-  // a high seq from it must not be read as "newer" by the gate below.
+  // Bumped when the host replaces the log; in-flight seqs from the old log must not read as newer.
   const logEpochRef = useRef(0);
-  // Live events that arrive between emitting ai:create and its ack. The ack
-  // resets the store and replays the snapshot, so anything applied in that window
-  // would be wiped — hold them and re-apply after the replay, in order. This is
-  // the AI counterpart of the terminal's "replay before live output" ordering.
+  // Live events held during a hydrate — the ack's replay would wipe anything applied now.
   const hydratingRef = useRef(false);
   const pendingLiveRef = useRef([]);
-  // Bumped per hydrate attempt. StrictMode mounts twice and the first ack must not
-  // release the gate the second attempt is still holding — a stale callback stands
-  // down instead of clearing state a newer cycle owns.
+  // Bumped per attempt; a stale StrictMode ack must not release a newer cycle's gate.
   const hydrateSeqRef = useRef(0);
-  // The re-ask ladder for a hydrate nobody answered; decisions live in the lib, this
-  // holds the one timer they drive.
+  // Re-ask ladder; delays live in lib/hydrateRetry, this drives its timer.
   const ladderRef = useRef(null);
   if (ladderRef.current == null) ladderRef.current = createRetryLadder();
   const retryTimerRef = useRef(null);
-  // The debounce in front of the one door, and the ack watchdog of the round it opens.
   const hydrateDebounceRef = useRef(null);
   const releaseTimerRef = useRef(null);
-  // Holds `requestHydrate`, assigned once the callback exists. The ladder's timer fires
-  // outside React's render, so it reaches the door through this.
+  // The ladder's timer fires outside render — it reaches the door through this ref.
   const doorRef = useRef({});
-  // The session whose round last owned the gate, so a re-run for the SAME session
-  // (workspacePath resolving late) cannot open it a second time.
+  // Session that last owned the gate; a late workspacePath re-run must not reopen it.
   const gateSessionRef = useRef(null);
 
   const isVisibleRef = useRef(isVisible);
@@ -696,19 +573,11 @@ export function useAiSession({
     ladderRef.current?.answered();
   }, []);
 
-  // The one door into a hydrate. Every trigger (carrier rejoin, resume) reaches it
-  // through `doorRef`, so a resume that fires several of them within milliseconds still
-  // costs one round-trip. A request that lands while a round is in flight is NOT dropped
-  // and NOT stacked: it arms one rung of the ladder, which stands the failure timer down
-  // if that round answers and re-asks if it does not.
+  // One door: a request landing mid-round arms a ladder rung instead of stacking rounds.
   const scheduleHydrateRetry = useCallback(() => {
     const delay = ladderRef.current?.schedule(useConnectionStore.getState().connected);
-    // Every rung spent means the next ask is a repeat of the last backoff, not progress
-    // — that is what the pane reports. A null delay is only "offline" or "a timer is
-    // already armed", neither of which is a failure. The re-ask itself keeps coming.
+    // A null delay means offline or a timer already armed — neither is a failure.
     setHydrateFailed(Boolean(ladderRef.current?.exhausted()));
-    // TEMP DIAGNOSTIC — the ladder's own decision, which is what decides whether the
-    // pane ever re-asks. Remove with the rest of the ai-hydrate logging.
     termLog("ai-hydrate", "ladder", {
       delay: delay ?? null, exhausted: ladderRef.current?.exhausted(),
       connected: useConnectionStore.getState().connected, armed: retryTimerRef.current != null
@@ -717,27 +586,16 @@ export function useAiSession({
     retryTimerRef.current = setTimeout(() => {
       retryTimerRef.current = null;
       ladderRef.current?.fired();
-      // Through the door, not straight at the host: another trigger may have fired
-      // while this timer was pending, and two rounds in flight is what the gate forbids.
+      // Through the door: two rounds in flight is what the gate forbids.
       doorRef.current.request?.();
     }, delay);
   }, []);
 
-  // 1. Pull the host's event log for this session. The host is authoritative, so a
-  // client rebuilds its view from it (truncate then replay) rather than trusting its
-  // own localStorage — that is what makes web 3000 / agent UI / mobile show one
-  // identical history. It is also the reconnect path: a carrier that dropped while
-  // the phone slept took its events with it, and this is the only way back.
+  // 1. Pull the host's log: truncate then replay — also the only path back after a carrier drop.
   const hydrateNow = useCallback(() => {
     if (!sessionId || !bus) return;
-    // One round at a time. Without this, mount + terminal:ready + carrier rejoin each
-    // emit their own ai:create within a few ms of each other, and the older ack lands
-    // over the newer cycle's replay. A request that arrives mid-round is not dropped:
-    // it arms the ladder, which stands down if this round answers and re-asks if not.
+    // One round at a time; a mid-round request arms the ladder instead.
     if (hydratingRef.current) {
-      // TEMP DIAGNOSTIC — a round is already open. If this line repeats while the pane
-      // says Syncing, the gate is stuck: nothing will ever clear it. Remove with the
-      // rest of the ai-hydrate logging.
       termLog("ai-hydrate", "blocked (round in flight)", { gen: hydrateSeqRef.current });
       scheduleHydrateRetry();
       return;
@@ -749,23 +607,19 @@ export function useAiSession({
     setHydrating(true);
     pendingLiveRef.current = [];
     olderSeqRef.current = 0;
-    // TEMP DIAGNOSTIC — one line per round: when it opened, who triggered it, and how
-    // long its ack took (see the matching "ack" log below). Remove with the rest.
     const sentAt = Date.now();
     termLog("ai-hydrate", "emit ai:create", {
       gen, sessionId, engine, cwd: workspacePath,
       carrier: useConnectionStore.getState().carrier,
       connected: useConnectionStore.getState().connected
     });
-    // Drains the held events in arrival order, skipping any the snapshot covers.
     const releaseHeld = () => {
       const queued = pendingLiveRef.current;
       pendingLiveRef.current = [];
       hydratingRef.current = false;
       setHydrating(false);
       for (const p of queued) {
-        // A reset restarts the host's log at seq 1 — the snapshot's watermark no
-        // longer applies to what follows it.
+        // A reset restarts the log at seq 1 — the snapshot's watermark no longer applies.
         if (p.event === "conversation_reset") {
           appliedSeqRef.current = 0;
           logEpochRef.current++;
@@ -781,9 +635,7 @@ export function useAiSession({
         applyEventRef.current(sessionId, p.event, p.data);
       }
     };
-    // A lost ack (carrier dropped mid-flight) must not leave the gate shut forever
-    // — that would buffer every later live event and freeze the chat for good.
-    // Past this window the snapshot is stale anyway and live events are newer.
+    // A lost ack must not shut the gate forever; past this window the snapshot is stale.
     const releaseTimer = setTimeout(() => {
       if (gen !== hydrateSeqRef.current || !hydratingRef.current) return;
       releaseHeld();
@@ -791,8 +643,7 @@ export function useAiSession({
       scheduleHydrateRetry();
     }, HYDRATE_TIMEOUT_MS);
     releaseTimerRef.current = releaseTimer;
-    // A brand-new session starts fully permitted; the host ignores this once it has
-    // a snapshot, so reopening an old chat keeps the mode that chat ran with.
+    // Defaults for a brand-new session only; the host ignores them once it has a snapshot.
     bus.emit("ai:create", {
       sessionId,
       engine,
@@ -803,20 +654,14 @@ export function useAiSession({
       }
     }, (res) => {
       const isNewest = gen === hydrateSeqRef.current;
-      // The gate rule lives in the lib, beside the ladder it belongs to — see there for
-      // why a superseded ack may still apply, and for the two ways one may not.
       if (!shouldApplyHydrateAck({
         isNewest,
         snapshotSeq: res?.session?.seq,
         appliedSeq: appliedSeqRef.current,
         sameLog: epoch === logEpochRef.current
       })) return;
-      // The gate this ack states, applied once the held events are drained — see below.
       let gateToRestore = null;
       const events = res?.session?.events;
-      // TEMP DIAGNOSTIC — the ack, or the absence of one (this line never printed = the
-      // callback was never called at all). `ok:false` carries the host's own error.
-      // Remove with the rest of the ai-hydrate logging.
       termLog("ai-hydrate", "ack", {
         gen, stale: gen !== hydrateSeqRef.current, ms: Date.now() - sentAt,
         ok: res?.ok ?? null, error: res?.error ?? null,
@@ -825,16 +670,12 @@ export function useAiSession({
       });
       try {
         clearTimeout(releaseTimer);
-        // Both paths answer with a replayable log: the daemon sends its live session
-        // state, the in-agent engines send `session.history`. An ack with no array is
-        // the only case where there is nothing to replay.
+        // An ack with no events array is the only case with nothing to replay.
         if (!res?.ok || !Array.isArray(events)) {
           setHasOlder(false);
           return;
         }
         const snapshotSeq = res.session.seq || 0;
-        // TEMP DIAGNOSTIC — what the host said about the turn on this ack, which is the
-        // value everything downstream reads. Remove with the rest of the ai-status logging.
         termLog("ai-status", "hydrate ack", {
           sessionId, isTurnRunning: res.session.isTurnRunning, elapsedMs: res.session.elapsedMs,
           lastTurnMs: res.session.lastTurnMs, events: events.length, hasMore: res.session.hasMore

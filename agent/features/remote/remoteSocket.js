@@ -250,8 +250,7 @@ export async function setupRemoteHandlers(socket, apiKey) {
     }
   }));
 
-  // WS rớt + RTC ready → giữ vô hạn, cleanup khi RTC tự closed.
-  // RTC chưa ready → cleanup ngay (giữ retry behavior cũ).
+  // RTC not ready → clean up now (legacy retry behavior).
   socket.on("disconnect", () => {
     const rtc = protocol._adapters?.get("rtc");
     let cleaned = false;

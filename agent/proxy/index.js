@@ -1,7 +1,3 @@
-/**
- * Proxy server setup and response handler
- */
-
 import { createGunzip, createInflate, createBrotliDecompress } from "zlib";
 import httpProxy from "http-proxy";
 import { randomUUID } from "crypto";
@@ -9,32 +5,21 @@ import { SERVER_PORT } from "../lib/constants.js";
 import { rewriteUrl, rewriteHtmlLinks } from "./rewriter.js";
 import { getServiceWorkerScript, getSwRegistrationScript } from "./serviceWorker.js";
 
-// Active proxy sessions — ports currently being viewed, addressed by an
-// unguessable id rather than by the port itself.
-//
-// /proxy/* is public, so it answers anyone who reaches the tunnel hostname.
-// Keying the URL on the port meant the address was 3000 or 5173 or 8080 — the
-// session was the only secret and it wasn't one. The id in the path is the
-// secret now, the same shape previewServer.js has always used.
-const sessionsById = new Map();  // id → port (number)
-const idsByPort = new Map();     // port (number) → id
+// Active proxy sessions addressed by unguessable ID rather than port number.
+const sessionsById = new Map();
+const idsByPort = new Map();
 
 function normalizePort(port) {
   const n = Number(port);
   if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
-  // Proxying to ourselves would launder a request through the agent: it arrives
-  // at the private routes from loopback, with a local Host, so neither the
-  // origin guard nor the host guard sees anything wrong — and /api/ui/state
-  // hands back the permanent key.
+  // Disallow proxying to agent's own port to prevent auth bypass.
   if (n === SERVER_PORT) return null;
   return n;
 }
 
-/** @returns {string|null} the session id to put in the URL, null for a bad port */
 export function startProxySession(port) {
   const n = normalizePort(port);
   if (n === null) return null;
-  // Reopening a window calls start again; a second id would strand the first.
   const existing = idsByPort.get(n);
   if (existing) return existing;
   const id = randomUUID();
@@ -51,26 +36,21 @@ export function endProxySession(port) {
   idsByPort.delete(n);
 }
 
-/** @returns {number|null} the port this id was minted for */
 export function resolveProxySession(id) {
   return typeof id === "string" && id ? (sessionsById.get(id) ?? null) : null;
 }
 
-/** Port-keyed check for the bus handler, which arrives over an authed socket. */
 export function isProxySessionActive(port) {
   const n = normalizePort(port);
   return n !== null && idsByPort.has(n);
 }
 
-/** The id for a port, so the caller can build the URL. */
 export function proxySessionId(port) {
   const n = normalizePort(port);
   return n === null ? null : (idsByPort.get(n) ?? null);
 }
 
-// ─── Site requests over the transport bus (RTC data channel / WS) ────────────
-// The web client's service worker is the consumer: it serves /browse/<port>/
-// pages from responses carried here, so sites load without the tunnel HTTP origin.
+// Site requests over transport bus served via client service worker.
 
 const SITE_METHODS = new Set(["GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"]);
 const SITE_MAX_BODY_B64_CHARS = 700000; // ~512KB binary
@@ -83,9 +63,7 @@ const SITE_STRIP_HEADERS = new Set([
   "host", "connection", "cookie", "set-cookie", "content-encoding", "content-length",
   "x-frame-options", "content-security-policy", "strict-transport-security", "transfer-encoding"
 ]);
-// Also dropped outbound: forwarding the browser's accept-encoding makes undici
-// hand back a still-compressed body (it only auto-decodes its own default),
-// which the client would try to parse as HTML.
+// Drop accept-encoding so upstream doesn't return compressed bodies.
 const SITE_STRIP_REQUEST_HEADERS = new Set([...SITE_STRIP_HEADERS, "accept-encoding"]);
 
 function siteChunk(socket, payload) {
@@ -104,7 +82,6 @@ export function setupSiteRequestHandler(socket) {
     if (typeof reqId !== "string" || !reqId) return;
     const portNum = Number(port);
     if (!Number.isInteger(portNum) || portNum < 1 || portNum > 65535) return siteError(socket, reqId, "bad-port");
-    // Same gate as the HTTP proxy: only ports with a live viewing session
     if (!isProxySessionActive(portNum)) return siteError(socket, reqId, "no-session");
     if (!SITE_METHODS.has(method)) return siteError(socket, reqId, "bad-method");
     if (typeof target !== "string" || !target.startsWith("/")) return siteError(socket, reqId, "bad-target");
@@ -153,9 +130,6 @@ export function setupSiteRequestHandler(socket) {
   });
 }
 
-/**
- * Create decompression stream based on content-encoding
- */
 function createDecompressor(encoding) {
   switch (encoding) {
     case "gzip": return createGunzip();
@@ -165,32 +139,23 @@ function createDecompressor(encoding) {
   }
 }
 
-/**
- * Inject script into HTML at the beginning of <head> to run before any other scripts
- */
 function injectScript(html, script) {
-  // Inject right after <head> to ensure it runs first
   if (html.includes("<head>")) {
     return html.replace("<head>", "<head>" + script);
   }
   if (html.includes("<HEAD>")) {
     return html.replace("<HEAD>", "<HEAD>" + script);
   }
-  // Fallback: try case-insensitive
   const headMatch = html.match(/<head[^>]*>/i);
   if (headMatch) {
     return html.replace(headMatch[0], headMatch[0] + script);
   }
-  // Last resort: prepend to document
   return script + html;
 }
 
-/**
- * Create and configure proxy server
- */
 export function createProxyServer() {''
   const proxy = httpProxy.createProxyServer({ selfHandleResponse: true });
-  
+
   proxy.on("proxyRes", (proxyRes, req, res) => {
     const targetPort = req._proxyTargetPort;
     const sessionId = req._proxySessionId;
@@ -198,43 +163,38 @@ export function createProxyServer() {''
     const contentEncoding = proxyRes.headers["content-encoding"] || "";
     const isHtml = contentType.includes("text/html");
     const headers = { ...proxyRes.headers };
-    
-    // Rewrite redirect location
+
     if (headers.location) {
       headers.location = rewriteUrl(headers.location, sessionId, targetPort);
     }
-    
-    // JSON/RSC responses: remove complex rewriting, SW will handle it
+
     const isJson = contentType.includes("application/json") || contentType.includes("text/x-component");
     if (isJson) {
       res.writeHead(proxyRes.statusCode, headers);
       proxyRes.pipe(res);
       return;
     }
-    
-    // JavaScript files: remove complex rewriting, SW will handle it
+
     const isJs = contentType.includes("javascript") || contentType.includes("text/javascript");
     if (isJs) {
       res.writeHead(proxyRes.statusCode, headers);
       proxyRes.pipe(res);
       return;
     }
-    
-    // Non-HTML: pipe through directly
+
     if (!isHtml) {
       res.writeHead(proxyRes.statusCode, headers);
       proxyRes.pipe(res);
       return;
     }
-    
-    // HTML: rewrite links and inject script
+
     delete headers["content-length"];
     delete headers["content-encoding"];
-    
+
     const decompressor = createDecompressor(contentEncoding);
     const sourceStream = decompressor ? proxyRes.pipe(decompressor) : proxyRes;
     const chunks = [];
-    
+
     sourceStream.on("data", chunk => chunks.push(chunk));
     sourceStream.on("error", (err) => {
       console.error("[Proxy] Decompress error:", err.message);
@@ -250,19 +210,13 @@ export function createProxyServer() {''
       res.end(html);
     });
   });
-  
+
   return proxy;
 }
 
-/**
- * Handle proxy request
- */
 export function handleProxyRequest(proxy, req, res, sessionId, targetPath, search) {
-  // The id in the path IS the credential here — this route is public, so an
-  // unresolvable id is the same answer as no session at all.
   const targetPort = resolveProxySession(sessionId);
 
-  // Serve Service Worker script
   if (targetPort && targetPath === "/sw.js") {
     const swScript = getServiceWorkerScript(sessionId, targetPort);
     res.writeHead(200, {
@@ -273,7 +227,7 @@ export function handleProxyRequest(proxy, req, res, sessionId, targetPath, searc
     res.end(swScript);
     return;
   }
-  
+
   if (!targetPort) {
     res.writeHead(401, { "Content-Type": "text/html" });
     res.end(`
@@ -294,12 +248,11 @@ export function handleProxyRequest(proxy, req, res, sessionId, targetPath, searc
   req._proxyTargetPort = targetPort;
   req._proxySessionId = sessionId;
   req.url = targetPath + (search || "");
-  
+
   proxy.web(req, res, {
     target: `http://localhost:${targetPort}`,
     changeOrigin: true
   }, (err) => {
-    // console.error(`[Proxy] Error for port ${targetPort}:`, err.message);
     res.writeHead(502);
     res.end(`Bad Gateway: ${err.message}`);
   });

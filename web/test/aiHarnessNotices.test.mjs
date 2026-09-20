@@ -1,11 +1,4 @@
-// The lines the harness itself asks the timeline to draw.
-//
-// The pane does not decide which records are worth showing — the harness does. A record
-// it gives `content` (or a formatted `error`) is one it means a person to read:
-// `local_command`, `compact_boundary`, `informational`, `away_summary`, the errors.
-// Records it writes for bookkeeping (`turn_duration`, `stop_hook_summary`) carry neither
-// and get no row. Measured on 934 real transcripts on this machine.
-//
+// Tests harness timeline notices rendering.
 // Run: cd web && node --import ./test/loader-alias.mjs test/aiHarnessNotices.test.mjs
 import assert from "node:assert/strict";
 import { reduceSessionEvents } from "../features/ai/hooks/useAiSession.js";
@@ -33,7 +26,6 @@ test("a record the harness gave content becomes a line in the timeline", () => {
 });
 
 test("an error record shows the message the harness formatted", () => {
-  // `api_error` carries no `content` — its text is `error.formatted`.
   const out = reduceSessionEvents([rec("api_error", { level: "error", error: { formatted: "Connection dropped (ECONNRESET)" } })], "claude");
   assert.equal(notices(out).length, 1);
   assert.equal(notices(out)[0].level, "error");
@@ -46,12 +38,7 @@ test("an error with only a message still shows", () => {
   assert.match(notices(out)[0].content, /Connection error/);
 });
 
-// ── the compaction, whose two doors spell the record differently ──
-
 test("the LIVE compact_boundary frame draws a row even though it has no content", () => {
-  // Captured from claude 2.1.273's stream-json: the frame the pipe carries is metadata
-  // and nothing else — no `content`, no `level`. A reader keyed on text drew NOTHING
-  // here, which is why a compaction showed up only after an F5.
   const out = reduceSessionEvents([rec("compact_boundary", {
     compact_metadata: { trigger: "manual", pre_tokens: 40053, post_tokens: 2452, cumulative_dropped_tokens: 37601, duration_ms: 22885 }
   })], "claude");
@@ -66,8 +53,6 @@ test("the LIVE compact_boundary frame draws a row even though it has no content"
 });
 
 test("the REPLAY copy of the same record keeps the harness's own sentence", () => {
-  // The transcript the CLI writes for itself spells the metadata in camelCase and adds
-  // the sentence. Both spellings, one row — an F5 must not draw a different line.
   const out = reduceSessionEvents([rec("compact_boundary", {
     content: "Conversation compacted", level: "info",
     compactMetadata: { trigger: "auto", preTokens: 557511, postTokens: 20680, durationMs: 51369 }
@@ -90,9 +75,6 @@ test("a compaction with neither text nor metadata adds no row", () => {
 });
 
 test("the running status opens a row, and the boundary that follows settles it", () => {
-  // The CLI states the start (`status: compacting`) and then says nothing for 20–50s.
-  // The row it opens is REPLACED by the boundary, not joined by it: they are one
-  // happening, and leaving the spinner under a finished line is a lie.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "/compact" } },
     rec("status", { status: "compacting" }),
@@ -105,22 +87,13 @@ test("the running status opens a row, and the boundary that follows settles it",
 });
 
 test("a status that is not a compaction is not a row", () => {
-  // `status` is the CLI's whole activity channel. Only the compaction's own two words are
-  // read here; anything else on it is someone else's business.
   for (const status of ["requesting"]) {
     assert.equal(notices(reduceSessionEvents([rec("status", { status })], "claude")).length, 0, `${status} must not open a row`);
   }
-  // `permissionMode` rides the same channel and says nothing about compaction either.
   assert.equal(notices(reduceSessionEvents([rec("status", { status: "requesting", permissionMode: "plan" })], "claude")).length, 0);
 });
 
-// ── the compaction that ends without ever reaching a boundary ──
-
 test("a FAILED compaction closes its row instead of spinning forever", () => {
-  // The CLI's failure path emits `status: null, compact_result: "failed"` and NO
-  // compact_boundary at all (verified in 2.1.273: the boundary is only written on the
-  // success path). A reader that only looked for a boundary left the "Compacting…" row
-  // spinning over a compaction that had already given up.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "/compact" } },
     rec("status", { status: "compacting" }),
@@ -134,8 +107,6 @@ test("a FAILED compaction closes its row instead of spinning forever", () => {
 });
 
 test("a failed compaction with the detail stripped still says it failed", () => {
-  // `compact_error` sits behind a feature flag in the CLI and is often absent; the outcome
-  // word is always there, so the row must not come out empty.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "/compact" } },
     rec("status", { status: "compacting" }),
@@ -146,8 +117,6 @@ test("a failed compaction with the detail stripped still says it failed", () => 
 });
 
 test("a SUCCESSFUL compaction's clearing closes the row, and the boundary draws the result", () => {
-  // Captured from a real /compact: the clearing arrives FIRST, the boundary second. The
-  // first has nothing to say and only ends the spinner; the second is the row.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "/compact" } },
     rec("status", { status: "compacting" }),
@@ -160,8 +129,6 @@ test("a SUCCESSFUL compaction's clearing closes the row, and the boundary draws 
 });
 
 test("a skipped compaction does not leave its row spinning", () => {
-  // `status: null` with no outcome at all is the CLI saying the compaction never happened.
-  // Nothing to report, so the row simply goes.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "/compact" } },
     rec("status", { status: "compacting" }),
@@ -172,8 +139,6 @@ test("a skipped compaction does not leave its row spinning", () => {
 });
 
 test("a settled compaction with nothing to say still closes the row in the store", () => {
-  // The store door holds the same rule as the reducer: an empty notice is refused EXCEPT
-  // when it is a compaction ending, which is the one record whose whole job is to end one.
   useAiStore.getState().initSession("live-settle");
   useAiStore.getState().addNotice("live-settle", { subtype: "status", level: "info", content: "Compacting…", compacting: true });
   assert.equal(useAiStore.getState().bySession["live-settle"].messages.length, 1);
@@ -182,9 +147,6 @@ test("a settled compaction with nothing to say still closes the row in the store
 });
 
 test("a compaction whose row is NOT the last one still gets replaced", () => {
-  // The CLI can put another readable record between a compaction's start and its end —
-  // `api_error` is the one that really happens, when the summarization call fails. A rule
-  // that only looked at the last row left "Compacting…" spinning under the finished row.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "/compact" } },
     rec("status", { status: "compacting" }),
@@ -211,17 +173,12 @@ test("a skipped compaction removes its row from the middle, not the end", () => 
 });
 
 test("a settled compaction that is NOT running yet adds no empty row", () => {
-  // A clearing with no start before it (a client that joined mid-compaction, or a stale
-  // frame after a reset) must not leave a blank row behind.
   useAiStore.getState().initSession("live-settle-stray");
   useAiStore.getState().addNotice("live-settle-stray", { subtype: "status", level: "info", content: "", compactSettled: true });
   assert.equal(useAiStore.getState().bySession["live-settle-stray"].messages.length, 0);
 });
 
 test("a refused notice leaves the store intact, every session still in it", () => {
-  // Zustand replaces the WHOLE store when a `set` updater returns undefined — a bare
-  // `return` inside the callback is not "no change", it is "throw everything away". This
-  // pins that: an update that decides to do nothing must hand the state back.
   useAiStore.getState().initSession("live-keep-a");
   useAiStore.getState().initSession("live-keep-b");
   useAiStore.getState().addUserMessage("live-keep-a", "still here");
@@ -248,8 +205,6 @@ test("a running compaction reaches the pane as a running row", () => {
 });
 
 test("a record with nothing to show adds no row", () => {
-  // `turn_duration` and `stop_hook_summary` are bookkeeping: the harness gives them no
-  // text, which is the harness saying "this is not for a person to read".
   for (const subtype of ["turn_duration", "stop_hook_summary"]) {
     const out = reduceSessionEvents([rec(subtype, { durationMs: 27390, hookCount: 2 })], "claude");
     assert.equal(notices(out).length, 0, `${subtype} must not open a row`);
@@ -263,9 +218,6 @@ test("a notice lands where it happened, not hoisted to an end", () => {
     { seq: 3, event: "delta", data: { text: "answer" } }
   ], "claude");
   const roles = out.messages.map((m) => m.role);
-  // Between the prompt and the answer that followed. The earlier version of this test
-  // expected an assistant placeholder here too — but that placeholder is empty until the
-  // answer starts, and drawing it put a bare bubble ahead of the notice.
   assert.deepEqual(roles, ["user", "notice", "assistant"]);
 });
 
@@ -293,8 +245,6 @@ test("a non-system record never becomes a notice", () => {
   assert.equal(notices(out).length, 0);
 });
 
-// ── and the pane paints it ──
-
 test("a notice becomes a row of its own, in arrival order", () => {
   const rows = buildTurnRows([
     { id: "a1", role: "assistant", content: "before" },
@@ -307,8 +257,6 @@ test("a notice becomes a row of its own, in arrival order", () => {
 });
 
 test("a notice is never hidden behind the N-more bar", () => {
-  // The bar is for STEP runs (tool calls, thoughts). A notice is not a step: it is the
-  // harness telling the reader something, and burying it under a bar defeats that.
   const rows = [
     { kind: "notice", id: "n1", notice: { subtype: "compact_boundary", level: "info", content: "x" } },
     ...Array.from({ length: 8 }, (_, i) => ({ kind: "tool", id: `t${i}`, tool: { id: `t${i}`, name: "Bash" }, engine: "claude" }))
@@ -319,11 +267,7 @@ test("a notice is never hidden behind the N-more bar", () => {
   assert.equal(noticeBlock.type, "row");
 });
 
-// ── the live door lands the same row the replay does ──
-
 test("a notice that arrives live reaches the store, like one that was replayed", () => {
-  // The live path and the replay path must land the same row. A notice that only appeared
-  // after a reload — or only before one — is the same drift the task list already had.
   useAiStore.getState().initSession("live-notice");
   useAiStore.getState().addNotice("live-notice", { subtype: "compact_boundary", level: "info", content: "Conversation compacted" });
   const msgs = useAiStore.getState().bySession["live-notice"].messages;
@@ -340,9 +284,6 @@ test("an empty notice is refused by the store too", () => {
 });
 
 test("a notice between the prompt and the answer leaves no empty turn behind", () => {
-  // `user_message` opens an assistant placeholder for the answer to stream into. A notice
-  // landing before that answer used to sit AFTER the empty placeholder, so the pane drew
-  // a bare turn (a bubble with nothing in it) and then the notice.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "hi" } },
     rec("compact_boundary", { content: "compacted", level: "info" }),
@@ -354,8 +295,6 @@ test("a notice between the prompt and the answer leaves no empty turn behind", (
 });
 
 test("a notice after the answer started drops nothing", () => {
-  // The guard is only for an EMPTY placeholder. Once the answer is streaming, the notice
-  // must sit after it and the segment must survive.
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "hi" } },
     { seq: 2, event: "delta", data: { text: "partial answer" } },
@@ -376,8 +315,6 @@ test("a notice after a tool call drops nothing either", () => {
 });
 
 test("the live store drops the empty placeholder too", () => {
-  // Same rule as the replay door. One door dropping it and the other not is the drift
-  // that makes a bug appear only after a reload.
   useAiStore.getState().initSession("live-orph");
   useAiStore.getState().addUserMessage("live-orph", "hi");
   useAiStore.getState().addNotice("live-orph", { level: "info", content: "compacted" });
@@ -396,9 +333,6 @@ test("the live store keeps a segment that already has content", () => {
 });
 
 test("a notice is a plain line, whatever it carries", () => {
-  // A notice used to become a button when it named a file. The only record that did —
-  // `edited_text_file` — no longer draws a row at all (see noticeFrom), so nothing
-  // produces one and the door went with it. The row is the content, and nothing else.
   useAiStore.getState().initSession("live-plain");
   useAiStore.getState().addNotice("live-plain", { level: "info", content: "compacted" });
   const msgs = useAiStore.getState().bySession["live-plain"].messages;
@@ -409,13 +343,7 @@ test("a notice is a plain line, whatever it carries", () => {
   assert.equal(rows[0].notice.file, undefined, "and the row carries none either");
 });
 
-// ── harness bookkeeping must never be drawn as a line ──
-
 test("a task notification's own frame is never shown", () => {
-  // Reported from real use: the chat drew the whole `<task-notification>…</task-notification>`
-  // block as a notice. That text is the harness reporting a task to ITSELF — the CLI's own
-  // tool result says "never quote or paste any part of it" — and carrying attachments
-  // without filtering it is how it reached the screen.
   const inner = [
     "<task-notification>",
     "<task-id>wrfbfmlsr</task-id>",
@@ -433,33 +361,24 @@ test("a task notification's own frame is never shown", () => {
 });
 
 test("a real queued prompt still shows", () => {
-  // The filter must not throw away the thing the row exists for.
   const n = noticeFrom("attachment", { type: "queued_command", prompt: "chạy test giúp tôi" });
   assert.ok(n);
   assert.equal(n.content, "chạy test giúp tôi");
 });
 
 test("a hook whose output is real context still shows — at SessionStart", () => {
-  // SessionStart is the one hook whose output the TUI draws. A per-prompt hook carrying the
-  // same text is model input, not a line (see the hookEvent test above).
   const n = noticeFrom("attachment", { type: "hook_success", hookEvent: "SessionStart", content: "codegraph: 12 symbols matched" });
   assert.ok(n);
   assert.match(n.content, /codegraph/);
 });
 
 test("a harness frame is filtered on the system door too", () => {
-  // The same frame can arrive as a `system` record's `content`, not only as an attachment —
-  // filtering one door and not the other is how it reached the screen anyway.
   const inner = "<task-notification>\n<task-id>x</task-id>\n</task-notification>";
   assert.equal(noticeFrom("system", { content: inner }), null);
   assert.ok(noticeFrom("system", { content: "Conversation compacted", level: "info" }), "real text still shows");
 });
 
 test("a hook's output shows only where the TUI shows it — SessionStart", () => {
-  // Reported from real use: the chat drew a codegraph hook's whole `<persisted-output>`
-  // block. The TUI draws hook output in exactly one place, and the binary says which:
-  //   if (hookEvent !== "SessionStart") return [];
-  // Every other hook (UserPromptSubmit, PostToolUse, …) feeds the MODEL, not the screen.
   const persisted = "<persisted-output>\nOutput too large (15.8KB). Full output saved to: /tmp/x.txt\n</persisted-output>";
 
   const userHook = noticeFrom("attachment", { type: "hook_success", hookEvent: "UserPromptSubmit", content: persisted });
@@ -474,8 +393,6 @@ test("a hook's output shows only where the TUI shows it — SessionStart", () =>
 });
 
 test("a hook output that names a saved file says so, not the whole dump", () => {
-  // The TUI does this too (its `ogt`): a persisted-output frame becomes the path it saved
-  // to. Drawing the frame itself is what put 15KB of XML on the screen.
   const saved = "<persisted-output>\nOutput too large. Full output saved to: /tmp/tool-results/abc.txt\nPreview: <junk>…\n</persisted-output>";
   const n = noticeFrom("attachment", { type: "hook_success", hookEvent: "SessionStart", content: saved });
   assert.ok(n);
@@ -485,33 +402,20 @@ test("a hook output that names a saved file says so, not the whole dump", () => 
 });
 
 test("a hook with no hookEvent at all shows nothing", () => {
-  // The TUI's first test is `!("hookEvent" in n)` — a hook that cannot say when it ran is
-  // not one it can place.
   assert.equal(noticeFrom("attachment", { type: "hook_success", content: "something" }), null);
 });
 
 test("a persisted-output frame never reaches a queued prompt's row either", () => {
-  // The `<persisted-output>` frame is the other one the harness writes to talk to itself:
-  // 15KB saying the real output went to a file. It leaked through `queued_command`, which
-  // has no hookEvent to gate on — the frame test is what stops it.
   const txt = "<persisted-output>\nOutput too large. Full output saved to: /tmp/a.txt\nPreview: junk\n</persisted-output>";
   assert.equal(noticeFrom("attachment", { type: "queued_command", prompt: txt }), null);
-  // A real prompt still shows.
   assert.equal(noticeFrom("attachment", { type: "queued_command", prompt: "chạy test giúp tôi" }).content, "chạy test giúp tôi");
 });
-
-// ── codex says the same things under its own names ──
-//
-// These records are the whole message — the CLI bothered to write a sentence, which is
-// the same test this file applies to the harness's `content`. Before the reader knew
-// them they arrived (via the passthrough) and drew nothing.
 
 test("codex warnings stay out of the chat", () => {
   assert.equal(noticeFrom("warning", { threadId: "t-1", message: "Stream error: retrying" }), null);
 });
 
 test("a codex error is read one level down, where its message lives", () => {
-  // `TurnError` nests: the record is `{error: {message, codexErrorInfo}}`, not `{message}`.
   const n = noticeFrom("error", { error: { message: "sandbox denied" }, willRetry: false });
   assert.equal(n.content, "sandbox denied");
   assert.equal(n.level, "error");
@@ -527,35 +431,22 @@ test("a config warning stays out of the chat", () => {
 });
 
 test("a rerouted model is stated, not hidden", () => {
-  // Silently answering from another model is the kind of thing a person has to be told.
   const n = noticeFrom("model/rerouted", { fromModel: "gpt-5.6-sol", toModel: "gpt-5.5" });
   assert.match(n.content, /gpt-5\.6-sol → gpt-5\.5/);
 });
 
 test("a codex notification that says nothing readable draws nothing", () => {
-  // 83 notifications exist and almost none of them are prose. A row each would bury the
-  // conversation; the passthrough still carries them, the timeline just does not draw them.
   for (const type of ["turn/started", "thread/started", "item/started", "account/rateLimits/updated"]) {
     assert.equal(noticeFrom(type, { threadId: "t-1" }), null, `${type} is state, not prose`);
   }
 });
 
 test("a codex compaction draws the one line it has", () => {
-  // The whole record is `{threadId, turnId}` — no counts and no content, so the word is
-  // the row. Same event Claude's boundary states: the context behind this turn was folded.
   const n = noticeFrom("thread/compacted", { threadId: "t-1", turnId: "turn-1" });
   assert.equal(n.content, "Compacted");
   assert.equal(n.level, "info");
   assert.equal(n.compactSettled, true, "and it closes a running compaction row if one is open");
 });
-
-// ── a turn that FAILED is a line, not a silent ending ──
-//
-// `turn_complete` has always carried `isError`, `subtype` and the CLI's own `result`,
-// and the pane threw all three away — so a turn that died to a model 404, a spent retry
-// budget or the turn limit looked exactly like one that answered. Probed on claude
-// 2.1.274: a request to an unreachable model returns `is_error: true` with the reason in
-// `result` ("There's an issue with the selected model …").
 
 test("a failed turn draws the CLI's own sentence", () => {
   const out = reduceSessionEvents([
@@ -578,9 +469,6 @@ test("a turn that answered draws nothing", () => {
 });
 
 test("a failure the answer already printed is not printed twice", () => {
-  // The CLI reports some failures on BOTH doors: a synthetic assistant message whose text
-  // streams to the pane as prose, and the same sentence again in `result` — verified on
-  // 2.1.274, the two strings byte-identical. Drawing both puts the line back to back.
   const said = "There is an issue with the selected model (x).";
   const dup = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "hi" } },
@@ -589,7 +477,6 @@ test("a failure the answer already printed is not printed twice", () => {
   ], "claude");
   assert.equal(notices(dup).length, 0, "the reader is already looking at that sentence");
 
-  // A turn whose answer said something else still has to state its failure.
   const other = reduceSessionEvents([
     { seq: 1, event: "delta", data: { text: said } },
     { seq: 2, event: "turn_complete", data: { isError: true, result: "The connection dropped." } }
@@ -607,12 +494,9 @@ test("a process that died draws a row, an ordinary exit does not", () => {
   assert.match(notices(bad)[0].content, /code 1/);
   assert.equal(notices(bad)[0].level, "error");
 
-  // A spawn failure reports through `error` and no code at all.
   const noBin = reduceSessionEvents([{ seq: 1, event: "exit", data: { code: null, error: "spawn claude ENOENT" } }], "claude");
   assert.match(notices(noBin)[0].content, /ENOENT/);
 
-  // The ordinary exit after a completed turn says nothing — /clear and a model switch
-  // both stop the CLI on purpose, and a red row over each would be crying wolf.
   assert.equal(notices(reduceSessionEvents([{ seq: 1, event: "exit", data: { code: 0, signal: "SIGINT" } }], "claude")).length, 0);
 });
 
@@ -625,10 +509,6 @@ test("a spawn failure is the same row the harness's own errors use", () => {
 });
 
 test("a refused prompt is a notice, not a turn ending", () => {
-  // The host turns a prompt away when the engine's turn is still running. Replay must
-  // not read that as the turn ending (session-1789642859582 replayed it as a
-  // forever-running phantom turn) — and the text rides the row, so an F5 still shows
-  // what never sent.
   const out = reduceSessionEvents([
     { event: "user_message", data: { text: "chào" } },
     { event: "prompt_refused", data: { text: "bạn khỏe ko", reason: "Codex turn is already running." } }

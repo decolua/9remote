@@ -1,7 +1,4 @@
-// AI Tool Hook Management — registry-driven.
-// One entry per tool in TOOL_REGISTRY; enable/disable dispatch by `kind`.
-// Event types: "working" | "blocked" | "done" (mapped to 4-state by statusManager).
-// To add a tool: append a TOOL_REGISTRY entry + its PATHS/BINARIES/TOOL_DIRS slot.
+// Registry-driven hook management mapping tool events to working/blocked/done.
 import os from "os";
 import fs from "fs";
 import path from "path";
@@ -18,7 +15,6 @@ const OPENCODE_PLUGIN_MARK = "nineRemoteNotify";
 const CLAUDE_ENV_BACKUP_FILE = path.join(APP_PATHS.STATE, "claudeEnvBackup.json");
 
 const homeSub = (...p) => path.join(os.homedir(), ...p);
-// Resolve config dir from env override (agent's own var) or fall back to ~/<fallback>
 const envDir = (envVar, ...fallback) => {
   const v = process.env[envVar];
   return v && v.trim() ? v.trim() : homeSub(...fallback);
@@ -44,7 +40,6 @@ const PATHS = {
   pi: () => path.join(envDir("PI_CODING_AGENT_DIR", ".pi", "agent"), "extensions", "9remote.ts"),
 };
 
-// Binary name on PATH used to detect whether a tool is installed
 const BINARIES = {
   claude: "claude", codex: "codex", opencode: "opencode",
   grok: "grok", cursor: "cursor-agent", antigravity: "agy", kiro: "kiro-cli",
@@ -52,9 +47,7 @@ const BINARIES = {
   rovodev: "acli", hermes: "hermes", amp: "amp", pi: "pi",
 };
 
-// sessionId: hooks that receive JSON on stdin carry the CLI's own conversation id
-// under its own field name — capture it so the agent can relaunch that exact
-// conversation later. The catalog owns the spelling; a new CLI needs no change here.
+// Capture conversation ID from stdin JSON to support relaunching later.
 const buildCurlCmd = (type, tool, { sessionId = false } = {}) => {
   const key = sessionId ? hookSessionIdKeys(tool)[0] : null;
   const prefix = key ? `csid=$(cat 2>/dev/null | sed -n 's/.*"${key}" *: *"\\([^"]*\\)".*/\\1/p'); ` : "";
@@ -74,10 +67,8 @@ const SEC = (ms) => Math.ceil(ms / 1000);
 const STOP_MS = 5000;
 
 const escapeRe = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-// YAML double-quote escape for a shell command value
 const yq = (s) => `"${s.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
 
-// Replace (or append) a marker-delimited block in a text config file. MVP: assumes 9remote owns its block.
 function upsertBlock(filePath, begin, end, block) {
   let content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
   content = content.replace(new RegExp(`${escapeRe(begin)}[\\s\\S]*?${escapeRe(end)}\\n?`, "g"), "");
@@ -102,13 +93,10 @@ function readJsonFile(filePath) {
 }
 
 function writeJsonFile(filePath, data) {
-  // Atomic: these are the AI tools' own settings files (Claude/Codex/...), and
-  // a torn write would corrupt config the agent does not own. Mode is left at
-  // the default — unlike our own state, these are not secrets-only files.
+  // Atomic write to prevent corrupting third-party tool settings.
   writeJsonAtomic(filePath, data, { mode: 0o644 });
 }
 
-// Backup original env values then apply scrollback fix
 function applyClaudeEnv(settings) {
   const backup = {};
   const env = settings.env || {};
@@ -117,7 +105,6 @@ function applyClaudeEnv(settings) {
   settings.env = { ...env, ...CLAUDE_SCROLLBACK_ENV };
 }
 
-// Restore original env values (null = key didn't exist, so delete)
 function restoreClaudeEnv(settings) {
   const backup = readJsonFile(CLAUDE_ENV_BACKUP_FILE);
   const env = settings.env || {};
@@ -131,15 +118,12 @@ function restoreClaudeEnv(settings) {
 }
 
 // ─── Kind: json-nested (Claude-style hooks object) ──────────────────────────
-// events: { <eventKey>: type }, matchers: { <eventKey>: matcher }, timeoutFn, extra(settings)
 function makeNestedJsonHook(tool, events, timeoutFn, { matchers = {}, extra, sessionId = false } = {}) {
   const buildEntry = (key, type) => ({
     hooks: [{ type: "command", command: buildCurlCmd(type, tool, { sessionId }), timeout: timeoutFn(STOP_MS) }],
     ...(matchers[key] != null ? { matcher: matchers[key] } : {}),
   });
-  // Any of our entries, old shape included — enable() replaces stale ones instead of duplicating.
   const isOwn = (grp) => grp?.hooks?.some((h) => typeof h.command === "string" && h.command.includes(`&tool=${tool}`));
-  // isEnabled demands the current shape, so a claude hook missing the csid capture reads as off.
   const isCurrent = (grp) => grp?.hooks?.some((h) =>
     typeof h.command === "string" && h.command.includes(`&tool=${tool}`) && (!sessionId || h.command.includes("&csid=")));
   return {
@@ -276,7 +260,6 @@ function makeAgentJsonHook(tool, events, { name, description } = {}) {
 }
 
 // ─── Kind: yaml-block (Hermes / Rovo Dev) — marker-delimited YAML block ─────
-// items: [{ event, type }] → produces a YAML list under a `hooks:` block
 function makeYamlBlockHook(tool, { begin, end, items }) {
   const buildBlock = () => {
     const lines = [begin, "hooks:",
@@ -292,35 +275,18 @@ function makeYamlBlockHook(tool, { begin, end, items }) {
 }
 
 // ─── Kind: hooks-json-codex — codex 0.154's own hook file, plus the trust it needs ──
-//
-// Codex 0.154 added ~/.codex/hooks.json with claude's vocabulary (UserPromptSubmit /
-// PreToolUse / PostToolUse / Stop / PermissionRequest, payload on stdin carrying
-// `session_id`). The legacy `notify` slot it replaces is not a substitute: it fires ONE
-// event — `agent-turn-complete` — and passes its JSON on argv[2] rather than stdin, so a
-// wrapper reading stdin sees nothing and can only ever report `done`. That is why a codex
-// terminal's tab never showed `working`.
-//
-// A handler here does not run until codex holds a trusted sha256 for it, kept in
-// config.toml under [hooks.state."<path>:<event>:<groupIdx>:<handlerIdx>"]. Those keys
-// address the handler by its POSITION, so ours lands at the index it actually has — the
-// user's own groups in the file are neither moved nor touched — and the hash itself is
-// codex's to compute, read back over its app-server `hooks/list` RPC. Deriving it here
-// would be a guess against an undocumented format that fails silently on a codex update.
+// Codex hooks require positional trusted sha256 hashes in config.toml.
 const CODEX_HOOK_EVENTS = {
   UserPromptSubmit: "working", PreToolUse: "working", PostToolUse: "working",
   Stop: "done", PermissionRequest: "blocked",
 };
-// Same camelCase → snake_case codex spells its own event names in a trust key.
 const CODEX_EVENT_KEY = (ev) => ev.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
 const CODEX_EVENT_OF_KEY = Object.fromEntries(
   Object.keys(CODEX_HOOK_EVENTS).map((ev) => [CODEX_EVENT_KEY(ev), ev])
 );
 const CODEX_STATE_HEAD = /^\[hooks\.state\."(?<key>[^"]+)"\]$/m;
-// How long codex gets to answer `hooks/list`. It is a whole app-server handshake, and
-// the caller is an install path — not a request anyone is waiting on byte-for-byte.
 const CODEX_APP_SERVER_TIMEOUT_MS = 15000;
 
-/** One `hooks/list` round trip against codex's app-server, as [{key, hash}]. */
 function codexHookList(bin) {
   return new Promise((resolve) => {
     let child;
@@ -350,8 +316,6 @@ function codexHookList(bin) {
         if (!line.trim()) continue;
         let msg;
         try { msg = JSON.parse(line); } catch { continue; }
-        // `hooks/list` is asked for as soon as the handshake answers — a fixed delay
-        // would be dead time on every run, and the request is only valid after initialize.
         if (msg.id === 1) {
           child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id: 2, method: "hooks/list", params: {} }) + "\n");
           continue;
@@ -371,13 +335,9 @@ function codexHookList(bin) {
   });
 }
 
-// codex answers hashes as "sha256:<hex>"; the TOML value is that same string, so it is
-// stored verbatim rather than re-prefixed — a second prefix would be a wrong hash.
+// Codex returns "sha256:<hex>"; stored verbatim to prevent double-prefixing.
 const codexHashValue = (hash) => (/^sha256:/.test(hash) ? hash : `sha256:${hash}`);
 
-// Every handler in a hooks file, tagged with the key codex addresses it by. `path` is
-// spelled exactly as it will appear in the key, so the caller passes the same file path
-// it wrote.
 function codexHandlersIn(filePath) {
   const hooks = readJsonFile(filePath).hooks || {};
   const out = [];
@@ -393,10 +353,7 @@ function codexHandlersIn(filePath) {
   return out;
 }
 
-// Replace the [hooks.state."<key>"] tables in the TOML head, one line each. A whole-file
-// TOML rewrite is not on the table here — the file holds every other setting the user
-// has — so a targeted line replace is used, and entries we are not asked about are kept
-// byte for byte (they belong to whoever trusted them: a plugin, a managed config).
+// Targeted line replacement for trusted_hash entries to preserve user settings.
 function upsertCodexTrust(filePath, entries) {
   const content = fs.existsSync(filePath) ? fs.readFileSync(filePath, "utf8") : "";
   const lines = content.split("\n");
@@ -408,7 +365,6 @@ function upsertCodexTrust(filePath, entries) {
     const next = lines[i + 1] || "";
     if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
     const hash = remaining.get(match.groups.key);
-    // Not ours to touch — kept as it stands, header and value together.
     if (hash === undefined) { out.push(lines[i], next); i++; continue; }
     remaining.delete(match.groups.key);
     out.push(lines[i], `trusted_hash = "${hash}"`);
@@ -422,16 +378,7 @@ function upsertCodexTrust(filePath, entries) {
   fs.writeFileSync(filePath, out.join("\n"), "utf8");
 }
 
-/**
- * Make codex trust every hook THIS agent wrote, by asking codex itself for the hash.
- *
- * Call it after the hooks file has been written and before the CLI is next used; the
- * handlers do not run until the hashes land. Returns the keys codex did not answer for —
- * an empty answer means nothing was written, and the caller is told rather than left with
- * a hook that silently never fires.
- *
- * @param {{run?: (bin: string) => Promise<Array<{key: string, hash: string}>>, bin?: string}} [deps]
- */
+// Query codex app-server to compute and trust hook hashes in config.toml.
 export async function reconcileCodexHookTrust({ run = codexHookList, bin = BINARIES.codex } = {}) {
   const hooksPath = PATHS.codexHooks();
   const reported = await run(bin);
@@ -444,22 +391,12 @@ export async function reconcileCodexHookTrust({ run = codexHookList, bin = BINAR
     if (hash) entries.push({ key: h.key, hash });
     else missing.push(h.key);
   }
-  // An answer that named nothing means codex could not be asked at all; writing an empty
-  // set would only strip the table, so the file is left alone.
   if (!reported.length) return { entries: [], missing, skipped: true };
   upsertCodexTrust(PATHS.codex(), entries);
   return { entries, missing, skipped: false };
 }
 
-// Remove the trust entries a disable just orphaned.
-//
-// `goneKeys` are the keys our handlers OCCUPIED BEFORE the removal, not after it: every
-// key is positional, and taking a group out renumbers whatever followed it. Looking the
-// survivors up afterwards would drop the trust of a foreign group that shifted into the
-// slot we vacated — the user's own hook would then stop running because we tidied up.
-// Keys are `path:event:groupIdx:handlerIdx`, so everything at our group index and beyond
-// is affected by the shift and cannot be reasoned about from the file alone; only our own
-// keys are ours to remove.
+// Drop trust entries for handlers occupied before removal to avoid shifting foreign keys.
 function dropCodexTrust(filePath, goneKeys) {
   if (!fs.existsSync(filePath) || !goneKeys.size) return;
   const lines = fs.readFileSync(filePath, "utf8").split("\n");
@@ -469,18 +406,13 @@ function dropCodexTrust(filePath, goneKeys) {
     const next = lines[i + 1] || "";
     if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
     if (!goneKeys.has(match.groups.key)) { out.push(lines[i], next); i++; continue; }
-    // Ours, and its handler is gone — drop the table with its value. A blank line left
-    // behind is tidied in the same pass.
     i++;
     if (out[out.length - 1] === "") out.pop();
   }
   fs.writeFileSync(filePath, out.join("\n"), "utf8");
 }
 
-// The legacy `notify` slot an older agent wrote into config.toml. It cannot report
-// `working` on any codex version (see above), so it is not kept even as a fallback: it
-// would only write a second, redundant `done` per turn. Removed once, on enable, so a
-// user upgrading does not carry the dead block forever.
+// Remove obsolete legacy notify configuration.
 const CODEX_LEGACY_BLOCK_RE = /# 9Remote notification\nnotify\s*=.*\n?/g;
 const CODEX_LEGACY_SAVED_RE = /^# 9Remote-saved: (notify\s*=.*)$/m;
 
@@ -490,14 +422,9 @@ function dropLegacyCodexNotify() {
   if (fs.existsSync(filePath)) {
     const content = fs.readFileSync(filePath, "utf8");
     let next = content.replace(CODEX_LEGACY_BLOCK_RE, "");
-    // The line we commented over goes back — but only if it is really the user's. An
-    // enable that ran while our own notify was in the slot saved OUR line as theirs, and
-    // restoring that would leave config.toml pointing at a script this same call deletes.
     const saved = next.match(CODEX_LEGACY_SAVED_RE);
     if (saved && !saved[1].includes(scriptPath)) next = next.replace(CODEX_LEGACY_SAVED_RE, "$1");
     else if (saved) next = next.replace(/^# 9Remote-saved: notify\s*=.*\n?/m, "");
-    // Idempotent, and not gated on the block: an earlier run of this cleanup already took
-    // the block out and left the restored line behind.
     next = next.replace(/^notify\s*=\s*\[[^\n]*9remote-notify\.sh[^\n]*\]\s*\n?/m, "");
     if (next !== content) fs.writeFileSync(filePath, next, "utf8");
   }
@@ -505,10 +432,6 @@ function dropLegacyCodexNotify() {
 }
 
 const codexHook = {
-  // Writes the handlers only; the trust they need is a separate step, because it costs an
-  // app-server round trip and belongs to ONE run per boot rather than one per tool — see
-  // autoEnableInstalledHooks. A caller wanting a hook that actually fires calls
-  // reconcileCodexHookTrust() after this.
   enable() {
     const filePath = PATHS.codexHooks();
     const settings = readJsonFile(filePath);
@@ -523,7 +446,6 @@ const codexHook = {
   },
   disable() {
     const filePath = PATHS.codexHooks();
-    // Read the keys our handlers hold BEFORE the file changes — see dropCodexTrust.
     const goneKeys = new Set(codexHandlersIn(filePath).filter((h) => h.command.includes("&tool=codex")).map((h) => h.key));
     if (fs.existsSync(filePath)) {
       const settings = readJsonFile(filePath);
@@ -626,9 +548,6 @@ const ROVO_END = "  # 9remote hooks end";
 
 const TOOL_REGISTRY = {
   claude: makeNestedJsonHook("claude",
-    // PermissionRequest fires as the dialog appears; Notification:permission_prompt waits
-    // for ~6s of no typing before it does, so it is the fallback for CLIs that predate the
-    // former. Two events naming the same state is a no-op in applyEvent, not a re-render.
     { UserPromptSubmit: "working", PreToolUse: "working", PostToolUse: "working",
       Stop: "done", PermissionRequest: "blocked", Notification: "blocked" },
     (ms) => ms,
@@ -757,8 +676,6 @@ export function disableToolHook(tool) {
     return { success: false, error: e.message };
   }}
 
-// Reports enabled only when EVERY event the registry declares is present.
-// (A tool with a legacy partial install — e.g. only Stop/Notification, no working events — is NOT fully enabled.)
 function isToolHookEnabled(tool) {
   const hook = TOOL_REGISTRY[tool];
   if (!hook) return false;
@@ -766,7 +683,6 @@ function isToolHookEnabled(tool) {
   return hook.isEnabled(PATHS[tool]());
 }
 
-// Whether a binary is resolvable on PATH (how the tool announces it's installed)
 function binaryOnPath(bin) {
   const dirs = (process.env.PATH || "").split(path.delimiter).filter(Boolean);
   const exts = process.platform === "win32" ? (process.env.PATHEXT || ".EXE;.CMD;.BAT").split(";") : [""];
@@ -783,9 +699,7 @@ function isToolInstalled(tool) {
   return (Array.isArray(dirs) ? dirs : [dirs]).some((d) => fs.existsSync(d));
 }
 
-// Auto-enable hooks for every installed AI tool on startup. enable() is idempotent — it adds
-// any missing events without duplicating existing ones — so we always run it. This matters when
-// a new event (e.g. working) is added to the registry after an older agent already wrote Stop/Notification.
+// Idempotently enable hooks for all installed AI tools on startup.
 export function autoEnableInstalledHooks() {
   const result = {};
   for (const tool of SUPPORTED_TOOLS) {
@@ -798,10 +712,6 @@ export function autoEnableInstalledHooks() {
   return result;
 }
 
-// Codex runs no hook it holds no trusted hash for, so the handlers just written would sit
-// there doing nothing. Its own app-server computes those hashes; this asks it, once, for
-// every installed codex — a no-op when there is none, and when codex needs no trust at all
-// (an older build answers nothing).
 export async function reconcileCodexTrust() {
   if (!isToolInstalled("codex")) return null;
   try {
@@ -822,7 +732,6 @@ export function getHookStatus() {
   return status;
 }
 
-// Reconcile on startup: if user enabled Claude hook before env-fix existed, apply env now
 export function reconcileClaudeEnv() {
   const filePath = PATHS.claude();
   const settings = readJsonFile(filePath);

@@ -97,16 +97,22 @@ function TerminalRightPanel({
   // The tree publishes its own actions so they can live in the tab bar above it.
   const [treeActions, setTreeActions] = useState(null);
 
-  // Worktree removal from a root header: the dialog target, plus post-remove notes.
-  const [removeTarget, setRemoveTarget] = useState(null); // { root, busy: [] }
+  // Worktree removal from a root header: probe lists what removal takes with it,
+  // the dialog confirms, then removal closes the rooted sessions server-side.
+  const [removeTarget, setRemoveTarget] = useState(null); // { root, sessions, branchMerged }
   const [rootError, setRootError] = useState(null);
   const [branchKept, setBranchKept] = useState(null);
-  const removeRoot = async (root, confirmed) => {
+  const askRemove = async (root) => {
+    setRootError(null);
+    const res = await activeFileBus.gitWorktreeRemove(root.path, root.path, { probe: true, deleteBranch: root.branch || undefined });
+    if (!res?.success) return setRootError(res?.error || "Probe failed");
+    setRemoveTarget({ root, sessions: res.sessions || [], branchMerged: res.branchMerged });
+  };
+  const removeRoot = async (root) => {
     setRootError(null);
     setBranchKept(null);
     // The worktree path itself resolves the repo — git runs fine from inside one.
-    const res = await activeFileBus.gitWorktreeRemove(root.path, root.path, { confirmed, deleteBranch: root.branch || undefined });
-    if (res?.busy) return setRemoveTarget({ root, busy: res.busy });
+    const res = await activeFileBus.gitWorktreeRemove(root.path, root.path, { confirmed: true, deleteBranch: root.branch || undefined });
     setRemoveTarget(null);
     if (!res?.success) return setRootError(res?.error || "Remove failed");
     if (res.branchKept) setBranchKept(root.branch);
@@ -360,7 +366,7 @@ function TerminalRightPanel({
               isOpen={roots.length === 1 || activeRoot === root.path}
               onToggle={() => setActiveRoot(activeRoot === root.path ? null : root.path)}
               onRemove={!root.isMain
-                ? () => { vibrate(); void removeRoot(root, false); }
+                ? () => { vibrate(); void askRemove(root); }
                 : null}
               removeLabel={t("workspaces.removeWorktree")}
             >
@@ -427,19 +433,23 @@ function TerminalRightPanel({
       <ConfirmDialog
         isOpen={!!removeTarget}
         onClose={() => setRemoveTarget(null)}
-        onConfirm={() => { vibrate(); void removeRoot(removeTarget.root, true); }}
+        onConfirm={() => { vibrate(); void removeRoot(removeTarget.root); }}
         title={t("workspaces.removeWorktree")}
-        message={
-          removeTarget?.busy?.length
-            ? t("workspaces.worktreeBusy", {
-                count: removeTarget.busy.length,
-                names: removeTarget.busy.map((s) => s.name).join(", ")
+        message={removeTarget ? [
+          t("workspaces.removeWorktreeFolder", { path: removeTarget.root.path }),
+          removeTarget.root.branch && t(
+            removeTarget.branchMerged === true ? "workspaces.removeWorktreeBranchDelete"
+              : removeTarget.branchMerged === false ? "workspaces.removeWorktreeBranchKeep"
+              : "workspaces.removeWorktreeBranch",
+            { branch: removeTarget.root.branch }
+          ),
+          removeTarget.sessions?.length
+            ? t("workspaces.removeWorktreeSessions", {
+                count: removeTarget.sessions.length,
+                names: removeTarget.sessions.map((s) => s.name).join(", ")
               })
-            : t("workspaces.removeWorktreeMessage", { path: removeTarget?.root?.path || "" })
-            + (removeTarget?.root?.branch
-              ? `\n${t("workspaces.removeWorktreeBranch", { branch: removeTarget.root.branch })}`
-              : "")
-        }
+            : null
+        ].filter(Boolean).join("\n") : ""}
       />
 
       {isDesktop && (

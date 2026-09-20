@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { setupAiHandlers } from "../features/ai/aiSocket.js";
 import { AiManager } from "../features/ai/aiManager.js";
 import { AI_ENGINES } from "../features/ai/constants.js";
-import { applyEvent, getStatus, forgetSession } from "../features/terminal/statusManager.js";
+import { applyEvent, getStatus, forgetSession, flushDoneCommits } from "../features/terminal/statusManager.js";
 import { setupTerminalSocket } from "../features/terminal/terminalSocket.js";
 
 let pass = 0, fail = 0;
@@ -167,8 +167,10 @@ await test("a replayed event does not move the status dot", () => {
   applyEvent({ type: "working", sessionId: id, tool: "claude" });
   wiredManager.broadcastEvent(id, "turn_complete", { replay: true });
   assert.equal(getStatus(id).state, "working", "history is not news");
-  // ...while a live turn_complete still ends the turn.
+  // ...while a live turn_complete still ends the turn — after the done debounce,
+  // flushed here rather than waited out.
   wiredManager.broadcastEvent(id, "turn_complete", {});
+  flushDoneCommits();
   assert.equal(getStatus(id).state, "done");
   forgetSession(id);
 });

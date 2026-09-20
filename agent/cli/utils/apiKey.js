@@ -1,12 +1,8 @@
 import crypto from "crypto";
 
-// v1-key CRC secret — must match web's API_KEY_SECRET or APP_SECRET. v2 keys carry no CRC,
-// so a missing value only affects legacy v1 generation/verification.
+// CRC secret for legacy v1 keys (must match web API_KEY_SECRET/APP_SECRET).
 const API_KEY_SECRET = process.env.API_KEY_SECRET || process.env.APP_SECRET;
 
-/**
- * Generate 4-char random keyId
- */
 function generateKeyId() {
   const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
   let result = "";
@@ -16,9 +12,6 @@ function generateKeyId() {
   return result;
 }
 
-/**
- * Generate CRC (6-char HMAC)
- */
 function generateCrc(machineId, keyId) {
   if (!API_KEY_SECRET) throw new Error("API_KEY_SECRET not configured (required for v1 keys)");
   return crypto
@@ -28,12 +21,6 @@ function generateCrc(machineId, keyId) {
     .slice(0, 6);
 }
 
-/**
- * Generate API key with machineId embedded
- * Format: sk-{machineId8}-{keyId4}-{crc6}
- * @param {string} machineId - machine ID (uses first 8 chars)
- * @returns {{ key: string, keyId: string }}
- */
 export function generateApiKeyWithMachine(machineId) {
   const shortId = machineId.slice(0, 8);
   const keyId = generateKeyId();
@@ -42,10 +29,7 @@ export function generateApiKeyWithMachine(machineId) {
   return { key, keyId };
 }
 
-// v2 keys: sk-{machineId8}-{rand8}-{rand8} — same shape as legacy so the UI
-// reads identically, but both tail segments are real random (~41 bit each, no
-// CRC-with-public-secret). The key is routing-only ("room number"); agent
-// entry requires the per-device secret (lib/deviceAuth).
+// v2 keys: sk-{machineId8}-{rand8}-{rand8} (tail is private device secret).
 const KEY_V2_CHARS = "abcdefghijklmnpqrstuvwxyz123456789";
 const KEY_V2_SEGMENT = 8;
 
@@ -66,85 +50,55 @@ export function isApiKeyV2(apiKey) {
   return /^sk-[a-z0-9]{8}-[a-np-z1-9]{8}-[a-np-z1-9]{8}$/.test(apiKey || "");
 }
 
-// HEAD = the part that may travel to the Worker (routing only). v2 keys keep
-// their TAIL (last segment) off the network entirely; v1 keys have no split
-// and pass through unchanged.
+// Routing half sent to Worker (head of v2, or full key for v1).
 export function headOf(apiKey) {
   if (!isApiKeyV2(apiKey)) return apiKey || null;
   const parts = apiKey.split("-");
   return `${parts[0]}-${parts[1]}-${parts[2]}`;
 }
 
-// TAIL = the private half of a v2 key (null for legacy keys)
 export function tailOf(apiKey) {
   if (!isApiKeyV2(apiKey)) return null;
   return apiKey.split("-")[3];
 }
 
-/**
- * Does a presented key belong to THIS agent?
- *
- * The tunnel-facing HTTP routes have no device-auth handshake to lean on, so
- * they compare here. Shape is not identity: a v2 key carries no CRC, and the
- * pattern check that stood in for verification accepted any string matching it.
- *
- * Compared on the HEAD, because that is what clients present — useAuth stores
- * headOf(key) and the tail never leaves the browser. So this establishes "holds
- * the head of this agent's current key", which is what these routes can ask for
- * without putting the tail in an HTTP header.
- */
+/** Check if presented key matches agent key head (constant-time). */
 export function matchesLocalKey(presented, storedKey) {
-  // Both must be strings before headOf: it passes a non-v2 value straight
-  // through, and Buffer.from would then throw on a number or an object rather
-  // than refusing. Only ever reached with what loadKey() returns, but a guard
-  // that answers false costs nothing next to one that throws.
   if (typeof presented !== "string" || !presented) return false;
   if (typeof storedKey !== "string" || !storedKey) return false;
   const a = Buffer.from(headOf(presented) || "", "utf8");
   const b = Buffer.from(headOf(storedKey) || "", "utf8");
-  // Length guard first — timingSafeEqual throws when the two differ.
   return a.length > 0 && a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-/**
- * Parse API key and extract machineId + keyId
- * Format: sk-{machineId}-{keyId}-{crc8}
- * @param {string} apiKey
- * @returns {{ machineId: string, keyId: string } | null}
- */
+/** Parse API key and extract machineId + keyId. */
 export function parseApiKey(apiKey) {
   if (!apiKey || !apiKey.startsWith("sk-")) return null;
 
-  // Both v1 and v2 are 4 dash-segments — v2 is identified by its 8-char tail
-  // segments (legacy keyId is 4 chars).
   if (isApiKeyV2(apiKey)) {
     const [, machineId, a, b] = apiKey.split("-");
     return { machineId, keyId: a, version: 2, tail: b };
   }
 
-  // v2 HEAD (what gets registered with the Worker)
   if (/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) {
     const [, machineId, a] = apiKey.split("-");
     return { machineId, keyId: a, version: 2 };
   }
 
   const parts = apiKey.split("-");
-  
+
   if (parts.length === 4) {
     const [, machineId, keyId, crc] = parts;
-    
+
     const expectedCrc = generateCrc(machineId, keyId);
     if (crc !== expectedCrc) return null;
-    
+
     return { machineId, keyId };
   }
-  
+
   return null;
 }
 
-/**
- * Mask API key for safe logging (preserve prefix + suffix)
- */
 export function maskApiKey(apiKey) {
   if (!apiKey || apiKey.length < 8) return "sk-***";
   return `${apiKey.slice(0, 3)}***${apiKey.slice(-4)}`;

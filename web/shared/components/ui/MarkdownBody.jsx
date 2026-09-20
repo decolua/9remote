@@ -1,8 +1,10 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { Check, Copy } from "@/shared/components/ui/Icon";
+import { vibrate } from "@/shared/utils/vibration";
 
 // One markdown style set for every surface (AI chat, file viewer). The project has no
 // @tailwindcss/typography, so `prose` classes do nothing — each tag is styled here.
@@ -59,14 +61,39 @@ export const MARKDOWN_COMPONENTS = {
       {children}
     </table>
   ),
-  pre: ({ children, node: _node, ...props }) => (
-    <pre
-      className="p-3 my-2.5 rounded bg-surface-2 overflow-x-auto text-[12px] font-mono border border-border-subtle text-text [&_code]:bg-transparent [&_code]:p-0 [&_code]:border-0 [&_code]:text-text"
-      {...props}
-    >
-      {children}
-    </pre>
-  ),
+  pre: function PreBlock({ children, node: _node, ...props }) {
+    const [copied, setCopied] = useState(false);
+    const ref = useRef(null);
+
+    const handleCopy = (e) => {
+      e.stopPropagation();
+      vibrate();
+      const text = ref.current?.innerText || "";
+      try { navigator.clipboard.writeText(text); } catch {}
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+      <div className="relative group/code my-2.5">
+        <button
+          type="button"
+          onClick={handleCopy}
+          className="absolute top-2 right-2 p-1 rounded bg-surface-3/80 hover:bg-surface-3 text-text-muted hover:text-text opacity-100 sm:opacity-0 sm:group-hover/code:opacity-100 transition-opacity z-10"
+          title="Copy code"
+        >
+          {copied ? <Check size={13} className="text-brand-500" /> : <Copy size={13} />}
+        </button>
+        <pre
+          ref={ref}
+          className="p-3 rounded bg-surface-2 whitespace-pre-wrap break-words text-[12px] font-mono border border-border-subtle text-text [&_code]:bg-transparent [&_code]:p-0 [&_code]:border-0 [&_code]:text-text"
+          {...props}
+        >
+          {children}
+        </pre>
+      </div>
+    );
+  },
   // Inline code is accent-tinted with no chip background; fenced blocks keep their
   // surface (see `pre`) — the `language-*` class is how we tell the two apart.
   code: ({ children, className, node: _node, ...props }) => {

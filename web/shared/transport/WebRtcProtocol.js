@@ -11,12 +11,9 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 let _worker = null;
 let _workerMsgId = 0;
 const _workerPending = new Map();
-// Per-pending decode timeout — a worker suspended/killed by iOS background or a crash
-// stops answering; without this guard every pending decode promise hangs forever and
-// tiles never draw (black canvas on the RTC path). Mirror useTiles.resetBinWorker.
+// Drop pending decode if worker suspended (iOS background) or killed.
 const WORKER_DECODE_TIMEOUT_MS = 8000;
-// Consecutive worker crashes before giving up — a worker that fails to load (CSP)
-// errors again on every respawn, so bound the retries instead of looping forever.
+// Bound respawn retries when worker fails to load (e.g. CSP).
 const MAX_WORKER_RESPAWNS = 3;
 let _workerFailures = 0;
 
@@ -70,11 +67,10 @@ function getWorker() {
     return null;
   }
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
-    _workerFailures = 0; // worker answered — the crash streak is broken
+    _workerFailures = 0;
     const entry = _workerPending.get(id);
     if (!entry) {
-      // Batch was dropped by the queue cap before this result arrived — close the
-      // orphan bitmaps the worker decoded so they don't leak GPU memory.
+      // Close orphan bitmaps from dropped batches to prevent GPU memory leak.
       if (tiles) for (const t of tiles) t.bitmap?.close?.();
       return;
     }
@@ -84,16 +80,14 @@ function getWorker() {
   };
   _worker.onerror = (err) => {
     console.error("[Worker] tileDecoder:", err.message);
-    // A crashed worker won't answer any pending decode — reset so the next tile spawns
-    // a fresh worker instead of posting into a dead one.
+    // Reset dead worker so next tile spawns a fresh one.
     resetWorker();
     if (++_workerFailures >= MAX_WORKER_RESPAWNS) _worker = false;
   };
   return _worker;
 }
 
-// Terminate the (possibly suspended/crashed) worker + drop pending decodes so the next
-// tile spawns a fresh worker. Mirrors useTiles.resetBinWorker (iOS background recovery).
+// Drop pending decodes and terminate worker (iOS background recovery).
 function resetWorker() {
   if (_worker) { try { _worker.terminate(); } catch {} }
   _worker = null;
@@ -101,16 +95,6 @@ function resetWorker() {
   _workerPending.clear();
 }
 
-/**
- * WebRtcProtocol — RTCDataChannel transport adapter (browser).
- *
- * Two DCs:
- *   "control" — ordered/reliable — JSON control events
- *   "binary"  — unordered/unreliable — binary tile frames (decoded → "message" tiles-data)
- *
- * Signaling: cross-channel via ProtocolManager (defaults WS, falls back to HTTP).
- * Adapter is signaling-agnostic — gets `signaling` interface from connect ctx.
- */
 export class WebRtcProtocol extends BaseProtocol {
   static id = "rtc";
   static capabilities = { control: true, binary: true, file: true, signaling: "external" };
@@ -123,11 +107,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._dcFile = null;
     this._typeDetail = "dc-stun";
-    // NAT classification (anti-spam) — see natVerdict(). Tracks the local
-    // candidate types gathered, whether the agent answered (signaling reached it),
-    // and whether the DC ever opened. "Answered but never opened" is the signal
-    // for a connectivity failure; we cannot wait for ICE "failed" because
-    // _connectTimer closes the peer long before the browser declares it.
+    // NAT classification state for natVerdict.
     this._localCandidateTypes = new Set();
     this._answerApplied = false;
     this._pendingCandidates = [];
@@ -139,19 +119,14 @@ export class WebRtcProtocol extends BaseProtocol {
     this._flushTimer = null;
     this._latestTileTs = new Map();
 
-    // Heartbeat staleness (agent pings, we pong): a stalled SCTP reports "open"
-    // while blackholing messages — no ping for interval+grace means dead.
+    // Detect stalled SCTP when open channel blackholes messages.
     this._hbTimer = null;
     this._hbLastPing = 0;
-    // Agent announced the v2 binary envelope (srvCaps.env2) — until then, send v1
-    // text so an old agent still parses us. Set by PM: srvCaps arrives on whichever
-    // carrier is up first, which is usually WS (RTC is still gathering ICE), so it
-    // must not be read off this adapter's own channel.
     this._peerEnv2 = false;
-    this._peerFragCtl = false; // agent reassembles sliced control frames
-    this._v2Announced = false; // one-shot: first v2 frame we SEND
-    this._v2RxSeen = false;    // one-shot: first v2 frame we DECODE
-    this._fragSeq = 0;         // ids for sliced control messages
+    this._peerFragCtl = false;
+    this._v2Announced = false;
+    this._v2RxSeen = false;
+    this._fragSeq = 0;
     this._reassemble = createReassembler();
     this._lastInboundAt = 0;
 
@@ -168,19 +143,10 @@ export class WebRtcProtocol extends BaseProtocol {
     return 150;
   }
 
-  /**
-   * @param {object} ctx
-   * @param {object} ctx.auth         — { apiKey }
-   * @param {object} ctx.profile      — { rtc: { enableTurn } }
-   * @param {object} ctx.signaling    — { send(msg), on(handler), off() }
-   */
   async connect(ctx) {
     this._ctx = ctx;
     this._cleanupPeer();
-    // Bumped per peer so per-connection work (the TAIL proof) re-runs against a
-    // restarted agent but not on every reopen of the same peer's channel.
     this._peerEpoch = (this._peerEpoch ?? 0) + 1;
-    // Fresh NAT classification per peer — candidate types accumulate as ICE gathers.
     this._localCandidateTypes = new Set();
     this._answerApplied = false;
     this._pendingCandidates = [];
@@ -191,16 +157,9 @@ export class WebRtcProtocol extends BaseProtocol {
     this._lastMid = null;
     this._remoteGatheringDone = false;
     this._setState(ADAPTER_STATE.connecting);
-    this.connectingSince = Date.now(); // age guard for the restart loop's stale-kill
-    // The deadline this peer is actually being judged against. The restart loop
-    // used to assume RTC_CONNECT_TIMEOUT_MS and killed peers at ~5s — but an
-    // answered peer extends itself to RTC_ICE_TIMEOUT_MS below, so ICE lost two
-    // thirds of the window it was given. Publishing the deadline keeps the two
-    // clocks from drifting: whoever moves the timer moves this with it.
+    this.connectingSince = Date.now();
     this.connectDeadline = this.connectingSince + RTC_CONNECT_TIMEOUT_MS;
-    // Offer may be dropped by the DO relay if the agent hasn't joined its room yet
-    // (forward-only, no store) → no answer → ICE never runs → stuck "connecting".
-    // Timeout converts that into a closed → PM re-offer; later retries hit a ready agent.
+    // Failover to PM retry if offer dropped before agent joined.
     clearTimeout(this._connectTimer);
     this._connectTimer = setTimeout(() => {
       if (this._state === ADAPTER_STATE.open) return;
@@ -208,11 +167,7 @@ export class WebRtcProtocol extends BaseProtocol {
       this._closePeer(`connect-timeout (state=${this._state})`);
     }, RTC_CONNECT_TIMEOUT_MS);
 
-    // Full cluster (see the agent's DEFAULT_ICE note): each server is a separate
-    // bus and therefore a separate CGNAT mapping, and carriers admit inbound
-    // UDP per-port inconsistently — the extra mappings are what keep cellular
-    // networks connectable. Benchmarked from VN: Google ~150ms, Twilio ~144ms,
-    // Cloudflare ~813ms; the checking tail is absorbed by the ICE window.
+    // Multiple STUN servers provide redundant CGNAT mappings for mobile carriers.
     let iceServers = [
       { urls: [
         "stun:stun.l.google.com:19302",
@@ -283,8 +238,7 @@ export class WebRtcProtocol extends BaseProtocol {
     dcControl.onopen = checkOpen;
     dcBinary.onopen = checkOpen;
 
-    // Closed only when BOTH control+binary gone — single DC close = degraded.
-    // The file DC is secondary: its close doesn't govern adapter state.
+    // Closed only when both control and binary DCs are gone.
     const handleClose = () => {
       const cClosed = !this._dcControl || this._dcControl.readyState === "closed";
       const bClosed = !this._dcBinary || this._dcBinary.readyState === "closed";
@@ -312,8 +266,7 @@ export class WebRtcProtocol extends BaseProtocol {
     dcControl.onmessage = ({ data }) => {
       this._lastInboundAt = Date.now();
       let parsed;
-      // The DC itself tells the two wire forms apart: a string is v1 JSON, an
-      // ArrayBuffer is a v2 frame (binaryType is "arraybuffer"). No sniffing.
+      // String is v1 JSON, ArrayBuffer is v2 frame.
       try {
         let decoded;
         if (typeof data === "string") decoded = decode(data);
@@ -324,15 +277,12 @@ export class WebRtcProtocol extends BaseProtocol {
             termLog("switch", "env2: first v2 binary frame DECODED from agent (mutual upgrade confirmed)");
           }
         }
-        // A sliced message is only whole once its last part lands; until then this
-        // yields null and the slices wait here.
         parsed = this._reassemble.push(decoded);
       }
       catch (err) { console.error("[rtc] control parse error:", err.message); return; }
       if (!parsed) return;
       if (parsed.event === "__ping") {
-        // Lazy-arm on the first ping: an old agent never pings, and a watch armed
-        // at DC-open would kill its healthy RTC after one timeout of silence.
+        // Lazy-arm on first ping to avoid timing out older agents that don't ping.
         if (!this._hbTimer) this._startHeartbeatWatch();
         this._hbLastPing = Date.now();
         try { dcControl.send(encode({ event: "__pong", args: parsed.args || [] })); } catch {}
@@ -346,21 +296,18 @@ export class WebRtcProtocol extends BaseProtocol {
       if (data instanceof ArrayBuffer) this._receiveTile(data);
     };
 
-    // File DC carries raw binary frames (download chunks from agent).
     dcFile.onmessage = ({ data }) => {
       this._lastInboundAt = Date.now();
       if (data instanceof ArrayBuffer) this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
     };
 
     pc.onicecandidate = ({ candidate }) => {
-      // null candidate = gathering complete. libjuice will not fail faster for it,
-      // but the agent mirrors the marker back and our dead-path watch needs it.
+      // null candidate signals gathering complete.
       if (!candidate) {
         this._sendSignaling({ type: "ice", candidate: "", mid: this._lastMid || "0" });
         return;
       }
       this._lastMid = candidate.sdpMid;
-      // Record the local candidate type for NAT classification ("typ host|srflx|relay|prflx").
       const m = /typ (host|srflx|relay|prflx)/.exec(candidate.candidate || "");
       if (m) this._localCandidateTypes.add(m[1]);
       const srflx = publicIpOf(candidate.candidate);
@@ -371,9 +318,8 @@ export class WebRtcProtocol extends BaseProtocol {
     pc.oniceconnectionstatechange = () => {
       debugLog("transport", `[rtc] iceState=${pc.iceConnectionState}`);
       termLog("switch", `rtc ice=${pc.iceConnectionState} types=[${[...this._localCandidateTypes].join(",")}]`);
-      // Reaching "checking" means pairs were actually being probed — see natVerdict.
       if (pc.iceConnectionState === "checking") this._iceReachedChecking = true;
-      // disconnected: transient — peer may recover. Only failed = terminal.
+      // Disconnected is transient, failed is terminal.
       if (pc.iceConnectionState === "disconnected") {
         this._setState(ADAPTER_STATE.degraded);
       } else if (pc.iceConnectionState === "failed") {
@@ -383,7 +329,6 @@ export class WebRtcProtocol extends BaseProtocol {
       }
     };
 
-    // Setup signaling channel
     this._signaling = ctx.signaling;
     this._signaling?.on?.((msg) => this._handleSignal(msg));
 
@@ -399,8 +344,7 @@ export class WebRtcProtocol extends BaseProtocol {
     }
   }
 
-  /** Deliberate teardown — unlike _closePeer it also drops signaling, so the
-   *  adapter cannot be revived without a fresh connect(). */
+  // Deliberate teardown — drops signaling so adapter cannot be revived without connect().
   disconnect(reason = "?") {
     this._closePeer(`manual-disconnect by=${reason} state=${this._state}`);
     this._signaling?.off?.();
@@ -411,10 +355,7 @@ export class WebRtcProtocol extends BaseProtocol {
     if (channel === CHANNELS.control) {
       if (this._dcControl?.readyState !== "open") return false;
       const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
-      // An old agent reads a fragmented frame as a message of its own, so slicing is
-      // gated on the same v2 announcement the binary form is. An oversize payload to
-      // such a peer stays whole and is refused here — the PM's carrier choice, never
-      // this adapter's, decides where it goes next.
+      // Fragmenting requires v2 support; unfragmented oversize messages are rejected.
       if (this._peerEnv2) {
         const sent = this._sendFramed(env);
         if (!sent) return false;
@@ -428,7 +369,6 @@ export class WebRtcProtocol extends BaseProtocol {
         this._dcControl.send(encode(env));
         return true;
       } catch (err) {
-        // Oversize or dead channel — expected, and the PM handles it. Not an error log.
         return false;
       }
     }
@@ -462,36 +402,24 @@ export class WebRtcProtocol extends BaseProtocol {
 
   // ─── Signaling ─────────────────────────────────────────────────────────────
 
-  /** The only way this adapter dies: log the reason, drop the peer, publish closed.
-   *  Seven sites did these three steps by hand — one that skipped cleanup would
-   *  leak a peer while PM saw a closed adapter. */
   _closePeer(reason) {
     termLog("switch", `rtc→closed reason=${reason}`);
     this._cleanupPeer();
     this._setState(ADAPTER_STATE.closed);
   }
 
-  /** PM forwards the agent's srvCaps announcement (it may arrive on either
-   *  carrier). env2 flips this adapter's sender to the v2 binary frame; fragCtl
-   *  says the agent reassembles slices — an agent without it reads a fragment as a
-   *  message of its own, so slicing waits for the announcement. */
+  // Update peer capabilities (env2 binary frame, fragCtl slice reassembly).
   setPeerCaps(caps) {
     this._peerEnv2 = !!caps?.env2;
     this._peerFragCtl = !!caps?.fragCtl;
   }
 
-  /** Largest control message this peer takes. The limit is the peer's to declare
-   *  (RFC 8841 max-message-size) and the browser computes it onto the SCTP
-   *  transport — 0 means "any size", which reads the same as "not reported yet":
-   *  both keep the constant. */
+  // RFC 8841 max-message-size from SCTP transport.
   get maxControlBytes() {
     return this._pc?.sctp?.maxMessageSize || CONTROL_RTC_MAX_BYTES;
   }
 
-  /** v2 frames, sliced when the envelope is too big for one SCTP message. All or
-   *  nothing: a payload that dies mid-slice must not arrive as half a message.
-   *  A peer that cannot reassemble gets the whole frame — the DC refuses it if it
-   *  is too big, and the PM then decides which carrier carries it. */
+  // Slices v2 frames when envelope exceeds SCTP max message size.
   _sendFramed(env) {
     const max = this._peerFragCtl ? this.maxControlBytes : Infinity;
     const frames = encodeFragments(env, max, ++this._fragSeq);
@@ -505,10 +433,7 @@ export class WebRtcProtocol extends BaseProtocol {
     }
   }
 
-  /** Ping-staleness watch — armed lazily on the first __ping (see onmessage).
-   *  The agent pings every RTC_HEARTBEAT_INTERVAL_MS; silence past interval+grace
-   *  means the peer is stalled (SCTP "open" but blackholing) — close it so the PM
-   *  routes around to WS and the restart loop can re-offer. */
+  // Closes stalled peer if no ping received within heartbeat timeout.
   _startHeartbeatWatch() {
     if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
     this._hbLastPing = Date.now();
@@ -532,16 +457,7 @@ export class WebRtcProtocol extends BaseProtocol {
     await this._pc.addIceCandidate(new RTCIceCandidate(init)).catch(() => {});
   }
 
-  /**
-   * Close a provably dead peer instead of waiting out RTC_ICE_TIMEOUT_MS.
-   *
-   * No engine reports this for us: libjuice ignores end-of-candidates for
-   * failure detection, and no browser implements the spec's "all pairs failed →
-   * failed" transition (w3c/webrtc-pc#2698), so ICE just stalls in "checking"
-   * for ~40s. We decide ourselves, but only on complete evidence — both sides
-   * done gathering AND every pair terminal. Anything less keeps waiting: a slow
-   * dual-stack gather legitimately takes seconds before its first usable pair.
-   */
+  // Close peer early when both sides finished gathering and all candidate pairs failed.
   _startDeadPathWatch() {
     clearInterval(this._deadPathTimer);
     this._deadPathTimer = setInterval(async () => {
@@ -555,8 +471,7 @@ export class WebRtcProtocol extends BaseProtocol {
           if (r.state === "failed") dead++;
         });
       } catch { return; }
-      // Zero pairs is not evidence of failure — gathering can complete before
-      // the first pair is even formed.
+      // Gathering can complete before the first pair is formed.
       if (!pairs || dead < pairs) return;
       this._stopDeadPathWatch();
       this._closePeer(`dead-path (${dead} pair(s) failed)`);
@@ -578,16 +493,13 @@ export class WebRtcProtocol extends BaseProtocol {
     if (!this._pc) return;
     try {
       if (msg.type === "answer") {
-        // Duplicate/replayed answer (DO redelivery after a WS blip) — the first one
-        // already applied and the connection is fine; a second setRemoteDescription
-        // would throw "wrong state: stable".
+        // Ignore duplicate answer to prevent setRemoteDescription throw.
         if (this._answerApplied || this._pc.signalingState === "stable") {
           debugLog("transport", "[rtc] duplicate answer ignored");
           termLog("switch", "rtc duplicate answer ignored");
           return;
         }
-        // Signed answer — verify against the pinned host key (or the pairing
-        // fp2 on first contact) before trusting the relayed SDP.
+        // Verify signed answer against pinned host key or pairing fp2.
         if (msg.pub && msg.sig) {
           const ok = await this._verifyHostAnswer(msg);
           if (!ok) {
@@ -597,27 +509,19 @@ export class WebRtcProtocol extends BaseProtocol {
           }
         }
         await this._pc.setRemoteDescription(new RTCSessionDescription({ type: "answer", sdp: msg.sdp }));
-        this._answerApplied = true; // signaling reached the agent — a later failure is connectivity, not routing
+        this._answerApplied = true;
         debugLog("transport", "[rtc] answer set");
         termLog("switch", "rtc answer applied");
-        // Candidates that raced the answer were buffered (addIceCandidate throws
-        // before a remote description exists); apply them now, in order.
+        // Apply candidates that arrived before the answer.
         const queued = this._pendingCandidates;
         this._pendingCandidates = [];
         for (const m of queued) await this._addRemoteCandidate(m);
-        // The connect timer covers "did the agent answer at all", and it started
-        // when the offer went out. The agent gathers against seven STUN servers
-        // before it can answer (~2s observed), which used to eat most of the
-        // budget and leave ICE a fraction of a second — the peer then died on
-        // timeout and retried forever. An answer proves the agent is alive, so
-        // restart the clock and give ICE its own full window.
+        // Answer received; restart timer to give ICE its full window.
         clearTimeout(this._connectTimer);
         this.connectDeadline = Date.now() + RTC_ICE_TIMEOUT_MS;
         this._startDeadPathWatch();
         this._connectTimer = setTimeout(async () => {
           if (this._state === ADAPTER_STATE.open) return;
-          // Pair states explain WHY the backstop fired rather than the fast path
-          // — the dead-path watch only closes when every pair is "failed".
           try {
             const stats = await this._pc.getStats();
             stats.forEach((r) => {
@@ -631,13 +535,7 @@ export class WebRtcProtocol extends BaseProtocol {
           this._closePeer(`ice-timeout (state=${this._state})`);
         }, RTC_ICE_TIMEOUT_MS);
       } else if (msg.type === "ice") {
-        // The agent sends its answer and candidates back-to-back, so candidates
-        // regularly land while setRemoteDescription is still in flight — the
-        // browser rejects them (InvalidStateError) and swallowing that here
-        // silently dropped the agent's host candidate. Losing the LAN pair left
-        // only srflx through a carrier NAT, which never connects — the
-        // "sometimes RTC works, sometimes not" coin flip. Buffer until the
-        // answer applies (mirrors the agent's _pendingCandidates).
+        // Buffer candidates arriving before setRemoteDescription completes.
         if (!this._answerApplied) { this._pendingCandidates.push(msg); return; }
         await this._addRemoteCandidate(msg);
       } else if (msg.type === "error") {
@@ -651,24 +549,11 @@ export class WebRtcProtocol extends BaseProtocol {
 
   // ─── Internal ──────────────────────────────────────────────────────────────
 
-  /**
-   * Host-key verification for a signed answer (see .docs/PLAN-e2e-key-security.md):
-   * - pinned key: the answer must be signed by exactly that key
-   * - first contact during pairing: fp2 from the pairing code must match
-   * - no pin and no pending fp2 (legacy agent / manual key login): accept
-   * Returns true when the answer may be trusted.
-   */
+  // Verify answer signature with pinned key or pairing fp2.
   async _verifyHostAnswer(msg) {
     const apiKey = this._ctx?.auth?.apiKey;
     if (!apiKey) return true;
     const trust = getTrust(apiKey);
-    // A pin from before sealing carries a signing key but no sealing key, and
-    // its fp2 came from a scheme this build cannot reproduce. The KEY is still
-    // a real anchor — it was pinned out-of-band once — so it keeps deciding who
-    // may answer. Only the fingerprint is unusable, which matters in two
-    // places: re-pinning a rotated key, and the fp2 fallback for browsers
-    // without Ed25519. Both fall through to pairing instead of comparing
-    // against a value that can never match.
     const pinned = trust?.hostPubKey ? trust : null;
     const fp2Usable = !!trust?.hostSealKey;
     debugLog("auth", "[seal] verify answer:", {
@@ -679,9 +564,7 @@ export class WebRtcProtocol extends BaseProtocol {
     });
     if (pinned) {
       if (pinned.hostPubKey !== msg.pub) {
-        // Pinned key differs: either the agent's host key rotated (reinstall)
-        // or a relay is swapping the peer. A fresh pairing fp2 that matches
-        // the new key is out-of-band consent to re-pin; otherwise reject.
+        // Re-pin if fresh pairing fp2 matches, otherwise reject.
         const pendingFp2 = getPendingFp2();
         if (pendingFp2 && (await hostFingerprint(msg.pub, msg.xpub)) === pendingFp2) {
           setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub, fp2: pendingFp2 });
@@ -691,17 +574,13 @@ export class WebRtcProtocol extends BaseProtocol {
         debugLog("auth", "[seal] REJECT answer — pinned pub differs (host key rotated?) and no fresh fp2 to re-pin");
         return false;
       }
-      // Same key as pinned: the signature is the check, and it works whatever
-      // scheme the stored fingerprint used.
       const sig = await verifySdpSignature(msg.pub, msg.sdp, msg.sig);
       if (sig === false) {
         debugLog("auth", "[seal] REJECT answer — signature invalid (relay tampering?)");
         return false;
       }
       if (sig === null) {
-        // Browser without Ed25519 WebCrypto — the stored fp2 is all that is
-        // left, and a pre-sealing one cannot be recomputed. Refuse rather than
-        // accept unverified: the user re-pairs and gets a fingerprint that works.
+        // Browser without Ed25519: verify against stored fp2.
         if (!fp2Usable) {
           debugLog("auth", "[seal] REJECT answer — no Ed25519 in browser and pinned fp2 predates sealing");
           return false;
@@ -718,9 +597,7 @@ export class WebRtcProtocol extends BaseProtocol {
       if (fp2 !== pendingFp2) {
         debugLog("auth", "[seal] REJECTED — fp2", fp2, "!= code", pendingFp2,
           msg.xpub ? "" : "(agent sent no sealing key — needs the source build)");
-        // Single-shot: a mismatch burns the pending fp2 so a stale one (wrong
-        // code, expired pairing of another agent) can't reject the right agent
-        // for the rest of the tab session.
+        // Clear pending fp2 on mismatch to prevent stale codes blocking future attempts.
         takePendingFp2();
         return false;
       }
@@ -729,31 +606,16 @@ export class WebRtcProtocol extends BaseProtocol {
       debugLog("transport", "[rtc] host key pinned via pairing fp2");
       return true;
     }
-    return true; // no out-of-band anchor available — legacy behavior
+    return true;
   }
 
-  /**
-   * Classify this network's NAT from what this peer attempt observed.
-   * "ok"      — TURN relay available, or the DC opened at least once.
-   * "hard"    — the agent answered (so signaling works) yet the DC never opened
-   *             despite srflx candidates: symmetric NAT. Or only host candidates
-   *             were gathered at all: STUN/UDP blocked. Neither can do P2P.
-   * "unknown" — no answer yet (agent offline / DO drop) or nothing gathered:
-   *             a retry may still succeed, so don't give up.
-   * Note: we deliberately do NOT wait for ICE "failed" — _connectTimer closes the
-   * peer after RTC_CONNECT_TIMEOUT_MS, long before the browser declares failure.
-   * Used by ProtocolManager to decide whether another DO round-trip is worth it.
-   */
+  // Classify NAT type ("ok", "hard", "unknown") from observed ICE behavior.
   natVerdict() {
     const types = this._localCandidateTypes;
     if (this._everOpened || types.has("relay")) return "ok";
-    if (types.size === 0) return "unknown";        // nothing gathered — no signal
-    if (!types.has("srflx")) return "hard";        // host/prflx only → STUN/UDP blocked
-    // srflx present and the agent answered, yet nothing opened. That reads as a
-    // symmetric NAT only if ICE actually got to try: a dual-stack client that
-    // reached "checking" was working through IPv6 pairs and may well succeed on
-    // the IPv4 ones (89ms once it got there), so calling that hard NAT gave up
-    // on a path that works and pinned the session to the tunnel.
+    if (types.size === 0) return "unknown";
+    if (!types.has("srflx")) return "hard";
+    // Symmetric NAT: srflx gathered and agent answered, but never reached checking.
     if (this._answerApplied && !this._iceReachedChecking) return "hard";
     return "unknown";
   }
@@ -782,8 +644,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._pendingEmit = null;
     if (this._flushTimer) { clearTimeout(this._flushTimer); this._flushTimer = null; }
     this._latestTileTs.clear();
-    // Half-arrived slices belong to the peer being torn down — a fragment id of
-    // the next peer must not complete a message with this one's bytes.
+    // Reset reassembler to drop incomplete slices from torn-down peer.
     this._reassemble = createReassembler();
   }
 
@@ -791,15 +652,13 @@ export class WebRtcProtocol extends BaseProtocol {
     const id = ++_workerMsgId;
     const bytes = buffer.byteLength;
     new Promise((resolve) => {
-      // Per-pending timeout — if the worker is suspended (iOS background) or dead it
-      // never answers; resolve(null) drops this frame instead of hanging the promise.
+      // Timeout if decoder worker hangs or terminates.
       const timer = setTimeout(() => {
         if (!_workerPending.has(id)) return;
         _workerPending.delete(id);
         resolve(null);
       }, WORKER_DECODE_TIMEOUT_MS);
-      // Bound the in-flight queue: if the worker can't keep up, drop the OLDEST
-      // batch (first inserted ≈ oldest frame) so the newest frame always wins.
+      // Drop oldest in-flight decode if queue exceeds cap.
       const cap = REMOTE_CONFIG.decodeQueueCap;
       while (_workerPending.size >= cap) {
         const oldestId = _workerPending.keys().next().value;
@@ -839,7 +698,6 @@ export class WebRtcProtocol extends BaseProtocol {
         this._pendingEmit = null;
         const freshTiles = [...tileMap.values()];
         if (!freshTiles.length) return;
-        // Emit as standard "message" → ProtocolManager fans out to "tiles-data" listeners
         this._emit("message", {
           event: "tiles-data",
           data: { tiles: freshTiles, timestamp: ts, hasBitmap: hb, bytes: by, transport: this._typeDetail },
@@ -850,10 +708,7 @@ export class WebRtcProtocol extends BaseProtocol {
   }
 }
 
-// Public IP from a server-reflexive candidate — the NAT address STUN observed.
-// It changes on every real network handover (wifi ⇄ cellular ⇄ another AP), so
-// it's a reliable network identity where navigator.connection isn't available.
-// Candidate form: "candidate:<foundation> <comp> <proto> <pri> <ip> <port> typ srflx ..."
+// Extracts public IP from a server-reflexive (srflx) candidate.
 function publicIpOf(candidate) {
   if (!candidate || !candidate.includes("typ srflx")) return null;
   const parts = candidate.split(" ");

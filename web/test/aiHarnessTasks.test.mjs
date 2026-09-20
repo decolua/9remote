@@ -1,10 +1,4 @@
-// The pane's half of the harness's task model — and the whole of it.
-//
-// One function reads the CLI's records. There is no per-engine translation and no second
-// copy in the store, because a copied model is a model that drifts: the host forwards
-// `task_id`, `is_backgrounded`, `output_file` exactly as the CLI wrote them, and this is
-// the only place that decides what they mean.
-//
+// Tests for AI harness task model and event folding.
 // Run: cd web && node --import ./test/loader-alias.mjs test/aiHarnessTasks.test.mjs
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
@@ -21,11 +15,8 @@ const test = (name, fn) => {
   catch (e) { fail++; console.error(`  FAIL ${name}\n       ${e.message}`); }
 };
 
-// Feed a list of [subtype, record] the way the host delivers them.
 const feed = (records) =>
   records.reduce((tasks, [subtype, record]) => applyTaskRecord(tasks, "system", subtype, record), []);
-
-// ── the records the CLI actually writes ──
 
 test("a background shell's task_started is read as the CLI wrote it", () => {
   const tasks = feed([["task_started", {
@@ -103,7 +94,6 @@ test("background_tasks_changed settles what it stops listing, and spares sub-age
 });
 
 test("the live set adds a task the pane never saw start", () => {
-  // A client that joins mid-task gets the list, not the history of it.
   const tasks = feed([["background_tasks_changed", {
     type: "system", subtype: "background_tasks_changed",
     tasks: [{ task_id: "t-9", task_type: "local_bash", description: "build" }]
@@ -114,8 +104,6 @@ test("the live set adds a task the pane never saw start", () => {
   assert.equal(tasks[0].background, true);
 });
 
-// ── what the strip reads ──
-
 test("only running tasks reach the strip", () => {
   const tasks = feed([
     ["task_started", { type: "system", subtype: "task_started", task_id: "a", is_backgrounded: true }],
@@ -125,10 +113,7 @@ test("only running tasks reach the strip", () => {
   assert.deepEqual(runningTasks(tasks).map((t) => t.taskId), ["b"]);
 });
 
-// ── the rules that keep it cheap ──
-
 test("an unchanged re-announcement returns the same array", () => {
-  // The strip is derived on every streamed token; a fresh array each time re-renders it.
   const once = feed([["task_started", { type: "system", subtype: "task_started", task_id: "t-1", description: "x" }]]);
   const twice = applyTaskRecord(once, "system", "task_started", {
     type: "system", subtype: "task_started", task_id: "t-1", description: "x"
@@ -156,11 +141,6 @@ test("a malformed record does not throw", () => {
   }
 });
 
-
-// ── one reader, two doors ──
-
-
-// The host delivers the CLI's records as `cli_event`, so both doors see the same thing.
 const asLog = (records) => records.map(([subtype, record], i) => ({
   seq: i + 1, event: "cli_event", data: { type: "system", subtype, record }
 }));
@@ -187,9 +167,6 @@ test("the live door lands exactly what the replay door does", () => {
   }
   const live = useAiStore.getState().bySession["parity"].harnessTasks;
   const replay = reduceSessionEvents(asLog(RECORDS), "claude").harnessTasks;
-  // A task's clock is stamped when each door folds the record, and the two folds are
-  // milliseconds apart — the mark is this client's own, so only the SHAPE can be shared.
-  // Compared without it, because a difference of 1ms is not the drift this test is for.
   const withoutClock = (tasks) => tasks.map(({ startedAt, ...rest }) => rest);
   assert.deepEqual(withoutClock(live), withoutClock(replay), "two doors, one reader — they must not drift");
 });
@@ -209,59 +186,34 @@ test("a task the CLI says is running is what the strip shows", () => {
     { taskId: "shell-1", toolUseId: "c1", status: "running", background: true, description: "build" },
     { taskId: "agent-1", toolUseId: "c2", status: "completed", background: false, description: "look" }
   ]);
-  // The fields the strip keys on, only. The row also carries whatever else the record
-  // stated (a clock, a usage total), and pinning those here would make this test fail
-  // every time the strip learns to read one more.
   const shape = ({ kind, id, taskId, label }) => ({ kind, id, taskId, label });
   assert.deepEqual(rows.map(shape), [{ kind: "shell", id: "c1", taskId: "shell-1", label: "build" }],
     "the CLI's status decides, not a row that was handed off");
 });
 
 test("with no task set the row scan still answers, for engines that keep no model", () => {
-  // codex and antigravity hand work off and never name it again — their row IS the model.
-  // And it carries NO clock: a tool row is stamped by nobody, and a duration measured from
-  // whenever the pane happened to look would be a number about this client, not the task.
   const messages = [{ tools: [{ id: "call_x", name: "Agent", status: "running", async: true, input: { description: "look" } }] }];
   const rows = runningAsync(messages, []);
   assert.deepEqual(rows.map(({ kind, id, label }) => ({ kind, id, label })), [{ kind: "agent", id: "call_x", label: "look" }]);
   assert.equal(rows[0].startedAt, undefined, "a scan row states no start");
 });
 
-
-// ── the replay door speaks the same vocabulary as the live door ──
-
 test("the transcript reader emits the CLI's own record, not a name of its own", () => {
-  // The two doors must agree on what a task record LOOKS like. The reader in
-  // agent/features/ai/claudeTranscript.js rebuilds a task's end from the
-  // `<task-notification>` a transcript keeps, and the pane folds records with ONE reader
-  // (lib/harnessTasks.js). A name only one side knows is a task that vanishes on reopen
-  // with nothing on screen to say it was ever there — which is what this catches.
   const src = readFileSync(new URL("../../agent/features/ai/claudeTranscript.js", import.meta.url), "utf8");
   assert.match(src, /subtype: "task_notification"/, "the replay must emit the harness's own subtype");
   assert.doesNotMatch(src, /event: "task_done"/, "not a name invented for the replay");
 });
 
 test("the reader that folds records knows every subtype the host can send", () => {
-  // The host forwards these four live, and the transcript reader rebuilds one of them.
   const shapes = ["task_started", "task_updated", "task_notification", "background_tasks_changed"];
   for (const subtype of shapes) {
     const next = applyTaskRecord([], "system", subtype, { type: "system", subtype, task_id: "t-1" });
     assert.ok(Array.isArray(next), `${subtype} must be handled`);
   }
-  // And a subtype from another engine's vocabulary must not be mistaken for one.
   assert.deepEqual(applyTaskRecord([], "system", "item.started", { item: {} }), []);
 });
 
-
-// ── the replay door speaks the same vocabulary as the live door ──
-
-
-// ── the hydrate door: the replay's own rebuild must reach the store ──
-
 test("hydrateSession takes the harness's task list, or the strip blanks on F5", () => {
-  // The reducer rebuilds `harnessTasks` from the replayed records, and the hydrate door
-  // is what carries it into the store. Dropping it left the strip with a fresh-but-empty
-  // list while a shell was still running — the pane showed nothing pinned after a reload.
   useAiStore.getState().initSession("hyd");
   useAiStore.getState().hydrateSession("hyd", {
     messages: [],
@@ -279,10 +231,6 @@ test("the reducer's rebuilt list is what a hydrate hands over", () => {
 });
 
 test("the live set does not blank a description it did not carry", () => {
-  // `background_tasks_changed` lists tasks WITHOUT their description in practice — the
-  // record the CLI writes for a shell carries task_id/task_type only. Overwriting with
-  // that emptied the label the strip shows, so a running shell lost its name the moment
-  // the live set was republished.
   let t = [];
   t = applyTaskRecord(t, "system", "task_started", { task_id: "t-1", description: "build the thing", is_backgrounded: true });
   t = applyTaskRecord(t, "system", "background_tasks_changed", { tasks: [{ task_id: "t-1", task_type: "local_bash" }] });
@@ -298,9 +246,6 @@ test("the live set still refreshes a field it does carry", () => {
 });
 
 test("a re-announced task keeps the name the CLI gave it earlier", () => {
-  // The CLI announces a task more than once, and not every announcement carries every
-  // field. Writing the blanks over what an earlier one said is how a sub-agent lost the
-  // type that labels it.
   let t = [];
   t = applyTaskRecord(t, "system", "task_started", { task_id: "a-1", description: "look it up", subagent_type: "Explore" });
   t = applyTaskRecord(t, "system", "task_started", { task_id: "a-1", description: "look it up" });
@@ -309,9 +254,6 @@ test("a re-announced task keeps the name the CLI gave it earlier", () => {
 });
 
 test("a task that resumes drops the end it reported before", () => {
-  // `end_time` rides a patch for a task that STOPPED. If the CLI later moves that task
-  // back to a live status, the stamp is no longer true — keeping it prints "ended at …"
-  // over work that is running.
   let t = [];
   t = applyTaskRecord(t, "system", "task_started", { task_id: "t-1", is_backgrounded: true });
   t = applyTaskRecord(t, "system", "task_updated", { task_id: "t-1", patch: { status: "killed", end_time: 123 } });
@@ -322,20 +264,12 @@ test("a task that resumes drops the end it reported before", () => {
 });
 
 test("a paused task carries no end stamp either", () => {
-  // Paused is not running and not over. An end stamp there would read as "finished".
   let t = [];
   t = applyTaskRecord(t, "system", "task_started", { task_id: "t-1", is_backgrounded: true });
   t = applyTaskRecord(t, "system", "task_updated", { task_id: "t-1", patch: { status: "paused" } });
   assert.equal(t[0].status, "paused");
   assert.equal("endedAt" in t[0], false);
 });
-
-// ── an ended task settles the row that launched it ──
-//
-// A background shell's tool_result is only the LAUNCH ack ("Command running in background
-// with ID: …"), and that string stays in the output forever — so a card reading it as
-// "live" spun until the host's 120s watchdog, and a restart brought it back spinning. The
-// record that ends the task is what has to end the row.
 
 const rowLog = [
   { seq: 1, event: "tool_start", data: { id: "c1", name: "Bash", input: { run_in_background: true } } },
@@ -375,9 +309,6 @@ test("a task still running leaves its row alone", () => {
 });
 
 test("a replayed log settles the rows whose tasks are already over", () => {
-  // The F5 case: the log is a page of the past, so its `running` rows are whatever they
-  // were when written — and a task that ended before this pane existed must not come
-  // back mid-spin.
   const out = reduceSessionEvents(rowLog, "claude");
   useAiStore.getState().initSession("replay");
   useAiStore.getState().hydrateSession("replay", {
@@ -394,14 +325,7 @@ test("an engine with no task model leaves every row as its adapter set it", () =
   assert.equal(useAiStore.getState().bySession["codex"].messages[0].tools[0].status, "running");
 });
 
-// ── the host states the task set beside the log (the F5 case) ──
-
-
 test("task records the replay tail never reached still arrive, from the host", () => {
-  // The bug this exists for: a task is announced at the top of a long turn, the turn runs
-  // past a 32KB replay window, and an F5 comes back with an empty strip while the work is
-  // still going. The host states its own records beside the log, so the window is no
-  // longer the only door.
   const host = [
     { type: "system", subtype: "task_started", record: { task_id: "t-1", tool_use_id: "c1", status: "running", is_backgrounded: true, description: "build" } }
   ];
@@ -410,7 +334,6 @@ test("task records the replay tail never reached still arrive, from the host", (
 });
 
 test("the replayed window wins where both doors carry the same task", () => {
-  // The window is the newer reading of the events the two share — it saw the end.
   const host = [{ type: "system", subtype: "task_started", record: { task_id: "t-1", tool_use_id: "c1", status: "running", is_backgrounded: true } }];
   const window = [{ taskId: "t-1", toolUseId: "c1", status: "completed", background: true }];
   assert.deepEqual(foldTaskRecords(host, window).map((t) => t.status), ["completed"]);
@@ -422,8 +345,6 @@ test("a host that states no records leaves the window's own list alone", () => {
 });
 
 test("a /clear empties the task list, which is a statement and not a silence", () => {
-  // The reset states `taskRecords: []` for a /clear. Skipping an empty array left the
-  // pane drawing tasks from the conversation that was just thrown away.
   useAiStore.getState().initSession("cleared");
   useAiStore.getState().setTaskRecords("cleared", [
     { type: "system", subtype: "task_started", record: { task_id: "t-1", status: "running", is_backgrounded: true } }
@@ -442,11 +363,7 @@ test("a reset that states nothing (an older host) does not wipe the list", () =>
   assert.equal(useAiStore.getState().bySession["older"].harnessTasks.length, 1);
 });
 
-// ── the clock, and what a handed-off task is doing ──
-
 test("a task's clock counts from the age the host stated, not from this pane's arrival", () => {
-  // The harness states no start time; the host sends how long ago it LOGGED the record.
-  // An F5 mid-task must not restart the clock at zero — that is the whole point of it.
   const before = Date.now();
   const tasks = feed([["task_started", { task_id: "t-1", is_backgrounded: true, ageMs: 90_000 }]]);
   const started = tasks[0].startedAt;
@@ -462,8 +379,6 @@ test("a live record (no age) starts its clock now", () => {
 });
 
 test("a re-announced task keeps the mark the pane has been counting from", () => {
-  // `background_tasks_changed` republishes the live set with no age, and restamping it
-  // there would restart a clock the reader has been watching for minutes.
   const tasks = feed([
     ["task_started", { task_id: "t-1", is_backgrounded: true, ageMs: 60_000 }],
     ["background_tasks_changed", { tasks: [{ task_id: "t-1", task_type: "local_bash" }] }]
@@ -472,7 +387,6 @@ test("a re-announced task keeps the mark the pane has been counting from", () =>
 });
 
 test("a task the live set introduces gets a clock, from the record that introduced it", () => {
-  // A client that joined mid-task never saw the task_started — the set IS its first word.
   const before = Date.now();
   const tasks = feed([["background_tasks_changed", { ageMs: 30_000, tasks: [{ task_id: "t-9", description: "build" }] }]]);
   assert.ok(before - tasks[0].startedAt >= 29_000);
@@ -508,8 +422,6 @@ test("what a task is doing is its deepest RUNNING call, not its first", () => {
 });
 
 test("a task with nothing running under it still shows its last call", () => {
-  // The harness can still call a task running after its last step reported done, and a
-  // blank "now" line there reads as a broken panel rather than as a task between steps.
   const messages = [{
     tools: [{ id: "call_a", name: "Agent", status: "running", input: {}, children: [{ id: "c1", name: "Read", status: "done", input: { file_path: "/w/a.js" } }] }]
   }];
@@ -529,10 +441,6 @@ test("the clock reads in the units a reader is watching", () => {
   assert.equal(clockText(3_720_000), "1h 02m");
 });
 
-// The composer's model chip. The host resolves the CLI's own default model at connect
-// and puts it on the init event; a later init from an adapter that never learned a
-// model carries "" — that must not blank the one already shown (picking an effort used
-// to lose the model exactly this way).
 test("a later init with no model does not wipe the model the pane is showing", () => {
   const log = [
     { seq: 1, event: "init", data: { model: "glm/glm-5.3", skills: [] } },

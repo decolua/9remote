@@ -1,14 +1,5 @@
-// The codex app-server session, driven through a stand-in CLI so every case is reachable
-// without a model. The shapes below are the real ones, read off a live server
-// (`codex app-server generate-ts` writes its own TS bindings; these are those types).
-//
-// What this buys over `codex exec --json`:
-//   • thinking streams. `exec` sends ONE `item.completed reasoning` after the answer;
-//     the app-server sends `item/reasoning/summaryTextDelta` as the model produces it.
-//   • every command arrives with `commandActions` — the CLI's own read of what the
-//     command did — so a read row is named from the live stream instead of from a
-//     rollout file read back off disk.
-//
+// The codex app-server session, driven through a stand-in CLI so every case is reachable without a model; the shapes below are the real wire ones.
+// What this buys over `codex exec --json`: streamed thinking deltas, and commandActions on every command.
 // Run: node agent/test/codexAppServer.test.mjs
 import assert from "node:assert/strict";
 import { CodexAppServer } from "../features/ai/proc/codexAppServer.js";
@@ -34,12 +25,10 @@ function fakeProc() {
   };
 }
 
-// Drives the handshake the way the real server does, and hands back the pieces.
 async function started(opts = {}) {
   const proc = fakeProc();
   const events = [];
-  // `mode`/`networkAccess`/`addDirs` are the app's vocabulary; the server session takes
-  // the translated settings, which is what codexSettings.js is for.
+  // App vocabulary here; the server session takes the translated settings (codexSettings.js).
   const { mode, networkAccess, addDirs, ...rest } = opts;
   const server = new CodexAppServer({ proc, cwd: "/w", onEvent: (e, d) => events.push([e, d]), ...rest });
   if (mode !== undefined || networkAccess !== undefined || addDirs !== undefined) {
@@ -99,8 +88,7 @@ await test("start negotiates, opens a thread, and reports the id it got", async 
 await test("the sandbox and approval policy reach thread/start", async () => {
   const { proc } = await started({ mode: "readOnly", model: "gpt-5.6-luna" });
   const ts = proc.sent("thread/start")[0];
-  // The server's own shape, not the exec path's `-s read-only`: a policy OBJECT, whose
-  // variant the CLI validates (an unknown one is -32600).
+  // The server's own shape: a policy OBJECT — an unknown variant is -32600.
   assert.equal(ts.params.sandboxPolicy?.type, "readOnly");
   assert.equal(ts.params.approvalPolicy, "untrusted", "a narrow mode keeps the gate");
   assert.equal(ts.params.model, "gpt-5.6-luna");
@@ -108,8 +96,7 @@ await test("the sandbox and approval policy reach thread/start", async () => {
 });
 
 await test("effort and personality ride the thread's own params", async () => {
-  // Not `config`: probed on the real server, an effort put there did not take. The
-  // thread carries `personality` and the collaboration settings carry the effort.
+  // Not `config` — the thread carries personality, the collaboration settings the effort.
   const { proc } = await started({ effort: "xhigh", personality: "pragmatic" });
   const ts = proc.sent("thread/start")[0];
   assert.equal(ts.params.personality, "pragmatic");
@@ -118,10 +105,7 @@ await test("effort and personality ride the thread's own params", async () => {
 
 // ── turns ──
 
-// `/review` is a COMMAND of this server, not prose. Sent as a prompt it merely asks the
-// model to review something ("Không có gì để review" on a clean tree); the server's own
-// `review/start` runs the review, which is what the TUI's /review does — measured, it
-// emits enteredReviewMode -> command -> exitedReviewMode.
+// `/review` is a server COMMAND, not prose — `review/start` runs the review.
 await test("/review calls review/start instead of asking the model to do one", async () => {
   const { proc, server } = await started();
   const p = server.sendPrompt("/review");
@@ -179,9 +163,7 @@ await test("turn/completed ends the turn", async () => {
   assert.equal(of("turn_complete").length, 1);
 });
 
-// Token usage is its own notification, not a field on the Turn (checked against the
-// server's own generated bindings: Turn carries id/items/status/error/timestamps and
-// nothing else). Reading it off the turn would leave the counter at zero forever.
+// Usage is its own notification, not a Turn field — reading it off the turn leaves the counter at zero.
 await test("token usage arrives on its own notification and reaches the stats", async () => {
   const { proc, of } = await started();
   proc.emit({
@@ -210,8 +192,7 @@ await test("thinking streams: one event per delta, in order", async () => {
 });
 
 await test("the same reasoning item is not restated when it completes", async () => {
-  // `item/completed` carries the whole summary. Sending it too would double every
-  // thought — once streamed, once whole.
+  // `item/completed` carries the whole summary — sending it too would double every thought.
   const { proc, of } = await started();
   proc.emit(thinking("Simple "));
   proc.emit(thinking("math"));
@@ -355,8 +336,7 @@ await test("an exec approval is surfaced to the user and left unanswered until t
   const [req] = of("permission_request");
   assert.equal(req.requestId, "srv-1");
   assert.match(req.input.command, /rm -rf/);
-  // Nothing written back: the CLI is blocked on the user, and an auto-answer here
-  // would be the app approving a destructive command on the user's behalf.
+  // Nothing written back — an auto-answer would approve a destructive command for the user.
   assert.equal(proc.sent("").length, 0);
   assert.ok(!proc.written.some((w) => JSON.parse(w).id === "srv-1"), "the gate stays shut");
 });
@@ -379,12 +359,7 @@ await test("a denial says so", async () => {
 });
 
 await test("an answer goes back with the id TYPE the request arrived with", async () => {
-  // The server's `RequestId` is `string | number` and it NUMBERS its own requests. A
-  // client's card is keyed by the string form (that is what travels on the wire), so
-  // answering with the string is the easy mistake — and it is fatal. Measured on the real
-  // server, one gate, only the answer's id type differing: answered as `"0"`, no further
-  // records and no `turn/completed` ever arrived (the turn hung); answered as `0`, the
-  // server sent `serverRequest/resolved` and `turn/completed` and ran the command.
+  // The server NUMBERS its own ids and the answer must carry the same TYPE — a string-for-number swap hangs the turn.
   const { proc, server, of } = await started();
   proc.emit({ jsonrpc: "2.0", id: 7, method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
   const [req] = of("permission_request");
@@ -395,8 +370,7 @@ await test("an answer goes back with the id TYPE the request arrived with", asyn
 });
 
 await test("a string request id is answered as a string", async () => {
-  // The other half: ids this host mints (a client-issued request) are strings and must
-  // stay strings. Coercing everything to a number would break exactly these.
+  // The other half: host-minted ids are strings and must stay strings.
   const { proc, server } = await started();
   proc.emit({ jsonrpc: "2.0", id: "srv-9", method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
   server.resolvePermission("srv-9", "allow");
@@ -416,9 +390,7 @@ await test("a user-input gate is answered on the raw id too", async () => {
 });
 
 await test("the server's own resolved record does not eat the gate we are still holding", async () => {
-  // The server emits `serverRequest/resolved` for EVERY gate — its own answer included —
-  // and it arrives BEFORE the answer write is flushed. Clearing the map there too made the
-  // retry check report "no longer waiting" over an answer that had just been accepted.
+  // `serverRequest/resolved` fires for our own answer too, before the write flushes — clearing the map there broke the retry check.
   const { proc, server, of } = await started();
   proc.emit({ jsonrpc: "2.0", id: 21, method: "execCommandApproval", params: { callId: "c1", command: ["ls"], cwd: "/w", parsedCmd: [] } });
   proc.emit({ jsonrpc: "2.0", method: "serverRequest/resolved", params: { threadId: "t-1", requestId: 21 } });
@@ -452,8 +424,7 @@ await test("a user-input gate becomes the question card the app already renders"
     params: { threadId: "t-1", turnId: "turn-1", itemId: "i1", isBlocking: true, autoResolutionMs: null,
       questions: [{ id: "q1", header: "Pick", question: "Which one?", options: [{ label: "A", description: "" }] }] }
   });
-  // Through `permission_request`, NOT its own event name: the card lives on the gate door
-  // (see AiPaneView), and an event nobody listens for is a question nobody ever sees.
+  // Through `permission_request`, not its own event name — no client listens for a `question` event.
   const [q] = of("permission_request");
   assert.equal(q.requestId, "srv-4");
   assert.equal(q.tool, "AskUserQuestion");
@@ -485,27 +456,19 @@ await test("interrupt asks the server to stop the running turn", async () => {
   assert.equal(server.interrupt(), true);
   const it = proc.sent("turn/interrupt")[0];
   assert.equal(it.params.threadId, "t-1");
-  // BOTH ids, because the server's `TurnInterruptParams` is `{ threadId, turnId }` — the
-  // turn id is not optional. Asserting only the thread is what let Stop look like a no-op:
-  // the request went out, the server refused it for the missing field, and the `.catch`
-  // swallowed the refusal while the CLI kept answering.
+  // BOTH ids — `turnId` is required, and the server's refusal without it was swallowed while the CLI kept answering.
   assert.equal(it.params.turnId, "turn-1", "the turn id is required, not decoration");
 });
 
 await test("interrupt refuses when no turn is open, instead of sending a doomed request", async () => {
-  // A thread with nothing running has no turn to interrupt. Sending anyway gets a refusal
-  // the caller reads as success, which is how `AiSession.stop` came to clear the pane's
-  // turn flag over a CLI that never heard anything.
+  // Sending anyway gets a refusal the caller reads as success — the pane's flag cleared over a CLI that heard nothing.
   const { proc, server } = await started();
   assert.equal(server.interrupt(), false);
   assert.equal(proc.sent("turn/interrupt").length, 0, "nothing is sent for a turn that does not exist");
 });
 
 await test("the interrupt's landing is reported to its holder, not the pane", async () => {
-  // The adapter's running flag only ever cleared on `turn_complete`/`error`. Swallowing
-  // the echo (rightly) took those away from the pane — and wrongly took the flag's only
-  // release with them, so every prompt after an Esc was refused forever. The landing now
-  // has its own door: `onInterruptSettled`, internal, fired exactly once.
+  // Swallowing the echo took the running flag's only release with it — the landing has its own door, `onInterruptSettled`.
   const settled = [];
   const { proc, server, of } = await started({ onInterruptSettled: () => settled.push(true) });
   const p = server.sendPrompt("hi");
@@ -525,11 +488,7 @@ await test("the interrupt's landing is reported to its holder, not the pane", as
 });
 
 await test("the server's own echo of our interrupt is swallowed", async () => {
-  // The session emits `stopped` the moment turn/interrupt goes out. The server then
-  // completes the interrupted turn on its own — a SECOND ending for the same turn.
-  // Let through after a queued prompt had started, it stamped that newer turn's span
-  // ("Worked for 0s") and killed its running flag. The echo must be consumed silently;
-  // the NEXT turn's completion must still announce itself.
+  // The server ends the interrupted turn on its own — a second ending; let through, it kills the NEXT turn's span and flag.
   const { proc, server, of } = await started();
   const p = server.sendPrompt("hi");
   proc.emit({ jsonrpc: "2.0", id: proc.sent("turn/start")[0].id, result: { turn: { id: "turn-1" } } });
@@ -569,13 +528,10 @@ await test("stop() closes the session and refuses later prompts", async () => {
 });
 
 // ── settings: the options exec took as argv ──
-//
-// The app-server is one process per chat, so an option is a field on a request instead
-// of a flag on the next spawn. These pin the ones probed against the real server.
+// One process per chat — an option is a field on a request, not a flag on the next spawn.
 
 await test("initialize declares the experimental capability the settings API needs", async () => {
-  // Without it `thread/settings/update` and `collaborationMode/list` answer -32600
-  // "requires experimentalApi capability" — probed on the installed binary.
+  // Without it the settings APIs answer -32600 "requires experimentalApi capability".
   const { proc } = await started();
   const init = proc.written.map((w) => JSON.parse(w)).find((m) => m.method === "initialize");
   assert.equal(init.params.capabilities?.experimentalApi, true);
@@ -623,8 +579,7 @@ await test("a turn carries the settings too, so a mode change lands even if upda
 });
 
 await test("updateSettings before a thread exists is queued, not dropped", async () => {
-  // A mode picked while the handshake is still in flight must not be lost — it would
-  // silently run the turn at the old policy.
+  // A mode picked mid-handshake must not be lost — it would run at the old policy.
   const proc = fakeProc();
   const server = new CodexAppServer({ proc, cwd: "/w", onEvent: () => {} });
   assert.equal(await server.updateSettings({ effort: "high" }), false);
@@ -635,8 +590,7 @@ await test("updateSettings before a thread exists is queued, not dropped", async
 // ── images ──
 
 await test("an attached image rides the turn as a localImage input", async () => {
-  // Verified against the real server: a localImage turn had the model describe the
-  // picture. The exec path spelled this `--image=<path>`.
+  // Verified on the real server; the exec path spelled this `--image=<path>`.
   const { proc, server } = await started();
   const p = server.sendPrompt("what is this?", [{ path: "/tmp/shot.png", kind: "image" }]);
   const ts = proc.sent("turn/start")[0];
@@ -671,9 +625,7 @@ await test("a non-image attachment is named in the text, since the server takes 
 // ── timeouts, by request kind ──
 
 await test("the handshake carries a timeout, so a dead server cannot hang the chat", async () => {
-  // Measured against the real server: initialize answers in 25-56ms, thread/start in
-  // 73-108ms. The window is ~150x the slowest, which leaves room for a loaded machine
-  // and still fails fast when the process is gone.
+  // Measured: the handshake answers in 25-108ms — the window is ~150x that, room for a loaded machine.
   const proc = fakeProc();
   const server = new CodexAppServer({ proc, cwd: "/w", onEvent: () => {} });
   const p = server.start();
@@ -691,10 +643,7 @@ await test("a settings change carries a timeout too", async () => {
   assert.ok(proc.sent("thread/settings/update").length);
 });
 
-// The one request with NO timeout, and the reason is the whole point of the split:
-// its answer is an ack ("received"), not "finished". Timing it out would mark the turn
-// dead while codex runs it on, and the next prompt would then be refused — the chat
-// wedges in a way nobody can see, which is worse than a call that visibly hangs.
+// The one request with NO timeout: its answer is an ack, not "finished" — timing out would wedge the chat invisibly.
 await test("a prompt is never timed out by the request layer", async () => {
   const { proc, server } = await started();
   const p = server.sendPrompt("hi");
@@ -708,12 +657,7 @@ await test("a prompt is never timed out by the request layer", async () => {
 });
 
 // ── the records nobody wired ──
-//
-// The server declares 83 notifications and this class wires a handful. Before the seam,
-// everything else hit `handler?.()` with no handler and was GONE: no log, no error, no
-// missing pixel. The pane re-renders the CLI's own TUI, so a record it cannot draw must
-// still arrive — that is what Claude got first (33 of its 39 shapes were being dropped)
-// and what these three tests hold codex to.
+// 83 notifications declared, a handful wired — a record the pane cannot draw must still arrive under its own name.
 
 await test("a notification nobody wired reaches the pane, under its own name", async () => {
   const { proc, of } = await started();
@@ -741,9 +685,7 @@ await test("a sub-agent item is drawn as a card, not lost", async () => {
   proc.emit({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t-1", item } });
   proc.emit({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t-1", item: { ...item, status: "completed" } } });
   const starts = events.filter(([e]) => e === "tool_start").map(([, d]) => d);
-  // Two events, ONE card: the card is keyed by the item id, and the completion restates
-  // the same id — the shape every other branch here already produces (a command does the
-  // same, and `appendTool` upserts on the id rather than opening a second row).
+  // Two events, ONE card — `appendTool` upserts on the item id.
   assert.equal(new Set(starts.map((s) => s.id)).size, 1, "one card, however many times it is restated");
   assert.equal(starts[0].status, "running", "and it opens while the agent runs");
   assert.equal(starts[0].name, "spawn_agent", "the registry's spelling, so the card matches");
@@ -753,8 +695,7 @@ await test("a sub-agent item is drawn as a card, not lost", async () => {
 
 await test("an item type this class does not draw still reaches the pane", async () => {
   const { proc, of } = await started();
-  // `subAgentActivity` is a bare progress beat for an agent (`started`, `interacted`, …)
-  // with no card of its own, so it is the honest example of "carried, not drawn".
+  // A bare progress beat with no card of its own — the honest "carried, not drawn" example.
   const item = { type: "subAgentActivity", id: "sa_1", kind: "interacted", agentThreadId: "t-2", agentPath: "agent-1" };
   proc.emit({ jsonrpc: "2.0", method: "item/completed", params: { threadId: "t-1", item } });
   const carried = of("cli_event");
@@ -764,8 +705,7 @@ await test("an item type this class does not draw still reaches the pane", async
 });
 
 await test("an announcement of a drawn item is not carried early", async () => {
-  // `item/started` fires for EVERY item. A record carried on the way in and again on the
-  // way out would draw it twice; only the completion is the record.
+  // `item/started` fires for every item — only the completion is the record, or it draws twice.
   const { proc, of } = await started();
   const item = { type: "contextCompaction", id: "cc_1" };
   proc.emit({ jsonrpc: "2.0", method: "item/started", params: { threadId: "t-1", item } });
@@ -775,9 +715,7 @@ await test("an announcement of a drawn item is not carried early", async () => {
 });
 
 await test("an interrupted agent is closed, not left spinning", async () => {
-  // `interrupted` is a status of the server's own bindings and it is NOT `completed`:
-  // a user who hit Stop had an agent that stopped. Left out of the done set, its row
-  // stayed announced and no completion ever followed — a spinner over finished work.
+  // `interrupted` is a done state too — left out, the row spun over finished work.
   const { proc, events } = await started();
   const item = {
     type: "collabAgentToolCall", id: "ca_2", tool: "spawnAgent", status: "inProgress",
@@ -791,9 +729,7 @@ await test("an interrupted agent is closed, not left spinning", async () => {
 });
 
 await test("an agent whose own state says errored is a failure, whatever the item says", async () => {
-  // Recorded on a real run: with no credentials the item reads `completed` while
-  // `agentsStates` holds the truth (`errored` + the message). Trusting the item painted
-  // a green row over an agent that never ran.
+  // `agentsStates` holds the truth when the item reads `completed` — trusting the item painted green over a dead agent.
   const { proc, events } = await started();
   const item = {
     type: "collabAgentToolCall", id: "ca_3", tool: "wait", status: "completed", prompt: null,
@@ -806,8 +742,7 @@ await test("an agent whose own state says errored is a failure, whatever the ite
 });
 
 await test("a notification for another chat does not leak into this one", async () => {
-  // The wired handlers all guard on `_mine`; the passthrough must too, or a server
-  // holding several threads draws one chat's records inside another's timeline.
+  // The passthrough guards on `_mine` like the wired handlers, or one chat leaks into another.
   const { proc, of } = await started();
   proc.emit({ jsonrpc: "2.0", method: "warning", params: { threadId: "t-OTHER", message: "someone else's" } });
   assert.equal(of("cli_event").length, 0, "another thread's record is not this chat's");
@@ -816,8 +751,7 @@ await test("a notification for another chat does not leak into this one", async 
 });
 
 await test("an image the agent looked at is a file row, not a raw record", async () => {
-  // Found in the rollouts on this machine: 3 `ImageView` items, drawn by nothing. They are
-  // reads, and the file card is the row a read already has.
+  // `ImageView` items are reads — the file card is the row a read already has.
   const { proc, events } = await started();
   proc.emit({
     jsonrpc: "2.0", method: "item/completed",
@@ -842,19 +776,14 @@ await test("entering and leaving review draw as the review's own card", async ()
     params: { threadId: "t-1", item: { type: "exitedReviewMode", id: "rv_2", review: "look for missing tests" } }
   });
   const names = events.filter(([e]) => e === "tool_start").map(([, d]) => d.name);
-  // Under the CLI's OWN names: mapping them onto Claude's plan-mode pair made the pane say
-  // "Plan Mode Activated", about the wrong engine, for a code review.
+  // Under the CLI's own names — mapping to Claude's plan pair named the wrong engine.
   assert.deepEqual(names, ["enteredReviewMode", "exitedReviewMode"]);
   const [entered] = events.filter(([e]) => e === "tool_start").map(([, d]) => d);
   assert.equal(entered.input.review, "look for missing tests", "and the review is what it says");
 });
 
 // ── the gate nobody registered ──
-//
-// The client refuses an unhandled server request ITSELF (`unhandled server request: …`),
-// which is better than hanging the CLI and worse than asking the user: the app answered
-// on their behalf, and nothing anywhere said so. Probed against the server's own
-// `ServerRequest` union — 10 requests, 5 of which were unregistered.
+// An unhandled server request must reach the user as a gate, not be refused on their behalf.
 
 await test("a request for more permissions is a gate, not an auto-refusal", async () => {
   const { proc, of } = await started();
@@ -872,8 +801,7 @@ await test("a request for more permissions is a gate, not an auto-refusal", asyn
 });
 
 await test("allowing a permission grant answers with what was granted", async () => {
-  // The two response shapes are the server's: a decision (`accept`) for an approval, a
-  // granted PROFILE for this one. Sending the wrong one is a refusal it cannot read.
+  // This gate answers with a granted PROFILE, not a decision — the wrong shape is a refusal it cannot read.
   const { proc, server } = await started();
   const params = { threadId: "t-1", reason: "install deps", permissions: { network: { enabled: true } } };
   proc.emit({ jsonrpc: "2.0", id: "s-grant", method: "item/permissions/requestApproval", params });
@@ -896,7 +824,7 @@ await test("denying a permission grant grants nothing", async () => {
 });
 
 await test("an ordinary approval still answers with a decision", async () => {
-  // The fix above must not change the gate that already worked.
+  // The other gate keeps its decision shape.
   const { proc, server } = await started();
   proc.emit({
     jsonrpc: "2.0", id: "s-exec", method: "item/commandExecution/requestApproval",
@@ -909,11 +837,7 @@ await test("an ordinary approval still answers with a decision", async () => {
 });
 
 // ── a question the CLI is blocking on ──
-//
-// The server declares `item/tool/requestUserInput` and this class registered it, but it
-// announced the gate on its OWN event name (`question`) — which no client listens for. The
-// card is reached through `permission_request`, the door every other gate takes, so a
-// question the CLI was waiting on never appeared and the turn sat there forever.
+// `requestUserInput` must announce through `permission_request` — the door every card listens to.
 
 await test("a question reaches the pane through the gate door every card knows", async () => {
   const { proc, of } = await started();
@@ -939,9 +863,7 @@ await test("a question reaches the pane through the gate door every card knows",
 });
 
 await test("an answer is keyed by the question's ID, which is what the server validates", async () => {
-  // The card hands back labels keyed by the question TEXT — that is the shape every
-  // engine's card produces. This server wants `{<id>: {answers: [...]}}`, and it refuses
-  // a reply whose keys it does not recognise.
+  // Cards key answers by question TEXT; this server wants `{<id>: {answers: [...]}}` and refuses unknown keys.
   const { proc, server } = await started();
   proc.emit({
     jsonrpc: "2.0", id: "q1", method: "item/tool/requestUserInput",
@@ -967,8 +889,7 @@ await test("an answer for a question nobody asked is not sent", async () => {
 });
 
 await test("answering a question the CLI already moved past is refused", async () => {
-  // Same rule as a permission gate: a stale answer would be a stray response on the pipe
-  // and reported success for an answer nobody received.
+  // Same rule as a gate — a stale answer is a stray response reported as success.
   const { server } = await started();
   assert.equal(server.resolveQuestion("nobody", { q: "a" }), false);
 });

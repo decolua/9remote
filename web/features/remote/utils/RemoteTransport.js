@@ -1,34 +1,19 @@
-/**
- * RemoteTransport — unified transport layer for WS and WebRTC DataChannel.
- *
- * Exposes a Socket.IO-like interface (emit / on / off) so all consumers
- * (useTiles, useRemoteBus, ...) work identically regardless of carrier.
- *
- * Strategy:
- *   - SEND  : prefer DC when open, fallback to bus
- *   - RECEIVE: bus handles all JSON events (control + hashes)
- *              DC delivers binary tile frames → decoded off-thread via Worker → re-emitted as "tiles-data"
- */
+// Unified transport layer for WS and WebRTC DataChannel.
 
 let _worker = null;
 let _workerMsgId = 0;
-// Consecutive worker crashes before giving up — a worker that fails to load (CSP)
-// errors again on every respawn, so bound the retries instead of looping forever.
+// Bound consecutive worker respawns on repeated crash (e.g. CSP).
 const MAX_WORKER_RESPAWNS = 3;
 let _workerFailures = 0;
-// Map<id, resolve> for pending worker messages
 const _workerPending = new Map();
-// Track latest server timestamp seen per tileIndex — drop stale batches before emit
 const _latestTileTs = new Map();
-// Accumulate decoded chunks — flush after all pending onmessage callbacks drain
 let _pendingEmit = null;
 let _flushTimer = null;
 
 function getWorker() {
-  if (_worker === false) return null; // previously failed (CSP / unsupported)
+  if (_worker === false) return null;
   if (_worker) return _worker;
   try {
-    // Next.js: use URL constructor for worker bundling
     _worker = new Worker(
       new URL("../workers/tileDecoder.worker.js", import.meta.url)
     );
@@ -37,7 +22,7 @@ function getWorker() {
     return null;
   }
   _worker.onmessage = ({ data: { tiles, timestamp, id, hasBitmap, error } }) => {
-    _workerFailures = 0; // worker answered — the crash streak is broken
+    _workerFailures = 0;
     const resolve = _workerPending.get(id);
     if (!resolve) return;
     _workerPending.delete(id);
@@ -45,15 +30,12 @@ function getWorker() {
   };
   _worker.onerror = (err) => {
     console.error("[Worker] tileDecoder error:", err.message);
-    // A crashed worker never answers — reset so the next tile spawns a fresh one
     resetWorker();
     if (++_workerFailures >= MAX_WORKER_RESPAWNS) _worker = false;
   };
   return _worker;
 }
 
-// Terminate the (possibly suspended/crashed) worker + drop pending decodes.
-// Mirrors WebRtcProtocol.resetWorker / useTiles.resetBinWorker.
 function resetWorker() {
   if (_worker && _worker !== false) { try { _worker.terminate(); } catch {} }
   _worker = null;
@@ -64,35 +46,21 @@ function resetWorker() {
 export class RemoteTransport {
   constructor(bus) {
     this._socket = bus;
-    this._dc = null;            // RTCDataChannel, set when DC opens
+    this._dc = null;
     this._tileBatch = [];
-
-    // Internal event bus for DC-originated events
-    // Map<eventName, Set<handler>>
     this._listeners = new Map();
 
-    // Proxy all bus events into our listener bus so consumers
-    // use transport.on() for both WS and DC events uniformly
     this._socketProxy = (eventName) => (...args) => {
       this._emit(eventName, ...args);
     };
-    this._proxiedEvents = new Map(); // eventName → proxy fn (for cleanup)
-    
-    // Track transport method for benchmark
+    this._proxiedEvents = new Map();
     this._lastTransport = null;
   }
 
-  // ─── Public API ────────────────────────────────────────────────────────────
-
-  /**
-   * Register a listener. Works for both WS events and DC-decoded events.
-   */
   on(eventName, handler) {
     if (!this._listeners.has(eventName)) {
       this._listeners.set(eventName, new Set());
-      // Mirror bus event into our bus (only once per event name)
       const proxy = (...args) => {
-        // Tag WS events with transport method
         if (eventName === "tiles-data" && args[0] && !args[0].transport) {
           args[0].transport = "ws";
         }
@@ -104,9 +72,6 @@ export class RemoteTransport {
     this._listeners.get(eventName).add(handler);
   }
 
-  /**
-   * Remove a listener. Cleans up bus proxy when no handlers remain.
-   */
   off(eventName, handler) {
     const set = this._listeners.get(eventName);
     if (!set) return;
@@ -121,19 +86,10 @@ export class RemoteTransport {
     }
   }
 
-  /**
-   * Send via DC if open, else via bus (WS).
-   * Binary data always goes through bus as a normal emit.
-   */
   emit(eventName, data) {
-    // Control/signaling always via bus (WS)
     this._socket?.emit(eventName, data);
   }
 
-  /**
-   * Attach an open RTCDataChannel. Transport will decode binary tiles
-   * from it and re-emit as "tiles-data" — identical to WS path.
-   */
   attachDataChannel(dc) {
     this._dc = dc;
     dc.onmessage = ({ data }) => {
@@ -145,9 +101,6 @@ export class RemoteTransport {
     };
   }
 
-  /**
-   * Detach DataChannel (DC closed or fallback).
-   */
   detachDataChannel() {
     if (this._dc) {
       this._dc.onmessage = null;
@@ -160,9 +113,6 @@ export class RemoteTransport {
     if (_flushTimer) { clearTimeout(_flushTimer); _flushTimer = null; }
   }
 
-  /**
-   * Full cleanup — remove all bus proxies and DC listeners.
-   */
   destroy() {
     this.detachDataChannel();
     for (const [eventName, proxy] of this._proxiedEvents.entries()) {
@@ -172,16 +122,12 @@ export class RemoteTransport {
     this._listeners.clear();
   }
 
-  // ─── Internal ──────────────────────────────────────────────────────────────
-
-  /** Dispatch event to all registered handlers */
   _emit(eventName, ...args) {
     const set = this._listeners.get(eventName);
     if (!set) return;
     for (const handler of set) handler(...args);
   }
 
-  /** Decode batch tiles from DC via Worker (off main thread), emit as "tiles-data" */
   _receiveDCTile(buffer) {
     const id = ++_workerMsgId;
 
@@ -194,7 +140,6 @@ export class RemoteTransport {
       if (!result) return;
       const { tiles, timestamp, hasBitmap } = result;
 
-      // Merge into pending emit — newer tile overwrites older for same tileIndex
       if (!_pendingEmit) {
         _pendingEmit = { tiles: new Map(), timestamp, hasBitmap };
       }
@@ -202,7 +147,6 @@ export class RemoteTransport {
         const prev = _latestTileTs.get(tile.tileIndex) ?? 0;
         if (timestamp >= prev) {
           _latestTileTs.set(tile.tileIndex, timestamp);
-          // Close old bitmap if overwriting
           _pendingEmit.tiles.get(tile.tileIndex)?.bitmap?.close?.();
           _pendingEmit.tiles.set(tile.tileIndex, tile);
           if (timestamp > _pendingEmit.timestamp) _pendingEmit.timestamp = timestamp;
@@ -211,8 +155,7 @@ export class RemoteTransport {
         }
       }
 
-      // Flush via setTimeout(0) — macrotask runs after ALL pending onmessage callbacks
-      // This ensures chunks from same frame are merged before emitting
+      // setTimeout(0) merges chunks from the same frame before emitting.
       if (_flushTimer) clearTimeout(_flushTimer);
       const self = this;
       _flushTimer = setTimeout(() => {
@@ -226,10 +169,7 @@ export class RemoteTransport {
       }, 0);
     });
   }
-  
-  /**
-   * Get current transport method (webrtc or ws)
-   */
+
   getTransport() {
     return this._dc ? "webrtc" : "ws";
   }

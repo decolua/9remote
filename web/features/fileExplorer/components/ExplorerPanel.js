@@ -20,11 +20,10 @@ import { addToGitignore } from "../lib/gitignore.js";
 const LONG_PRESS_MS = 500;
 const DRAG_MIME = "application/x-file-paths";
 
-// Safari lacks webkitdirectory, so "New Folder" there uploads loose files instead.
+// Safari lacks webkitdirectory support.
 const dirPickerSupported = () =>
   typeof document !== "undefined" && "webkitdirectory" in document.createElement("input");
 
-// A drop carries either OS files or an internal path list — never both.
 const readDragPaths = (e) => {
   const data = e.dataTransfer.getData(DRAG_MIME);
   if (!data) return null;
@@ -53,10 +52,9 @@ export default function ExplorerPanel({
   const [renameValue, setRenameValue] = useState("");
   const [newItemModal, setNewItemModal] = useState(null);
   const [newItemValue, setNewItemValue] = useState("");
-  const [confirmDelete, setConfirmDelete] = useState(null);   // { files: [...] }
+  const [confirmDelete, setConfirmDelete] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [selectedPaths, setSelectedPaths] = useState(() => new Set());
-  // Read at event time so drag handlers can stay identity-stable across selection changes
   const selectionRef = useRef(selectedPaths);
   useEffect(() => { selectionRef.current = selectedPaths; }, [selectedPaths]);
   const renameValueRef = useRef(renameValue);
@@ -65,11 +63,10 @@ export default function ExplorerPanel({
   useEffect(() => { renameTargetRef.current = renameTarget; }, [renameTarget]);
   const [dragOverPath, setDragOverPath] = useState(null);
   const [rootDragOver, setRootDragOver] = useState(false);
-  const [clipboard, setClipboard] = useState(null);           // { paths, mode: copy|cut }
-  const [upload, setUpload] = useState(null);                 // { total, done }
-  const [uploadConflict, setUploadConflict] = useState(null); // { name, resolve }
-  // Focused row for the keyboard; `anchorRef` is where a shift-range measures from —
-  // one cursor for both would collapse every shift-arrow back to a two-row range.
+  const [clipboard, setClipboard] = useState(null);
+  const [upload, setUpload] = useState(null);
+  const [uploadConflict, setUploadConflict] = useState(null);
+  // cursorPath is keyboard focus; anchorRef anchors shift-selection ranges.
   const [cursorPath, setCursorPath] = useState(null);
 
   const treeRef = useRef(null);
@@ -94,7 +91,6 @@ export default function ExplorerPanel({
     onMoved: () => setSelectedPaths(new Set())
   });
 
-  // Close context menu on outside click
   useEffect(() => {
     if (!contextMenu) return;
     const close = () => setContextMenu(null);
@@ -106,7 +102,6 @@ export default function ExplorerPanel({
     };
   }, [contextMenu]);
 
-  // Focus rename input
   useEffect(() => {
     if (renameTarget && renameInputRef.current) {
       renameInputRef.current.focus();
@@ -121,7 +116,6 @@ export default function ExplorerPanel({
     }
   }, [newItemModal]);
 
-  // Determine target folder for new items
   const getNewItemTargetDir = useCallback(() => {
     if (selectedFolder && tree.has(selectedFolder)) return selectedFolder;
     return workspace;
@@ -139,8 +133,7 @@ export default function ExplorerPanel({
     [newItemValue, newItemModal, getNewItemTargetDir, createItem]
   );
 
-  // Reads rename state from refs: this is a prop on every memoized row, so depending
-  // on renameValue would re-render the whole tree on each keystroke of one input.
+  // Read rename state from refs to avoid re-rendering entire tree on keystrokes.
   const handleRenameSubmit = useCallback(async () => {
     const target = renameTargetRef.current;
     if (!target) return;
@@ -163,13 +156,11 @@ export default function ExplorerPanel({
     e.preventDefault();
     e.stopPropagation();
     vibrate();
-    // Right-clicking outside the selection moves it; inside it, the whole set stays.
     setSelectedPaths((prev) => (prev.has(file.path) ? prev : new Set([file.path])));
     setCursorPath(file.path);
     setContextMenu({ file, x: e.clientX, y: e.clientY });
   }, []);
 
-  // Long-press for touch devices
   const startLongPress = useCallback((e, file) => {
     const touch = e.touches?.[0];
     if (!touch) return;
@@ -188,8 +179,7 @@ export default function ExplorerPanel({
     }
   }, []);
 
-  // The Git tab's tab id is virtual; resolve it once so both the highlight and the
-  // reveal below compare against a path a row actually carries.
+  // Resolve virtual Git diff path to actual repository file path.
   const activePath = useMemo(() => {
     if (!activeFile) return null;
     if (!isDiffPath(activeFile)) return activeFile;
@@ -197,15 +187,12 @@ export default function ExplorerPanel({
     return filePath ? `${repoPath || workspace}/${filePath}` : null;
   }, [activeFile, workspace]);
 
-  // A folder survives the filter when anything inside it changed — buildGitStatusMap
-  // already marks ancestors as "folder-changed" for exactly this reason.
   const passesChangedFilter = (file) => {
     if (!onlyChanged) return true;
     return !!gitStatusMap[getRelative(file.path)];
   };
 
-  // The rows the user can actually see, in screen order — what shift-range and the
-  // arrow keys walk. Kept flat here; the render below stays recursive for the nesting.
+  // Flattened visible rows in screen order for keyboard navigation and range selection.
   const visibleRows = useMemo(() => {
     const out = [];
     const walk = (dir, depth) => {
@@ -221,7 +208,6 @@ export default function ExplorerPanel({
 
   const fileAt = useCallback((path) => visibleRows.find((r) => r.file.path === path)?.file || null, [visibleRows]);
 
-  // Every selected row as a file object; falls back to the row the menu was opened on.
   const selectionFiles = useCallback((fallback) => {
     const picked = visibleRows.filter((r) => selectedPaths.has(r.file.path)).map((r) => r.file);
     if (picked.length) return picked;
@@ -239,7 +225,6 @@ export default function ExplorerPanel({
   const handleFileClick = useCallback(
     (file, e) => {
       vibrate();
-      // The tree owns the shortcuts, so a click must land focus on it.
       treeRef.current?.focus({ preventScroll: true });
       const mod = e?.metaKey || e?.ctrlKey;
       if (mod) {
@@ -270,8 +255,7 @@ export default function ExplorerPanel({
     [toggleFolder, onOpenFile, selectRange]
   );
 
-  // Which folder a new item / paste lands in: the folder itself when one is targeted,
-  // the parent when a file is, the workspace otherwise.
+  // Resolve destination directory: targeted folder, parent directory of file, or workspace.
   const dirOf = useCallback((file) => {
     if (!file) return workspace;
     return file.type === "folder" ? file.path : dirname(file.path);
@@ -301,7 +285,6 @@ export default function ExplorerPanel({
     if (clipboard.mode === "cut") setClipboard(null);
   }, [clipboard, pasteInto, dirOf]);
 
-  // The one upload path: a drop and the modal's file picker both land here.
   const runUpload = useCallback(async (items, targetDir) => {
     if (!items.length) return;
     let failed = 0;
@@ -312,9 +295,7 @@ export default function ExplorerPanel({
       onFileDone: () => setUpload((p) => (p ? { ...p, done: p.done + 1 } : p)),
       onError: () => { failed += 1; setUpload((p) => (p ? { ...p, done: p.done + 1, failed } : p)); }
     });
-    // A batch that lost nothing clears itself; one with failures keeps the banner up until
-    // dismissed (`upload.failed` is what the banner branches on), so a failed file is never
-    // silently counted as uploaded.
+    // Keep banner open if any files in batch failed to upload.
     setUpload((p) => (p && failed ? p : null));
     setUploadConflict(null);
     await loadDir(targetDir);
@@ -322,14 +303,11 @@ export default function ExplorerPanel({
     loadGitStatus();
   }, [fileBus, loadDir, expandDir, loadGitStatus]);
 
-  // Files dragged in from the OS: upload into the folder they were dropped on.
   const uploadInto = useCallback(async (dataTransfer, targetDir) => {
     runUpload(await dataTransferToItems(dataTransfer), targetDir);
   }, [runUpload]);
 
-  // One stable handler set shared by every row (they take the row's file) — rows are
-  // memoized, so a closure built per row per render would re-render the whole tree on
-  // every keystroke, selection click and drag-over.
+  // Stable row drag/drop handlers to prevent re-rendering memoized rows.
   const handleRowRenameCancel = useCallback(() => setRenameTarget(null), []);
   const handleRowDragStart = useCallback((e, file) => {
     const sel = selectionRef.current;
@@ -354,13 +332,11 @@ export default function ExplorerPanel({
     e.stopPropagation();
     setDragOverPath(null);
     setRootDragOver(false);
-    // A file row takes the drop on behalf of its folder.
     if (os) { uploadInto(e.dataTransfer, dirOf(file)); return; }
     const paths = readDragPaths(e);
     if (paths) moveTo(paths, file.path);
   }, [uploadInto, dirOf, moveTo]);
 
-  // <input type="file"> picks: webkitRelativePath carries the folder structure.
   const handlePickedFiles = useCallback((e) => {
     const dir = newItemModal?.dir || getNewItemTargetDir();
     const items = [...e.target.files].map((file) => ({ file, relativePath: file.webkitRelativePath || file.name }));
@@ -381,8 +357,7 @@ export default function ExplorerPanel({
     treeRef.current?.querySelector(`[data-path="${CSS.escape(path)}"]`)?.scrollIntoView({ block: "nearest" });
   }, [visibleRows, cursorPath, selectRange]);
 
-  // VSCode-style tree keys. Typing inside the rename input never reaches here — the
-  // input stops on its own keydown handlers.
+  // Keyboard navigation and shortcuts for tree view.
   const handleKeyDown = useCallback((e) => {
     if (renameTarget || newItemModal || confirmDelete) return;
     const cursor = fileAt(cursorPath);
@@ -416,7 +391,7 @@ export default function ExplorerPanel({
       case "Enter":
         if (!cursor) return;
         e.preventDefault();
-        // macOS renames on Enter; elsewhere it opens, and F2 renames.
+        // macOS renames on Enter; other platforms open on Enter and rename on F2.
         if (isMac()) { setRenameTarget(cursor); setRenameValue(cursor.name); }
         else if (cursor.type === "folder") toggleFolder(cursor);
         else onOpenFile?.(cursor.path);
@@ -491,10 +466,7 @@ export default function ExplorerPanel({
 
   const rootFiles = useMemo(() => tree.get(workspace) || [], [tree, workspace]);
 
-  // Turning the filter on reveals the folders holding changes: load their children (a
-  // folder never opened has none cached) and mark them expanded. Expanding for real,
-  // rather than forcing isExpanded, keeps the chevron working — the user can still fold
-  // a branch away while the filter is on.
+  // Auto-expand folders containing git changes when filter is enabled.
   useEffect(() => {
     if (!onlyChanged) return;
     let alive = true;
@@ -514,12 +486,9 @@ export default function ExplorerPanel({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [onlyChanged, gitStatusMap, workspace]);
 
-  // Scroll the open file into view when it changes elsewhere (a tab switch, a git-diff
-  // click) — otherwise the tree keeps showing wherever the user last scrolled to.
+  // Scroll active file into view on external selection changes.
   useEffect(() => {
     if (!activePath || !treeRef.current) return;
-    // Deferred a tick so the row exists when a newly-expanded folder brought it in. A
-    // file outside this root simply finds no row and nothing scrolls.
     const id = setTimeout(() => {
       const row = treeRef.current?.querySelector(`[data-path="${CSS.escape(activePath)}"]`);
       row?.scrollIntoView({ block: "nearest" });
@@ -535,8 +504,7 @@ export default function ExplorerPanel({
     setNewItemValue("");
   };
 
-  // Hand the tree's own actions to a host that draws its own header, so a docked panel
-  // has one strip of buttons rather than two.
+  // Expose tree actions to external header when docked.
   useEffect(() => {
     if (!onActions) return;
     onActions({
@@ -564,8 +532,7 @@ export default function ExplorerPanel({
     }
   }, [workspace, fileBus, getRelative, loadGitStatus]);
 
-  // Context menu items. With more than one row selected the destructive/clipboard
-  // entries act on the whole set — the single-item ones drop out.
+  // Build context menu items; multi-selection enables batch actions.
   const buildMenuItems = (file) => {
     if (!file) return [];
     const isFolder = file.type === "folder";
@@ -573,7 +540,6 @@ export default function ExplorerPanel({
     const many = picked.length > 1;
     const items = [];
     if (!many && isFolder) {
-      // In-app terminal rooted here — the only terminal entry point from the tree.
       if (onNewTerminal) {
         items.push({ label: t("workspaces.openHere"), icon: "Terminal", action: () => onNewTerminal(file.path) });
       }
@@ -584,7 +550,6 @@ export default function ExplorerPanel({
       items.push({ label: "New Folder", icon: "FolderOpen", action: () => openNewItemModal("folder", file.path) });
     } else if (!many) {
       items.push({ label: "Open", icon: "File", action: () => onOpenFile?.(file.path) });
-      // Text files with preview (HTML, Markdown, Mermaid) can open rendered rather than as source.
       if (getTextPreviewKind(file.path)) {
         items.push({ label: t("editor.preview"), icon: "Eye", action: () => onOpenFile?.(file.path, { preview: true }) });
       }
@@ -618,12 +583,6 @@ export default function ExplorerPanel({
 
   return (
     <div className="relative flex flex-col flex-1 min-h-0 text-text overflow-hidden">
-      {/* Header. Docked beside a terminal the panel already has a tab bar above, so this
-          row drops the workspace name (the tab bar and root header already say it) and
-          keeps only the actions — they are the sole way to create a file at the root. */}
-      {/* Docked beside a terminal the panel supplies its own tab bar with these very
-          actions, so drawing a second strip here would mean two refresh buttons one row
-          apart. The host asks for them through onActions instead. */}
       {!compact && (
         <div
           style={{ height: PANEL_HEADER_HEIGHT }}
@@ -662,7 +621,6 @@ export default function ExplorerPanel({
         </div>
       )}
 
-      {/* Tree */}
       <div
         ref={treeRef}
         tabIndex={0}
@@ -700,7 +658,6 @@ export default function ExplorerPanel({
         )}
       </div>
 
-      {/* Context menu */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -727,7 +684,6 @@ export default function ExplorerPanel({
         </div>
       )}
 
-      {/* New item modal — the plain name prompt, plus a way in for an OS file picker */}
       {newItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
@@ -750,8 +706,6 @@ export default function ExplorerPanel({
               className="w-full bg-surface-3 text-text text-sm px-2 py-1.5 rounded outline-none border border-border focus:border-brand-500"
             />
             <div className="flex items-center gap-2 mt-3">
-              {/* Uploading an existing folder/file is the other half of "new here", so it
-                  sits in this dialog — as one button, not a second mode. */}
               <button
                 onClick={() => {
                   vibrate();
@@ -785,7 +739,6 @@ export default function ExplorerPanel({
         </div>
       )}
 
-      {/* Drop-upload progress + the Skip/Replace prompt it may raise */}
       {upload && (
         <div className="absolute bottom-0 inset-x-0 bg-surface-2 border-t border-border px-3 py-1.5 pb-safe text-[11px] text-text-muted flex items-center gap-2">
           {upload.failed ? (
@@ -809,7 +762,6 @@ export default function ExplorerPanel({
         />
       )}
 
-      {/* Delete confirm */}
       <ConfirmDialog
         isOpen={!!confirmDelete}
         onClose={() => setConfirmDelete(null)}

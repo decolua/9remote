@@ -103,3 +103,4 @@ agent/remote-bench/out/*
 desktop/release/*
 expo/fastlane/metadata/review_information/demo_account_required.txt
 web/.secrets-hash-*
+expo/.wrangler/*

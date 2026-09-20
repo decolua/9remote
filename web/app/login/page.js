@@ -26,22 +26,7 @@ import { headOf, tailOf, isLegacyApiKey } from "@/shared/utils/apiKey";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { AGENT_PORT } from "@/shared/constants/API";
 
-// One-time pairing input: "K7QP3Max" (6-char tempKey + 2-char TAIL, no
-// separator), a bare "K7QP3M", or a full login URL carrying either in
-// query/fragment. A hyphenated form is still accepted — older agents emit it,
-// and users re-type old codes. The TAIL stays in the browser (device trust);
-// only the 6-char tempKey is ever sent anywhere.
-/**
- * A one-time code is two parts read as one token: 6 chars the Worker knows
- * (routing) and a 2-char TAIL it never sees (the secret). The TAIL is the same
- * kind of thing an API key carries — the difference is that this one dies with
- * the code, and dies early if it is guessed at.
- *
- * The halves are told apart by POSITION, not by case: six characters of code
- * then two of tail. Case used to carry that meaning, which made a code
- * unreadable the moment either half was typed in the other case — the agent
- * folds case when it compares, so the parser does too.
- */
+// Parse one-time pairing input: 6-char tempKey routing prefix + optional 2-char TAIL.
 function parsePairingInput(raw) {
   const str = String(raw || "").trim();
   const split = (code) => ({
@@ -55,15 +40,12 @@ function parsePairingInput(raw) {
   const codeMatch = /^([A-NP-Z1-9]{6}-?[a-np-z1-9]{2})$/i.exec(str);
   if (codeMatch) return split(codeMatch[1].replace(/-/g, ""));
 
-  // Bare 6-char code: a QR from an older agent, or a code typed without its
-  // tail. It still routes; the agent decides what an absent tail is worth.
   const kMatch = /[?&]k=([A-NP-Z1-9]{6})(?:[^A-NP-Z1-9]|$)/i.exec(str);
   if (kMatch) return { tempKey: kMatch[1].toUpperCase() };
   if (/^[A-NP-Z1-9]{6}$/i.test(str)) return { tempKey: str.toUpperCase() };
   return null;
 }
 
-// Terminal-glyph laptop + phone hero illustration (brand-tinted, theme-agnostic)
 function LoginContent() {
   const { t } = useI18n();
   const [apiKey, setApiKey] = useState("");
@@ -85,21 +67,11 @@ function LoginContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
-  // A wrong TAIL only surfaces after login — the Worker clears the key by its
-  // HEAD, and the agent is what proves the rest. useSocket parks the reason in
-  // sessionStorage and sends the user back; the hydration effect below reads it
-  // (reading during the first render would disagree with the server's HTML).
   const [tailRejected, setTailRejected] = useState(false);
   const { loadKeys, saveKey, removeKey, renameKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
   const hasLegacySavedKey = useMemo(() => savedKeys.some((item) => isLegacyApiKey(item.key)), [savedKeys]);
 
-  // Check for token (old) or temp key (new) in URL (QR code auth).
-  // The v2 pairing code rides the #fragment (never sent to the server); the
-  // ?k= query stays supported for legacy-agent QRs. Parsed once — the value is
-  // stashed in sessionStorage because StrictMode remounts re-run the
-  // initializer after the URL has already been scrubbed. The URL scrub itself
-  // happens in the effect below: calling history.replaceState during render
-  // makes Next's Router setState mid-render.
+  // Parse and stash QR token/tempKey from URL hash or query.
   const token = useMemo(() => searchParams.get("t"), [searchParams]);
   const [tempKey] = useState(() => {
     if (typeof window === "undefined") return null;
@@ -108,8 +80,6 @@ function LoginContent() {
       if (stashed) return stashed;
       const parsed = parsePairingInput(window.location.hash) || parsePairingInput(window.location.search);
       if (parsed?.tempKey) {
-        // Stash the whole code, TAIL included: the URL is scrubbed right after
-        // render, and the TAIL is the half that proves this device to the agent.
         sessionStorage.setItem("9remote_url_pairing", parsed.tempKey + (parsed.tail || ""));
         return parsed.tempKey + (parsed.tail || "");
       }
@@ -118,9 +88,7 @@ function LoginContent() {
   });
   const isTokenAuth = !!token || !!tempKey;
 
-  // Load saved data after hydration (client-side only)
   useEffect(() => {
-    // Drop the pairing code from the address bar (it was stashed during render).
     if (window.location.hash || window.location.search) {
       const parsed = parsePairingInput(window.location.hash) || parsePairingInput(window.location.search);
       if (parsed?.tempKey) window.history.replaceState(null, "", window.location.pathname);
@@ -129,7 +97,6 @@ function LoginContent() {
     setRememberKey(savedPreference !== "false");
     setSavedKeys(loadKeys());
     setIsHydrated(true);
-    // Consumed once: useSocket parks it here when the agent refuses the TAIL.
     if (sessionStorage.getItem(LOGIN_ERROR_KEY)) {
       sessionStorage.removeItem(LOGIN_ERROR_KEY);
       setTailRejected(true);
@@ -138,10 +105,7 @@ function LoginContent() {
       setAuthTab("github");
     }
 
-    // Auto-connect when the agent itself serves this page. Port-gated: the web
-    // dev server is loopback too, but a page there must log in like any other
-    // build — auto-minting a session from the agent's own key would skip the
-    // login screen, and that key is exactly what a dev page would be handed.
+    // Auto-connect when page is served directly by the agent on AGENT_PORT.
     if (isLoopbackOrigin() && window.location.port === String(AGENT_PORT)) {
       fetch("/api/ui/state")
         .then((res) => (res.ok ? res.json() : null))
@@ -195,18 +159,16 @@ function LoginContent() {
     clearGithubToken();
   };
 
-  // Connect to a started codespace using the agent apiKey (set via Codespace secret)
   const handleCodespaceConnect = (cs, apiKey) => {
     const tunnelUrl = buildCodespaceUrl(cs.name);
     setAuth({
-      apiKey: headOf(apiKey), // v2 keys route by HEAD; the TAIL stays local
+      apiKey: headOf(apiKey),
       tunnelUrl,
       mode: "remote"
     });
     router.push("/workspace/");
   };
 
-  // Handle remember key checkbox change
   const handleRememberChange = (checked) => {
     setRememberKey(checked);
     if (typeof window !== "undefined") {
@@ -214,21 +176,11 @@ function LoginContent() {
     }
   };
 
-  // Handle temp key auth (scanned QR / pairing link). The stashed value is the
-  // whole code — six characters of routing plus two of TAIL — so it is split
-  // the same way a typed one is, and the TAIL is stored for the agent. Sending
-  // all eight to the Worker, and keeping none of them, left the device with
-  // nothing to prove itself with and the agent refusing a correct code.
   const authenticateWithTempKey = useCallback(async (stashed) => {
     const parsed = parsePairingInput(stashed);
     const result = await authenticateWithToken(parsed?.tempKey || stashed, true, parsed?.tail);
-    // The URL stash served its purpose — drop it so a later /login visit in
-    // this tab doesn't replay a consumed key
     try { sessionStorage.removeItem("9remote_url_pairing"); } catch {}
     if (result.success) {
-      // The code's TAIL belongs to the CODE, and is proven under it. Writing it
-      // against the API key's HEAD would leave that key holding a secret that
-      // expires in minutes and was never its own.
       if (parsed?.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
       if (typeof window !== "undefined" && localStorage.getItem("9remote_remember_key_preference") !== "false") {
         sessionStorage.setItem(WANTS_SAVE_KEY, "1");
@@ -237,10 +189,7 @@ function LoginContent() {
     }
   }, [authenticateWithToken, router]);
 
-  // One attempt per code, not per effect run: StrictMode (dev) remounts and
-  // re-fires this, and the callbacks' identity changes every render — either
-  // would double-POST /api/connect with the same one-time key. The ref guards
-  // both, and the stash-scrub inside authenticateWithTempKey covers real nav.
+  // Guard against duplicate authentication in React StrictMode.
   const tokenAuthStarted = useRef(false);
   useEffect(() => {
     if (!token && !tempKey) return;
@@ -253,14 +202,6 @@ function LoginContent() {
     }
   }, [token, tempKey, authenticateWithToken, authenticateWithTempKey]);
 
-  /**
-   * Submit — one flow for both kinds of key.
-   *
-   * They are the same shape: a routing half the Worker resolves, and a TAIL it
-   * never sees, which is proven to the agent directly. Only the lifetime
-   * differs — a one-time code's TAIL dies with the code, an API key's lasts as
-   * long as the key — and nothing here needs to care about that.
-   */
   const handleConnect = async () => {
     const trimmedKey = apiKey.trim();
     if (!trimmedKey) return;
@@ -273,7 +214,6 @@ function LoginContent() {
     const parsed = parsePairingInput(trimmedKey);
     const isOneTime = !!parsed?.tempKey;
 
-    // The routing half goes to the Worker; the TAIL is kept for the agent.
     const routingKey = isOneTime ? parsed.tempKey : headOf(trimmedKey);
     const tail = isOneTime ? parsed.tail : tailOf(trimmedKey);
     const result = isOneTime
@@ -281,49 +221,25 @@ function LoginContent() {
       : await authenticateWithApiKey(trimmedKey);
     if (!result.success) return;
 
-    // Stored against the HEAD the agent will be reached by. A one-time login
-    // only learns that HEAD from the Worker's answer, so it is bound here
-    // rather than before the call.
     const head = isOneTime ? result.apiKey : routingKey;
-    // The TAIL is kept under the key it belongs to. A one-time code's TAIL is
-    // the CODE's, not the API key's: it expires in minutes, and writing it into
-    // the API key's trust entry produced a saved key with a tail that was never
-    // valid for it — right until the code died, then permanently wrong.
-    //
-    // The owner is what has to exist here, not `head`: a code's TAIL is filed
-    // under the code, which is in hand before the Worker answers at all.
     const tailOwner = isOneTime ? parsed.tempKey : head;
     if (tail && tailOwner) setTrust(tailOwner, { tail });
 
-    // Not saved yet — parked until the agent accepts the TAIL. Login only
-    // proves the Worker knows the HEAD, and a key that cannot connect has no
-    // business in the saved list.
-    //
-    // A one-time login parks nothing: it has no API key TAIL to save, and the
-    // code's own TAIL is worthless once the code expires. The agent hands over
-    // the real key when it accepts this device, and THAT is what gets saved.
+    // Park key until agent accepts TAIL; pairing codes defer save until agent issues key.
     if (rememberKey && head) {
-      // A typed key can be parked as-is. A pairing has no lasting key yet —
-      // the agent issues one on acceptance — so only the intent is recorded,
-      // and deviceTrust parks the real key when it arrives.
       if (isOneTime) sessionStorage.setItem(WANTS_SAVE_KEY, "1");
       else sessionStorage.setItem(PENDING_SAVE_KEY, trimmedKey);
     }
     router.push("/workspace/");
   };
 
-  // Handle login with saved key
   const handleLoginWithSavedKey = async (key) => {
     if (!key) return;
     if (isLegacyApiKey(key)) {
       setError(t("login.legacyKeyError"));
       return;
     }
-    // A stored key may be a full v2 key (re-seed its TAIL so a fresh browser
-    // profile can answer the agent) or just the HEAD, from a one-time login
-    // saved before the TAIL arrived — withTail repairs that entry from the
-    // trust store, otherwise the device could no longer prove itself and the
-    // agent would hold it for approval on every visit.
+    // Restore TAIL to trust store or repair key from stored trust.
     const savedTail = tailOf(key);
     if (savedTail) setTrust(headOf(key), { tail: savedTail });
     const fullKey = savedTail ? key : withTail(key);
@@ -335,46 +251,38 @@ function LoginContent() {
       setLoginLoadingKey(null);
     }
     if (result?.success) {
-      if (fullKey !== key) saveKey(fullKey); // persist the repaired entry
+      if (fullKey !== key) saveKey(fullKey);
       updateLastLogin(key);
-      // From login always land on workspace home — last-route restore is for in-app switching
       router.push("/workspace/");
     }
   };
 
-  // Confirm and remove the targeted key
   const handleConfirmRemoveKey = () => {
     if (!deleteTarget) return;
     removeKey(deleteTarget.id);
     setSavedKeys(loadKeys());
   };
 
-  // Start editing a key's label
   const handleStartRename = (item) => {
     setEditingKeyId(item.id);
     setEditingLabel(item.label || "");
   };
 
-  // Save edited label
   const handleSaveRename = (id) => {
     renameKey(id, editingLabel.trim());
     setSavedKeys(loadKeys());
     setEditingKeyId(null);
   };
 
-  // Cancel editing
   const handleCancelRename = () => {
     setEditingKeyId(null);
   };
 
-  // Handle QR scan result — may be a bare code or a full login URL.
-  // Returns success so the scanner can close itself (or recover on failure).
   const handleQRScan = async (scanned) => {
     const parsed = parsePairingInput(scanned);
     if (!parsed?.tempKey) return false;
     const result = await authenticateWithToken(parsed.tempKey, true, parsed.tail);
     if (!result.success) return false;
-    // Same rule as a typed code: the TAIL is the code's, kept under the code.
     if (parsed.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
     if (typeof window !== "undefined" && localStorage.getItem("9remote_remember_key_preference") !== "false") {
       sessionStorage.setItem(WANTS_SAVE_KEY, "1");
@@ -383,12 +291,10 @@ function LoginContent() {
     return true;
   };
 
-  // Clear input
   const handleClearInput = () => {
     setApiKey("");
   };
 
-  // Format date for display
   const formatLoginDate = (dateString) => {
     if (!dateString) return "";
     try {
@@ -403,15 +309,13 @@ function LoginContent() {
       if (diffMins < 60) return t("login.minutesAgo", { n: diffMins });
       if (diffHours < 24) return t("login.hoursAgo", { n: diffHours });
       if (diffDays < 7) return t("login.daysAgo", { n: diffDays });
-      
-      // Format as date if older than a week
+
       return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
     } catch {
       return "";
     }
   };
 
-  // Token auth loading screen
   if (isTokenAuth && loading) {
     return (
       <>
@@ -547,11 +451,6 @@ function LoginContent() {
                 id="accessKeyInput"
                 type="text"
                 value={apiKey}
-                // Length tells the two kinds apart as they are typed: a one-time
-                // code is eight characters and shown upper case, matching the
-                // agent's screen; an API key is longer and lower case. The agent
-                // folds case when it compares, so this is presentation only and
-                // a paste in either case still works.
                 onChange={(e) => {
                   const raw = e.target.value;
                   setApiKey(raw.length <= ONE_TIME_CODE_LENGTH ? raw.toUpperCase() : raw.toLowerCase());
@@ -586,10 +485,6 @@ function LoginContent() {
             </div>
             {(error || tailRejected) && (
               <p className="mt-2 text-xs font-mono text-danger">
-                {/* useAuth has no i18n context, so its failures come back as
-                    markers and are localised here — wrong TAIL (refused at
-                    login or after connecting) and agent-offline (the Worker
-                    knows the machine is down). Anything else is shown as-is. */}
                 {error === "agent-offline" ? t("login.agentOffline")
                   : error && error !== "wrong-key-tail" ? error
                   : t("login.invalidKeyTail")}
@@ -761,8 +656,7 @@ function LoginContent() {
   );
 }
 
-// Pre-hydration fallback. The reload escape hatch is a plain <a> so it still works
-// when the page JS never arrives (dead network) — a React onClick would not.
+// Plain <a> reload link works without JavaScript loaded.
 function LoginFallback() {
   return (
     <>

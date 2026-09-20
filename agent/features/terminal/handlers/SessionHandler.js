@@ -28,17 +28,14 @@ const RESPAWN_DEFAULT_ROWS = 24;
 const RESPAWN_MIN_COLS = 10;
 const RESPAWN_MIN_ROWS = 2;
 
-// The socket setup stores its destroyer here so non-socket callers (the Jarvis
-// close_session tool) tear a session down through the SAME code path.
+// Export destroyer so non-socket callers tear down sessions through the same code path.
 let sessionDestroyer = null;
 export async function destroySessionById(sessionId) {
   if (!sessionDestroyer) return false;
   return await sessionDestroyer(sessionId);
 }
 
-// Resolve cols/rows for a respawned PTY from the client's last known size.
-// Falls back to 80×24 when missing or below a sane floor (a transient tiny size
-// tracked before disconnect must not persist into the new PTY).
+// Resolve cols/rows for respawned PTY, falling back to 80x24 if missing or below minimum.
 export function pickRespawnSize(session) {
   const cols = session?.lastCols;
   const rows = session?.lastRows;
@@ -48,9 +45,7 @@ export function pickRespawnSize(session) {
   return { cols: RESPAWN_DEFAULT_COLS, rows: RESPAWN_DEFAULT_ROWS };
 }
 
-// A terminal keeps its generated name only until its conversation has a title.
-// Sessions predating the flag are judged by their name: still in the generated
-// shape means it was never the user's.
+// Check if terminal name was auto-generated rather than user-assigned.
 function isAutoNamed(session) {
   if (session?.autoNamed === true) return true;
   if (session?.autoNamed === false) return false;
@@ -63,24 +58,18 @@ function fitName(title) {
   return text.length > SESSION_NAME_MAX ? `${text.slice(0, SESSION_NAME_MAX - 1)}\u2026` : text;
 }
 
-// One terminal's turn at being named. Returns true when the name changed.
 async function nameOneSession(io, sessions, sessionId) {
   const session = sessions.get(sessionId);
   if (!session || !isAutoNamed(session)) return false;
   const conv = getConversation(sessionId);
   const cwd = session.cwd || session.workspacePath;
   if (!conv || !cwd) return false;
-  // Reads the same cache the sidebar fills. A conversation missing from it is
-  // one whose transcript was written after the last scan — the usual case right
-  // after a turn ends — so that miss, and only that miss, pays for a rescan.
+  // Rescan sessions cache only if conversation is missing.
   await listAgentSessions({ cwd });
   // The engine, not the surface: a chat UI session records "claude-ui", which is no
   // store's id — the transcript source is keyed by engine.
   const engine = engineFromAgent(conv.agent) || conv.agent;
-  // The CLI's OWN name for this conversation, when it stated one — codex's
-  // `thread/name/updated`, kept on the live session. It outranks the transcript scan
-  // below, which can only ever read the rollout file's first prompt: a thread renamed
-  // with `/rename` (or in the TUI) would otherwise keep its opening words forever.
+  // Prefer CLI-reported thread name over initial prompt from transcript.
   const named = globalAiManager.getSession(sessionId)?.threadTitle;
   let title = named || conversationTitle(engine, conv.id, cwd);
   if (!title) {
@@ -95,12 +84,7 @@ async function nameOneSession(io, sessions, sessionId) {
   return true;
 }
 
-/**
- * Name auto-named terminals after the conversation each is running. Follows the
- * title for as long as the name stays ours: a chat renamed in its own CLI
- * renames the tab too, while a terminal the user named is left alone.
- * With no `sessionId`, every terminal is considered.
- */
+// Sync auto-named terminal titles with their active conversation names.
 export async function syncAutoNames(io, sessions, sessionId = null) {
   const ids = sessionId ? [sessionId] : [...sessions.keys()];
   let changed = false;
@@ -139,9 +123,6 @@ function takeBufferTail(chunks, maxLen) {
   return tail;
 }
 
-/**
- * Setup PTY data listeners — shared between createSession and joinSession (buffer mode).
- */
 function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
   let saveTimeout = null;
 
@@ -170,22 +151,16 @@ function attachPtyListeners(ptyProcess, sessionId, sessionData, io, sessions) {
   });
 }
 
-// sessions ref is passed in from terminalSocket to keep single source of truth.
-// workspaces (Map) + sessionWorkspaces (object) are agent-managed and persisted to JSON.
 export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWorkspaces, sessionOrder = []) {
-  // Persist current workspaces + session->workspace map + session order
   const persist = () => saveWorkspaces(workspaces, sessionWorkspaces, sessionOrder);
 
-  // Both names are broadcast during the transition so a client on the previous version
-  // still refreshes. Drop "groupsChanged" once agent 2.6 is the floor.
+  // Both names are broadcast during transition so clients on previous versions refresh.
   const broadcastChanged = () => {
     broadcast(io, "workspacesChanged");
     broadcast(io, "groupsChanged");
   };
 
-  // Tear a terminal down on both persistence paths, so a caller can own the
-  // broadcast: a replacement closes the old terminal and announces both changes
-  // in one breath.
+  // Tear down a session across daemon/PTY paths without broadcasting.
   const destroySession = async (sessionId) => {
     const session = sessions.get(sessionId);
     if (!session) return false;
@@ -208,12 +183,10 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     saveSessionMetadata(sessions);
     return true;
   };
-  // Hand the destroyer to non-socket callers (the Jarvis close_session tool)
-  // so teardown happens through ONE code path, not a parallel one.
   sessionDestroyer = destroySession;
 
   socket.on("getSessions", async (callback) => {
-    capsLogger.info("[diag] getSessions arrived (socket ready to answer)"); // TEMP DIAGNOSTIC — stuck-loading bug
+    capsLogger.info("[diag] getSessions arrived (socket ready to answer)");
     try {
       const list = [];
       // Fetch live cwd for daemon sessions (OSC 7 updates daemon-side, not agent cache)
@@ -250,15 +223,13 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     callback({ platform: process.platform, shells: getShellList() });
   });
 
-  // Workspace operations — handled at agent (independent of daemon)
   const listWorkspaces = (callback) => {
-    capsLogger.info(`[diag] getWorkspaces arrived+ack → ${workspaces.size} workspaces`); // TEMP DIAGNOSTIC
+    capsLogger.info(`[diag] getWorkspaces arrived+ack → ${workspaces.size} workspaces`);
     callback(Array.from(workspaces.values()));
   };
 
   const createWorkspace = ({ name, path: wsPath }, callback) => {
-    // Validate at this trust boundary: a workspace may be path-less (legacy group), but a
-    // supplied path must point at a real directory.
+    // Validate path points to a real directory if supplied.
     let resolvedPath = null;
     if (wsPath) {
       if (isSensitivePath(wsPath)) return callback({ success: false, error: "Access denied" });
@@ -300,12 +271,10 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     const id = workspaceId || groupId;
     if (!workspaces.delete(id)) return callback({ success: false, error: "Workspace not found" });
     try {
-      // Close all terminals belonging to this workspace
       const targetIds = Object.keys(sessionWorkspaces).filter((sid) => sessionWorkspaces[sid] === id);
       for (const sid of targetIds) {
         const session = sessions.get(sid);
-        // Its AI process and snapshot go with the terminal, on both branches —
-        // otherwise the claude child keeps running with no terminal behind it.
+        // Clean up AI session alongside terminal so process does not orphan.
         globalAiManager.destroySession(sid);
         if (session) {
           if (session.daemon && daemonClient.isConnected()) {
@@ -368,7 +337,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   socket.on("renameGroup", renameWorkspace);
   socket.on("deleteGroup", deleteWorkspace);
 
-  // Reorder sessions within a workspace. orderedIds = desired order of that workspace's sessions.
   socket.on("reorderSession", ({ orderedIds }, callback) => {
     if (!Array.isArray(orderedIds)) return callback?.({ success: false, error: "orderedIds required" });
     const moving = new Set(orderedIds);
@@ -388,29 +356,21 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     callback?.({ success: true, agents: detectAgentClis() });
   });
 
-  // Past conversations each agent CLI kept for one directory — the sidebar lists
-  // them under the terminal standing there so one can be resumed in place.
+  // List past agent CLI conversations for a directory to resume in place.
   socket.on("getAgentSessions", async ({ cwd, limit } = {}, callback) => {
-    // Terminal start time and cwd ride along so the matcher can weigh the
-    // transcript clock — the conversation a terminal opened is the one that
-    // began writing after it started.
+    // Pass terminal start time and cwd so matcher can correlate transcript timestamps.
     const live = getLiveConversations().map((l) => {
       const session = sessions.get(l.sessionId);
       return { ...l, startedAt: session?.createdAt || null, cwd: session?.cwd || session?.workspacePath || null };
     });
     const rows = await listAgentSessions({ cwd, limit });
     callback?.({ success: true, sessions: matchLiveSessions(rows, live) });
-    // The rows just landed in cache — name whatever terminal they belong to.
     syncAutoNames(io, sessions);
   });
 
-  // A terminal opened to resume a history row already knows which conversation
-  // it is running — say so now rather than wait for the CLI's first hook, which
-  // only fires once the user sends a message.
+  // Claim conversation immediately on resume rather than waiting for first CLI hook.
   socket.on("claimAgentSession", ({ sessionId, agent, conversationId } = {}, callback) => {
     claimResumedConversation(sessionId, { agent, sessionId: conversationId });
-    // Its title exists already — this chat has been talked to before, so the
-    // terminal can carry its name from the moment it opens.
     syncAutoNames(io, sessions, sessionId);
     callback?.({ success: true });
   });
@@ -456,14 +416,9 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       };
       if (usable(workspace?.path)) resolvedCwd = workspace.path;
       if (usable(cwd)) resolvedCwd = cwd;
-      // Fixed at creation — a later `cd` must not move this terminal to another workspace.
       const workspacePath = workspace?.path || null;
 
-      // Auto-name "Term N" if user didn't provide a custom name (cross-platform).
-      // An auto-named terminal follows its agent conversation's title; one the
-      // user typed a name for is theirs and is never renamed for them. The UI
-      // fills the box in for an unnamed agent tab and says so — that name is a
-      // placeholder, not the user having named anything.
+      // Auto-named terminals track conversation title; user-named terminals are not renamed.
       const autoNamed = !name || nameIsAuto === true;
       const autoName = name || `Term ${sessions.size + 1}`;
 
@@ -477,7 +432,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
         if (retired) broadcast(io, "sessionClosed", replaces);
       };
 
-      // Daemon mode
       if (PERSISTENCE_MODE === "daemon" && daemonClient.isConnected()) {
         const result = await daemonClient.createSession(autoName, 80, 24, shellId, sessionId, resolvedCwd);
         if (result.success) {
@@ -485,7 +439,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
           sessions.set(result.sessionId, { daemon: true, name: autoName, autoNamed, createdAt: Date.now(), cwd: result.cwd, workspacePath, shellId: result.shellId, shellLabel: result.shellLabel, agent: agentId });
           if (workspace) { sessionWorkspaces[result.sessionId] = workspace.id; persist(); }
           saveSessionMetadata(sessions);
-          // Other devices hold this list in memory — tell them a terminal appeared.
           await retire({ success: true, sessionId: result.sessionId, shellLabel: result.shellLabel });
         } else {
           callback({ success: false, error: result.error });
@@ -493,7 +446,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
         return;
       }
 
-      // Buffer mode PTY
       const ptyProcess = pty.spawn(shellConfig.path, shellConfig.args, { name: "xterm-256color", cols: 80, rows: 24, cwd: resolvedCwd, env: shellEnv, useConpty: false });
       if (agentId) setSessionAgent(sessionId, agentId);
       const sessionData = { pty: ptyProcess, name: autoName, autoNamed, createdAt: Date.now(), buffer: [], cwd: resolvedCwd, workspacePath, shellId: shellConfig.id, shellLabel: shellConfig.label, agent: agentId };
@@ -509,9 +461,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   });
 
   socket.on("joinSession", async (payload, callback) => {
-    // Accept both {sessionId, cols, rows} (new) and bare sessionId (legacy) for the
-    // transition. cols/rows are the client's real measured size — used to spawn a
-    // respawned PTY at the right size instead of guessing 80×24.
+    // Accept {sessionId, cols, rows} or legacy bare sessionId; use client size for respawned PTY.
     const sessionId = typeof payload === "string" ? payload : payload?.sessionId;
     const joinCols = typeof payload === "object" ? payload?.cols : undefined;
     const joinRows = typeof payload === "object" ? payload?.rows : undefined;
@@ -537,12 +487,10 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
     if (!session) return callback({ success: false, error: "Session not found" });
 
-    // Daemon mode
     if (session.daemon && daemonClient.isConnected()) {
       try {
         // Session lost after daemon respawn → recreate PTY with same id + title + prior cwd (buffer gone, metadata kept)
         if (session.needsRespawn) {
-          // Prefer the live size from this join payload; fall back to the last tracked size.
           const { cols, rows } = pickRespawnSize({ lastCols: joinCols ?? session.lastCols, lastRows: joinRows ?? session.lastRows });
           const created = await daemonClient.createSession(session.name, cols, rows, session.shellId, sessionId, session.cwd);
           if (!created.success) return callback({ success: false, error: created.error });
@@ -563,7 +511,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       return;
     }
 
-    // Buffer mode: restore PTY if needed
     if (session.needsRestore && PERSISTENCE_MODE === "buffer") {
       try {
         const shell = getDefaultShell();
@@ -591,15 +538,11 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       // other output — a legacy peer gets b64 there instead of a raw Buffer.
       socket.emit("output", { sessionId, enc: "bin", data: Buffer.from(takeBufferTail(session.buffer, JOIN_REPLAY_SIZE), "utf-8") });
     }
-    // Return the current live seq so the client can resync lastSeq after the
-    // reset+replay (next live chunk = currentSeq + 1 → contiguous, no false gap).
+    // Return current live seq so client can resync lastSeq after reset+replay.
     callback({ success: true, name: session.name, cwd: session.cwd, seq: currentSeq(sessionId) });
   });
 
-  // Client capability announcement — e.g. fragOut: understands fragmented prefix
-  // events (part/parts markers). Fires once per connect on whichever carrier is up.
-  // Answered symmetrically: the client re-announces on every carrier connect, and
-  // its record of OUR capabilities lives on a PM that a reconnect may have replaced.
+  // Handle client capability announcement (fragOut, fragCtl) and reply with server caps.
   socket.on("caps", (caps = {}) => {
     capsLogger.debug(`[caps] client announced: ${JSON.stringify(caps)}`);
     if (caps?.fragOut) socket.data.fragOut = true;
@@ -607,8 +550,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     socket.emit("srvCaps", { env2: 1, fragCtl: 1 });
   });
 
-  // Scroll-up history fetch — client asks for the prefix older than the bytes it holds.
-  // Emit prefix ONLY to the requesting socket (not broadcast) so other clients keep their stream intact.
+  // Scroll-up history fetch: emit older prefix only to the requesting socket.
   socket.on("requestHistory", async ({ sessionId, have } = {}, callback) => {
     const session = sessions.get(sessionId);
     if (!session) return callback?.({ success: false, error: "Session not found" });
@@ -617,10 +559,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       const result = await daemonClient.requestHistory(sessionId, have || 0);
       if (!result.success) return callback?.({ success: false, error: result.error });
       if (result.prefix) {
-        // Fragment SCTP-safe with part markers — but only for clients that reassemble.
-        // An old client would splice+replay per event, so it keeps the single big
-        // event. Bytes are Buffers (canonical internal form); the send door
-        // downgrades to b64 for a peer that never announced caps.binOut.
+        // Slice into SCTP-safe fragments with part markers for clients supporting fragOut.
         if (socket.data?.fragOut) {
           const raw = Buffer.from(result.prefix, "base64");
           const parts = Math.max(1, Math.ceil(raw.length / OUTPUT_SLICE_BYTES));
@@ -642,8 +581,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   // the client holds. Same one-socket-only contract as requestHistory above.
   socket.on("aiHistory", ({ sessionId, before } = {}, callback) => {
     try {
-      // The agent owns the chat log (the daemon only holds the CLI process), so the
-      // older window is a slice of it — same one-socket-only contract as above.
       const session = globalAiManager.getSession(sessionId);
       if (!session) return callback?.({ success: false, error: "Session not found" });
       const { events, hasMore } = aiHistoryChunk(session.history, before || 0, AI_REPLAY_BYTES);
@@ -653,19 +590,12 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     }
   });
 
-  // Seq peek: the client asks "what is the newest live seq?" when it becomes
-  // visible again. Gap detection otherwise only runs when a NEW chunk arrives, so
-  // output produced while the app was backgrounded would stay missing until the
-  // terminal happened to print something else.
+  // Peek live seq on visibility change to detect gaps without waiting for new output.
   socket.on("peekSeq", ({ sessionId } = {}, callback) => {
     callback?.({ seq: currentSeq(sessionId) });
   });
 
-  // Gap recovery (plan G): client lost a small range of live chunks during a
-  // background suspension. Emit only the missing range (flagged gap:true so the
-  // client appends without reset/mirror) instead of a full reset+tail replay.
-  // Miss (gap spans an evicted chunk) → callback hit:false so the client falls
-  // back to reset+rejoin.
+  // Gap recovery: emit missing chunk range without full reset+replay; miss falls back to rejoin.
   socket.on("requestGap", ({ sessionId, fromSeq, toSeq } = {}, callback) => {
     if (!Number.isFinite(fromSeq) || !Number.isFinite(toSeq)) return callback?.({ hit: false });
     const chunks = getGap(sessionId, fromSeq, toSeq);
@@ -678,8 +608,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
   socket.on("deleteSession", async (sessionId, callback) => {
     if (!sessions.has(sessionId)) return callback({ success: false, error: "Session not found" });
-    // The AI process and its snapshot go with the terminal: destroySession stops the
-    // chat CLI first, so nothing is left running with no terminal behind it.
     const ok = await destroySession(sessionId);
     if (!ok) return callback({ success: false, error: "Could not close session" });
     broadcast(io, "sessionClosed", sessionId);
@@ -691,7 +619,6 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     if (!session) return callback({ success: false, error: "Session not found" });
 
     try {
-      // Name is agent-owned (single source of truth) for both daemon and buffer mode
       session.name = name;
       // The user named this terminal: its conversation's title stops driving it.
       session.autoNamed = false;

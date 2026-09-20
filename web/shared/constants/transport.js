@@ -184,7 +184,7 @@ export const ADAPTER_STATE = {
   closed: "closed"
 };
 
-// Per-profile config — clientApp vs remoteDesktop độc lập
+// Per-profile config — clientApp vs remoteDesktop are independent
 export const TRANSPORT_PROFILES = {
   clientApp: {
     enabled: ["ws", "rtc"],

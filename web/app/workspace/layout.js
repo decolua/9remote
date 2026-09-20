@@ -306,7 +306,7 @@ export default function WorkspaceLayout({ children }) {
     systemInfo, mobileEditor, setMobileEditor, openFileRef,
     handleOpenWorkspaceList, handleOpenFiles, handleSelectWorkspace, handleBrowseFolder,
     handlePathChange, handleOpenFile, handleOpenGit, handleSetWorkspace
-  } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, isDesktop, fileBus });
+  } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, sessions, isDesktop, fileBus });
 
   // Folder picker → create a workspace rooted there, then offer its first terminal.
   const [folderPicker, setFolderPicker] = useState(null); // { initialPath } | null

@@ -1,16 +1,4 @@
-// End to end against the REAL `codex app-server`, with no stand-in.
-//
-// The unit tests drive a fake proc, so they prove the mapping is right; they cannot prove
-// the CLI actually behaves the way the fake does. This one runs the installed binary and
-// asserts the three things the whole change exists for:
-//
-//   1. thinking STREAMS — many deltas, not one block at the end
-//   2. thinking arrives BEFORE the answer, not after it (the `exec --json` order)
-//   3. a command arrives with `commandActions`, so the row is named without a rollout read
-//
-// It is skipped, loudly, when codex is not installed or the provider is unreachable —
-// a red suite on a machine without a model would teach nothing.
-//
+// End-to-end tests against real codex app-server.
 // Run: node agent/test/codexAppServerE2E.e2e.test.mjs
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -26,7 +14,6 @@ const test = (name, fn) => {
     .catch((e) => { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); });
 };
 
-// A proc over a real child, shaped like the one the adapter is handed.
 function childProc(bin, args, cwd) {
   const child = spawn(bin, args, { cwd, stdio: ["pipe", "pipe", "pipe"] });
   const proc = {
@@ -64,15 +51,11 @@ const workdir = fs.mkdtempSync(path.join(os.tmpdir(), "codex-e2e-"));
 fs.writeFileSync(path.join(workdir, "a.txt"), "hello world\n");
 fs.writeFileSync(path.join(workdir, "b.txt"), "second file\n");
 
-// Drives one prompt through a real server and returns everything it emitted, in order.
 async function runTurn(prompt, { timeoutMs = 120000, mode = null } = {}) {
   const proc = childProc("codex", ["app-server"], workdir);
   const events = [];
   const server = new CodexAppServer({
     proc, cwd: workdir,
-    // Nothing is being asked; a gate left open would hang the turn.
-    // `mode` narrows the SANDBOX (the refusal test needs one that cannot write); the
-    // default stays wide so every other test can do its work.
     ...(mode ? { mode } : { sandbox: "danger-full-access" }),
     approvalPolicy: "never",
     onEvent: (e, d) => events.push([e, d])
@@ -101,8 +84,6 @@ console.log(`\nRunning the real codex app-server (workdir ${workdir})…`);
 await test("thinking streams as many deltas, not one block", async () => {
   const { of } = await runTurn("Think step by step, out loud, then answer: what is 47*89?");
   const thoughts = of("thinking");
-  // The whole point of the transport. `exec --json` sends exactly ONE reasoning item,
-  // and sends it after the answer; anything under two deltas means we are back to that.
   assert.ok(thoughts.length >= 2,
     `expected a stream of deltas, got ${thoughts.length}: ${JSON.stringify(thoughts.map((t) => t.text))}`);
   const joined = thoughts.map((t) => t.text).join("");
@@ -125,20 +106,14 @@ await test("a command arrives with commandActions, so the row is named live", as
   assert.ok(starts.length, "the turn must have run a command");
   const cmd = starts.find((s) => s.input.command);
   assert.ok(cmd, `expected a command row, got ${JSON.stringify(starts)}`);
-  // Named from the CLI's own parse — no rollout read, which is what the exec path needed.
   assert.ok(["read", "command", "list_files", "search"].includes(cmd.name),
     `unexpected name ${cmd.name}`);
-  // And the line is the unwrapped one, whichever OS this runs on.
   assert.ok(!/^-?\/?\S*(ba|z)?sh\s+-l?c\s/.test(cmd.input.command),
     `the login-shell wrapper leaked through: ${cmd.input.command}`);
   assert.match(cmd.input.command, /a\.txt/);
 });
 
-// ── the options exec took as argv, against the real server ──
-
 await test("a sandbox policy is accepted, and a bogus one is refused", async () => {
-  // The enum is the server's: an unknown variant answers -32600, so a mapping mistake
-  // fails here rather than silently running unrestricted.
   const proc = childProc("codex", ["app-server"], workdir);
   const server = new CodexAppServer({ proc, cwd: workdir, onEvent: () => {} });
   await server.start();
@@ -168,8 +143,6 @@ await test("plan mode can be switched on mid-chat", async () => {
 });
 
 await test("an extra writable root really is writable", async () => {
-  // The strongest claim in the table, and the one a shape-only test cannot make: the
-  // flag either reaches the sandbox or the command is refused.
   const extra = fs.mkdtempSync(path.join(os.tmpdir(), "codex-extra-"));
   const marker = path.join(extra, "written.txt");
   const proc = childProc("codex", ["app-server"], workdir);
@@ -216,8 +189,6 @@ await test("an attached image is really seen", async () => {
 });
 
 await test("a feature flag on the process is really on", async () => {
-  // Probed: no request can turn a feature on — only the process's own `-c`. This is the
-  // one option that costs a restart, so it has to be proven at the process level.
   const proc = childProc("codex", ["app-server", "-c", "features.multi_agent_v2=true"], workdir);
   const server = new CodexAppServer({ proc, cwd: workdir, onEvent: () => {} });
   await server.start();
@@ -243,35 +214,17 @@ await test("without the flag that same feature is off, so the test above means s
   }
 });
 
-// ── the records a turn does NOT draw, and the ones it must still deliver ──
-//
-// The unit tests drive a fake proc, so they prove the mapping. These prove what the real
-// server actually sends, which is the half the fake cannot know: an unrouted notification
-// never reaches the pane at all, and there is no error anywhere to say so.
-
 await test("a notification nobody wired reaches the pane, from the real server", async () => {
-  // The server declares 83 of these and the class wires 7. Measured on the first turn of
-  // a real server: `thread/started`, `turn/started`, `thread/settings/updated`, a
-  // `deprecationNotice` and a `warning` all arrived and all were dropped on the floor.
   const { of } = await runTurn("Reply with exactly: OK");
   const carried = of("cli_event").map((d) => d.type);
   assert.ok(carried.length > 0, "a real turn must produce records, not nothing");
   assert.ok(carried.includes("turn/started"),
     `the turn's own start is a record the pane can draw — got ${JSON.stringify(carried)}`);
-  // And every one of them travels whole, under its own name.
   const [first] = of("cli_event");
   assert.ok(first.record && typeof first.record === "object", "the record arrives, not a summary of it");
 });
 
 await test("the per-chunk streams do not flood the pane", async () => {
-  // The other half of the rule, and the one that has to be MEASURED rather than assumed:
-  // carried raw, the first turn alone was 7.3KB of records against a 32KB replay window,
-  // for a turn whose readable content was one word.
-  //
-  // What matters is the PER-TURN cost, since that is what multiplies: the first turn also
-  // carries the thread's own opening state (`thread/started` alone is 1.2KB), which a long
-  // chat pays once. So the measurement is turn two — the steady state — folded through the
-  // session's own log, which is where the window is cut.
   const { events } = await runTurn("Reply with exactly: OK");
   const { AiSession } = await import("../features/ai/aiSession.js");
   const { replayWindow } = await import("../features/ai/aiEventSlice.js");
@@ -279,33 +232,22 @@ await test("the per-chunk streams do not flood the pane", async () => {
 
   const s = new AiSession({ id: `e2e-${Date.now()}`, engine: "codex", cwd: workdir, options: { mock: true } });
   s.onEvent = () => {};
-  // The thread's opening state, then the turn: the same two beats the real log holds.
   s.emitNormalized("cli_event", { type: "thread/started", subtype: "", record: { thread: { id: "t-1" } } });
   for (const [event, data] of events) s.emitNormalized(event, data);
 
   const carried = s.history.filter((e) => e.event === "cli_event");
   const kept = new Set(carried.map((e) => e.data.type));
-  // The beats nobody replays are gone from the log entirely — that is what keeps the
-  // window for the conversation. `hook/*` alone was 5KB of it, per turn, forever.
   for (const beat of ["hook/started", "hook/completed", "account/rateLimits/updated",
                       "thread/status/changed", "mcpServer/startupStatus/updated",
                       "rawResponseItem/completed", "fs/changed"]) {
     assert.ok(!kept.has(beat), `${beat} is a live beat, not history`);
   }
-  // What the CLI DOES write down is still there, and the window reaches it.
   const bytes = Buffer.byteLength(JSON.stringify(carried));
   assert.ok(bytes < AI_REPLAY_BYTES / 4,
     `a turn's records must leave the ${AI_REPLAY_BYTES}-byte window to the conversation — carried ${bytes} bytes`);
   const { events: window } = replayWindow(s.history, AI_REPLAY_BYTES);
   assert.ok(window.some((e) => e.event === "delta"), "the answer is in the window the client is sent");
 });
-
-// ── the rewind, on a real thread ──
-//
-// The claim the support table makes is "codex CAN rewind": `thread/revert` replaces this
-// thread's own history with the prefix before one turn, keeping the SAME thread id. Both
-// halves of that were only ever checked by hand (a spike script); this runs it end to end,
-// because getting the direction wrong would delete the wrong half of a conversation.
 
 await test("thread/revert keeps the prefix, in the same thread", async () => {
   const proc = childProc("codex", ["app-server"], workdir);
@@ -332,7 +274,6 @@ await test("thread/revert keeps the prefix, in the same thread", async () => {
     const ids = await turns();
     assert.ok(ids.length >= 2, `expected two turns, got ${ids.length}`);
 
-    // Cut before the SECOND turn: one turn must survive, and it must be the FIRST one.
     await server.rpc.request("thread/revert", { threadId: before, beforeTurnId: ids[1] }, { timeoutMs: 15000 });
     const after = await turns();
     assert.equal(after.length, 1, "the prefix is what survives a rewind");
@@ -342,12 +283,6 @@ await test("thread/revert keeps the prefix, in the same thread", async () => {
     await server.stop();
   }
 });
-
-// ── a refusal under a narrow sandbox ──
-//
-// The default transport showed the refusal sentence and no way out of it. Codex has no
-// structured refusal event, so the only signal is the prose — which is what this proves
-// actually arrives, from a real binary, on a sandbox that really cannot write.
 
 await test("a real refusal reaches the pane as the card that offers a way out", async () => {
   const before = fs.existsSync(path.join(workdir, "out.txt"));
@@ -363,17 +298,7 @@ await test("a real refusal reaches the pane as the card that offers a way out", 
   assert.equal(blocked.escalate.mode, "default", "and the way out is the first mode that can write");
 });
 
-
-// ── the records only a real server sends ──
-//
-// Both of these were reached by wiring a notification this class had never registered.
-// A stand-in can prove the mapping; only the real binary proves the server SENDS it, with
-// the field names the mapping reads.
-
 await test("a thread rename really arrives, with the name in `threadName`", async () => {
-  // `thread/name/set` is the TUI's `/rename`. The record it produces is the only place the
-  // new name exists — the rollout file keeps the first prompt and nothing else, which is
-  // why a renamed chat kept its opening words on the tab and in the pane.
   const proc = childProc("codex", ["app-server"], workdir);
   const events = [];
   const server = new CodexAppServer({
@@ -398,13 +323,6 @@ await test("a thread rename really arrives, with the name in `threadName`", asyn
 });
 
 await test("a passthrough record keeps the server's own name, un-enveloped", async () => {
-  // The client's notice reader matches on the record's OWN method name (`warning`,
-  // `error`, `model/rerouted`). The tempting "fix" is to wrap one in a `system` envelope,
-  // which reads as more routable and is in fact unreadable to it — measured: this file's
-  // old mapping answered null where the passthrough answers the line.
-  //
-  // Pinned on a record that a real turn ALWAYS produces, so this cannot pass vacuously:
-  // `thread/status/changed` streams for every turn on this binary.
   const { events } = await runTurn("Say the word: ok");
   const carried = events.filter(([e, d]) => e === "cli_event").map(([, d]) => d);
   assert.ok(carried.length > 0, "a real turn produces passthrough records");
@@ -412,22 +330,8 @@ await test("a passthrough record keeps the server's own name, un-enveloped", asy
     assert.ok(!c.subtype, `a passthrough record must not be re-typed: ${JSON.stringify(c)}`);
     assert.ok(c.type.includes("/") || /^[a-z]/.test(c.type), `carried under a method name, got ${c.type}`);
   }
-  // And the one that is always there proves the name survives intact.
   assert.ok(carried.some((c) => c.type === "thread/status/changed"), "the thread's own status record");
 });
-// ── answering a gate: measured here, pinned in the unit suite ──
-//
-// The gate's request id is a NUMBER on this wire, and an answer has to go back as the type
-// it arrived. Measured on this binary, one prompt, one gate, only the answer's id type
-// differing:
-//
-//   answered as "0"  → no further records, no `turn/completed`  (the turn hangs)
-//   answered as  0   → `serverRequest/resolved` + `turn/completed`, the command runs
-//
-// That is `codexAppServer.test.mjs`'s job to hold (it needs no model and no gate), because
-// every way of raising a gate HERE is non-deterministic: asking the model to try something
-// forbidden depends on the model actually trying, and `thread/shellCommand` was measured to
-// run WITHOUT asking at all. A red-sometimes test teaches nothing.
 
 console.log(`\n${pass} passed, ${fail} failed`);
 fs.rmSync(workdir, { recursive: true, force: true });

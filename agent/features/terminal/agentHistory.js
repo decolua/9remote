@@ -1,11 +1,4 @@
-// Conversation history of the coding CLIs themselves — each agent keeps its own
-// transcript store, and this lists the ones belonging to a single cwd so a
-// terminal can offer to resume a past conversation from where it is standing.
-//
-// Two source shapes. "cwdDir" agents encode the cwd into a directory name, so
-// one readdir answers the question no matter how many sessions exist. "scan"
-// agents bury the cwd inside the transcript, so their newest files are read
-// head-first until the budget runs out.
+// Aggregates conversation history from agent CLI transcript stores by cwd.
 import fs from "fs";
 import path from "path";
 import os from "os";
@@ -20,40 +13,27 @@ const require = createRequire(import.meta.url);
 
 const home = () => os.homedir();
 
-// Injected preamble turns that are machinery, not something the user typed.
 const WRAPPER_PATTERNS = [
   /<environment_context>[\s\S]*?<\/environment_context>/g,
   /<timestamp>[\s\S]*?<\/timestamp>/g,
   /<system-reminder>[\s\S]*?<\/system-reminder>/g,
-  // Antigravity wraps the prompt it stores with its own context blocks.
   /<ADDITIONAL_METADATA>[\s\S]*?<\/ADDITIONAL_METADATA>/g
 ];
-// Antigravity marks the user's own words inside its wrapper; the tag itself is not text.
 const USER_REQUEST_RE = /<USER_REQUEST>([\s\S]*?)<\/USER_REQUEST>/;
 const USER_QUERY_RE = /<user_query>([\s\S]*?)<\/user_query>/;
-// Turns the harness writes into the transcript as if the user had typed them:
-// slash commands and their output (Claude), and the project doc Codex injects
-// ahead of the opening prompt. The real question is the turn after one of these.
 const INJECTED_TURN_RES = [
   /^<(local-)?command-[a-z]+>/,
   /^# [A-Za-z0-9._-]+\.md instructions\b/,
-  // The note left where a turn was interrupted. It carries no turn_complete after it, so
-  // a log rebuilt with it ends on a user turn — which every reader takes to mean a turn
-  // is still running. Both shapes appear; the shorter one is older.
   /^\s*\[Request interrupted by user\b/
 ];
 export const isInjectedTurn = (text) => INJECTED_TURN_RES.some((re) => re.test(text));
 
-// One transcript line's text, minus the harness wrapping, collapsed to one line.
 export function cleanTitle(text) {
   const out = stripHarnessWrapping(text);
-  // A title is one line: collapse runs of whitespace and cap the length.
   const oneLine = out.replace(/\s+/g, " ");
   return oneLine.length > HISTORY.TITLE_MAX ? `${oneLine.slice(0, HISTORY.TITLE_MAX)}…` : oneLine;
 }
 
-// The same unwrapping without the title treatment: newlines and length are preserved,
-// so a message body (a code block, a long answer) survives a replay intact.
 export function stripHarnessWrapping(text) {
   if (typeof text !== "string") return "";
   const query = text.match(USER_QUERY_RE) || text.match(USER_REQUEST_RE);
@@ -62,7 +42,6 @@ export function stripHarnessWrapping(text) {
   return out.trim();
 }
 
-// Message content is a bare string in some stores and a content-part array in others.
 function contentText(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";
@@ -71,10 +50,6 @@ function contentText(content) {
 
 const parseJson = (text) => { try { return JSON.parse(text); } catch { return null; } };
 
-// Transcript lines, read in chunks and yielded as they complete. Lazy because
-// the interesting line is usually the first few, but Codex writes a
-// multi-kilobyte instruction preamble ahead of the user's opening prompt — a
-// fixed-size head would stop short of it. Both budgets are ceilings, not reads.
 function* readLines(filePath, maxLines) {
   let fd;
   try {
@@ -115,12 +90,8 @@ function listDir(dir) {
   try { return fs.readdirSync(dir, { withFileTypes: true }); } catch { return []; }
 }
 
-// --- cwd encoders ---
-
 const dashEncode = (cwd) => cwd.replace(/[/\\:]/g, "-");
 const sha256 = (cwd) => crypto.createHash("sha256").update(cwd).digest("hex");
-
-// --- per-agent parsers: transcript head -> { sessionId, title, cwd } ---
 
 function parseClaude(filePath) {
   let title = "";
@@ -186,12 +157,7 @@ function parseWholeJson(filePath) {
   try { return parseJson(fs.readFileSync(filePath, "utf8")); } catch { return null; }
 }
 
-// OpenCode migrated its sessions from one JSON file each into a single SQLite
-// db, and leaves the old storage/ tree in place — so the files alone are a
-// months-old snapshot presented as current. Read the db first, fall back to the
-// files, and let the db win where a session is in both.
-//
-// node:sqlite ships with Node 22.5+; an older runtime simply keeps the files.
+// OpenCode uses SQLite (Node 22.5+); fall back to file storage if unavailable.
 let sqliteModule;
 function loadSqlite() {
   if (sqliteModule === undefined) {
@@ -207,10 +173,9 @@ function opencodeDbRows(cwd) {
   if (!fs.existsSync(dbPath)) return [];
   let db;
   try {
-    // Read-only: opencode may be writing to it right now, and this is a viewer.
     db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
     return db.prepare(
-      // parent_id marks a spawned subagent — it resumes with its parent, not alone.
+      // Skip subagents (parent_id is set).
       "SELECT id, title, directory, time_updated FROM session " +
       "WHERE directory = ? AND parent_id IS NULL ORDER BY time_updated DESC LIMIT ?"
     ).all(cwd, HISTORY.PER_AGENT_LIMIT);
@@ -239,10 +204,6 @@ function parseGrok(filePath) {
   return { sessionId, title: cleanTitle(data.session_summary), cwd: data.info.cwd || null };
 }
 
-// Antigravity keeps one index of every conversation it has ever had, and a SQLite
-// file per conversation beside it. Only the index is read: it already carries the
-// workspace, the preview line and the clock, and stepping into 100+ SQLite files
-// per scan would cost far more than the title is worth.
 function antigravityIndexPath() {
   return path.join(home(), ".gemini", "antigravity-cli", "cache", "conversation_metadata.json");
 }
@@ -250,7 +211,6 @@ function antigravityIndexPath() {
 function antigravityEntryCwd(summary) {
   const uri = summary?.WorkspaceURIs?.[0];
   if (typeof uri !== "string") return null;
-  // file:///Users/x → /Users/x. A conversation with no workspace belongs to no cwd.
   try { return decodeURIComponent(uri.replace(/^file:\/\//, "")); } catch { return null; }
 }
 
@@ -263,21 +223,14 @@ function antigravityRows(cwd) {
     if (antigravityEntryCwd(summary) !== cwd) continue;
     rows.push({
       sessionId: summary.ID || id,
-      // `Title` is empty for nearly every conversation; `Preview` is what the CLI
-      // itself shows in its own list, so it is the only usable label there is.
       title: cleanTitle(summary.Title || summary.Preview),
       cwd,
-      // Both stamps are ISO; `|| 0` matches mtimeMs, so an entry with no usable
-      // date sorts as oldest instead of landing at the epoch by way of a NaN.
       updatedAt: Date.parse(summary.UpdatedAt) || Date.parse(entry.last_modified_time) || 0
     });
   }
   return rows;
 }
 
-// A conversation deleted from the index is gone; the per-conversation .db beside it
-// is left in place so a bad index entry can never destroy a transcript outright.
-// Written atomically: `agy` reads this same file while it runs.
 function antigravityDelete(sessionId) {
   const indexPath = antigravityIndexPath();
   const index = parseWholeJson(indexPath);
@@ -291,21 +244,12 @@ function antigravityDelete(sessionId) {
   }
 }
 
-// Shared by the CLIs that fork Gemini CLI's store layout (qwen).
 function parseCwdChats(filePath) {
   const data = parseWholeJson(filePath);
   if (!data?.sessionId) return null;
   const firstUser = (data.messages || []).find((m) => m.type === "user");
   return { sessionId: data.sessionId, title: cleanTitle(contentText(firstUser?.content)) };
 }
-
-// --- source registry ---
-// cwdDir sources resolve one directory from the cwd; scan sources walk their
-// newest files and keep the ones whose parsed cwd matches. `depth` is how many
-// directory levels below the cwd directory the transcripts sit.
-// `id` must match the agentCatalog id, not the binary name: the row's resume line
-// and its stored agent are both built from it, and a mismatch (qwen vs qwen-code)
-// silently yields no resume command.
 
 const HISTORY_SOURCES = [
   { id: "claude", layout: "cwdDir", root: () => path.join(home(), ".claude", "projects"), encode: dashEncode, ext: ".jsonl", parse: parseClaude },
@@ -315,17 +259,14 @@ const HISTORY_SOURCES = [
   { id: "cursor", layout: "cwdDir", root: () => path.join(home(), ".cursor", "projects"), encode: dashEncode, sub: "agent-transcripts", depth: 1, ext: ".jsonl", parse: parseCursor },
   { id: "droid", layout: "cwdDir", root: () => path.join(home(), ".factory", "sessions"), encode: dashEncode, ext: ".jsonl", parse: parseDroid },
   { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok },
-  // No `parse`/`encode`: the whole store is one index file, read by the collector.
   { id: "antigravity", layout: "antigravity", root: () => path.join(home(), ".gemini", "antigravity-cli") }
 ];
 
 const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode, antigravity: collectAntigravity };
 
 const SOURCE_BY_ID = new Map(HISTORY_SOURCES.map((s) => [s.id, s]));
-// Rank ties by the order the sources are declared — claude, codex, opencode first.
 const SOURCE_RANK = new Map(HISTORY_SOURCES.map((s, i) => [s.id, i]));
 
-/** The store directory name an agent derives from a cwd, or null when it doesn't use one. */
 export function encodeCwdForAgent(agentId, cwd) {
   const source = SOURCE_BY_ID.get(agentId);
   if (!source?.encode) return null;
@@ -334,11 +275,6 @@ export function encodeCwdForAgent(agentId, cwd) {
 
 const SHELL_SAFE_RE = /^[A-Za-z0-9._\-/]+$/;
 
-/**
- * Shell line that re-enters one past conversation, or null when the CLI has no
- * resume form. `skipPermissions` re-applies the CLI's own bypass flag: resuming
- * otherwise drops back to per-action approval, which is not where the user left off.
- */
 export function resumeCommand(agentId, sessionId, skipPermissions = false) {
   const agent = agentById(agentId);
   if (!agent?.resume || !sessionId) return null;
@@ -347,11 +283,6 @@ export function resumeCommand(agentId, sessionId, skipPermissions = false) {
   return skipPermissions && agent.yolo ? `${line} ${agent.yolo}` : line;
 }
 
-// --- matching history rows against the terminals already running them ---
-
-// Two prompts are the same turn when they read the same. One may be truncated
-// (a status line carries only what fit), so a long enough prefix counts — short
-// ones do not: "fix" prefixes far too much to mean anything.
 const PROMPT_PREFIX_MIN = 24;
 
 const normalizePrompt = (text) => String(text || "").trim().replace(/\s+/g, " ").toLowerCase();
@@ -363,21 +294,6 @@ function promptsMatch(rowText, liveText) {
   return rowText.startsWith(liveText) || liveText.startsWith(rowText);
 }
 
-/**
- * Tag each history row with the terminal already running it, so the UI can focus
- * that terminal instead of resuming a second copy of the same conversation.
- *
- * A reported conversation id is proof and settles the row. Without one, the
- * opening prompt is the next best signal, then the transcript clock: a terminal
- * running agent A in cwd C since T can only be the transcript of A in C that
- * started writing after T. Both are inference, so each claims a row only when
- * exactly one terminal could be meant. Two plausible terminals leave the row
- * unclaimed: opening a duplicate is a smaller wrong than focusing someone
- * else's conversation.
- */
-
-// mtime and the terminal clock are the same machine clock, so "written after
-// the terminal started" needs no slack.
 const LAUNCH_SKEW_MS = 0;
 export function matchLiveSessions(rows, liveTerminals = []) {
   const claimed = new Set();
@@ -387,11 +303,8 @@ export function matchLiveSessions(rows, liveTerminals = []) {
   }
 
   const tagged = rows.map((row) => {
-    // A row names a CLI; a session running it in the chat UI carries the "-ui"
-    // marker, and both hold the same conversation — so the engine is what matches.
     const openSessionId = byId.get(`${row.agent}:${row.sessionId}`) || null;
     if (openSessionId) claimed.add(openSessionId);
-    // How this conversation was last opened, so the UI reopens it the same way.
     const mode = getConversationMode(row.agent, row.sessionId);
     return { ...row, openSessionId, ...(mode ? { mode } : {}) };
   });
@@ -424,7 +337,6 @@ export function matchLiveSessions(rows, liveTerminals = []) {
   return tagged;
 }
 
-// Files directly under `dir`, descending `depth` levels of subdirectories first.
 function filesUnder(dir, depth, ext, fileName) {
   const out = [];
   for (const entry of listDir(dir)) {
@@ -434,7 +346,6 @@ function filesUnder(dir, depth, ext, fileName) {
       continue;
     }
     if (fileName ? entry.name !== fileName : !entry.name.endsWith(ext)) continue;
-    // .settings.json siblings shadow the transcript they describe.
     if (!fileName && entry.name.endsWith(`.settings${ext}`)) continue;
     out.push(full);
   }
@@ -452,7 +363,6 @@ function collectCwdDir(source, cwd, limit) {
   return byNewest(rows, source, cwd).slice(0, limit);
 }
 
-// OpenCode's two stores, db first, each session listed once.
 function collectOpencode(source, cwd, limit) {
   const rows = opencodeDbRows(cwd).map((r) => ({
     sessionId: r.id,
@@ -469,7 +379,6 @@ function collectOpencode(source, cwd, limit) {
   return byNewest(rows, source, cwd).slice(0, limit);
 }
 
-// Antigravity's store is a single index, so "collect" is a filter, not a walk.
 function collectAntigravity(source, cwd, limit) {
   const rows = antigravityRows(cwd);
   return byNewest(rows, source, cwd).slice(0, limit);
@@ -506,11 +415,6 @@ function byNewest(rows, source, cwd) {
     .sort((a, b) => b.updatedAt - a.updatedAt);
 }
 
-/**
- * Title one conversation carries, from the rows already collected for its cwd.
- * Cheap on purpose: it reads the same 30s cache the sidebar fills, so naming a
- * terminal after its chat costs no extra transcript reads.
- */
 export function conversationTitle(agent, conversationId, cwd) {
   if (!agent || !conversationId || !cwd) return "";
   const cached = cache.get(cwd);
@@ -519,22 +423,15 @@ export function conversationTitle(agent, conversationId, cwd) {
   return row?.title || "";
 }
 
-// Keyed by cwd — a terminal that cd's elsewhere asks a different question.
 const cache = new Map();
 
 export function clearHistoryCache() {
   cache.clear();
 }
 
-/**
- * Past conversations of every detected agent CLI that ran in `cwd`, newest first.
- * Absent stores are skipped silently: not having an agent installed is normal.
- */
 export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fresh = false } = {}) {
   if (!cwd) return [];
   const cached = cache.get(cwd);
-  // `fresh` is for a caller that knows the cache predates what it is looking for
-  // — a conversation whose transcript was written after the last scan.
   if (!fresh && cached && Date.now() - cached.at < HISTORY.CACHE_TTL_MS) return cached.rows.slice(0, limit);
 
   const rows = [];
@@ -544,9 +441,6 @@ export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fr
   }
   rows.sort((a, b) => b.updatedAt - a.updatedAt || SOURCE_RANK.get(a.agent) - SOURCE_RANK.get(b.agent));
 
-  // A resumed Codex conversation writes a second rollout file under the same
-  // session id, so the store holds several transcripts for one conversation.
-  // Rows are newest first: keep the newest and drop the rest.
   const seen = new Set();
   const unique = rows.filter((row) => {
     const key = `${row.agent}:${row.sessionId}`;
@@ -559,9 +453,6 @@ export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fr
   return unique.slice(0, limit);
 }
 
-/**
- * Permanently delete one past conversation transcript and its companion files/records.
- */
 export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
   if (!agent || !sessionId) return false;
   const source = SOURCE_BY_ID.get(agent);
@@ -569,7 +460,6 @@ export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
 
   let deleted = false;
 
-  // 1. Remove from the store an agent keeps outside its transcript files
   if (agent === "opencode") {
     const sqlite = loadSqlite();
     if (sqlite) {
@@ -588,7 +478,6 @@ export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
   }
   if (agent === "antigravity" && antigravityDelete(sessionId)) deleted = true;
 
-  // 2. Resolve transcript file path
   const cached = cwd ? cache.get(cwd) : null;
   const cachedRow = cached?.rows?.find((r) => r.agent === agent && r.sessionId === sessionId);
   let filePath = cachedRow?.filePath;
@@ -620,7 +509,6 @@ export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
     }
   }
 
-  // 3. Delete file and companion directory / settings safely
   const isInside = (target, root) => target === root || target.startsWith(root + path.sep);
   if (filePath && fs.existsSync(filePath)) {
     const resolvedPath = path.resolve(filePath);
@@ -651,7 +539,6 @@ export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
     }
   }
 
-  // 4. Invalidate / update cache
   if (cwd && cache.has(cwd)) {
     const entry = cache.get(cwd);
     const before = entry.rows.length;
