@@ -52,6 +52,9 @@ export const viewport = {
 // Inline script - apply theme class before paint to prevent FOUC
 const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_KEY}")||"${DEFAULT_THEME}";document.documentElement.classList.add(t);}catch(e){document.documentElement.classList.add("${DEFAULT_THEME}");}})();`;
 
+// Redirect Expo WebView from dev.9remote.cc to production 9remote.cc
+const expoRedirectScript = `(function(){try{if(location.hostname==="dev.9remote.cc"&&(window.ReactNativeWebView||/9Remote-Mobile/i.test(navigator.userAgent))){location.replace("https://9remote.cc"+location.pathname+location.search+location.hash);}}catch(e){}})();`;
+
 // Native shell bridge — expo injects the real status-bar inset via
 // handleSafeAreaInset; web applies it as --pl-top (0 when unset, so browsers/PWA
 // are unaffected). Bottom inset is owned by bottom bars (.safe-area-bottom).
@@ -71,6 +74,7 @@ export default function RootLayout({ children }) {
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         {/* ScriptOnce: theme-init still runs before paint (SSR HTML), no React 19 script warning */}
+        <ScriptOnce id="expo-redirect" html={expoRedirectScript} />
         <ScriptOnce id="theme-init" html={themeInitScript} />
         <ScriptOnce id="safe-area-bridge" html={safeAreaScript} />
         <ScriptOnce

@@ -14,6 +14,16 @@ export function isLoopbackOrigin() {
   return h === "localhost" || h === "::1" || h === "[::1]" || h.startsWith("127.");
 }
 
+/** Check if running inside agent workspace (Tauri app, agent port, or static agent build). */
+export function isAgentEnvironment() {
+  if (typeof window === "undefined") return false;
+  return (
+    !!window.__TAURI__ ||
+    window.location.port === String(AGENT_PORT) ||
+    process.env.NEXT_PUBLIC_STATIC_EXPORT === "1"
+  );
+}
+
 /** Loopback or a private LAN address (10/8, 172.16/12, 192.168/16). */
 export function isLocalAgentNetwork() {
   if (isLoopbackOrigin()) return true;

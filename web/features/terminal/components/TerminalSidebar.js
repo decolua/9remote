@@ -26,7 +26,7 @@ import { useDragReorder } from "../hooks/useDragReorder";
 import BranchBadge from "./BranchBadge";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
+import { isLoopbackOrigin, isAgentEnvironment } from "@/shared/utils/localOrigin";
 import { isChatEngine, SWITCHABLE_STATES } from "./TerminalHeader";
 import SessionBackgroundModal from "./SessionBackgroundModal";
 
@@ -178,7 +178,7 @@ function TerminalSidebar({
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || !!window.ReactNativeWebView
   );
-  const showInstall = canInstall && !isApp && !isInstalled;
+  const showInstall = canInstall && !isApp && !isInstalled && !isAgentEnvironment();
 
   // Resize handle
   const startResize = (e) => {

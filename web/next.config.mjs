@@ -46,6 +46,7 @@ const nextConfig = {
   env: {
     NEXT_PUBLIC_WORKER_URL: process.env.NEXT_PUBLIC_WORKER_URL || "https://9remote.cc",
     NEXT_PUBLIC_SERVER_VERSION: rootPkg.version,
+    NEXT_PUBLIC_STATIC_EXPORT: process.env.STATIC_EXPORT || "0",
   },
   ...(isStaticExport ? {} : {
     async headers() {
