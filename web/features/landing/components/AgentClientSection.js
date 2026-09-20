@@ -31,6 +31,7 @@ const OS_LABEL = { macos: "macOS", windows: "Windows" };
 const OS_EXT = { macos: "9remote.dmg", windows: "9remote.exe" };
 
 export default function AgentClientSection() {
+  const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
   // Server + first paint use "other" so hydration matches; real OS swaps in after mount
   const os = useSyncExternalStore(() => () => {}, detectOs, () => "other");
   const [copied, setCopied] = useState(false);
@@ -84,12 +85,22 @@ export default function AgentClientSection() {
                   className="p-6 sm:p-7 rounded-2xl border flex flex-col transition-all duration-300 hover:-translate-y-1"
                   style={{ background: THEME.bgElevated, borderColor: THEME.border }}
                 >
-                  <span
-                    className="self-start text-[11px] font-mono font-bold px-2 py-0.5 rounded border uppercase tracking-wider mb-3"
-                    style={{ borderColor: THEME.border, background: THEME.bgPanel, color: THEME.accent }}
-                  >
-                    {half.role}
-                  </span>
+                  <div className="flex items-center gap-2 mb-3">
+                    <span
+                      className="text-[11px] font-mono font-bold px-2 py-0.5 rounded border uppercase tracking-wider"
+                      style={{ borderColor: THEME.border, background: THEME.bgPanel, color: THEME.accent }}
+                    >
+                      {half.role}
+                    </span>
+                    {version && (
+                      <span
+                        className="text-[10px] font-mono px-1.5 py-0.5 rounded border"
+                        style={{ borderColor: THEME.border, background: THEME.bgPanel, color: THEME.textDim }}
+                      >
+                        v{version}
+                      </span>
+                    )}
+                  </div>
                   <h3 className="text-xl font-bold mb-1.5" style={{ color: THEME.text }}>
                     {half.title}
                   </h3>
@@ -180,8 +191,8 @@ export default function AgentClientSection() {
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
                               </svg>
                               {activeTab === "desktop" || os === "other"
-                                ? "Download"
-                                : `Download for ${OS_LABEL[os]}`}
+                                ? (version ? `Download v${version}` : "Download")
+                                : (version ? `Download v${version} for ${OS_LABEL[os]}` : `Download for ${OS_LABEL[os]}`)}
                               {OS_EXT[os] && <span className="ml-auto text-xs font-mono opacity-70">{OS_EXT[os]}</span>}
                             </>
                           )}
