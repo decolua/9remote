@@ -10,6 +10,9 @@ import { vibrate } from "@/shared/utils/vibration";
 // expanded (persisted), which are still loading or truncated, plus git badges.
 // Extracted verbatim from ExplorerPanel.
 
+// Coalesce bursts of file-change events into one git status build.
+const GIT_STATUS_DEBOUNCE_MS = 300;
+
 // Expanded folders are stored per workspace: one shared list meant opening a second
 // workspace overwrote the first one's, so going back always found the tree collapsed.
 function readExpandedStore() {
@@ -99,10 +102,13 @@ export function useFileTreeState({ workspace, fileBus }) {
 
   // Load git status and propagate folder-changed up parents. A workspace that is a
   // parent folder of nested repos gets every repo's status merged in.
+  const gitSeqRef = useRef(0);
+  // Sequence-stamped so a slow earlier build (workspace switch, event burst) never overwrites a newer one.
   const loadGitStatus = useCallback(async () => {
     if (!workspace) return;
+    const seq = ++gitSeqRef.current;
     const { map } = await buildWorkspaceGitStatus(fileBus, workspace);
-    setGitStatusMap(map);
+    if (seq === gitSeqRef.current) setGitStatusMap(map);
   }, [fileBus, workspace]);
 
   // Initial mount: load workspace root + restore expanded + git status
@@ -112,15 +118,10 @@ export function useFileTreeState({ workspace, fileBus }) {
     (async () => {
       const persisted = loadExpanded(workspace);
       const restored = new Set([workspace]);
-      await loadDir(workspace);
-      // Restore previously-expanded folders that are subpaths of workspace
-      for (const p of persisted) {
-        if (typeof p === "string" && p.startsWith(workspace)) {
-          restored.add(p);
-          await loadDir(p);
-          if (!alive) return;
-        }
-      }
+      // Restore previously-expanded subpaths in parallel — sequential awaits waterfall one round-trip per folder.
+      const wanted = persisted.filter((p) => typeof p === "string" && p.startsWith(workspace));
+      for (const p of wanted) restored.add(p);
+      await Promise.all([loadDir(workspace), ...wanted.map((p) => loadDir(p))]);
       if (!alive) return;
       setExpanded(restored);
       setExpandedFor(workspace);
@@ -132,13 +133,21 @@ export function useFileTreeState({ workspace, fileBus }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace]);
 
-  // Refresh git badges when files saved/changed elsewhere
+  // Refresh git badges when files saved/changed elsewhere — debounced so bursts of
+  // file events coalesce into one status build.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const handler = () => loadGitStatus();
+    let timer = null;
+    const handler = () => {
+      clearTimeout(timer);
+      timer = setTimeout(loadGitStatus, GIT_STATUS_DEBOUNCE_MS);
+    };
     const events = ["fileExplorer:fileSaved", "fileExplorer:fileCreated", "fileExplorer:fileDeleted", "fileExplorer:fileRenamed", GIT_REFRESH_EVENT];
     events.forEach(ev => window.addEventListener(ev, handler));
-    return () => events.forEach(ev => window.removeEventListener(ev, handler));
+    return () => {
+      clearTimeout(timer);
+      events.forEach(ev => window.removeEventListener(ev, handler));
+    };
   }, [loadGitStatus]);
 
   // Persist expanded. Keyed by the workspace the set was built for, not the current one:
