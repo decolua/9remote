@@ -126,7 +126,8 @@ export function useAgentBus() {
     if (!bus) return;
     if (force) clearTimeout(fetchTimerRef.current);
     else if (fetchTimerRef.current) return;
-    else if (bothLoaded() && Date.now() - lastFetchAtRef.current < FETCH_FRESH_MS) return;
+    // Freshness counts from emit time, not ack arrival — the pre-ack window is where duplicate fetches stacked up.
+    else if (Date.now() - lastFetchAtRef.current < FETCH_FRESH_MS) return;
     fetchTimerRef.current = setTimeout(() => {
       fetchTimerRef.current = null;
       lastFetchAtRef.current = Date.now();
