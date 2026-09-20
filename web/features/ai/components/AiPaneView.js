@@ -26,7 +26,7 @@ import { AiTaskCard } from "./cards/AiTaskCard";
 import { AiAgentStrip } from "./AiAgentStrip";
 import { AiPaneScope } from "./PaneScope";
 import { getEngineConfig } from "../registry";
-import { AI_FONT_SIZE_BOOST, AI_DOT_GRID, ENGINE_INFO } from "../constants";
+import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, AI_DOT_GRID, ENGINE_INFO } from "../constants";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
@@ -125,7 +125,10 @@ export const AiPaneView = memo(function AiPaneView({
   // terminal palette so a theme switch keeps the two panes in step. Surfaces stay
   // on the app theme; the theme menu only offers palettes of the current mode.
   const palette = useMemo(() => resolveTerminalTheme(theme, terminalTheme), [theme, terminalTheme]);
-  const fontPx = useMemo(() => effectiveFontSize(fontSize) + AI_FONT_SIZE_BOOST, [fontSize]);
+  const fontPx = useMemo(
+    () => effectiveFontSize(fontSize) + (isDesktop ? AI_FONT_SIZE_BOOST : AI_FONT_SIZE_BOOST_MOBILE),
+    [fontSize, isDesktop]
+  );
 
   // Background styling: a picked terminal wallpaper wins over the palette colour,
   // mirroring TerminalPane — including its dark-mode-only rule, since the veil is

@@ -16,6 +16,7 @@ export const AI_UI_OPTIONS = listAiUiOptions();
 // Chat is sans where the terminal is mono; Inter reads smaller at equal px
 // (lower x-height, lighter strokes), so the pane sizes one step up to match.
 export const AI_FONT_SIZE_BOOST = 1;
+export const AI_FONT_SIZE_BOOST_MOBILE = 2;
 
 // Dot grid painted on the AI pane. Alpha is a share of the palette foreground, so
 // it stays subtle on both light and dark palettes.

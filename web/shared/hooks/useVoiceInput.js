@@ -76,7 +76,11 @@ export function useVoiceInput({
   const aiRef = useRef(null);         // { stream, rec, chunks, stopped, ctx, timer } while AI-recording
   const baseRef = useRef("");        // text already committed before this dictation
 
-  const supported = typeof window !== "undefined" && (
+  const isExpo = typeof window !== "undefined" && (
+    !!window.ReactNativeWebView || /9Remote-Mobile/i.test(navigator.userAgent)
+  );
+
+  const supported = typeof window !== "undefined" && !isExpo && (
     mode === "ai"
       ? !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
       : !!getRecognition()
@@ -238,13 +242,14 @@ export function useVoiceInput({
   }, []);
 
   const start = useCallback((currentText = "") => {
+    if (isExpo) return;
     if (mode === "ai") { void startAi(currentText); return; }
     if (!getRecognition()) return;
     baseRef.current = currentText ? currentText.replace(/\s*$/, "") + " " : "";
     setError(null);
     wantOnRef.current = true;
     spawn();
-  }, [mode, startAi, spawn]);
+  }, [isExpo, mode, startAi, spawn]);
 
   const toggle = useCallback((currentText = "") => {
     if (listening) stop();
