@@ -13,17 +13,18 @@ const WAKE_DEBOUNCE_MS = 3000;
 export function createJarvisWake({
   wake = jarvisWakeTurn,
   refreshBoard = async () => { await foldFleetIntoBoard(await fleetSnapshot()); },
-  debounceMs = WAKE_DEBOUNCE_MS
+  debounceMs = WAKE_DEBOUNCE_MS,
+  enabled = true
 } = {}) {
-  let enabled = true;
+  let isEnabled = enabled;
   let pending = [];
   let timer = null;
 
   return {
-    setWakeEnabled(value) { enabled = !!value; },
+    setWakeEnabled(value) { isEnabled = !!value; },
 
     onWorkerDone(sessionId) {
-      if (!enabled || !sessionId) return;
+      if (!isEnabled || !sessionId) return;
       if (!pending.includes(sessionId)) pending.push(sessionId);
       void refreshBoard();
       if (timer) clearTimeout(timer);
@@ -47,9 +48,8 @@ export function createJarvisWake({
   };
 }
 
-// The one live instance. The chat-pane subscription is armed once, from the
-// jarvis socket setup — the same place the web first opens the coordinator.
-const live = createJarvisWake();
+// The one live instance. Parking brake: disabled while Jarvis is under development.
+const live = createJarvisWake({ enabled: false });
 let subscribed = false;
 
 export function setWakeEnabled(value) { live.setWakeEnabled(value); }

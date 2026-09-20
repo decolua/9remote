@@ -12,12 +12,17 @@ import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("jarvis");
 
+let jarvisEnabled = false;
+export const isJarvisEnabled = () => jarvisEnabled;
+export const setJarvisEnabledForTests = (v) => { jarvisEnabled = !!v; };
+
 const push = (event, data) => {
   const io = getIO();
   if (io) broadcast(io, event, data);
 };
 
 export function setupJarvisHandlers(socket) {
+  if (!jarvisEnabled) return;
   // Every open view re-arms the worker-finish listener; the guard inside makes it once.
   initJarvisWakeListener();
   // Restore the persisted LLM config (provider/key/model) — a restart must not

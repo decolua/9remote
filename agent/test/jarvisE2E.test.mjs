@@ -6,10 +6,12 @@
 // Run: node agent/test/jarvisE2E.test.mjs
 import assert from "node:assert/strict";
 import { makeCreateSessionTool } from "../mcp/tools/jarvis/index.js";
-import { setupJarvisHandlers } from "../features/jarvis/jarvisSocket.js";
+import { setupJarvisHandlers, setJarvisEnabledForTests } from "../features/jarvis/jarvisSocket.js";
 import { globalAiManager } from "../features/ai/aiManager.js";
 import { resetAgentForTests, setAgentConfig } from "../features/jarvis/jarvisAgent.js";
 import { resetBoardCache, loadBoard, applyAndBroadcast, foldFleetIntoBoard, setBoardKvForTests } from "../features/jarvis/jarvisState.js";
+
+setJarvisEnabledForTests(true);
 
 // The board rides the daemon's KV in production; tests get an in-memory one so
 // they never touch a live machine's board. Cloned on the way out like real IPC.
