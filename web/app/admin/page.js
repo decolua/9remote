@@ -5,6 +5,7 @@ import AdminShell from "@/features/admin/components/AdminShell";
 import StatsCards from "@/features/admin/components/StatsCards";
 import SessionTable from "@/features/admin/components/SessionTable";
 import Pagination from "@/features/admin/components/Pagination";
+import LoginActivity from "@/features/admin/components/LoginActivity";
 import { Search, RefreshCw } from "@/shared/components/ui/Icon";
 import { useAdminApi } from "@/features/admin/hooks/useAdminApi";
 import { useAdminAuth } from "@/features/admin/hooks/useAdminAuth";
@@ -15,6 +16,7 @@ export default function AdminDashboardPage() {
   const { get, del } = useAdminApi();
 
   const [stats, setStats] = useState(null);
+  const [logins, setLogins] = useState([]);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
@@ -28,19 +30,22 @@ export default function AdminDashboardPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ search, sortBy, order, page: String(page), pageSize: String(pageSize) });
-      const [sessionsData, statsData] = await Promise.all([
+      const requests = [
         get(`${ADMIN_API.sessions}?${params.toString()}`),
         get(ADMIN_API.stats)
-      ]);
+      ];
+      if (can(PERMISSIONS.logView)) requests.push(get(ADMIN_API.logins));
+      const [sessionsData, statsData, loginsData] = await Promise.all(requests);
       setItems(sessionsData.items || []);
       setTotal(sessionsData.total || 0);
       setStats(statsData);
+      if (loginsData) setLogins(loginsData.items || []);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [get, search, sortBy, order, page, pageSize]);
+  }, [can, get, search, sortBy, order, page, pageSize]);
 
   useEffect(() => { load(); }, [load]);
 
@@ -75,6 +80,8 @@ export default function AdminDashboardPage() {
         <section>
           <StatsCards stats={stats} />
         </section>
+
+        {can(PERMISSIONS.logView) && <LoginActivity items={logins} />}
 
         {/* Sessions Section */}
         <section className="space-y-4">

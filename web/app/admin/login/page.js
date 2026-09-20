@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import Container from "@/shared/components/ui/Container";
@@ -8,6 +8,7 @@ import Button from "@/shared/components/ui/Button";
 import Input from "@/shared/components/ui/Input";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
+import TurnstileWidget from "@/features/admin/components/TurnstileWidget";
 import { Shield, ArrowRight, AlertCircle } from "@/shared/components/ui/Icon";
 import { ADMIN_API } from "@/features/admin/constants";
 
@@ -17,6 +18,15 @@ export default function AdminLoginPage() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [siteKey, setSiteKey] = useState("");
+  const [turnstileToken, setTurnstileToken] = useState("");
+
+  useEffect(() => {
+    fetch(ADMIN_API.turnstile)
+      .then((r) => r.json())
+      .then((d) => setSiteKey(d?.siteKey || ""))
+      .catch(() => setSiteKey(""));
+  }, []);
 
   const handleSubmit = async () => {
     if (!username || !password) return;
@@ -26,7 +36,7 @@ export default function AdminLoginPage() {
       const res = await fetch(ADMIN_API.login, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
+        body: JSON.stringify({ username, password, turnstileToken }),
         credentials: "include"
       });
       const data = await res.json();
@@ -34,6 +44,8 @@ export default function AdminLoginPage() {
       router.replace("/admin");
     } catch (e) {
       setError(e.message);
+      setTurnstileToken("");
+      window.turnstile?.reset?.();
     } finally {
       setLoading(false);
     }
@@ -89,10 +101,11 @@ export default function AdminLoginPage() {
               placeholder="••••••••"
               onKeyDown={(e) => e.key === "Enter" && handleSubmit()}
             />
+            <TurnstileWidget siteKey={siteKey} onToken={setTurnstileToken} />
             <Button
               variant="primary"
               onClick={handleSubmit}
-              disabled={!username || !password}
+              disabled={!username || !password || (siteKey && !turnstileToken)}
               loading={loading}
               className="w-full py-2.5 rounded-xl shadow-[0_8px_20px_-6px_rgba(255,87,10,0.45)] font-semibold"
             >

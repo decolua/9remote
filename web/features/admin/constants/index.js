@@ -8,10 +8,28 @@ export const PERMISSIONS = {
   otaView: "ota.view",
   otaManage: "ota.manage",
   turnView: "turn.view",
-  turnManage: "turn.manage"
+  turnManage: "turn.manage",
+  logView: "log.view"
 };
 
 export const PERMISSION_LIST = Object.values(PERMISSIONS);
+
+// Login lockout tiers for the ip:<addr> key, checked in order — first tier whose
+// fails threshold is reached wins, so list the harshest first. Cumulative since
+// the last successful login, which resets the counter.
+export const ADMIN_LOGIN_LOCKS = [
+  { fails: 15, minutes: 24 * 60 },
+  { fails: 10, minutes: 60 },
+  { fails: 5, minutes: 15 }
+];
+
+// Account-wide delay: once the user:<name> key has this many failures, EVERY
+// attempt sleeps before verification (a correct password included — otherwise a
+// brute-forcer could probe for the delay-free path). Doubles per extra failure,
+// capped, so parallel guessing becomes too slow while a real user, whose success
+// clears the counter, essentially never waits.
+export const ADMIN_LOGIN_DELAY_AFTER_FAILS = 10;
+export const ADMIN_LOGIN_DELAY_MAX_MS = 10000;
 
 export const ADMIN_COOKIE_NAME = "9remote_admin_token";
 export const ADMIN_TOKEN_TTL_SEC = 7 * 24 * 60 * 60;
@@ -45,5 +63,7 @@ export const ADMIN_API = {
   modes: "/api/admin/modes",
   admins: "/api/admin/admins",
   ota: "/api/admin/ota",
-  turn: "/api/admin/turn"
+  turn: "/api/admin/turn",
+  logins: "/api/admin/logins",
+  turnstile: "/api/admin/turnstile"
 };
