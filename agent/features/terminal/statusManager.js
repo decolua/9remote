@@ -38,6 +38,8 @@ export const OUTPUT_LIVE_WINDOW_MS = 15_000;
 // sessionStatus: Map<sessionId, { state, tool, since, message? }>
 const sessionStatus = new Map();
 const clearCallbacks = new Set();
+// DONE landed while an AI session still thinks its turn runs — releasers end it.
+const doneReleasers = new Set();
 // sessionId -> timestamp of the last live (non-replay) PTY output.
 const lastOutputAt = new Map();
 
@@ -370,6 +372,13 @@ export function flushDoneCommits() {
   }
 }
 
+// The reverse bridge: aiManager registers here so a hook-proven DONE can release
+// a turn whose `result` line the stream never delivered. Returns an unregister fn.
+export function registerDoneReleaser(fn) {
+  if (typeof fn === "function") doneReleasers.add(fn);
+  return () => doneReleasers.delete(fn);
+}
+
 export function applyEvent({ type, sessionId, tool, message } = {}) {
   if (!sessionId) return null;
   const state = TYPE_TO_STATE[type] || STATES.IDLE;
@@ -392,6 +401,8 @@ export function applyEvent({ type, sessionId, tool, message } = {}) {
     ...(state === STATES.WORKING ? { expiresAt: Date.now() + WORKING_TTL_MS } : {}),
   };
   sessionStatus.set(sessionId, entry);
+  // Both doors (hook + AI stream) are past their debounce here, so the done is settled.
+  if (entry.state === STATES.DONE) for (const release of doneReleasers) release(sessionId);
   return entry;
 }
 

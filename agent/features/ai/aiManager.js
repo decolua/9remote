@@ -1,6 +1,7 @@
 // Manages all active AI sessions across Claude, Codex, and OpenCode
 import { AI_ENGINES } from "./constants.js";
 import { AiSession } from "./aiSession.js";
+import { registerDoneReleaser } from "../terminal/statusManager.js";
 
 export class AiManager {
   constructor() {
@@ -82,3 +83,11 @@ export class AiManager {
 
 // Global instance for agent daemon
 export const globalAiManager = new AiManager();
+
+// A hook-reported DONE outranks a turn whose `result` line the stream lost — end it
+// so clients stop spinning and sendPrompt unblocks. No-op when the turn already ended.
+registerDoneReleaser((sessionId) => {
+  const session = globalAiManager.getSession(sessionId);
+  if (!session?.isTurnRunning) return;
+  session.emitNormalized("turn_complete", { stats: null, result: "", isError: false, subtype: "" });
+});
