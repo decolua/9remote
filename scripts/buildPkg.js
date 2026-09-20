@@ -55,7 +55,7 @@ const baseConfig = {
     "import.meta.url": "__importMetaUrl",
     "__CLI_VERSION__": JSON.stringify(VERSION),
     "__PKG_NAME__": JSON.stringify(PKG_NAME),
-    "__DEFAULT_WORKER_URL__": JSON.stringify(process.env.NREMOTE_WORKER_URL || "https://9remote.cc"),
+    "__DEFAULT_WORKER_URL__": JSON.stringify("https://9remote.cc"),
   },
 };
 
