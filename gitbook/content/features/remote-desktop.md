@@ -1,159 +1,55 @@
 # Remote Desktop
 
-Control your desktop remotely with mouse and keyboard support.
+Low-latency screen streaming and remote control powered by WebRTC.
 
 ## What It Does
 
-9Remote Desktop lets you see and control your computer's screen from any device. Click, type, and interact as if you were sitting in front of your computer.
+9Remote Desktop lets you view and interact with your computer's screen from any device with high responsiveness. It uses peer-to-peer WebRTC data channels and intelligent dirty-tile compression to deliver smooth control even over cellular networks.
 
 ## Core Features
 
-### Real-time Screen Streaming
+### High-Performance WebRTC Streaming
+- **Sub-50ms Latency:** Screen data flows directly between your host computer and your client device using WebRTC data channels.
+- **Dirty-Tile Diffing:** Instead of re-encoding the entire display on every frame, 9Remote's `TileManager` detects and transmits only the rectangular regions of the screen that changed.
+- **Hardware-Accelerated Encoding:** Uses native high-speed JPEG compression (`@julusian/jpeg-turbo` on Windows, native image pipelines on macOS/Linux) to keep host CPU usage minimal.
 
-- Live screen updates
-- Optimized tile-based rendering
-- Adjustable quality for different networks
-- Low latency streaming
+### Intuitive Touch & Mouse Input
+- **Touch Mode (Mobile):**
+  - Tap anywhere to left-click.
+  - Long press for right-click.
+  - Two-finger drag to scroll smoothly.
+  - Pinch-to-zoom to inspect fine UI elements or code.
+- **Trackpad / Pointer Mode:** Use your phone screen as a precision laptop trackpad with left/right click buttons.
+- **Mouse Drag:** Click and hold to drag windows, move sliders, or select text.
 
-### Mouse Control
+### Keyboard & Clipboard
+- Floating mobile virtual keyboard toolbar with Ctrl, Alt, Shift, Esc, and arrow keys.
+- **Clipboard Sync:** Copy text on your phone and paste it directly into your remote computer, or vice versa.
 
-Full mouse support:
-- **Click** - Tap or click anywhere
-- **Drag** - Click and hold to drag
-- **Scroll** - Two-finger scroll or scroll wheel
-- **Right-click** - Long press or right-click
+### Dynamic Quality Adjustment
+Adjust streaming profile according to your connection:
+- **High:** Maximum clarity and crisp text rendering.
+- **Balanced (Default):** Optimal balance between clarity and bandwidth.
+- **Performance:** Low bandwidth, high frame rate for constrained mobile data.
 
-### Keyboard Input
+---
 
-Type naturally:
-- All keys supported
-- Keyboard shortcuts work (Ctrl+C, Ctrl+V, etc.)
-- Special keys (Esc, Tab, Enter)
-- Function keys (F1-F12)
+## Tips for the Best Experience
 
-### Quality Adjustment
+- **Landscape Orientation:** Rotate your mobile device to landscape for a natural desktop aspect ratio.
+- **WiFi vs Mobile Data:** On metered mobile connections, choose Balanced or Performance mode in the streaming settings.
+- **Turn Off When Not In Use:** Stop the stream when switching to Terminal or File Explorer to preserve battery and bandwidth.
 
-Adjust streaming quality based on your network:
-- **High** - Best quality, more bandwidth
-- **Medium** - Balanced (default)
-- **Low** - Faster on slow networks
-
-## How to Use
-
-### Start Streaming
-
-1. Click "Remote Desktop" from main menu
-2. Click "Start Streaming" button
-3. Wait 2-3 seconds for screen to appear
-4. Your desktop is now visible!
-
-### Control Your Desktop
-
-**Mouse:**
-- Tap/click to click
-- Drag to move windows
-- Scroll to scroll pages
-- Long press for right-click
-
-**Keyboard:**
-- Click "Show Keyboard" button
-- Type normally
-- Use Ctrl/Alt/Shift combinations
-- Press Esc, Tab, Enter as needed
-
-### Stop Streaming
-
-Click "Stop Streaming" button when done to save bandwidth.
-
-## Mobile Tips
-
-**Use Landscape Mode**
-- Much better experience
-- More screen space
-- Easier to see details
-
-**Adjust Quality**
-- Start with Medium
-- If laggy → Switch to Low
-- If smooth → Try High
-
-**Zoom In**
-- Pinch to zoom on specific areas
-- Pan around with two fingers
-- Zoom out to see full screen
-
-## Best Practices
-
-**Network**
-- Use WiFi for best experience
-- 4G/5G works but uses more data
-- Reduce quality on slow connections
-
-**Performance**
-- Close unused apps on remote computer
-- Stop streaming when not in use
-- Restart streaming if it freezes
-
-**Security**
-- Always stop streaming when done
-- Don't leave it running unattended
-- Use one-time keys for temporary access
+---
 
 ## Limitations
 
-**Not Supported:**
-- Audio streaming
-- Video playback (will be choppy)
-- High-FPS gaming
-- Multi-monitor (shows primary only)
+- **Multi-Monitor:** Currently captures the primary display.
+- **Audio:** Audio streaming is not currently supported (optimized for productivity and development, not media playback or gaming).
 
-**Performance Depends On:**
-- Your network speed
-- Remote computer CPU
-- Screen resolution
-- Number of screen changes
+---
 
-## Common Use Cases
+## Next Steps
 
-**Quick Tasks**
-- Check email
-- Open files
-- Run applications
-- System settings
-
-**Remote Work**
-- Access work applications
-- View documents
-- Manage files
-- Quick fixes
-
-**System Administration**
-- GUI-based tools
-- Visual monitoring
-- Configuration panels
-- Troubleshooting
-
-## Troubleshooting
-
-**Screen is black**
-- Wait 5 seconds for initial load
-- Click "Stop" then "Start" again
-- Check if server is running
-
-**Very laggy**
-- Reduce quality to Low
-- Check network connection
-- Close other apps using bandwidth
-- Try again later
-
-**Mouse not working**
-- Tap screen to focus
-- Refresh browser
-- Check if streaming is active
-
-**Can't type**
-- Click "Show Keyboard" button
-- Tap input area
-- Make sure streaming is active
-
-[← Back: Terminal](terminal) | [Next: File Explorer →](file-explorer)
+- Browse files and code with [File Explorer](file-explorer)
+- Run commands with [Terminal](terminal)

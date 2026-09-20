@@ -5,172 +5,73 @@ Quick answers to common questions about 9Remote.
 ## General
 
 ### Is 9Remote free?
+Yes — the core of 9Remote is free and open source. An optional Pro subscription, available in the mobile app, unlocks extra features and helps fund ongoing development.
 
-Yes — the core of 9Remote is free and open source. An optional Pro subscription, available in the mobile app, unlocks extra features and helps fund development.
-
-### Do I need a public IP address?
-
-No! That's the beauty of 9Remote. Cloudflare tunnel handles all the networking automatically. No port forwarding, no firewall configuration needed.
+### Do I need a public IP address or port forwarding?
+No. Cloudflare tunnel handles all the networking automatically. You don't need port forwarding, static IPs, router configuration, or a VPN.
 
 ### What operating systems are supported?
-
-**Server (where you install CLI):**
-- macOS
-- Linux (Ubuntu, Debian, Fedora, etc.)
-- Windows (with Node.js)
+**Host / Server (where 9Remote runs):**
+- macOS (Intel & Apple Silicon)
+- Linux (Ubuntu, Debian, Fedora, Arch, Alpine, etc.)
+- Windows 10 & 11
 
 **Client (where you connect from):**
-- Any device with a modern browser
-- iOS, Android, Windows, macOS, Linux
-
-### Is there a limit on sessions?
-
-No limits! Create as many terminal sessions as you need. Run multiple features simultaneously.
-
-## Security
-
-### Is 9Remote secure?
-
-Yes. All connections are encrypted through Cloudflare tunnel. Your data travels through secure HTTPS connections.
-
-### Who can access my computer?
-
-Only people with your access key can connect. Keep your key private, and regenerate it if you think it's been compromised.
-
-### Can I use it on public WiFi?
-
-Yes, it's safe. All traffic is encrypted. However, for sensitive work, we recommend using a VPN as an extra layer of security.
-
-### What about one-time keys?
-
-One-time keys expire after 30 minutes or one use (whichever comes first). Perfect for temporary access or sharing with others.
-
-## Technical
-
-### What is Cloudflare tunnel?
-
-Cloudflare tunnel creates a secure connection between your computer and the internet without exposing your IP address or opening ports. It's like a VPN, but automatic and built-in.
-
-### Why do I need Node.js?
-
-The 9Remote CLI is built with Node.js. It's required to run the server on your computer.
-
-### Can I use a custom domain?
-
-Not currently, but it's on our roadmap. For now, all connections go through `9remote.cc`.
-
-### Does it support IPv6?
-
-Yes, Cloudflare tunnel supports both IPv4 and IPv6.
-
-### How much bandwidth does it use?
-
-- **Terminal:** Very little (< 1 MB/hour)
-- **Remote Desktop:** 5-50 MB/hour depending on quality
-- **File Explorer:** Minimal, only when loading files
-
-## Usage
-
-### How do I stop the server?
-
-Press `Ctrl+C` in the terminal where the server is running.
-
-### Can I run it in the background?
-
-Yes, but you'll need to use a process manager like `pm2` or run it in a `screen`/`tmux` session:
-
-```bash
-# Using screen
-screen -S 9remote
-9remote
-# Press Ctrl+A then D to detach
-
-# Reattach later
-screen -r 9remote
-```
-
-### What if I forget my key?
-
-You can't recover it, but you can regenerate a new one:
-
-```bash
-9remote
-# Select: Manage Key → Regenerate Key
-```
-
-### Can multiple people connect at once?
-
-Yes! Multiple devices can connect with the same key and use different features simultaneously.
-
-### Does it work offline?
-
-No, both your computer (server) and connecting device need internet access.
-
-## Features
-
-### Does Remote Desktop support audio?
-
-Not yet. Audio streaming is on our roadmap for future releases.
-
-### Can I transfer files?
-
-Currently, you can edit files through File Explorer. File upload/download feature is coming soon.
-
-### Does it support multiple monitors?
-
-Currently, only the primary monitor is streamed. Multi-monitor support is planned.
-
-### Can I use it for gaming?
-
-Not recommended. Remote Desktop is optimized for productivity, not high-FPS gaming.
-
-## Troubleshooting
-
-### Why does tunnel take so long to connect?
-
-Cloudflare tunnel needs 30-60 seconds to establish connection and propagate DNS. This is normal. Wait for "Connection established" message.
-
-### Server keeps crashing, what do I do?
-
-Check the error messages in terminal. Common causes:
-- Port 2208 already in use
-- Insufficient permissions
-- Network issues
-
-Try restarting your computer and running again.
-
-### Mobile keyboard not working?
-
-Make sure you're in landscape mode and tap the keyboard icon to show the on-screen keyboard.
-
-## Pricing & Limits
-
-### Will it always be free?
-
-The core features will always be free. We may add premium features in the future, but basic remote access will remain free forever.
-
-### Are there any usage limits?
-
-No hard limits, but please be reasonable. Don't abuse the service or use it for illegal activities.
-
-## Getting Help
-
-### Where can I report bugs?
-
-GitHub Issues: https://github.com/yourusername/9remote/issues
-
-### How can I request features?
-
-Open a feature request on GitHub Issues with the "enhancement" label.
-
-### Is there a community?
-
-Check our GitHub repository for discussions and community support.
+- Any modern web browser (Safari, Chrome, Firefox, Edge)
+- Mobile devices (iOS & Android)
+- Native desktop wrapper (macOS & Windows)
 
 ---
 
-**Didn't find your answer?**
+## Architecture & Features
 
-Check our [Troubleshooting Guide](troubleshooting) or open an issue on GitHub.
+### What makes 9Remote different from standard SSH or VNC?
+1. **Persistent Daemon (`ptyDaemon`):** Shell sessions stay alive even if the agent restarts or your device disconnects.
+2. **AI Coding Agent Integration:** First-class chat UI, transcript visualization, and turn rewinds for tools like Claude Code, OpenCode, and Codex.
+3. **Site Browser:** Preview your local web servers (`localhost:3000`) directly on your phone via a Service Worker proxy without opening ports.
+4. **Resilient File Transfers:** Chunked streaming file upload and download with resume capabilities.
+5. **Ultra-Low Latency:** WebRTC data channel streaming with intelligent dirty-tile diffing for Remote Desktop.
 
-[← Back: Troubleshooting](troubleshooting)
+### Can I run 9Remote on a headless server without a display?
+Yes. Use the headless command:
+```bash
+9remote start
+```
+Terminal, File Explorer, Site Browser, and AI agents work 100% on headless servers. Only Remote Desktop requires an active graphical display session on the host.
+
+### What is the Device Approval security layer?
+Even with your access key, any new device attempting to connect enters a **Pending Approval** state until approved from the host machine:
+```bash
+9remote devices
+9remote approve <socketId>
+```
+If you prefer automatic approval for any device presenting the valid key:
+```bash
+9remote auto-approve on
+```
+
+### How do One-Time Keys (OTK) work?
+Run `9remote otk` to generate a secure, temporary connect URL and key that automatically expires after **30 minutes** (or after its first use). This is ideal for quick sessions on public computers or sharing access safely.
+
+---
+
+## Performance & Connectivity
+
+### What protocols does 9Remote use?
+9Remote uses a hybrid transport layer:
+- **WebRTC Data Channels:** Direct peer-to-peer connection for ultra-low latency screen and terminal streaming.
+- **WebSocket over Cloudflare Tunnel:** Encrypted tunnel fallback ensuring reliable connectivity across restrictive corporate firewalls and mobile networks.
+
+### Can I access `localhost:3000` running on my computer from my phone?
+Yes! Use the **Site Browser** tab inside the 9Remote web app. The built-in Service Worker bridge securely tunnels HTTP and asset traffic over your existing connection, allowing you to test mobile responsive web apps without opening public ports.
+
+---
+
+## Help & Troubleshooting
+
+### How do I stop the server?
+Press `Ctrl+C` in the terminal where `9remote` or `9remote start` is running.
+
+### Where can I find more help?
+- Check our [Troubleshooting Guide](troubleshooting)
+- Review the [Getting Started Guide](getting-started)

@@ -2,15 +2,23 @@ import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import rehypeHighlight from "rehype-highlight";
 import rehypeSlug from "rehype-slug";
-import { BookOpen, Terminal, Monitor, FolderOpen, HelpCircle, MessageCircle, Mouse, Folder, Lock, Zap, Smartphone, Lightbulb, AlertTriangle, CheckCircle, ArrowRight } from "lucide-react";
+import { BookOpen, Terminal, Monitor, FolderOpen, HelpCircle, MessageCircle, Mouse, Folder, Lock, Zap, Smartphone, Lightbulb, AlertTriangle, CheckCircle, ArrowRight, Bot, Globe, AppWindow, Layers, Shield, Server, Workflow } from "lucide-react";
 
 const PAGE_ICONS = {
   "Welcome to 9Remote": BookOpen,
   "Getting Started": BookOpen,
-  "Using GitHub Codespaces": Monitor,
   "Terminal": Terminal,
+  "AI & Coding Agents": Bot,
+  "Site Browser": Globe,
   "Remote Desktop": Monitor,
   "File Explorer": FolderOpen,
+  "Desktop App": AppWindow,
+  "Mobile App": Smartphone,
+  "Architecture & Transport": Layers,
+  "Security & Authentication": Shield,
+  "Background Services & Daemon": Server,
+  "Advanced AI Workflow": Workflow,
+  "Self-Hosting 9Remote": Server,
   "Troubleshooting": HelpCircle,
   "Frequently Asked Questions": MessageCircle,
 };
@@ -27,6 +35,13 @@ const ICON_MAP = {
   "alert-triangle": AlertTriangle,
   "check-circle": CheckCircle,
   "arrow-right": ArrowRight,
+  "bot": Bot,
+  "globe": Globe,
+  "app-window": AppWindow,
+  "layers": Layers,
+  "shield": Shield,
+  "server": Server,
+  "workflow": Workflow,
 };
 
 export function parseMarkdown(content) {

@@ -1,169 +1,69 @@
 # Terminal
 
-Access your terminal from anywhere with full command-line capabilities.
+Full-featured remote terminal access with persistent daemon sessions, Git worktree support, and AI coding agent integration.
 
 ## What It Does
 
-9Remote Terminal gives you complete terminal access through your browser. It's like sitting in front of your computer, but you can be anywhere in the world.
+9Remote Terminal delivers complete command-line access through any browser or mobile device. Unlike standard SSH or web terminals, sessions run on a persistent daemon on your computer so your processes stay alive even across network drops or agent restarts.
 
 ## Core Features
 
-### Multiple Sessions
+### Persistent PTY Daemon
+- **Session Persistence:** Terminal processes run via an independent background daemon (`ptyDaemon`).
+- **Survive Disconnects:** Long-running builds, tests, or Docker processes continue executing even if your browser disconnects, your phone locks, or the agent restarts.
+- **Instant Reattachment:** Reconnecting returns you immediately to your active session and command history.
 
-Run multiple terminal sessions simultaneously:
-- Click "New Session" to create a new tab
-- Switch between sessions instantly
-- Each session is independent
-- Sessions persist until you close them
+### Multiple Sessions & Workspace Tabs
+- Open and manage multiple terminal tabs simultaneously.
+- Rename sessions for clear identification (e.g., `dev-server`, `db-migrate`, `tests`).
+- Switch tabs with a tap or keyboard shortcut.
+- Sessions run independently in the background.
 
-### Copy & Paste
+### Location Picker & Git Worktree Management
+- **Directory Switching:** Quickly navigate to recent folders or repositories using the built-in location picker.
+- **Git Worktree Support:**
+  - Create new Git worktrees directly when launching or configuring a terminal session.
+  - Active branch badges indicate the current branch of the session.
+  - Delete or clean up worktrees with safe branch verification directly from the UI header.
 
-Full clipboard support:
-- **Copy**: Select text → Right-click → Copy (or Ctrl+C)
-- **Paste**: Right-click → Paste (or Ctrl+V)
-- Works seamlessly between your device and remote terminal
+### AI Coding Agent Integration
+- Launch coding assistants (Claude Code, OpenCode, Codex) directly in terminal sessions.
+- **AI Chat Pane:** Slide open a dedicated AI chat pane alongside the terminal to follow the assistant's actions, tool executions, and step progress.
+- **Artifacts:** Inspect generated HTML pages, SVGs, or markdown artifacts side-by-side with your terminal.
 
-### Theme Options
+### Mobile Virtual Keyboard & Gestures
+- Floating and docked on-screen keyboard optimized for mobile devices:
+  - Dedicated modifier keys: **Ctrl**, **Alt**, **Shift**, **Esc**.
+  - Navigation keys: **Tab**, **Arrow Keys**, **Home**, **End**, **PageUp/PageDown**.
+  - Function keys (**F1-F12**).
+  - Modifier locking (sticky keys) for one-handed shortcut execution (e.g., Ctrl+C, Ctrl+R).
+- Smooth touch scrolling with momentum and pinch-to-zoom.
 
-Choose from 6 beautiful themes:
-- Default (dark)
-- Light
-- Dracula
-- Monokai
-- Solarized Dark
-- Solarized Light
+### Push Notifications
+- Receive push notifications on your phone or browser when:
+  - A long-running command finishes.
+  - An interactive command or AI agent requests user input.
+  - A process exits with an error status.
 
-Change theme from the menu (☰) → Settings → Theme
+### Theme & Customization
+- Choose from curated themes: Default Dark, Light, Dracula, Monokai, Solarized Dark, and Solarized Light.
+- Customizable font size and line height.
 
-### Mobile Keyboard
-
-Special on-screen keyboard for mobile devices:
-- Ctrl, Alt, Shift, Esc keys
-- Arrow keys
-- Tab key
-- Function keys (F1-F12)
-- Tap to expand/collapse
-
-## How to Use
-
-### Create a Session
-
-1. Click "New Session" button
-2. Terminal opens immediately
-3. Start typing commands
-
-### Rename Session
-
-1. Click session tab
-2. Click "Rename" from menu
-3. Enter new name
-4. Easier to identify multiple sessions
-
-### Switch Sessions
-
-- Click any tab to switch
-- Swipe left/right on mobile
-- All sessions run in background
-
-### Close Session
-
-1. Click session tab
-2. Click "Close" from menu
-3. Or type `exit` in terminal
-
-## Mobile Tips
-
-**Use Landscape Mode**
-- Better keyboard layout
-- More screen space
-- Easier typing
-
-**On-Screen Keyboard**
-- Tap keyboard icon to show/hide
-- Use Ctrl/Alt combinations
-- Swipe to scroll terminal
-
-**Touch Scroll**
-- Swipe up/down to scroll
-- Smooth inertia scrolling
-- Pinch to zoom (if needed)
-
-## Common Commands
-
-```bash
-# Navigate directories
-cd /path/to/directory
-ls -la
-
-# Edit files
-nano file.txt
-vim file.txt
-
-# System info
-top
-htop
-df -h
-
-# Network
-ping google.com
-curl https://example.com
-
-# Process management
-ps aux
-kill <pid>
-```
-
-## Tips & Tricks
-
-**Use tmux or screen**
-- Sessions persist even if disconnected
-- Multiple panes in one session
-- Detach and reattach anytime
-
-```bash
-# Install tmux
-sudo apt install tmux  # Ubuntu/Debian
-brew install tmux      # macOS
-
-# Start tmux
-tmux
-
-# Detach: Ctrl+B then D
-# Reattach: tmux attach
-```
-
-**Customize Your Prompt**
-Make your prompt more informative:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-export PS1="\u@\h:\w$ "
-```
-
-**Use Aliases**
-Save time with shortcuts:
-
-```bash
-# Add to ~/.bashrc or ~/.zshrc
-alias ll='ls -la'
-alias gs='git status'
-alias gp='git pull'
-```
+---
 
 ## Keyboard Shortcuts
 
-- **Ctrl+C** - Interrupt current command
-- **Ctrl+D** - Exit shell (close session)
+- **Ctrl+C** - Interrupt current process
+- **Ctrl+D** - EOF / close shell session
 - **Ctrl+L** - Clear screen
-- **Ctrl+R** - Search command history
-- **Tab** - Auto-complete
-- **↑/↓** - Navigate command history
+- **Ctrl+R** - Reverse search command history
+- **Tab** - Command / path autocomplete
+- **↑ / ↓** - Cycle through command history
 
-## Need Help?
+---
 
-- Terminal not responding? Refresh browser
-- Lost connection? Check if server is still running
-- Can't type? Click terminal area to focus
-- Mobile keyboard not showing? Tap keyboard icon
+## Next Steps
 
-[← Back to Getting Started](getting-started) | [Next: Remote Desktop →](remote-desktop)
+- Explore [AI & Coding Agents](ai)
+- Try [Site Browser](site-browser) to test web apps
+- Learn about [File Explorer & Transfer](file-explorer)

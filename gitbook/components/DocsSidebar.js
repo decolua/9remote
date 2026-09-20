@@ -4,20 +4,32 @@ import { useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { DOCS_CONFIG } from "@/constants/docsConfig";
-import { ChevronDown, ChevronRight, BookOpen, Terminal, Monitor, FolderOpen, HelpCircle, MessageCircle } from "lucide-react";
+import { ChevronDown, ChevronRight, BookOpen, Terminal, Monitor, FolderOpen, HelpCircle, MessageCircle, Smartphone, AppWindow, Layers, Shield, Compass, Server, Workflow, Bot, Globe, ShieldCheck } from "lucide-react";
 
 const SECTION_ICONS = {
   "Getting Started": BookOpen,
   "Features": Terminal,
-  "Help": HelpCircle
+  "Native Apps": Smartphone,
+  "Architecture": Layers,
+  "Guides": Compass,
+  "Help": HelpCircle,
+  "Legal": ShieldCheck
 };
 
 const ITEM_ICONS = {
   "Introduction": BookOpen,
-  "Using Codespaces": Monitor,
   "Terminal": Terminal,
+  "AI & Agents": Bot,
+  "Site Browser": Globe,
   "Remote Desktop": Monitor,
   "File Explorer": FolderOpen,
+  "Desktop App": AppWindow,
+  "Mobile App": Smartphone,
+  "Architecture & Transport": Layers,
+  "Security & Auth": Shield,
+  "Background Services & Daemon": Server,
+  "Advanced AI Workflow": Workflow,
+  "Self-Hosting": Server,
   "Troubleshooting": HelpCircle,
   "FAQ": MessageCircle
 };

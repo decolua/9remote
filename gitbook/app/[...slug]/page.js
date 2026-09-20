@@ -7,12 +7,12 @@ import contentData from "@/generated/content.json";
 export default async function DocPage({ params }) {
   const resolvedParams = await params;
   const slug = resolvedParams.slug.join("/");
-  
+
   const content = contentData[slug];
   if (!content) {
     notFound();
   }
-  
+
   const headings = extractHeadings(content);
 
   return (

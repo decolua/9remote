@@ -1,200 +1,76 @@
 # File Explorer
 
-Browse folders, edit code, and manage Git repositories from anywhere.
+Browse directories, edit code, transfer files, and manage Git repositories and worktrees from anywhere.
 
 ## What It Does
 
-9Remote File Explorer lets you navigate your file system, edit code with syntax highlighting, and perform Git operations - all from your browser.
+9Remote File Explorer provides a full cloud-IDE file management experience in your browser or phone. Navigate your computer's filesystem, edit source code with syntax highlighting, upload and download files, and perform Git operations without touching SSH or FTP.
 
 ## Core Features
 
 ### File Tree Navigation
+- Browse any authorized directory on your computer with fast file indexing.
+- Expand and collapse folder trees with infinite scroll support.
+- Quick navigation with interactive breadcrumbs.
+- Workspace switcher: Jump between active project directories and recent folders.
 
-- Browse any directory on your computer
-- Expand/collapse folders
-- Quick navigation with breadcrumbs
-- Recent workspaces for quick access
+### File Upload & Download
+- **Upload Files:** Upload files or archives from your phone or client browser directly to any folder on your computer.
+- **Download Files:** Download individual files or directories (zipped automatically) back to your device.
+- **Resilient Transfers:** Chunked streaming transfer manager (`TransferManager`) with acknowledgment tracking ensures large file transfers succeed even on unstable cellular connections.
 
-### Code Editor
+### Built-in Code Editor
+- Lightweight, fast code editor designed for desktop and mobile:
+  - Syntax highlighting for 20+ programming languages (JavaScript, TypeScript, Python, Rust, Go, HTML, CSS, JSON, Markdown, YAML, etc.).
+  - Line numbers, indentation guides, and matching bracket highlights.
+  - Search and replace with regex support.
+  - Multi-tab editing: keep multiple files open simultaneously.
 
-Built-in editor with:
-- Syntax highlighting for 20+ languages
-- Line numbers
-- Auto-indentation
-- Find & replace
-- Keyboard shortcuts
+### Git & Worktree Integration
+- **Status & Diffs:** Real-time visibility into modified, added, staged, and untracked files with color-coded badges and side-by-side diffs.
+- **Commits & Push:** Stage files, write commit messages, and push to remote repositories directly from the UI.
+- **Git Worktree Management:**
+  - Create isolated Git worktrees for parallel branch work without stashing or switching branches.
+  - Delete or clean up worktrees safely with root header controls and branch safety checks.
 
-**Supported Languages:**
-JavaScript, Python, HTML, CSS, JSON, Markdown, Go, Rust, Java, PHP, Ruby, Shell, YAML, XML, and more.
+### File Previews & Artifacts
+- Built-in previewers for Markdown documents, images, SVG graphics, and interactive web artifacts.
 
-### File Operations
-
-Create, manage, and organize files:
-- **Create** - New files and folders
-- **Rename** - Change file/folder names
-- **Delete** - Remove files and folders
-- **Copy** - Duplicate files
-- **Move** - Drag and drop (coming soon)
-
-### Git Integration
-
-Full Git support:
-- View file status (modified, added, deleted)
-- See diff for changed files
-- Commit changes with message
-- Push to remote repository
-- Branch information
-
-### Search
-
-Find files quickly:
-- Search by filename
-- Filter by file type
-- Navigate results instantly
+---
 
 ## How to Use
 
-### Browse Workspace
+### Uploading & Downloading
+1. Navigate to the desired folder in the file tree.
+2. Tap the **Upload** button to select files from your phone or drag and drop files from your desktop.
+3. To download, right-click (or long-press) any file and choose **Download**.
 
-1. Click "File Explorer" from main menu
-2. Select a workspace or browse to a folder
-3. Click folders to expand
-4. Click files to open
+### Working with Git
+1. Open a folder that is a Git repository.
+2. Tap the **Git** tab to view changed files.
+3. Click any changed file to view the line-by-line diff.
+4. Stage changes, type a commit message, and tap **Commit & Push**.
 
-### Edit Files
-
-1. Click any file to open in editor
-2. Make your changes
-3. Click "Save" button (or Ctrl+S)
-4. File is saved automatically
-
-### Create Files & Folders
-
-**New File:**
-1. Click "+" button
-2. Select "New File"
-3. Enter filename
-4. File opens in editor
-
-**New Folder:**
-1. Click "+" button
-2. Select "New Folder"
-3. Enter folder name
-4. Folder appears in tree
-
-### Git Operations
-
-**View Changes:**
-1. Click "Git" button
-2. See all modified files
-3. Click file to view diff
-
-**Commit Changes:**
-1. Open Git panel
-2. Review changes
-3. Enter commit message
-4. Click "Commit"
-
-**Push to Remote:**
-1. After committing
-2. Click "Push" button
-3. Changes pushed to remote
-
-### Search Files
-
-1. Click search icon
-2. Type filename
-3. Results appear instantly
-4. Click result to open file
+---
 
 ## Editor Shortcuts
 
 - **Ctrl+S** - Save file
-- **Ctrl+F** - Find
+- **Ctrl+F** - Find in file
 - **Ctrl+H** - Find and replace
-- **Ctrl+Z** - Undo
-- **Ctrl+Y** - Redo
-- **Tab** - Indent
-- **Shift+Tab** - Outdent
+- **Ctrl+Z / Ctrl+Y** - Undo / Redo
+- **Tab / Shift+Tab** - Indent / Outdent
 
-## Tips & Tricks
+---
 
-**Recent Workspaces**
-- Your last 5 workspaces are saved
-- Quick access from workspace list
-- No need to browse every time
+## Security: Path Jail (`pathGuard`)
 
-**Git Status Colors**
-- [icon:check-circle] Green - New files
-- [icon:alert-triangle] Yellow - Modified files
-- [icon:alert-triangle] Red - Deleted files
+9Remote enforces strict path-jail boundaries on the host machine. Directory traversal attacks (`../`) and unauthorized system paths are automatically rejected by the agent's security guard, ensuring client sessions can only access explicitly configured workspaces.
 
-**Large Projects**
-- Use search instead of browsing
-- Open specific folders
-- Close unused files
+---
 
-**Mobile Editing**
-- Use landscape mode
-- Zoom in for better visibility
-- External keyboard recommended
+## Next Steps
 
-## Common Use Cases
-
-**Quick Edits**
-- Fix typos in config files
-- Update documentation
-- Modify scripts
-
-**Code Review**
-- View file changes
-- Check diffs
-- Review before commit
-
-**Configuration**
-- Edit .env files
-- Update configs
-- Modify settings
-
-**Git Workflow**
-- Make changes
-- Review diffs
-- Commit with message
-- Push to remote
-
-## Limitations
-
-**Not Supported:**
-- Binary files (images, videos)
-- Very large files (> 10MB)
-- File upload/download (coming soon)
-- Multiple file selection
-
-**Performance:**
-- Large folders may be slow
-- Use search for big projects
-- Close unused files
-
-## Troubleshooting
-
-**Can't see files**
-- Check folder permissions
-- Try different workspace
-- Refresh browser
-
-**Can't save file**
-- Check file permissions
-- File may be read-only
-- Try saving as new file
-
-**Git not working**
-- Check if folder is Git repo
-- Run `git init` if needed
-- Check Git credentials
-
-**Search not finding files**
-- Check spelling
-- Try partial filename
-- Browse manually
-
-[← Back: Remote Desktop](remote-desktop) | [Next: Troubleshooting →](../troubleshooting)
+- Check out [Terminal & Sessions](terminal)
+- Inspect generated code with [AI & Coding Agents](ai)
+- Review [Troubleshooting](troubleshooting)

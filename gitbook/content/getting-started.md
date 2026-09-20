@@ -4,7 +4,7 @@ Get up and running with 9Remote in just 2 minutes.
 
 ## Installation
 
-Install the CLI tool globally using npm:
+Install the 9Remote CLI globally using npm:
 
 ```bash
 npm install -g 9remote
@@ -21,72 +21,107 @@ npm install -g 9remote
 
 ## Start Server
 
-Start the 9Remote server on your computer:
+You can start 9Remote in interactive mode or headless mode:
 
+### 1. Interactive Mode (Default)
+Run:
 ```bash
 9remote
 ```
+Launches an interactive terminal menu (TUI) where you can start the server, regenerate keys, manage connected devices, and view status.
 
-The server will:
-1. Start local server on port 2208
-2. Create a secure Cloudflare tunnel
-3. Generate a QR code for easy connection
+### 2. Headless Mode (Recommended for Servers & SSH)
+Run:
+```bash
+9remote start
+```
+Starts the server and secure Cloudflare tunnel directly in the foreground without the interactive menu. Perfect for background services, systemd, or remote SSH sessions.
 
-Wait about 30-60 seconds for the tunnel to be ready.
-
-## Connect
-
-You have two ways to connect:
-
-### Option 1: QR Code (Recommended)
-
-1. Open your phone camera or QR scanner
-2. Scan the QR code displayed in terminal
-3. Browser opens automatically → You're connected!
-
-### Option 2: Manual Key Entry
-
-1. Visit: `https://9remote.cc/login`
-2. Enter the access key shown in terminal
-3. Click "Connect"
-
-## Using Codespaces (Alternative)
-
-Want to try 9Remote without installing? Use GitHub Codespaces - it runs in your browser!
-
-[icon:arrow-right] **[Try in Browser (Codespaces)](getting-started/codespaces)**
-
-Quick overview:
-1. Open 9Remote on GitHub
-2. Click "Code" → "Create Codespace"
-3. Wait 1-2 minutes for setup
-4. QR code appears → Scan with phone
-5. Start using 9Remote instantly!
-
-No installation, no setup, just try it!
+### 3. Web UI Mode
+Run:
+```bash
+9remote ui
+```
+Starts the server with a local web dashboard available at `http://localhost:2208`.
 
 ---
 
-## Choose Your Feature
+## Connect to Your Computer
 
-Once connected, you'll see three options:
+When 9Remote starts, it sets up a secure Cloudflare tunnel and generates:
+1. **A QR Code** displayed in your terminal
+2. **A Permanent Access Key**
+3. **A Web App URL**: `https://9remote.cc/login`
 
-- **Terminal** - Access command line
-- **Remote Desktop** - Control your screen
-- **File Explorer** - Browse and edit files
+### Option 1: Scan QR Code (Fastest)
+1. Open your phone camera or QR scanner.
+2. Scan the QR code displayed in the terminal.
+3. The 9Remote web app opens with your access key prefilled.
 
-Click any feature to start using it.
+### Option 2: Manual Key Entry
+1. Visit `https://9remote.cc/login`.
+2. Enter the permanent key shown in your terminal.
+3. Tap **Connect**.
+
+### Device Approval Flow
+For security, 9Remote uses a two-step authentication mechanism:
+- When a new device connects for the first time, it enters a **Pending Approval** state.
+- **In TUI/UI mode:** You will see a notification on the host computer to approve the device.
+- **In Headless mode:** View pending devices and approve them using:
+  ```bash
+  9remote devices
+  9remote approve <socketId>
+  ```
+- **Auto-Approve:** To automatically allow connections using your key:
+  ```bash
+  9remote auto-approve on
+  ```
+
+### Temporary Access: One-Time Keys (OTK)
+If you need to connect from a temporary browser or share access briefly:
+```bash
+9remote otk
+```
+Generates a one-time connection URL and key valid for **30 minutes** (or one connection).
+
+---
+
+## CLI Management Commands
+
+You can control a running 9Remote instance directly from your terminal using headless commands:
+
+```bash
+9remote start                  # Run server + tunnel in foreground
+9remote key                    # Display current permanent key and URL
+9remote key --new              # Regenerate the permanent key
+9remote otk                    # Generate a 30-minute one-time key
+9remote devices                # List approved devices
+9remote auto-approve <on|off>  # Toggle automatic device approval
+9remote approve <socketId>     # Approve a pending device connection
+9remote help                   # View all available CLI commands
+```
+
+---
+
+## Workspace Features
+
+Once connected, your 9Remote Workspace provides:
+
+- **[icon:terminal] Terminal** - PTY daemon backed, multi-session tabs, Git worktree support, push alerts
+- **[icon:bot] AI & Coding Agents** - Native chat and control for Claude Code, OpenCode, and Codex
+- **[icon:globe] Site Browser** - Access localhost dev servers (`localhost:3000`, etc.) directly on your phone
+- **[icon:mouse] Remote Desktop** - Real-time low-latency desktop control via WebRTC
+- **[icon:folder] File Explorer & Git** - File editor, file upload/download, branch diffs, and worktree manager
 
 ## Stop Server
 
-To stop the server, press `Ctrl+C` in the terminal where it's running.
+To stop the running 9Remote server:
+- Press `Ctrl+C` in the terminal running `9remote` or `9remote start`.
 
 ## Next Steps
 
-- Learn about [Terminal](features/terminal) features
-- Try [Remote Desktop](features/remote-desktop) control
-- Explore [File Explorer](features/file-explorer) capabilities
-
-## Troubleshooting
-
-Having issues? Check our [Troubleshooting Guide](troubleshooting) for common solutions.
+- Explore [Terminal & Sessions](features/terminal)
+- Use [AI & Coding Agents](features/ai)
+- Browse your local sites via [Site Browser](features/site-browser)
+- Try [Remote Desktop](features/remote-desktop)
+- Learn about [File Explorer & Transfer](features/file-explorer)
