@@ -1,16 +1,22 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/screen.png" alt="9Remote Workspace" width="900"/>
+  <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/desktop-ide.webp" alt="9Remote desktop workspace: terminal, editor and AI agent panes side by side" width="900"/>
 
-  # 9Remote — Code From Anywhere on Earth
+  <p align="center">
+    <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/mobile-1.webp" width="32%" alt="Claude Code on Phone"/>
+    <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/mobile-2.webp" width="32%" alt="File Explorer on Phone"/>
+    <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/mobile-3.webp" width="32%" alt="System Dashboard on Phone"/>
+  </p>
 
-  **Your entire dev machine, in your pocket.**<br/>
-  **Remote IDE, Remote Desktop, File Explorer, Mobile Emulator, and Localhost Preview — buttery-smooth on mobile with WebRTC ultra-low latency.**
+  # 9Remote — Remote Everything, Vibecode Everywhere
+
+  **Your entire dev workstation in your pocket.**<br/>
+  **Remote IDE, 60fps Desktop, Visual File Explorer, Live Mobile Emulator, Zero-Config Localhost, and Remote Vibe Coding with 30+ AI agents on PC, Web, iPad, or phone.**
 
   [![npm version](https://img.shields.io/npm/v/9remote.svg)](https://www.npmjs.com/package/9remote)
   [![Downloads](https://img.shields.io/npm/dm/9remote.svg)](https://www.npmjs.com/package/9remote)
-  [![License](https://img.shields.io/badge/license-MIT-blue.svg)](#-license)
+  [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](#-license)
 
-  [🚀 Quick Start](#-quick-start) • [✨ Superpowers](#-5-remote-superpowers--mobile-first) • [📊 Comparison](#-how-9remote-compares) • [🌐 Website](https://9remote.cc) • [📖 Docs](https://docs.9remote.cc)
+  [🚀 Quick Start](#-quick-start) • [📱 Platforms](#-supported-platforms) • [✨ 8 Superpowers](#-8-remote-superpowers) • [🛡️ Security](#-zero-trust-security-architecture) • [📊 Comparison](#-how-9remote-compares) • [🌐 Website](https://9remote.cc) • [📖 Docs](https://docs.9remote.cc)
 </div>
 
 ---
@@ -24,7 +30,7 @@ npm install -g 9remote
 9remote
 ```
 
-🎉 **Scan the QR code with your phone camera (or open the link in any browser) → click "Approve" on your host → you're in!**
+🎉 **Scan the QR code with your phone camera (or open the link on any browser) → click "Approve" on your host → you're in!**
 
 > **Works on macOS, Linux, and Windows.** Requires Node.js 18+.  
 > Zero configuration. No port forwarding. No account or signup required.
@@ -38,46 +44,85 @@ npm install -g 9remote
 
 ---
 
-## ✨ 5 Remote Superpowers + Mobile-First
+## 📱 Supported Platforms
 
-### 💻 1. Remote IDE & AI Agent Workspace
-- Multi-pane terminal rows with smooth drag-to-resize splitters.
-- Integrated code editor with syntax highlighting and file tree.
-- Visual Git status, diff viewer, and multi-worktree switcher.
-- Auto-opening artifact inspector for **Claude Code**, Codex, and CLI AI agents (HTML, Markdown, Mermaid).
+| Platform | Host (Your Machine) | Client (Anywhere) | Download / Access |
+|---|:---:|:---:|---|
+| **macOS** | ✅ | ✅ | `npm i -g 9remote` or [Download .dmg](https://github.com/decolua/9remote/releases/latest/download/9Remote-macos-universal.dmg) |
+| **Windows** | ✅ | ✅ | `npm i -g 9remote` or [Download .exe](https://github.com/decolua/9remote/releases/latest/download/9Remote-windows-x64-setup.exe) |
+| **Linux** | ✅ | ✅ | `npm i -g 9remote` |
+| **Web Browser** | — | ✅ | [`https://9remote.cc/login`](https://9remote.cc/login) *(Zero install, any browser)* |
+| **iOS / iPadOS** | — | ✅ | Web / PWA (Add to Home Screen) *(Supports iPad keyboard & trackpad)* |
+| **Android** | — | ✅ | Web / PWA (Add to Home Screen) *(Fullscreen dev mode)* |
 
-### 📱 2. Code on Mobile, Web & Any Screen (Mobile Full Feature)
+---
+
+## ✨ 8 Remote Superpowers
+
+### 🤖 1. Remote Vibe Coding (AI-Ready)
+- Run **Claude Code**, Cursor CLI, Aider, Codex & 30+ AI agents on the go.
+- Built-in artifact inspector with live rendering for HTML, Markdown, and Mermaid diagrams.
+- Dedicated AI shortcut triggers and multi-turn workflow tracking.
+
+### 📱 2. Every Screen, Everywhere (Mobile Full Feature)
 - Dedicated developer keyboard row (`Esc`, `Tab`, `Ctrl`, `Alt`, navigation arrows).
-- Customizable AI shortcuts and fluid swipe navigation between sessions.
+- Customizable shortcuts and fluid swipe navigation between sessions.
 - Tactile haptic feedback on touch for responsive coding.
 - Fully adaptive UI: Multi-column IDE on desktop/tablet, touch-first card view on mobile.
 
-### 🖥️ 3. Instant Remote Desktop (WebRTC 60fps)
+### 🖥️ 3. 60fps Remote Desktop (WebRTC P2P)
 - Hardware-accelerated screen streaming with ultra-low latency (<20ms).
 - Mouse, touch, keyboard controls, and multi-monitor switching.
 - Vastly lighter on battery and bandwidth than VNC, AnyDesk, or TeamViewer.
 
-### 📁 4. Remote File Explorer
-- Visual directory tree with instant fuzzy file search.
-- Touch drag-and-drop file transfers (upload and download).
-- Secured by path-jail boundaries keeping your host system safe.
+### 💻 4. Full Remote IDE & Multi-pane Terminal
+- Multi-pane terminal rows with smooth drag-to-resize splitters.
+- Integrated code editor with syntax highlighting and file tree.
+- Visual Git status, diff viewer, and multi-worktree switcher.
 
 ### 📱 5. Live Remote Emulator
 - Interactive remote stream for Android Emulator and iOS Simulator.
 - Tap, swipe, and test mobile UI directly from your phone browser without sitting at your desk.
 
-### 🌐 6. Instant Localhost Preview
+### 🌐 6. Zero-Config Localhost Preview
 - Built-in Service Worker bridge streams `localhost:3000` or `localhost:8080` to your mobile browser.
-- Preview local web apps in real time with zero port forwarding and no ngrok tunnels.
+- Preview local web apps in real time with zero port forwarding, no ngrok tunnels, and zero public internet exposure.
 
-### 🔄 7. Persistent PTY Daemon
+### 📁 7. Visual File Explorer (Path-Jailed)
+- Visual directory tree with instant fuzzy file search (⌘⇧P).
+- Touch drag-and-drop file transfers (upload and download).
+- Secured by strict path-jail boundaries keeping your host system safe.
+
+### 🔄 8. Persistent PTY Daemon
 - Background daemon keeps your shells and builds alive on the host.
 - Switching networks (Wi-Fi to 4G), locking your phone, or closing tabs never kills your running tasks.
 
-### 🛡️ 8. 3-Layer Zero-Trust Security
-1. **Split-Key Pairing:** The key is split into HEAD and TAIL; routing relay only sees HEAD and never knows your secret TAIL.
+---
+
+## 🛡️ Zero-Trust Security Architecture
+
+9Remote uses 3 layers of zero-trust defense:
+1. **Split-Key Pairing:** The key is split into HEAD and TAIL. The relay server only brokers the handshake with HEAD and never knows your secret TAIL.
 2. **Direct WebRTC P2P:** Data flows directly device-to-device with X25519 + AES-256-GCM encryption.
 3. **Physical Host Approval:** New devices cannot connect until you physically click "Approve" on your computer screen.
+
+```mermaid
+sequenceDiagram
+    autonumber
+    participant Client as Mobile / Web Client
+    participant Server as 9Remote Signaling Relay
+    participant Host as Host Machine (Agent)
+
+    Host->>Server: 1. Register HEAD (TAIL stays private on Host)
+    Client->>Server: 2. Request Host lookup with HEAD
+    Server-->>Client: 3. Return Host Public Key (Relay steps aside)
+    Note over Client,Host: Direct P2P Connection (WebRTC DataChannel)
+    Client->>Host: 4. Send encrypted TAIL (X25519 + AES-GCM)
+    Note over Host: Host verifies TAIL secret
+    Host-->>Host: 5. Physical Security Prompt: "Approve Device?"
+    Note over Host: You click Approve on host screen
+    Host-->>Client: 6. Secure P2P Session Established (<20ms latency)
+```
 
 ---
 
@@ -87,25 +132,26 @@ npm install -g 9remote
 |---------|:-----------:|:-------------:|:----------:|:-------------:|:-------:|
 | **Zero Config** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Remote IDE** | ✅ | ❌ | ❌ | ❌ | ❌ |
+| **30+ AI Agents & Vibe Coding** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Terminal Access** | ✅ | ✅ | ❌ | ❌ | ✅ |
 | **Persistent Daemon** | ✅ | ✅ | ❌ | ❌ | ✅ |
 | **Remote Localhost Preview** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Touch File Explorer & Editor** | ✅ | ❌ | ✅ | ❌ | ✅ |
-| **Remote Desktop** | ✅ | ❌ | ✅ | ✅ | ❌ |
+| **Remote Desktop (60fps)** | ✅ | ❌ | ✅ | ✅ | ❌ |
 | **Remote Emulator** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **AI Agent Artifacts** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Physical Host Approval** | ✅ | ❌ | ✅ | ❌ | ❌ |
 | **Git Integration** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Mobile Optimized** | ✅ | ✅ | ❌ | ❌ | ✅ |
-| **Browser-Based** | ✅ | ✅ | ❌ | ✅ | ❌ |
+| **Mobile & iPad Optimized** | ✅ | ✅ | ❌ | ❌ | ✅ |
+| **Browser-Based (Zero Install)** | ✅ | ✅ | ❌ | ✅ | ❌ |
 | **QR Login** | ✅ | ✅ | ❌ | ❌ | ❌ |
 | **Auto Tunnel** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **No Port Forwarding** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **No Account Required** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **Free & Open Source** | ✅ | ❌ | ❌ | ✅ | ❌ |
-| **TOTAL** | **18 / 18** | 10 / 18 | 6 / 18 | 5 / 18 | 5 / 18 |
+| **Free & Self-Hostable** | ✅ | ❌ | ❌ | ✅ | ❌ |
+| **TOTAL** | **19 / 19** | 10 / 19 | 6 / 19 | 5 / 19 | 5 / 19 |
 
-> **🏆 9Remote: Complete 18/18 capabilities · 100% self-hosted & private.**
+> **🏆 9Remote: Complete 19/19 capabilities · 100% self-hosted & private.**
 
 ---
 
@@ -133,7 +179,7 @@ npm install -g 9remote
 <details>
 <summary><b>💰 Is it free?</b></summary>
 
-**Yes.** 9Remote is free, open source (MIT license), with no subscriptions and no signup required.
+**Yes.** 9Remote is free for personal, internal, and commercial use inside your organization.
 </details>
 
 <details>
@@ -152,4 +198,4 @@ Works with any CLI AI tool: **Claude Code**, Cursor CLI, Aider, Codex, OpenClaw,
 
 ## 📄 License
 
-MIT License. Free for personal and commercial use.
+Business Source License 1.1 — see [LICENSE](https://github.com/decolua/9remote/blob/main/LICENSE). Free for personal, internal, and commercial use.
