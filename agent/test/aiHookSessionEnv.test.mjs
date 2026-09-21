@@ -79,7 +79,7 @@ test("a chat session's name comes from its transcript, not its opening prompt", 
 test("every event the adapters emit is either mapped or deliberately silent", () => {
   // A chat's status comes from this table alone. An event the adapters emit but the
   // table does not name says nothing — which is fine for `delta`, and was NOT fine for
-  // `blocked`, which codex and opencode emit and nothing mapped.
+  // `blocked`, which codex and antigravity emit and nothing mapped.
   const emitted = new Set();
   for (const file of ["claudeAdapter.js", "codexAdapter.js", "opencodeAdapter.js", "antigravityAdapter.js"]) {
     for (const m of read(`features/ai/adapters/${file}`).matchAll(/onEvent\?\.\("(\w+)"/g)) emitted.add(m[1]);

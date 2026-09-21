@@ -74,6 +74,7 @@ export class AntigravityAdapter {
     this.proc = proc || new AgentProc({ procId: "" });
     this.activeConversationId = conversationId || null;
     this.isTurnRunning = false;
+    this._resultFailed = false;
     this.currentModel = model || "";
     this.effort = "";
     this.permissionMode = "accept-edits";
@@ -144,7 +145,10 @@ export class AntigravityAdapter {
     this.proc.onExit = ({ code, error }) => {
       this.isTurnRunning = false;
       if (error) this.onEvent?.("error", { message: error });
-      else this.onEvent?.("turn_complete", { stats: this.stats, exitCode: code });
+      else {
+        this.onEvent?.("turn_complete", { stats: this.stats, exitCode: code, isError: this._resultFailed || code !== 0, subtype: "" });
+        this._resultFailed = false;
+      }
     };
   }
 
@@ -173,6 +177,7 @@ export class AntigravityAdapter {
   }
 
   sendPrompt(prompt, attachments = null) {
+    this._resultFailed = false;
     if (this.isTurnRunning) {
       throw new Error("Antigravity turn is already running.");
     }
@@ -311,7 +316,14 @@ export class AntigravityAdapter {
     // result.usage is cumulative across turns, so usage is tracked per-step instead.
     this.stats.totalTurns += 1;
     this.onEvent?.("stats", { stats: this.stats });
-    if (result.status && result.status !== "SUCCESS") {
+    // A turn can end SUCCESS with denied tool calls inside — say which, once.
+    const denied = Array.isArray(result.denied_actions) ? result.denied_actions : [];
+    if (denied.length) {
+      const names = denied.map((d) => d?.display_name || d?.action || "").filter(Boolean).join(", ");
+      this.onEvent?.("cli_event", { type: "warning", record: { message: `Antigravity denied: ${names}` } });
+    }
+    this._resultFailed = Boolean(result.status && result.status !== "SUCCESS");
+    if (this._resultFailed) {
       this.onEvent?.("error", { message: result.error || `Antigravity turn ended with status ${result.status}.` });
     }
   }
