@@ -32,7 +32,9 @@ export const REWIND_SUPPORT = Object.freeze({
   // conversation). The file half stays false and is not a gap in this file: codex's own
   // protocol says the client is responsible for file changes, and it keeps no checkpoint.
   codex: { conversation: true, files: false, how: "codex thread/revert, conversation only" },
-  antigravity: { conversation: false, files: false, how: "no app-server API for /rewind" }
+  antigravity: { conversation: false, files: false, how: "no app-server API for /rewind" },
+  // omp's session tree branches in place (RPC `branch`); files have no snapshot.
+  omp: { conversation: true, files: false, how: "omp branch + session file, conversation only" }
 });
 
 export function rewindSupport(engine) {

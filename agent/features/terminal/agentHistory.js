@@ -251,6 +251,33 @@ function parseCwdChats(filePath) {
   return { sessionId: data.sessionId, title: cleanTitle(contentText(firstUser?.content)) };
 }
 
+
+/** omp (oh-my-pi): JSONL under ~/.omp/agent/sessions — session header carries id+cwd. */
+function parseOmp(filePath) {
+  let sessionId = null;
+  let cwd = null;
+  let title = "";
+  for (const line of readLines(filePath, HISTORY.HEAD_LINES)) {
+    const rec = parseJson(line);
+    if (!rec) continue;
+    if (rec.type === "session") {
+      sessionId = rec.id || null;
+      cwd = rec.cwd || null;
+      continue;
+    }
+    if (rec.type === "title" && rec.title) {
+      title = cleanTitle(String(rec.title));
+      continue;
+    }
+    if (title && sessionId) break;
+    if (rec.type === "message" && rec.message?.role === "user" && !title) {
+      const text = contentText(rec.message.content).trim();
+      if (text && !isInjectedTurn(text)) title = cleanTitle(text);
+    }
+  }
+  return sessionId ? { sessionId, title: title || "OMP session", cwd } : null;
+}
+
 const HISTORY_SOURCES = [
   { id: "claude", layout: "cwdDir", root: () => path.join(home(), ".claude", "projects"), encode: dashEncode, ext: ".jsonl", parse: parseClaude },
   { id: "codex", layout: "scan", root: () => path.join(process.env.CODEX_HOME?.trim() || path.join(home(), ".codex"), "sessions"), ext: ".jsonl", parse: parseCodex },
@@ -259,7 +286,8 @@ const HISTORY_SOURCES = [
   { id: "cursor", layout: "cwdDir", root: () => path.join(home(), ".cursor", "projects"), encode: dashEncode, sub: "agent-transcripts", depth: 1, ext: ".jsonl", parse: parseCursor },
   { id: "droid", layout: "cwdDir", root: () => path.join(home(), ".factory", "sessions"), encode: dashEncode, ext: ".jsonl", parse: parseDroid },
   { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok },
-  { id: "antigravity", layout: "antigravity", root: () => path.join(home(), ".gemini", "antigravity-cli") }
+  { id: "antigravity", layout: "antigravity", root: () => path.join(home(), ".gemini", "antigravity-cli") },
+  { id: "omp", layout: "scan", root: () => path.join(home(), ".omp", "agent", "sessions"), ext: ".jsonl", parse: parseOmp }
 ];
 
 const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode, antigravity: collectAntigravity };

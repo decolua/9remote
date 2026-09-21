@@ -6,7 +6,7 @@ import { createRequire } from "node:module";
 import { stripHarnessWrapping, isInjectedTurn } from "../terminal/agentHistory.js";
 import { recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
 import { codexItemEvents } from "./codexItems.js";
-import { opencodePartEvents } from "./opencodePart.js";
+import { opencodePartEvents, diffFor } from "./opencodePart.js";
 import { antigravityEditDiff } from "./adapters/antigravityAdapter.js";
 import { toolStart, toolResult } from "./toolEvent.js";
 
@@ -449,11 +449,92 @@ function tailFromLastUser(events) {
   return slice.map((e, i) => ({ ...e, seq: i + 1 }));
 }
 
+
+// omp (oh-my-pi) sessions are append-only JSONL under ~/.omp/agent/sessions:
+// a {type:"session", id, cwd} header, then {type:"message", message:{role,
+// content}} entries (measured on 18.2.6). The pane replays the same cards the
+// live adapter drew: text, thinking, tool calls/results and write diffs.
+export function recoverFromOmpTranscript(cwd, sessionId) {
+  if (!cwd || !sessionId) return null;
+  const root = path.join(os.homedir(), ".omp", "agent", "sessions");
+  if (!fs.existsSync(root)) return null;
+  const candidates = [];
+  const walk = (dir, depth) => {
+    if (depth > 4 || candidates.length > 200) return;
+    let names;
+    try { names = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const n of names) {
+      const full = path.join(dir, n.name);
+      if (n.isDirectory()) walk(full, depth + 1);
+      else if (n.name.endsWith(".jsonl")) candidates.push(full);
+    }
+  };
+  walk(root, 0);
+  let file = null;
+  for (const f of candidates) {
+    try {
+      for (const line of fs.readFileSync(f, "utf8").split("\n").slice(0, 5)) {
+        const rec = JSON.parse(line);
+        if (rec?.type === "session" && rec.id === sessionId) {
+          // Same rule as the opencode reader: no cross-project resume.
+          if (cwd && rec.cwd && path.resolve(rec.cwd) !== path.resolve(cwd)) return null;
+          file = f;
+          break;
+        }
+      }
+    } catch {}
+    if (file) break;
+  }
+  if (!file) return null;
+
+  const events = [];
+  const argsById = new Map();
+  const textOf = (content) => typeof content === "string"
+    ? content
+    : (Array.isArray(content) ? content.filter((c) => c?.type === "text").map((c) => c.text).join("") : "");
+  for (const line of fs.readFileSync(file, "utf8").split("\n")) {
+    let rec;
+    try { rec = JSON.parse(line); } catch { continue; }
+    if (rec?.type !== "message") continue;
+    const msg = rec.message || {};
+    if (msg.role === "user") {
+      const text = textOf(msg.content);
+      if (text.trim()) events.push({ event: "user_message", data: { text } });
+    } else if (msg.role === "assistant") {
+      const parts = Array.isArray(msg.content) ? msg.content : [];
+      for (const part of parts) {
+        if (part?.type === "text" && part.text) {
+          events.push({ event: "delta", data: { text: part.text } });
+          events.push({ event: "turn_complete", data: { stats: { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTurns: 1 }, result: "", isError: false, subtype: "" } });
+        } else if (part?.type === "thinking" && part.thinking) {
+          events.push({ event: "thinking", data: { text: part.thinking } });
+        } else if (part?.type === "toolCall" && part.id) {
+          argsById.set(part.id, part);
+          events.push({ event: "tool_start", data: { id: part.id, name: part.name || "tool", input: part.arguments || {}, status: "running" } });
+        }
+      }
+    } else if (msg.role === "toolResult") {
+      const args = argsById.get(msg.toolCallId);
+      const failed = Boolean(msg.isError);
+      const output = textOf(msg.content);
+      events.push({ event: "tool_result", data: failed
+        ? { id: msg.toolCallId, name: msg.toolName || "tool", error: output || "Tool failed.", status: "error" }
+        : { id: msg.toolCallId, name: msg.toolName || "tool", output, status: "done" } });
+      if (!failed && args && (msg.toolName === "write" || msg.toolName === "edit")) {
+        const diff = diffFor(msg.toolName, args.arguments || {});
+        if (diff) events.push({ event: "diff", data: diff });
+      }
+    }
+  }
+  return events.length ? events : null;
+}
+
 // Dispatches transcript recovery by engine; leafOverride is Claude-specific for rewind.
 export function recoverFromTranscript(engine, cwd, sessionId, leafOverride = null) {
   if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId, 1, leafOverride);
   if (engine === "codex") return recoverFromCodexTranscript(cwd, sessionId);
   if (engine === "opencode") return recoverFromOpencodeTranscript(cwd, sessionId);
   if (engine === "antigravity") return recoverFromAntigravityTranscript(cwd, sessionId);
+  if (engine === "omp") return recoverFromOmpTranscript(cwd, sessionId);
   return null;
 }

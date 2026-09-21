@@ -5,7 +5,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
+import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAntigravityModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.js";
@@ -150,9 +150,9 @@ function mirrorAiStatus(manager, sessionId, event, data, engine) {
 }
 
 // Ack order: rebuild from the CLI transcript first, then metadata into the surviving log — reversed, F5 loses restored turns or the catalog.
-function doorSession(session, engine = session.engine) {
+async function doorSession(session, engine = session.engine) {
   session.refreshFromStore();
-  return { ...emitConnectMetadata(session, engine), session: publicSession(session) };
+  return { ...await emitConnectMetadata(session, engine), session: publicSession(session) };
 }
 
 // Replay window plus state a client cannot rebuild from it; only valid after doorSession's rebuild.
@@ -176,7 +176,8 @@ export function publicSession(session) {
     // Empty means the CLI's config decides; only a user pick overrides.
     effort: session.effort || "",
     // The log holds events, not running totals — the status bar reads the adapter's counters.
-    stats: session.adapter?.stats || null
+    stats: session.adapter?.stats || null,
+    queue: session.getQueue ? session.getQueue() : []
   };
 }
 
@@ -184,17 +185,26 @@ function listModelOptionsFor(engine) {
   if (engine === "claude") return listModelOptions();
   if (engine === "codex") return listCodexModelOptions();
   if (engine === "opencode") return listOpencodeModelOptions();
+  if (engine === "antigravity") return listAntigravityModelOptions();
   return null;
 }
 
 // Two engines answer a catalog read by spawning a CLI — cache it across connects.
 const modelCache = new Map();
 
-function cachedModelOptionsFor(engine) {
+async function cachedModelOptionsFor(engine) {
   const hit = modelCache.get(engine);
   const now = Date.now();
   if (hit && now - hit.at < AI_MODEL_CACHE_TTL_MS) return hit.options;
-  const options = listModelOptionsFor(engine);
+  let options;
+  if (engine === "opencode") {
+    // The serve catalog is the only source carrying limit.context (contextWindow);
+    // the CLI spawn stays as the fallback when no server answers.
+    options = await listOpencodeModelOptionsFromServer();
+    if (!options.length) options = listOpencodeModelOptions();
+  } else {
+    options = listModelOptionsFor(engine);
+  }
   modelCache.set(engine, { at: now, options });
   return options;
 }
@@ -210,16 +220,19 @@ function defaultEffortFor(engine) {
 }
 
 // Sent on every create, live sessions too — the replay log carries no modelOptions.
-function emitConnectMetadata(session, engine) {
+async function emitConnectMetadata(session, engine) {
   const skills = listSkills(engine, session.cwd);
-  const mcpServers = listMcpServers(engine);
+  const mcpServers = listMcpServers(engine, session.cwd);
+  // Live '/' menu feed the adapter already fetched (opencode, omp).
+  const commands = session.adapter?.metadata?.commands;
   // Kept on the session so a Clear can re-seed the log with the same metadata
   session.skills = skills;
   // Append init once; broadcast every connect so joiners still see current metadata.
   session.emitNormalized("init", {
     skills,
     mcpServers,
-    modelOptions: cachedModelOptionsFor(engine),
+    ...(commands?.length ? { commands } : {}),
+    modelOptions: await cachedModelOptionsFor(engine),
     model: session.model || defaultModelFor(engine),
     // The session's pick wins; else the CLI's config is what the composer must show.
     effort: session.effort || defaultEffortFor(engine)
@@ -294,7 +307,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
           engine: existing.engine,
           cwd: existing.cwd,
           // Answer with the session's engine — the catalog must describe what is running.
-          ...doorSession(existing, existing.engine)
+          ...await doorSession(existing, existing.engine)
         });
       }
       // A create in flight owns this id — wait for it rather than spawn a second CLI.
@@ -308,7 +321,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
           sessionId,
           engine: session.engine,
           cwd: session.cwd,
-          ...doorSession(session)
+          ...await doorSession(session)
         });
       }
       logger.info(`[ai] create session: ${sessionId} engine: ${engine} cwd: ${cwd}`);
@@ -336,7 +349,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         sessionId: session.id,
         engine: session.engine,
         cwd: session.cwd,
-        ...doorSession(session)
+        ...await doorSession(session)
       });
     } catch (err) {
       logger.error(`[ai] create failed after ${Date.now() - recvAt}ms: ${err.message}`);
@@ -367,10 +380,32 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
       // The pane has already dropped its log; a refused /clear would strand an empty chat — stop the turn instead.
       if (String(message).trim() === "/clear" && session.isTurnRunning) session.stop();
-      session.sendPrompt(message, attachments);
-      cb?.({ ok: true });
+      const res = session.sendPrompt(message, attachments);
+      cb?.({ ok: true, queued: Boolean(res?.queued) });
     } catch (err) {
       logger.error(`[ai] prompt failed: ${err.message}`);
+      cb?.({ ok: false, error: err.message });
+    }
+  });
+
+  socket.on(AI_SOCKET_EVENTS.QUEUE_REMOVE, ({ sessionId, id }, cb) => {
+    try {
+      const session = manager.getSession(sessionId);
+      if (!session) throw new Error(`AI session not found: ${sessionId}`);
+      const removed = session.removeQueueItem?.(id);
+      cb?.({ ok: true, removed: Boolean(removed) });
+    } catch (err) {
+      cb?.({ ok: false, error: err.message });
+    }
+  });
+
+  socket.on(AI_SOCKET_EVENTS.QUEUE_CLEAR, ({ sessionId }, cb) => {
+    try {
+      const session = manager.getSession(sessionId);
+      if (!session) throw new Error(`AI session not found: ${sessionId}`);
+      session.clearQueue?.();
+      cb?.({ ok: true });
+    } catch (err) {
       cb?.({ ok: false, error: err.message });
     }
   });
@@ -407,10 +442,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   socket.on(AI_SOCKET_EVENTS.STOP, async ({ sessionId }, cb) => {
     try {
       const session = manager.getSession(sessionId);
-      logger.info(`[TEMP DIAGNOSTIC] ai:stop recv session=${sessionId} found=${Boolean(session)} engine=${session?.engine || "-"} turnRunning=${session?.isTurnRunning}`);
       if (session) {
         const stopped = session.stop();
-        logger.info(`[TEMP DIAGNOSTIC] ai:stop → session.stop()=${stopped} engine=${session.engine}`);
         // Backstop for a stop that never reaches a `stopped` event.
         broadcastAiStatus?.(sessionId, "idle", session.engine);
       }
@@ -523,6 +556,33 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       if (isCodex) {
         const points = await codexRewind.listRewindPoints(session).catch(() => []);
         return rewindForCodex({ cb, session, support, points, action, messageId, index });
+      }
+      // omp branches its own session tree over the live RPC — no store to prove ids against.
+      if (engine === AI_ENGINES.OMP) {
+        const adapter = session?.adapter;
+        if (action === "list") {
+          const points = await adapter?.branchPoints?.().catch(() => []) || [];
+          return cb?.({
+            ok: points.length > 0,
+            support,
+            points,
+            ...(points.length > 0 ? {} : { error: "This conversation has no turn to rewind to yet." })
+          });
+        }
+        if (action === "preview") {
+          return cb?.({ ok: true, support, files: [], filesUnknown: false, note: CONVERSATION_ONLY_NOTE });
+        }
+        if (action === "apply") {
+          if (session.isTurnRunning) return cb?.({ ok: false, error: "Stop the running turn before rewinding.", support });
+          const points = await adapter?.branchPoints?.().catch(() => []) || [];
+          const target = messageId || points[index]?.messageId;
+          const done = await adapter?.rewindConversation?.(target);
+          if (!done?.rewound) return cb?.({ ok: false, error: done?.error || "The CLI did not rewind this conversation.", support });
+          session.reloadFromStore?.();
+          session.turnStartedAt = 0;
+          session.lastTurnMs = 0;
+          return cb?.({ ok: true, support, conversation: true });
+        }
       }
       // Prove the id: opencode's DB on one side, claude's transcript (with the uuids) on the other.
       const convId = isClaude

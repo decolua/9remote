@@ -14,6 +14,7 @@ import * as daemonClient from "../terminal/ptyDaemonClient.js";
 import { CodexAdapter } from "./adapters/codexAdapter.js";
 import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
+import { OmpAdapter } from "./adapters/ompAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
 import { getLastOutputAt, touchOutput, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
 import { TURN_END_EVENTS } from "./aiStatus.js";
@@ -28,7 +29,7 @@ const ANSI_RE = /\[[0-9;]*m/g;
 const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
 
 // Engines whose CLI the daemon owns, so a turn outlives an agent restart.
-const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY]);
+const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY, AI_ENGINES.OMP]);
 
 // Engine → the CLI's own health command, from each adapter's static spec; a Map so an engine id like "constructor" cannot hit Object.prototype.
 const DOCTOR_SPECS = new Map(
@@ -36,7 +37,8 @@ const DOCTOR_SPECS = new Map(
     [AI_ENGINES.CLAUDE]: ClaudeAdapter,
     [AI_ENGINES.CODEX]: CodexAdapter,
     [AI_ENGINES.OPENCODE]: OpenCodeAdapter,
-    [AI_ENGINES.ANTIGRAVITY]: AntigravityAdapter
+    [AI_ENGINES.ANTIGRAVITY]: AntigravityAdapter,
+    [AI_ENGINES.OMP]: OmpAdapter
   }).map(([engine, Adapter]) => [engine, Adapter.doctorSpec?.() || null])
 );
 
@@ -247,6 +249,7 @@ function insertByIndex(events, carried) {
 }
 
 const kvKey = (id) => `ai:${id}`;
+let queueIdSeq = 0;
 
 export class AiSession {
   constructor({ id, engine, cwd, options = {}, onEvent }) {
@@ -257,6 +260,8 @@ export class AiSession {
     this.onEvent = onEvent;
     this.createdAt = Date.now();
     this.isTurnRunning = false;
+    this.promptQueue = [];
+    this._drainTimer = null;
     // Async watchdogs by tool id; ponytail: fallback only — task_* records disarm them on newer CLIs.
     this.asyncTimers = new Map();
     // A span, not timestamps — the client's clock is a different clock, and subtracting across them would print the skew.
@@ -425,7 +430,6 @@ export class AiSession {
             this.adapter.pendingRequests.set(gate.requestId, { toolName: gate.tool || "", input: gate.input || {} });
           }
         }
-        logger.info(`[TEMP DIAGNOSTIC] kv restore ${this.id} engine=${this.engine} turnRunning=${saved.turn.running} isAlive=${isAlive}`);
       }
       if (Array.isArray(saved.carried) && saved.carried.length) {
         const existingIds = new Set(this.history.map((e) => e.data?.record?.task_id || e.data?.id).filter(Boolean));
@@ -509,6 +513,20 @@ export class AiSession {
         this.adapter = mine;
         // Through setOptions, not the field — it publishes effort on init and drops model-tier suffixes.
         if (this.permissionMode || this.options.model || this.options.flags || this.effort) {
+          mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
+        }
+        return this._startManaged(mine, mode);
+      case AI_ENGINES.OMP:
+        mine = new OmpAdapter({
+          cwd: this.cwd,
+          onEvent,
+          proc: this.managed ? this.proc : null,
+          sessionId: this.cliSessionId,
+          model: this.model || this.options.model,
+          hostSessionId: this.id
+        });
+        this.adapter = mine;
+        if (this.permissionMode || this.options.model || this.effort) {
           mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
         }
         return this._startManaged(mine, mode);
@@ -723,7 +741,51 @@ export class AiSession {
       this.flushSaveSnapshot();
       this.applyPendingOptions();
       this._saveKvState(false);
+      this._drainQueue();
     }
+  }
+
+  _drainQueue() {
+    if (this.isTurnRunning || !this.promptQueue?.length || this.destroyed) return;
+    if (this._drainTimer) clearTimeout(this._drainTimer);
+    this._drainTimer = setTimeout(() => {
+      this._drainTimer = null;
+      if (this.isTurnRunning || !this.promptQueue?.length || this.destroyed) return;
+      const next = this.promptQueue.shift();
+      this.emitQueueUpdate();
+      this.sendPrompt(next.text, next.attachments);
+    }, 50);
+  }
+
+  getQueue() {
+    if (!Array.isArray(this.promptQueue)) return [];
+    return this.promptQueue.map((item) => ({
+      id: item.id,
+      text: item.text,
+      attachments: (item.attachments || []).map((a) => ({ name: a.name || a.filename, type: a.type }))
+    }));
+  }
+
+  emitQueueUpdate() {
+    this.onEvent?.(this.id, "queue_update", { queue: this.getQueue() });
+  }
+
+  removeQueueItem(id) {
+    if (!Array.isArray(this.promptQueue)) return false;
+    const before = this.promptQueue.length;
+    this.promptQueue = this.promptQueue.filter((item) => item.id !== id);
+    if (this.promptQueue.length !== before) {
+      this.emitQueueUpdate();
+      return true;
+    }
+    return false;
+  }
+
+  clearQueue() {
+    if (this._drainTimer) { clearTimeout(this._drainTimer); this._drainTimer = null; }
+    if (!this.promptQueue?.length) return;
+    this.promptQueue = [];
+    this.emitQueueUpdate();
   }
 
   // One read per turn boundary catches the harness's appended records; failure is silent on purpose (side channel).
@@ -917,8 +979,24 @@ export class AiSession {
         lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0
       });
       this.onEvent?.(this.id, "init", init);
+      this.clearQueue();
       this.flushSaveSnapshot();
       return;
+    }
+
+    // A new prompt ends every gate the old turn left open. The user typing IS them moving on.
+    this.skipOpenGates();
+
+    if (this.isTurnRunning) {
+      if (!Array.isArray(this.promptQueue)) this.promptQueue = [];
+      const item = {
+        id: `q-${Date.now()}-${++queueIdSeq}`,
+        text: prompt,
+        attachments
+      };
+      this.promptQueue.push(item);
+      this.emitQueueUpdate();
+      return { queued: true, item };
     }
 
     this.lastPrompt = prompt;
@@ -934,6 +1012,7 @@ export class AiSession {
       this.adapter?.sendPrompt(prompt, attachments);
     } catch (err) {
       this.emitNormalized("prompt_refused", { text: prompt, reason: String(err?.message || err) });
+      if (this.promptQueue?.length) this._drainQueue();
       return;
     }
     this.isTurnRunning = true;
@@ -1005,7 +1084,7 @@ export class AiSession {
       if (this.engine === AI_ENGINES.CLAUDE) this.cliSessionId = resume;
       else if (this.engine === AI_ENGINES.CODEX) this.threadId = resume;
       else if (this.engine === AI_ENGINES.OPENCODE) this.cliSessionId = resume;
-      // Antigravity has no transcript reader yet — the CLI resumes, the pane replays nothing.
+      // Antigravity resumes by conversation id; the transcript reader fills the pane on reload.
       else if (this.engine === AI_ENGINES.ANTIGRAVITY) this.cliSessionId = resume;
       // Replace the log with the resumed conversation's tail; the old transcript's byte offset goes with it.
       this.attachmentOffset = null;
@@ -1055,7 +1134,6 @@ export class AiSession {
     // A control request keeps the CLI alive; a signal is only the fallback when it cannot be written.
     const sent = this.adapter?.interrupt?.();
     const signalled = sent ? false : this.adapter?.signal?.("SIGINT");
-    logger.info(`[TEMP DIAGNOSTIC] session.stop engine=${this.engine} hasInterrupt=${typeof this.adapter?.interrupt} sent=${sent} signalled=${signalled} turnRunning=${this.isTurnRunning} cliSession=${this.cliSessionId || "-"}`);
     // Claiming an unmade stop desyncs the pane from the still-running CLI — report it instead.
     if (!sent && !signalled) {
       this.emitNormalized("error", { message: `${this.engine} could not stop this turn — the CLI is still running.` });
@@ -1101,6 +1179,8 @@ export class AiSession {
 
   destroy() {
     this.clearAllAsyncWatchdogs();
+    if (this._drainTimer) { clearTimeout(this._drainTimer); this._drainTimer = null; }
+    this.promptQueue = [];
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
     // Wait for the async stop before unlinking, or its exit event writes the snapshot right back.
     const stopped = this.options.mock ? Promise.resolve() : this.adapter?.stop();
