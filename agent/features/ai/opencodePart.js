@@ -12,26 +12,52 @@ import { toolStart, toolResult } from "./toolEvent.js";
 
 // Edit tools whose input carries the change itself, so the turn draws a diff card
 // instead of a bare tool row — the same fold claude's adapter does for Edit/Write.
-// Input shapes verified against 1.18.31's own schemas (tool/edit.ts, tool/write.ts):
-// edit {filePath, oldString, newString}, write {filePath, content}.
-const DIFF_TOOLS = new Set(["edit", "write"]);
+// Input shapes verified against 1.18.31's own schemas (tool/edit.ts, tool/write.ts, tool/apply-patch.ts):
+// edit {filePath, oldString, newString}, write {filePath, content}, apply_patch {patchText}.
+const DIFF_TOOLS = new Set(["edit", "write", "apply_patch", "patch"]);
 
 // Exported for the serve-bus parser: the v2 write tool names its target `path`
 // (measured on the bus), the CLI's own run mode names it `filePath` — read both.
 export function diffFor(name, input = {}) {
+  if (name === "apply_patch" || name === "patch") {
+    const patchText = String(input.patchText || input.patch || "").trim();
+    if (!patchText) return null;
+    const fileMatches = [...patchText.matchAll(/\*\*\*\s*(?:Update|Add|Delete)\s*File:\s*([^\n\r]+)/gi)];
+    if (fileMatches.length > 1) {
+      const hunks = [];
+      for (let i = 0; i < fileMatches.length; i++) {
+        const file = fileMatches[i][1].trim();
+        const start = fileMatches[i].index;
+        const end = i + 1 < fileMatches.length ? fileMatches[i + 1].index : patchText.length;
+        const section = patchText.slice(start, end);
+        const lines = section.split("\n").filter((l) => !l.startsWith("***"));
+        hunks.push({ file, name, patch: lines.join("\n"), content: "" });
+      }
+      return hunks;
+    }
+    const match = fileMatches[0];
+    const file = match ? match[1].trim() : (input.filePath || input.file || input.path || "");
+    if (!file) return null;
+    const lines = patchText.split("\n")
+      .filter((l) => !l.startsWith("***"));
+    return { file, name, patch: lines.join("\n"), content: "" };
+  }
+
   const file = input.filePath || input.file || input.path || "";
   if (!file) return null;
   // No content, no card: an empty diff hiding the tool row is worse than the row.
   if (name === "write") return input.content ? { file, name, patch: "", content: String(input.content) } : null;
-  if (!input.oldString && !input.newString) return null;
+  const oldStr = input.oldString || input.old_string;
+  const newStr = input.newString || input.new_string;
+  if (!oldStr && !newStr) return null;
   // A trailing newline would add an empty +/- line that reads as a real change.
   const lines = [];
   const add = (text, sign) => {
     const body = String(text ?? "").replace(/\n$/, "");
     if (body) lines.push(...body.split("\n").map((l) => `${sign}${l}`));
   };
-  add(input.oldString, "-");
-  add(input.newString, "+");
+  add(oldStr, "-");
+  add(newStr, "+");
   return { file, name, patch: lines.join("\n"), content: "" };
 }
 
@@ -64,7 +90,10 @@ export function opencodePartEvents(part) {
   // (same rule as claude's adapter, which reads the diff off the result).
   if (!failed && DIFF_TOOLS.has(name)) {
     const diff = diffFor(name, state.input || part?.input || {});
-    if (diff) events.push({ event: "diff", data: diff });
+    if (diff) {
+      if (Array.isArray(diff)) for (const d of diff) events.push({ event: "diff", data: d });
+      else events.push({ event: "diff", data: diff });
+    }
   }
   return events;
 }

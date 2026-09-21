@@ -148,5 +148,44 @@ test("the harness's own bookkeeping draws nothing", () => {
   assert.equal(events.length, 0);
 });
 
+test("session.next.shell events surface as a bash tool call", () => {
+  const { of } = parse([
+    env("session.next.shell.started", { callID: "sh-1", command: "ls -la", timestamp: 123 }),
+    env("session.next.shell.ended", { callID: "sh-1", output: "total 0\n", timestamp: 456 })
+  ]);
+  const [start] = of("tool_start");
+  const [result] = of("tool_result");
+  assert.equal(start[1].name, "bash");
+  assert.equal(start[1].input.command, "ls -la");
+  assert.equal(result[1].name, "bash");
+  assert.equal(result[1].output, "total 0\n");
+});
+
+test("apply_patch surfaces a diff card with parsed target and changes", () => {
+  const patchText = "*** Begin Patch\n*** Update File: src/app.js\n@@ -1,2 +1,2 @@\n-const a = 1;\n+const a = 2;\n*** End Patch";
+  const { of } = parse([
+    env("session.next.tool.called", { callID: "ap-1", tool: "apply_patch", input: { patchText } }),
+    env("session.next.tool.success", { callID: "ap-1", tool: "apply_patch", content: [{ text: "Applied patch sequentially:\nM src/app.js" }] })
+  ]);
+  const [diff] = of("diff");
+  assert.ok(diff, "diff event must be emitted for apply_patch");
+  assert.equal(diff[1].file, "src/app.js");
+  assert.equal(diff[1].name, "apply_patch");
+  assert.ok(diff[1].patch.includes("-const a = 1;"));
+  assert.ok(diff[1].patch.includes("+const a = 2;"));
+});
+
+test("apply_patch with multiple files emits a diff card for each file", () => {
+  const patchText = "*** Begin Patch\n*** Update File: src/a.js\n@@ -1,1 +1,1 @@\n-1\n+2\n*** Add File: src/b.js\n+hello\n*** End Patch";
+  const { of } = parse([
+    env("session.next.tool.called", { callID: "ap-2", tool: "apply_patch", input: { patchText } }),
+    env("session.next.tool.success", { callID: "ap-2", tool: "apply_patch", content: [{ text: "Applied patch sequentially:\nM src/a.js\nA src/b.js" }] })
+  ]);
+  const diffs = of("diff");
+  assert.equal(diffs.length, 2);
+  assert.equal(diffs[0][1].file, "src/a.js");
+  assert.equal(diffs[1][1].file, "src/b.js");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;

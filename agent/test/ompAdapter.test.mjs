@@ -183,5 +183,33 @@ test("the DaemonProc hold is committed: startup lines reach the client (audited)
   adapter.rpc && adapter.rpc.pending.clear();
 });
 
+test("an edit tool using old_string / new_string lands a diff card", () => {
+  const { feed, of } = makeAdapter();
+  feed({ type: "tool_execution_start", toolCallId: "t-edit", toolName: "edit", args: { path: "/tmp/a.js", old_string: "const x = 1;", new_string: "const x = 2;" } });
+  feed({ type: "tool_execution_end", toolCallId: "t-edit", toolName: "edit", isError: false, result: { content: [{ type: "text", text: "ok" }] } });
+  const [diff] = of("diff");
+  assert.ok(diff, "diff card must be emitted for edit");
+  assert.equal(diff[1].file, "/tmp/a.js");
+  assert.ok(diff[1].patch.includes("-const x = 1;"));
+  assert.ok(diff[1].patch.includes("+const x = 2;"));
+});
+
+test("a todo tool with committed phases updates the checklist", () => {
+  const { feed, of } = makeAdapter();
+  feed({ type: "tool_execution_start", toolCallId: "t-todo", toolName: "todo", args: { op: "init" } });
+  feed({
+    type: "tool_execution_end",
+    toolCallId: "t-todo",
+    toolName: "todo",
+    isError: false,
+    result: { details: { op: "init", phases: [{ name: "Phase 1", tasks: [{ content: "Task A", status: "completed" }, { content: "Task B", status: "in_progress" }] }] } }
+  });
+  const todos = of("tool_start").filter(([, d]) => d.name === "todowrite");
+  assert.equal(todos.length, 1);
+  assert.equal(todos[0][1].input.todos.length, 2);
+  assert.equal(todos[0][1].input.todos[0].content, "Task A");
+  assert.equal(todos[0][1].input.todos[0].status, "completed");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

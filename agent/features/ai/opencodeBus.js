@@ -120,6 +120,25 @@ export function createOpencodeBusParser({ onEvent, stats = {} }) {
       return;
     }
 
+    if (type === "session.next.shell.started") {
+      onEvent("tool_start", {
+        id: data.callID || data.messageID,
+        name: "bash",
+        input: { command: data.command || "" },
+        status: "running"
+      });
+      return;
+    }
+    if (type === "session.next.shell.ended") {
+      onEvent("tool_result", {
+        id: data.callID || data.messageID,
+        name: "bash",
+        output: data.output || "",
+        status: "done"
+      });
+      return;
+    }
+
     if (type === "session.next.text.delta") {
       if (data.delta) onEvent("delta", { text: data.delta });
       return;
@@ -159,7 +178,10 @@ export function createOpencodeBusParser({ onEvent, stats = {} }) {
       onEvent("tool_result", { id: data.callID, name, output, status: "done" });
       // Only a change that LANDED is a diff — the same rule as every other door.
       const diff = diffFor(name, inputs.get(data.callID) || {});
-      if (diff) onEvent("diff", diff);
+      if (diff) {
+        if (Array.isArray(diff)) for (const d of diff) onEvent("diff", d);
+        else onEvent("diff", diff);
+      }
       return;
     }
     if (type === "session.next.tool.failed") {

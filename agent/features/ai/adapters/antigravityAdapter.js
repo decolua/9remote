@@ -1,4 +1,7 @@
 // Adapter for the Antigravity CLI (`agy`) using --output-format stream-json.
+import fs from "fs";
+import path from "path";
+import os from "os";
 import { getExtendedEnv } from "./env.js";
 import { AgentProc } from "../proc/agentProc.js";
 import { createLogger } from "../../../lib/logger.js";
@@ -42,8 +45,8 @@ function normalizeParameters(parameters) {
   return out;
 }
 
-// Extract diff for edit tools (write_to_file, replace_file_content); live stream strips content.
-const DIFF_TOOLS = new Set(["write_to_file", "replace_file_content"]);
+// Extract diff for edit tools (write_to_file, replace_file_content, multi_replace_file_content, sed_file).
+const DIFF_TOOLS = new Set(["write_to_file", "replace_file_content", "multi_replace_file_content", "sed_file"]);
 
 export function antigravityEditDiff(name, input = {}) {
   if (!DIFF_TOOLS.has(name)) return null;
@@ -52,6 +55,14 @@ export function antigravityEditDiff(name, input = {}) {
   if (name === "write_to_file") {
     if (!input.CodeContent) return null;
     return { file, name, patch: "", content: String(input.CodeContent) };
+  }
+  if (name === "multi_replace_file_content" && Array.isArray(input.replacements)) {
+    const lines = [];
+    for (const r of input.replacements) {
+      if (r.target) lines.push(...String(r.target).split("\n").map((l) => `-${l}`));
+      if (r.replacement) lines.push(...String(r.replacement).split("\n").map((l) => `+${l}`));
+    }
+    return lines.length ? { file, name, patch: lines.join("\n"), content: "" } : null;
   }
   if (!input.TargetContent && !input.ReplacementContent) return null;
   // A trailing newline would add an empty +/- line that reads as a real change.
@@ -75,7 +86,8 @@ export class AntigravityAdapter {
     this.activeConversationId = conversationId || null;
     this.isTurnRunning = false;
     this._resultFailed = false;
-    this.currentModel = model || "";
+    this._turnHadThinking = false;
+    this.currentModel = String(model || "").split("\t")[0].trim();
     this.effort = "";
     this.permissionMode = "accept-edits";
     this.flags = [];
@@ -91,9 +103,10 @@ export class AntigravityAdapter {
 
   setOptions({ model, mode, resume, effort, flags }) {
     if (model) {
-      this.currentModel = model;
-      this.metadata.model = model;
-      if (TIER_SUFFIX_RE.test(model)) this.effort = "";
+      const cleanModel = String(model).split("\t")[0].trim();
+      this.currentModel = cleanModel;
+      this.metadata.model = cleanModel;
+      if (TIER_SUFFIX_RE.test(cleanModel)) this.effort = "";
     }
     if (EFFORT_LEVELS.includes(effort)) {
       this.effort = effort;
@@ -143,6 +156,7 @@ export class AntigravityAdapter {
   _bind() {
     this.proc.onLine = (line) => this.feed(line);
     this.proc.onExit = ({ code, error }) => {
+      this._checkTranscriptThinking();
       this.isTurnRunning = false;
       if (error) this.onEvent?.("error", { message: error });
       else {
@@ -166,7 +180,7 @@ export class AntigravityAdapter {
     // Dedupe: a user-picked `--output-format` in the Config modal would otherwise
     // ride along as a second copy and the CLI would reject the turn.
     const extra = (this.flags || []).filter((f) => f !== "--output-format");
-    if (this.currentModel) args.push("--model", this.currentModel);
+    if (this.currentModel) args.push("--model", this.currentModel.split("\t")[0].trim());
     if (this.effort) args.push("--effort", this.effort);
     if (this.activeConversationId) args.push("--conversation", this.activeConversationId);
     for (const a of MODE_TO_ARGS[this.permissionMode] || []) args.push(a);
@@ -178,6 +192,7 @@ export class AntigravityAdapter {
 
   sendPrompt(prompt, attachments = null) {
     this._resultFailed = false;
+    this._turnHadThinking = false;
     if (this.isTurnRunning) {
       throw new Error("Antigravity turn is already running.");
     }
@@ -224,6 +239,11 @@ export class AntigravityAdapter {
     if (!step || step.step_type === "user_input") return;
 
     if (step.step_type === "agent_response") {
+      const thinking = step.thinking_delta || step.thinkingDelta || step.thinking || step.thought;
+      if (thinking) {
+        this._turnHadThinking = true;
+        this.onEvent?.("thinking", { text: thinking });
+      }
       // Forward all text deltas regardless of state (DONE may carry the trailing text).
       if (step.text_delta) this.onEvent?.("delta", { text: step.text_delta });
       // Usage rides on the DONE event of each response step, and is a per-step delta
@@ -231,6 +251,15 @@ export class AntigravityAdapter {
       if (step.state === "DONE" && step.usage) {
         this.addUsage(step.usage);
         this.onEvent?.("stats", { stats: this.stats });
+      }
+      return;
+    }
+
+    if (step.step_type === "thinking" || step.step_type === "thought") {
+      const text = step.thinking_delta || step.thinkingDelta || step.thinking || step.thought || step.text_delta || step.text;
+      if (text) {
+        this._turnHadThinking = true;
+        this.onEvent?.("thinking", { text });
       }
       return;
     }
@@ -313,6 +342,7 @@ export class AntigravityAdapter {
 
   handleResult(result) {
     if (!result) return;
+    this._checkTranscriptThinking();
     // result.usage is cumulative across turns, so usage is tracked per-step instead.
     this.stats.totalTurns += 1;
     this.onEvent?.("stats", { stats: this.stats });
@@ -326,6 +356,31 @@ export class AntigravityAdapter {
     if (this._resultFailed) {
       this.onEvent?.("error", { message: result.error || `Antigravity turn ended with status ${result.status}.` });
     }
+  }
+
+  // Fallback: agy stream-json may write thinking to transcript without streaming deltas.
+  _checkTranscriptThinking() {
+    if (this._turnHadThinking || !this.activeConversationId) return;
+    try {
+      const root = process.env.ANTIGRAVITY_HOME?.trim() || path.join(os.homedir(), ".gemini", "antigravity-cli");
+      const logsDir = path.join(root, "brain", this.activeConversationId, ".system_generated", "logs");
+      const file = ["transcript_full.jsonl", "transcript.jsonl"]
+        .map((name) => path.join(logsDir, name))
+        .find((p) => fs.existsSync(p));
+      if (!file) return;
+      const lines = fs.readFileSync(file, "utf8").trim().split("\n");
+      for (let i = lines.length - 1; i >= 0; i--) {
+        try {
+          const rec = JSON.parse(lines[i]);
+          if (rec.thinking?.trim()) {
+            this._turnHadThinking = true;
+            this.onEvent?.("thinking", { text: rec.thinking });
+            break;
+          }
+          if (rec.type === "USER_INPUT") break;
+        } catch {}
+      }
+    } catch {}
   }
 
   addUsage(usage) {

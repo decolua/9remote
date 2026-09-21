@@ -265,6 +265,14 @@ export class OmpAdapter {
           const diff = diffFor(name, this._toolArgs.get(frame.toolCallId) || {});
           if (diff) this.onEvent?.("diff", diff);
         }
+        if (name === "todo") {
+          const phases = Array.isArray(frame.result?.details?.phases) ? frame.result.details.phases : [];
+          const todos = phases.flatMap((p) => p.tasks || []).map((t) => ({ content: t.content, status: t.status }));
+          if (todos.length) {
+            this.onEvent?.("tool_start", { id: `todo-upd-${frame.toolCallId}`, name: "todowrite", input: { todos }, status: "running" });
+            this.onEvent?.("tool_result", { id: `todo-upd-${frame.toolCallId}`, name: "todowrite", output: "", status: "done" });
+          }
+        }
       }
       this._toolArgs.delete(frame.toolCallId);
       return;

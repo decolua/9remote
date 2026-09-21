@@ -400,6 +400,21 @@ test("antigravity ignores a missing or corrupt index instead of throwing", async
   assert.deepEqual(await listAntigravity(CWD), []);
 });
 
+function writeAntigravityDb(rows) {
+  const dbPath = join(home, ".gemini/antigravity-cli/conversation_summaries.db");
+  mkdirSync(join(dbPath, ".."), { recursive: true });
+  rmSync(dbPath, { force: true });
+  const { DatabaseSync } = require("node:sqlite");
+  const db = new DatabaseSync(dbPath);
+  db.exec(`CREATE TABLE conversation_summaries (conversation_id text PRIMARY KEY,
+    title text, preview text, last_modified_time text, workspace_uris text)`);
+  for (const r of rows) {
+    db.prepare("INSERT INTO conversation_summaries (conversation_id, title, preview, last_modified_time, workspace_uris) VALUES (?,?,?,?,?)")
+      .run(r.conversation_id, r.title ?? "", r.preview ?? "", r.last_modified_time ?? "", r.workspace_uris ?? "");
+  }
+  db.close();
+}
+
 test("deleteAgentSession drops the antigravity entry from the index", async () => {
   writeAntigravityIndex(Object.fromEntries([
     agEntry("ag_keep", CWD, "Keep me", "2026-05-01T10:00:00Z"),
@@ -412,4 +427,22 @@ test("deleteAgentSession drops the antigravity entry from the index", async () =
   assert.equal(deleted, true);
   clearHistoryCache();
   assert.deepEqual((await listAntigravity(CWD)).map((s) => s.sessionId), ["ag_keep"]);
+});
+
+test("antigravity lists conversations from SQLite database matching cwd", { skip: !sqliteAvailable }, async () => {
+  rmSync(join(home, ".gemini/antigravity-cli/cache/conversation_metadata.json"), { force: true });
+  writeAntigravityDb([
+    { conversation_id: "ag_db1", title: "DB session", preview: "first prompt", last_modified_time: "2026-05-02T10:00:00Z", workspace_uris: JSON.stringify([`file://${CWD}`]) },
+    { conversation_id: "ag_other", title: "Other DB", preview: "other prompt", last_modified_time: "2026-05-01T10:00:00Z", workspace_uris: JSON.stringify([`file://${OTHER}`]) }
+  ]);
+  clearHistoryCache();
+  const rows = await listAntigravity(CWD);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].sessionId, "ag_db1");
+  assert.equal(rows[0].title, "DB session");
+
+  const deleted = await deleteAgentSession({ agent: "antigravity", sessionId: "ag_db1", cwd: CWD });
+  assert.equal(deleted, true);
+  clearHistoryCache();
+  assert.deepEqual(await listAntigravity(CWD), []);
 });

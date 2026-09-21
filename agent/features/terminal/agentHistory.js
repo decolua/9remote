@@ -214,34 +214,119 @@ function antigravityEntryCwd(summary) {
   try { return decodeURIComponent(uri.replace(/^file:\/\//, "")); } catch { return null; }
 }
 
+function antigravityDbRows(cwd) {
+  const sqlite = loadSqlite();
+  if (!sqlite) return [];
+  const dbPath = path.join(home(), ".gemini", "antigravity-cli", "conversation_summaries.db");
+  if (!fs.existsSync(dbPath)) return [];
+  let db;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    let lastIdForCwd = null;
+    try {
+      const lastMap = parseWholeJson(path.join(home(), ".gemini", "antigravity-cli", "cache", "last_conversations.json"));
+      lastIdForCwd = lastMap?.[cwd] || null;
+    } catch {}
+
+    const knownIds = new Set();
+    if (lastIdForCwd) knownIds.add(lastIdForCwd);
+    const histPath = path.join(home(), ".gemini", "antigravity-cli", "history.jsonl");
+    if (fs.existsSync(histPath)) {
+      for (const line of readLines(histPath, 100)) {
+        const item = parseJson(line);
+        if (item?.conversationId && item.workspace === cwd) knownIds.add(item.conversationId);
+      }
+    }
+
+    const records = db.prepare(
+      "SELECT conversation_id, title, preview, last_modified_time, workspace_uris FROM conversation_summaries " +
+      "ORDER BY last_modified_time DESC LIMIT 100"
+    ).all();
+
+    const rows = [];
+    for (const rec of records) {
+      const id = rec.conversation_id;
+      if (!id) continue;
+      let matchesCwd = knownIds.has(id);
+      if (!matchesCwd && rec.workspace_uris) {
+        try {
+          const uris = JSON.parse(rec.workspace_uris);
+          if (Array.isArray(uris)) {
+            matchesCwd = uris.some((u) => decodeURIComponent(String(u).replace(/^file:\/\//, "")) === cwd);
+          }
+        } catch {
+          matchesCwd = rec.workspace_uris.includes(cwd);
+        }
+      }
+      if (!matchesCwd) continue;
+      rows.push({
+        sessionId: id,
+        title: cleanTitle(rec.title || rec.preview),
+        cwd,
+        updatedAt: Date.parse(rec.last_modified_time) || 0
+      });
+    }
+    return rows;
+  } catch {
+    return [];
+  } finally {
+    try { db?.close(); } catch {}
+  }
+}
+
 function antigravityRows(cwd) {
-  const index = parseWholeJson(antigravityIndexPath());
+  const seen = new Set();
   const rows = [];
+  for (const r of antigravityDbRows(cwd)) {
+    if (r.sessionId && !seen.has(r.sessionId)) {
+      seen.add(r.sessionId);
+      rows.push(r);
+    }
+  }
+
+  const index = parseWholeJson(antigravityIndexPath());
   for (const [id, entry] of Object.entries(index?.conversations || {})) {
     const summary = entry?.summary;
-    if (!summary?.ID && !id) continue;
+    const sessionId = summary?.ID || id;
+    if (!sessionId || seen.has(sessionId)) continue;
     if (antigravityEntryCwd(summary) !== cwd) continue;
+    seen.add(sessionId);
     rows.push({
-      sessionId: summary.ID || id,
+      sessionId,
       title: cleanTitle(summary.Title || summary.Preview),
       cwd,
       updatedAt: Date.parse(summary.UpdatedAt) || Date.parse(entry.last_modified_time) || 0
     });
   }
-  return rows;
+  return rows.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
 }
 
 function antigravityDelete(sessionId) {
+  let deleted = false;
   const indexPath = antigravityIndexPath();
   const index = parseWholeJson(indexPath);
-  if (!index?.conversations?.[sessionId]) return false;
-  delete index.conversations[sessionId];
-  try {
-    writeJsonAtomic(indexPath, index);
-    return true;
-  } catch {
-    return false;
+  if (index?.conversations?.[sessionId]) {
+    delete index.conversations[sessionId];
+    try {
+      writeJsonAtomic(indexPath, index);
+      deleted = true;
+    } catch {}
   }
+  const sqlite = loadSqlite();
+  if (sqlite) {
+    const dbPath = path.join(home(), ".gemini", "antigravity-cli", "conversation_summaries.db");
+    if (fs.existsSync(dbPath)) {
+      let db;
+      try {
+        db = new sqlite.DatabaseSync(dbPath);
+        const res = db.prepare("DELETE FROM conversation_summaries WHERE conversation_id = ?").run(sessionId);
+        if (res.changes > 0) deleted = true;
+      } catch {} finally {
+        try { db?.close(); } catch {}
+      }
+    }
+  }
+  return deleted;
 }
 
 function parseCwdChats(filePath) {

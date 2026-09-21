@@ -369,10 +369,12 @@ export class OpenCodeEngine extends AiEngine {
           task: "agent",
           todowrite: "task",
           webfetch: "search",
+          websearch: "search",
           glob: "search",
           grep: "search",
           list: "search",
           view: "file",
+          skill: "generic",
           plan_enter: "plan",
           plan_exit: "plan",
         },
@@ -419,14 +421,23 @@ export class OmpEngine extends AiEngine {
       overrides: {
         tools: {
           bash: "bash",
+          eval: "bash",
           edit: "diff",
           write: "diff",
+          ast_edit: "diff",
+          memory_edit: "diff",
           read: "file",
           task: "agent",
           todo: "task",
+          todowrite: "task",
           glob: "search",
           grep: "search",
+          ast_grep: "search",
           web_search: "search",
+          recall: "search",
+          retain: "search",
+          reflect: "search",
+          learn: "search",
           ask: "question",
         },
         models: [],
@@ -446,6 +457,11 @@ export class OmpEngine extends AiEngine {
         ],
       },
     });
+  }
+
+  parseTaskEvent(toolName, input, toolCallId) {
+    if (toolName === "todowrite" || toolName === "todo") return this._parseReplaceAllTodos(input, toolCallId);
+    return null;
   }
 }
 

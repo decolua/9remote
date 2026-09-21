@@ -172,9 +172,12 @@ export function saveAiPreference(engine, patch) {
   try {
     const current = readAiPreferences();
     const existing = current[engine] || {};
+    const cleanModel = patch.model !== undefined
+      ? String(patch.model || "").split("\t")[0].trim()
+      : undefined;
     const updated = {
       ...existing,
-      ...(patch.model !== undefined ? { model: patch.model } : null),
+      ...(cleanModel !== undefined ? { model: cleanModel } : null),
       ...(patch.effort !== undefined ? { effort: patch.effort } : null)
     };
     current[engine] = updated;
@@ -185,7 +188,7 @@ export function saveAiPreference(engine, patch) {
 // Resolve default model from preferences or CLI configuration.
 export function resolveDefaultModel(engine) {
   const saved = readAiPreferences()[engine]?.model;
-  if (typeof saved === "string" && saved) return saved;
+  if (typeof saved === "string" && saved) return saved.split("\t")[0].trim();
 
   if (engine === "claude") {
     const settings = readClaudeSettings();
@@ -216,6 +219,17 @@ export function resolveDefaultModel(engine) {
       const id = `${providerID}/${modelID}`;
       const catalog = listOpencodeModelOptions();
       return catalog.length === 0 || catalog.some((m) => m.id === id) ? id : "";
+    } catch {
+      return "";
+    }
+  }
+
+  if (engine === "omp") {
+    try {
+      const file = path.join(os.homedir(), ".omp", "agent", "config.yml");
+      const text = fs.readFileSync(file, "utf8");
+      const match = /^\s*default:\s*([^\s\n]+)/m.exec(text);
+      if (match?.[1]) return match[1].trim();
     } catch {
       return "";
     }
@@ -279,7 +293,7 @@ export async function listOpencodeModelOptionsFromServer() {
   }
 }
 
-// Antigravity model ids come straight from `agy models` (no JSON mode).
+// Antigravity model ids come straight from `agy models` (format: `<id>\t<label>`).
 export function listAntigravityModelOptions() {
   let out = "";
   try {
@@ -288,12 +302,78 @@ export function listAntigravityModelOptions() {
   } catch {
     return [];
   }
-  return out.split("\n").map((l) => l.trim()).filter(Boolean).map((id) => ({
-    id,
-    label: id,
-    short: id,
-    desc: "",
-    efforts: [],
-    defaultEffort: ""
-  }));
+  return out.split("\n")
+    .map((l) => l.trim())
+    .filter((l) => Boolean(l) && !/^fetching/i.test(l))
+    .map((line) => {
+      const [id, ...rest] = line.split("\t");
+      const cleanId = (id || "").trim();
+      const label = rest.join(" ").trim() || cleanId;
+      return {
+        id: cleanId,
+        label,
+        short: label,
+        desc: "",
+        efforts: [],
+        defaultEffort: ""
+      };
+    })
+    .filter((m) => Boolean(m.id));
+}
+
+// Merge models matching OpenCode TUI structure:
+// Recent at the top, followed by OpenCode Go and OpenCode Zen.
+export async function listAllOpencodeModelOptions() {
+  const byId = new Map();
+  const recentIds = [];
+
+  // 1. Read recent models from OpenCode state file
+  try {
+    const stateFile = path.join(os.homedir(), ".local", "state", "opencode", "model.json");
+    const state = JSON.parse(fs.readFileSync(stateFile, "utf8"));
+    for (const r of state?.recent || []) {
+      if (r?.providerID && r?.modelID) {
+        recentIds.push(`${r.providerID}/${r.modelID}`);
+      }
+    }
+  } catch {}
+
+  // 2. Read CLI models (opencode models --verbose)
+  for (const m of listOpencodeModelOptions()) {
+    const provider = m.id.startsWith("opencode-go/") ? "opencode-go" : "opencode";
+    byId.set(m.id, {
+      ...m,
+      provider,
+      label: m.label || m.id,
+      short: m.short || m.id,
+      desc: m.desc || "",
+      contextWindow: m.contextWindow || 0
+    });
+  }
+
+  // 3. Read server models (GET /api/model) carrying contextWindow and display names
+  const serverModels = await listOpencodeModelOptionsFromServer();
+  for (const m of serverModels) {
+    const existing = byId.get(m.id);
+    const provider = m.id.startsWith("opencode-go/") ? "opencode-go" : "opencode";
+    byId.set(m.id, {
+      ...existing,
+      ...m,
+      provider,
+      label: m.label || existing?.label || m.id,
+      short: m.short || existing?.short || m.id
+    });
+  }
+
+  // 4. Attach recent info
+  const all = Array.from(byId.values()).map((m) => {
+    const recIdx = recentIds.indexOf(m.id);
+    return {
+      ...m,
+      recent: recIdx >= 0,
+      recentRank: recIdx >= 0 ? recIdx : 999
+    };
+  });
+
+  return all;
 }

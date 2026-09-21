@@ -5,7 +5,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAntigravityModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
+import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, listAntigravityModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.js";
@@ -200,7 +200,7 @@ async function cachedModelOptionsFor(engine) {
   if (engine === "opencode") {
     // The serve catalog is the only source carrying limit.context (contextWindow);
     // the CLI spawn stays as the fallback when no server answers.
-    options = await listOpencodeModelOptionsFromServer();
+    options = await listAllOpencodeModelOptions();
     if (!options.length) options = listOpencodeModelOptions();
   } else {
     options = listModelOptionsFor(engine);

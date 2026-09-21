@@ -68,6 +68,11 @@ await test("a model carrying its own tier never rides with --effort — agy refu
   adapter.setOptions({ effort: "bogus" });
   const kept = adapter.buildArgs("x");
   assert.deepEqual(kept.slice(kept.indexOf("--effort"), kept.indexOf("--effort") + 2), ["--effort", "medium"]);
+
+  // A model string carrying a tab-separated label is sanitized to the clean ID.
+  adapter.setOptions({ model: "gemini-3.8-flash-high\tGemini 3.8 Flash (High)", effort: "" });
+  const sanitized = adapter.buildArgs("x");
+  assert.deepEqual(sanitized.slice(sanitized.indexOf("--model"), sanitized.indexOf("--model") + 2), ["--model", "gemini-3.8-flash-high"]);
 });
 
 await test("adopts the conversation id so the next turn can resume", () => {
@@ -220,6 +225,41 @@ await test("a landed replace_file_content draws its -/+ lines, and a denied one 
   assert.equal(diff[1].file, "/tmp/a.js");
   assert.equal(diff[1].patch, "-old\n+new"); // the trailing \n must not become an empty line
   assert.equal(of("diff").length, 1); // the denied edit stays a tool row
+});
+
+await test("forwards thinking events from agent_response and thinking steps", () => {
+  const { of } = replay([
+    INIT,
+    step({ step_index: 1, state: "ACTIVE", step_type: "agent_response", thinking_delta: "Thinking about the sky..." }),
+    step({ step_index: 2, state: "ACTIVE", step_type: "thinking", text: "Refining Rayleigh scattering details." })
+  ]);
+  const thinkings = of("thinking").map(([, d]) => d.text);
+  assert.deepEqual(thinkings, ["Thinking about the sky...", "Refining Rayleigh scattering details."]);
+});
+
+await test("a landed multi_replace_file_content draws a diff card", () => {
+  const { of } = replay([
+    step({
+      step_index: 5,
+      state: "DONE",
+      step_type: "tool",
+      tool_name: "multi_replace_file_content",
+      tool_info: {
+        parameters: {
+          TargetFile: "/tmp/multi.js",
+          replacements: [
+            { target: "foo", replacement: "bar" },
+            { target: "baz", replacement: "qux" }
+          ]
+        }
+      }
+    })
+  ]);
+  const [diff] = of("diff");
+  assert.ok(diff, "diff card must be emitted for multi_replace_file_content");
+  assert.equal(diff[1].file, "/tmp/multi.js");
+  assert.ok(diff[1].patch.includes("-foo\n+bar"));
+  assert.ok(diff[1].patch.includes("-baz\n+qux"));
 });
 
 console.log(`=== ${pass} passed, ${fail} failed ===`);

@@ -69,12 +69,17 @@ await test("a non-zero exit codes the turn as an error even without a result", (
 
 await test("`agy models` becomes the host catalog", () => {
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), "agy-bin-"));
-  fs.writeFileSync(path.join(bin, "agy"), "#!/bin/sh\nprintf 'gemini-3.8-flash-high\\ngemini-3.1-pro-low\\nclaude-sonnet-4-6\\n'\n", { mode: 0o755 });
+  fs.writeFileSync(
+    path.join(bin, "agy"),
+    "#!/bin/sh\nprintf 'Fetching available models...\\ngemini-3.8-flash-high\\tGemini 3.8 Flash (High)\\ngemini-3.1-pro-low\\tGemini 3.1 Pro (Low)\\nclaude-sonnet-4-6\\tClaude Sonnet 4.6 (Thinking)\\n'\n",
+    { mode: 0o755 }
+  );
   const prevPath = process.env.PATH;
   process.env.PATH = `${bin}:${prevPath}`;
   try {
     const options = listAntigravityModelOptions();
     assert.deepEqual(options.map((o) => o.id), ["gemini-3.8-flash-high", "gemini-3.1-pro-low", "claude-sonnet-4-6"]);
+    assert.deepEqual(options.map((o) => o.label), ["Gemini 3.8 Flash (High)", "Gemini 3.1 Pro (Low)", "Claude Sonnet 4.6 (Thinking)"]);
     assert.ok(options.every((o) => o.label && o.short));
   } finally {
     process.env.PATH = prevPath;
