@@ -36,19 +36,16 @@ fn get_agent_pid() -> &'static std::sync::Arc<std::sync::Mutex<Option<u32>>> {
     AGENT_PID.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
 }
 
-// Kill agent process group so server.cjs + cloudflared children don't leak
-fn kill_agent_tree() {
-    let pid = match get_agent_pid().lock() {
-        Ok(mut g) => g.take(),
-        Err(_) => None,
-    };
-    let Some(pid) = pid else { return };
-    eprintln!("[Desktop] Killing agent tree PID: {pid}");
+// TERM the agent. `group` targets the whole process group — our own spawn is a
+// session leader, so its children die with it. The respawned (post-update)
+// agent is not a group leader; plain TERM is enough there because its exit
+// handler tears down server/tunnel itself.
+fn kill_agent(pid: u32, group: bool) {
     #[cfg(unix)]
     {
-        // Negative pid = kill entire process group
+        let target = if group { format!("-{pid}") } else { pid.to_string() };
         let _ = std::process::Command::new("kill")
-            .args(["-TERM", &format!("-{pid}")])
+            .args(["-TERM", &target])
             .status();
     }
     #[cfg(windows)]
@@ -58,6 +55,56 @@ fn kill_agent_tree() {
             .args(["/F", "/T", "/PID", &pid.to_string()])
             .creation_flags(CREATE_NO_WINDOW)
             .status();
+    }
+    let _ = group; // unused on windows — taskkill /T always covers the tree
+}
+
+fn agent_pid_file() -> String {
+    format!("{}/.9remote/pids/agent.pid", home_dir())
+}
+
+// Guard against PID reuse: only kill when the PID still names a 9remote process.
+fn is_9remote_process(pid: u32) -> bool {
+    #[cfg(unix)]
+    {
+        let out = std::process::Command::new("ps")
+            .args(["-p", &pid.to_string(), "-o", "command="])
+            .output();
+        out.map(|o| String::from_utf8_lossy(&o.stdout).contains("9remote"))
+            .unwrap_or(false)
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        let query = format!("(Get-CimInstance Win32_Process -Filter 'ProcessId={pid}').CommandLine");
+        let out = std::process::Command::new("powershell.exe")
+            .args(["-NoProfile", "-Command", &query])
+            .creation_flags(CREATE_NO_WINDOW)
+            .output();
+        out.map(|o| String::from_utf8_lossy(&o.stdout).contains("9remote"))
+            .unwrap_or(false)
+    }
+}
+
+// Kill agent process group so server.cjs + cloudflared children don't leak.
+// After a remote self-update the agent respawns itself, so our stored PID goes
+// stale — the respawn publishes its own PID in ~/.9remote/pids/agent.pid.
+fn kill_agent_tree() {
+    let spawned = match get_agent_pid().lock() {
+        Ok(mut g) => g.take(),
+        Err(_) => None,
+    };
+    if let Some(pid) = spawned {
+        eprintln!("[Desktop] Killing agent tree PID: {pid}");
+        kill_agent(pid, true);
+    }
+    if let Ok(text) = std::fs::read_to_string(agent_pid_file()) {
+        if let Ok(pid) = text.trim().parse::<u32>() {
+            if Some(pid) != spawned && is_9remote_process(pid) {
+                eprintln!("[Desktop] Killing respawned agent PID: {pid}");
+                kill_agent(pid, false);
+            }
+        }
     }
 }
 
@@ -1116,6 +1163,10 @@ fn spawn_9remote_ui(app: AppHandle) {
             #[cfg(not(unix))]
             cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
         }
+
+        // Mark the agent as shell-hosted: it must never spawn its own tray icon
+        // (this shell owns one). Inherited through its self-update restart.
+        cmd.env("NREMOTE_DESKTOP", "1");
 
         // New process group so SIGTERM to -pid kills entire tree on shutdown
         #[cfg(unix)]

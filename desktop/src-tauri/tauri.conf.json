@@ -13,6 +13,7 @@
       {
         "label": "main",
         "title": "9Remote",
+        "acceptFirstMouse": true,
         "width": 1280,
         "height": 840,
         "minWidth": 820,
