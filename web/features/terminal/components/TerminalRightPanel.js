@@ -76,12 +76,14 @@ function TerminalRightPanel({
   // The live per-repo counts win over the ones baked into the scan result: the scan is
   // refreshed by hand, the counts are polled, and the pane badge reads the same numbers.
   const countOf = (repo) => changedPerRepo[repo.path] ?? repo.changedCount ?? 0;
+  const isMainRepo = (repo) => !repo.relPath || repo.path === workspacePath;
   const visibleRepos = repos.filter((r) => !hiddenSet.has(r.path));
   const dirtyRepos = visibleRepos.filter((r) => countOf(r) > 0);
   // Badge on the Git tab: total changed files across the workspace's repos
   const dirtyCount = dirtyRepos.reduce((n, r) => n + countOf(r), 0);
-  const gitRepos = showCleanRepos ? visibleRepos : dirtyRepos;
-  const hiddenCleanCount = showCleanRepos ? 0 : visibleRepos.length - dirtyRepos.length;
+  // Main repo is kept visible even when unchanged so its branch and push actions stay accessible.
+  const gitRepos = showCleanRepos ? visibleRepos : visibleRepos.filter((r) => countOf(r) > 0 || isMainRepo(r));
+  const hiddenCleanCount = showCleanRepos ? 0 : visibleRepos.length - gitRepos.length;
   const mutedCount = repos.length - visibleRepos.length;
   // With a single repo in play there is nothing to choose between, so open it outright.
   const activeRepo = openRepo ?? (gitRepos.length === 1 ? gitRepos[0].path : null);
@@ -89,7 +91,7 @@ function TerminalRightPanel({
   const hideRepo = (repoPath) => onHiddenReposChange?.([...hiddenRepos, repoPath]);
   // Nested repos only: the workspace root has no relPath, and hiding it would leave this
   // tab permanently empty with no obvious way back.
-  const canHideRepo = (repo) => !!onHiddenReposChange && !!repo.relPath;
+  const canHideRepo = (repo) => !!onHiddenReposChange && !isMainRepo(repo);
 
   // Two visible tabs (trees is hidden) leave room for labels even at min width.
   const showTabLabels = !isDesktop || width >= RIGHT_PANEL_WIDTH.min;
