@@ -23,6 +23,11 @@ export const createLayoutSlice = (set, get) => ({
   sidebarWidth: SIDEBAR_WIDTH.default,
   setSidebarWidth: (w) => set({ sidebarWidth: clampWidth(w, SIDEBAR_WIDTH) }),
 
+  // Desktop full / split mode (default: split)
+  fullMode: false,
+  toggleFullMode: () => set((state) => ({ fullMode: !state.fullMode })),
+  setFullMode: (v) => set({ fullMode: !!v }),
+
   // Pane width per workspace (px). null/missing = auto
   paneWidths: {},
   setPaneWidth: (workspaceId, w) => set((state) => ({

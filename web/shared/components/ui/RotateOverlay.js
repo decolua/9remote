@@ -28,9 +28,12 @@ export default function RotateOverlay() {
   }, []);
 
   // Best-effort portrait lock, mobile only. Throws on iOS / non-fullscreen /
-  // desktop — expected, caught silently.
+  // desktop — expected, caught silently. Skip if inside Expo native app.
   useEffect(() => {
-    if (!isMobile) return;
+    const isExpo = typeof window !== "undefined" && (
+      !!window.ReactNativeWebView || /9Remote-Mobile/i.test(navigator.userAgent)
+    );
+    if (!isMobile || isExpo) return;
     let locked = false;
     const tryLock = async () => {
       try {

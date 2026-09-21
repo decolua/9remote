@@ -1,0 +1,1 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="24" height="24"><defs><linearGradient id="ompGradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#ff5fa8"/><stop offset=".5" stop-color="#8b6cf0"/><stop offset="1" stop-color="#3fc8de"/></linearGradient></defs><path fill="url(#ompGradient)" d="M10 14h44v9H43v33h-9V23h-9v22h-9V23H10z"/></svg>

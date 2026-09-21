@@ -58,6 +58,7 @@ export const useTerminalStore = create(
         pinnedNotes: state.pinnedNotes,
         sidebarCollapsed: state.sidebarCollapsed,
         sidebarWidth: state.sidebarWidth,
+        fullMode: state.fullMode,
         paneWidths: state.paneWidths,
         // autoPaneWidths is deliberately absent: it is per-layout-session memory of the
         // last narrowing, and a stale one would hold panes narrow on the next visit.

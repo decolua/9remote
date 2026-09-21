@@ -12,9 +12,6 @@ import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel"
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 
-// Temporarily disabled AI UIs on the new-terminal modal
-const DISABLED_AI_UIS = new Set(["opencode-ui", "antigravity-ui"]);
-
 const QUICK_KEYS_MAC = ["⌥", "⇧", "↵"];
 const QUICK_KEYS_PC = ["Ctrl", "⇧", "↵"];
 
@@ -90,16 +87,48 @@ export default function NewTerminalModal({
     listRef.current?.querySelector("[data-picked=true]")?.scrollIntoView({ block: "nearest" });
   }, [agentClis, agentId]);
 
-  // Combine built-in AI UI options with detected agent CLIs
-  const visibleAiUis = AI_UI_OPTIONS.filter((u) => !DISABLED_AI_UIS.has(u.id));
+  // Combine built-in AI UI options with detected agent CLIs, then sort:
+  //  empty spacer → Claude CLI → Claude UI → other pairs (CLI then UI) → CLI-only
+  const visibleAiUis = AI_UI_OPTIONS;
   const allAgents = (agentClis || []).flatMap((a) => {
     const ui = visibleAiUis.find((u) => u.aiEngine === a.id);
-    return ui ? [a, ui] : a;
+    return ui ? [a, ui] : [a];
   });
-  for (const u of visibleAiUis) if (!allAgents.includes(u)) allAgents.push(u);
+  for (const u of visibleAiUis) if (!allAgents.some((a) => a.id === u.id)) allAgents.push(u);
+
+  // Build a lookup: base engine id → its UI option (if any)
+  const uiById = new Map(visibleAiUis.map((u) => [u.aiEngine, u]));
+  const pairBases = new Set(uiById.keys()); // engines that have a UI variant
+
+  const claudeCli = allAgents.find((a) => a.id === "claude");
+  const claudeUi = allAgents.find((a) => a.id === "claude-ui");
+
+  // Non-claude pairs: each base appears as CLI then UI
+  const sortedPairs = [];
+  const seenBases = new Set(["claude"]);
+  for (const a of allAgents) {
+    const base = a.isAiUi ? a.aiEngine : a.id;
+    if (seenBases.has(base)) continue;
+    if (!pairBases.has(base)) continue;
+    seenBases.add(base);
+    const cli = allAgents.find((x) => !x.isAiUi && x.id === base);
+    const ui = uiById.get(base);
+    if (cli) sortedPairs.push(cli);
+    if (ui) sortedPairs.push(ui);
+  }
+  // UI-only entries (no matching CLI detected)
+  for (const u of visibleAiUis) {
+    if (!allAgents.some((a) => !a.isAiUi && a.id === u.aiEngine)) sortedPairs.push(u);
+  }
+
+  // CLI-only agents (no UI variant at all)
+  const cliOnly = allAgents.filter((a) => !a.isAiUi && !pairBases.has(a.id) && a.id !== "claude");
+
   const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
-  // Slot 1 is plain terminal; slot 2 is kept empty so Claude CLI & UI align on row 2, Codex on row 3
-  const options = [null, { empty: true }, ...allAgents];
+  // Slot 0: Plain terminal (row 1 left)
+  // Slot 1: empty spacer (row 1 right) — keeps pairs aligned on the same row
+  // Slot 2+: Claude CLI, Claude UI, then pairs CLI→UI, then CLI-only
+  const options = [null, { empty: true }, ...(claudeCli ? [claudeCli] : []), ...(claudeUi ? [claudeUi] : []), ...sortedPairs, ...cliOnly];
   const canSkip = !agent?.isAiUi && canSkipPermissions(agent);
   // The agent's own skip-mode token, e.g. --yolo / GOOSE_MODE=auto — null for plain shells
   const skipFlag = agent?.yolo

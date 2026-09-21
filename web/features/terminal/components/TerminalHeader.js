@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2 } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -15,6 +15,7 @@ import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "@/features/terminal/constants/shortcuts";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { isAgentOutdated } from "./AgentOutdatedBanner";
+import { isSameMachine } from "@/shared/utils/localOrigin";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -32,7 +33,7 @@ import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useKanbanStore } from "@/shared/stores/kanbanStore";
 
 // Engines a terminal can be swapped into the chat UI.
-const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex"]);
+const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex", "opencode"]);
 // A turn in flight owns the conversation: the host would have to move it out from under
 // a running CLI. Only a settled terminal (idle, or a finished turn) may switch.
 export const SWITCHABLE_STATES = new Set(["idle", "done"]);
@@ -82,9 +83,12 @@ function TerminalHeader({
   canSelfUpdate = false,
   fileBus = null,
   homeDir = null,
+  isDesktop = true,
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
+  const fullMode = useTerminalStore((s) => s.fullMode);
+  const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -456,7 +460,7 @@ function TerminalHeader({
         <Star size={13} className="text-yellow-500 fill-yellow-500" />
         {formattedStars && <span className="font-mono text-[11px]">{formattedStars}</span>}
       </a> */}
-      {showButton("remote") && onOpenRemote && (
+      {showButton("remote") && onOpenRemote && !isSameMachine() && (
         <button
           onClick={() => { vibrate(); onOpenRemote(); }}
           className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94]"
@@ -575,6 +579,22 @@ function TerminalHeader({
           >
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
+          {isDesktop && (
+            <button
+              onClick={() => {
+                vibrate();
+                if (!fullMode && tabMenu.sessionId && tabMenu.sessionId !== activeSessionId) {
+                  onSwitchSession?.(tabMenu.sessionId);
+                }
+                toggleFullMode();
+                setTabMenu({ sessionId: null, x: 0, y: 0 });
+              }}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+            >
+              {fullMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+              {fullMode ? t("sessions.restoreSplit") : t("sessions.maximize")}
+            </button>
+          )}
           {/* Per-tab background: the pool is global, this pins one for this terminal only */}
           <button
             onClick={() => { vibrate(); setTabBgSessionId(tabMenu.sessionId); setTabMenu({ sessionId: null, x: 0, y: 0 }); }}

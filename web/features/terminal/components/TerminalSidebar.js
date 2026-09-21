@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check, Image as ImageIcon } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check, Image as ImageIcon, Maximize2, Minimize2 } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
@@ -157,6 +157,8 @@ function TerminalSidebar({
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
+  const fullMode = useTerminalStore((s) => s.fullMode);
+  const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -570,6 +572,21 @@ function TerminalSidebar({
             className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
           >
             <Pencil size={13} /> {t("sessions.editName")}
+          </button>
+          <button
+            onClick={() => {
+              vibrate();
+              const id = ctxMenu.sessionId;
+              if (!fullMode && id && id !== activeSessionId) {
+                onSelectSession?.(id);
+              }
+              toggleFullMode();
+              setCtxMenu(null);
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+          >
+            {fullMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+            {fullMode ? t("sessions.restoreSplit") : t("sessions.maximize")}
           </button>
           {/* Per-session background, same door as the tab menu */}
           <button

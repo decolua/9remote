@@ -415,6 +415,7 @@ export class OmpEngine extends AiEngine {
         icon: "Zap",
         color: "#f59e0b",
       },
+      ui: { id: "omp-ui", label: "OMP UI", short: "OMP UI" },
       overrides: {
         tools: {
           bash: "bash",

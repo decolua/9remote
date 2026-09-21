@@ -169,9 +169,50 @@ export default function MenuItems({
   const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
   const artifact = useArtifactToggle(busRef, connected);
   // Treat native WebView (Expo) the same as PWA for UI gating
-  const isApp = typeof window !== "undefined" && (
-    window.matchMedia("(display-mode: standalone)").matches || push.isExpoWebView
+  const isExpo = typeof window !== "undefined" && (
+    push.isExpoWebView || !!window.ReactNativeWebView || /9Remote-Mobile/i.test(navigator.userAgent)
   );
+  const isApp = typeof window !== "undefined" && (
+    window.matchMedia("(display-mode: standalone)").matches || isExpo
+  );
+
+  const [orientation, setOrientation] = useState(() => {
+    if (typeof window !== "undefined") {
+      return window.CURRENT_ORIENTATION || localStorage.getItem("expo_orientation") || "portrait";
+    }
+    return "portrait";
+  });
+
+  useEffect(() => {
+    if (!isExpo) return;
+    const handler = (newOri) => {
+      if (newOri) {
+        setOrientation(newOri);
+        try { localStorage.setItem("expo_orientation", newOri); } catch {}
+      }
+    };
+    window.handleScreenOrientationChange = handler;
+    try {
+      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "GET_SCREEN_ORIENTATION" }));
+    } catch {}
+    return () => {
+      if (window.handleScreenOrientationChange === handler) {
+        window.handleScreenOrientationChange = undefined;
+      }
+    };
+  }, [isExpo]);
+
+  const handleOrientationChange = useCallback((mode) => {
+    vibrate();
+    setOrientation(mode);
+    try { localStorage.setItem("expo_orientation", mode); } catch {}
+    try {
+      window.ReactNativeWebView?.postMessage(JSON.stringify({
+        type: "SET_SCREEN_ORIENTATION",
+        orientation: mode
+      }));
+    } catch {}
+  }, []);
 
   return (
     <div className="p-3 space-y-0.5">
@@ -215,6 +256,36 @@ export default function MenuItems({
           )}
         </button>
       )}
+
+      {/* Screen orientation — Expo native app only (temporarily hidden) */}
+      {/* isExpo && (
+        <div className="w-full px-3 py-2 bg-surface rounded-brand-lg flex flex-col gap-2">
+          <div className="flex items-center gap-2.5">
+            <RotateCw className="text-brand-500" size={16} />
+            <span className="text-sm">{t("menu.orientation")}</span>
+          </div>
+          <div className="grid grid-cols-3 gap-1 bg-surface-2 p-1 rounded-brand">
+            {[
+              { id: "portrait", label: t("menu.orientationPortrait") },
+              { id: "landscape", label: t("menu.orientationLandscape") },
+              { id: "auto", label: t("menu.orientationAuto") }
+            ].map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => handleOrientationChange(item.id)}
+                className={`py-1 px-2 text-xs font-medium rounded-brand transition duration-150 ease-out text-center ${
+                  orientation === item.id
+                    ? "bg-brand-500 text-white shadow-sm"
+                    : "text-text-muted hover:text-text"
+                }`}
+              >
+                {item.label}
+              </button>
+            ))}
+          </div>
+        </div>
+      ) */}
 
       {/* Terminal settings — collapsible dropdown (font + theme + GPU render) */}
       {/* Header buttons — the same list the desktop settings screen offers, so a

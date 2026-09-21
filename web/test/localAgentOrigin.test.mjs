@@ -3,7 +3,7 @@
 // through to the Worker, and a dead tunnel then blocks a machine the LAN could
 // reach. Run: node --import ./test/loader-alias.mjs test/localAgentOrigin.test.mjs
 import assert from "node:assert/strict";
-import { agentOriginFrom } from "../shared/utils/localOrigin.js";
+import { agentOriginFrom, isSameMachine } from "../shared/utils/localOrigin.js";
 import { LOCAL_AGENT_ORIGIN, AGENT_PORT } from "../shared/constants/API.js";
 
 let pass = 0, fail = 0;
@@ -67,7 +67,38 @@ test("agent payload without a loopback answer still resolves", () => {
   assert.equal(agentOriginFrom({ permanentKey: "sk-abc" }), LOCAL_AGENT_ORIGIN);
 });
 
+test("isSameMachine returns true on localhost dev server", () => {
+  at("http://localhost:3000/workspace");
+  assert.equal(isSameMachine(), true);
+});
+
+test("isSameMachine returns true on 127.0.0.1 agent port", () => {
+  at(`http://127.0.0.1:${AGENT_PORT}/workspace`);
+  assert.equal(isSameMachine(), true);
+});
+
+test("isSameMachine returns true in Tauri desktop app even on custom domain", () => {
+  at("https://app.9remote.cc/workspace");
+  global.window.__TAURI__ = {};
+  assert.equal(isSameMachine(), true);
+  delete global.window.__TAURI__;
+});
+
+test("isSameMachine returns false on remote origin", () => {
+  at("https://dev.9remote.cc/workspace");
+  assert.equal(isSameMachine(), false);
+});
+
+test("isSameMachine returns false on LAN IP", () => {
+  at("http://192.168.1.50:2208/workspace");
+  assert.equal(isSameMachine(), false);
+});
+
 delete global.window;
+
+test("isSameMachine returns false when window is undefined", () => {
+  assert.equal(isSameMachine(), false);
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

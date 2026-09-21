@@ -2,6 +2,7 @@
 
 import { useRef, useCallback, useEffect, useMemo } from "react";
 import { centeredPaneScroll } from "@/features/terminal/lib/paneLayout";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 // Registries of per-pane APIs and DOM elements, plus the focus/scroll side effects that
 // depend on them (scroll the focused pane into view, preserve input focus across switches).
@@ -79,6 +80,10 @@ export function usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, cu
   const pendingScrollRafRef = useRef(0);
   const scrollPaneIntoView = useCallback((sessionId) => {
     if (!isDesktop) return;
+    if (useTerminalStore.getState().fullMode) {
+      if (panesContainerRef.current) panesContainerRef.current.scrollLeft = 0;
+      return;
+    }
     // A re-measure left over from the previous switch would scroll to the pane we just
     // left, so only the newest request is allowed to land.
     cancelAnimationFrame(pendingScrollRafRef.current);

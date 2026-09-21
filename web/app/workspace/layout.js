@@ -58,6 +58,7 @@ import SlideMenu from "@/shared/components/ui/SlideMenu";
 import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
 import { useLastRoute } from "@/shared/hooks/useLastRoute";
+import { viewToPath } from "@/features/terminal/constants/routeConfig";
 
 function RouteSyncTracker({ hydrated, apiKey }) {
   useRouteSync(hydrated);
@@ -495,8 +496,8 @@ export default function WorkspaceLayout({ children }) {
     setSlideClass(ids.indexOf(active) > ids.indexOf(prev) ? "term-slide-right" : "term-slide-left");
   }, [currentView, swipeAnimEnabled, openedSessions]);
 
-  // Pop view via browser history — history is the single source of truth, the store syncs
-  // from the URL via useRouteSync. Fall back to storePopView for deep-links with no prior entry.
+  // Pop view by updating viewStack and replacing route URL to match target view.
+  // Avoids router.back() to prevent WKWebView blank-screen rendering glitch and history races.
   const popView = useCallback(() => {
     // Mobile: close the editor overlay first (it's not in the viewStack) before navigating back
     if (!isDesktop && mobileEditor) {
@@ -504,9 +505,11 @@ export default function WorkspaceLayout({ children }) {
       setMobileEditor(null);
       return;
     }
+    const stack = Array.isArray(viewStack) ? viewStack : [];
+    const targetView = stack.length > 1 ? stack[stack.length - 2] : { type: "list" };
     storePopView();
-    if (typeof history !== "undefined" && history.length > 1) router.back();
-  }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor, removeArtifact]);
+    router.replace(viewToPath(targetView));
+  }, [router, storePopView, isDesktop, mobileEditor, setMobileEditor, removeArtifact, viewStack]);
 
   // The terminal header's back means "leave the terminal, go to the session list" — not
   // "undo one step". Stepping one history entry at a time landed on the previous terminal

@@ -1,6 +1,6 @@
 // Bundled agent CLI icons in web/public/agent-icons. Most are PNG favicons; the
 // few below ship as hand-authored SVG because upstream has no usable favicon.
-const SVG_ICON_IDS = new Set(["claude", "codex", "aider", "pi", "omp"]);
+const SVG_ICON_IDS = new Set(["claude", "codex", "aider", "pi", "omp", "omp-ui"]);
 
 export const AGENT_ICON_BASE = "/agent-icons";
 

@@ -80,10 +80,10 @@ export function useVoiceInput({
     !!window.ReactNativeWebView || /9Remote-Mobile/i.test(navigator.userAgent)
   );
 
-  const supported = typeof window !== "undefined" && !isExpo && (
+  const supported = typeof window !== "undefined" && (
     mode === "ai"
       ? !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
-      : !!getRecognition()
+      : (!isExpo && !!getRecognition())
   );
   const active = enabled && supported;
 
@@ -242,9 +242,8 @@ export function useVoiceInput({
   }, []);
 
   const start = useCallback((currentText = "") => {
-    if (isExpo) return;
     if (mode === "ai") { void startAi(currentText); return; }
-    if (!getRecognition()) return;
+    if (isExpo || !getRecognition()) return;
     baseRef.current = currentText ? currentText.replace(/\s*$/, "") + " " : "";
     setError(null);
     wantOnRef.current = true;

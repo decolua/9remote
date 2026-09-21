@@ -11,7 +11,13 @@ const IPV4 = /^(\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})$/;
 export function isLoopbackOrigin() {
   if (typeof window === "undefined") return false;
   const h = window.location.hostname;
-  return h === "localhost" || h === "::1" || h === "[::1]" || h.startsWith("127.");
+  return h === "localhost" || h === "::1" || h === "[::1]" || h.startsWith("127.") || h.endsWith(".localhost");
+}
+
+/** Check if running on the same machine as the agent (loopback or Tauri desktop app). */
+export function isSameMachine() {
+  if (typeof window === "undefined") return false;
+  return isLoopbackOrigin() || !!window.__TAURI__;
 }
 
 /** Check if running inside agent workspace (Tauri app, agent port, or static agent build). */

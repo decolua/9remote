@@ -183,7 +183,11 @@ export default {
     updateRestarting: "Đang khởi động lại agent…",
     updateReconnecting: "Đang kết nối lại…",
     updateDone: "Đã cập nhật! Đang tải lại…",
-    version: "Phiên bản"
+    version: "Phiên bản",
+    orientation: "Xoay màn hình",
+    orientationPortrait: "Dọc",
+    orientationLandscape: "Ngang",
+    orientationAuto: "Tự động"
   },
   workspace: {
     loading: "Đang tải...",
@@ -205,6 +209,8 @@ export default {
     deleteTitle: "Xóa Session",
     deleteMessage: "Bạn có chắc muốn xóa \"{name}\"?",
     editName: "Sửa tên",
+    maximize: "Phóng to",
+    restoreSplit: "Chia màn hình",
     openAsUi: "Mở dạng giao diện",
     openAsTerminal: "Mở dạng terminal",
     modeSwitchFailed: "Không chuyển được chế độ",

@@ -218,7 +218,11 @@ export default {
     updateRestarting: "Updating 9remote…",
     updateReconnecting: "Reconnecting…",
     updateDone: "Updated! Reloading…",
-    version: "Version"
+    version: "Version",
+    orientation: "Screen Orientation",
+    orientationPortrait: "Portrait",
+    orientationLandscape: "Landscape",
+    orientationAuto: "Auto"
   },
   workspace: {
     loading: "Loading...",
@@ -240,6 +244,8 @@ export default {
     deleteTitle: "Delete Session",
     deleteMessage: "Are you sure you want to delete \"{name}\"?",
     editName: "Edit name",
+    maximize: "Maximize",
+    restoreSplit: "Restore split",
     resumeSession: "Resume session",
     restartAi: "Restart AI",
     markRead: "Mark as read",
