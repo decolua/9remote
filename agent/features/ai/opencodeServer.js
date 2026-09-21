@@ -1,10 +1,14 @@
 // Manages long-lived OpenCode HTTP server process for rewind and file snapshot APIs.
 import { spawn } from "node:child_process";
 import { createLogger } from "../../lib/logger.js";
+import { OPENCODE_SERVER_PORT } from "./constants.js";
 
 const logger = createLogger("ai");
 const BOOT_TIMEOUT_MS = 15000;
 const PORT_POLL_MS = 250;
+// The command route blocks until the whole agent loop ends — the generic 30s
+// api timeout would abort live command turns mid-stream.
+const COMMAND_TIMEOUT_MS = 600000;
 
 const v2Sessions = new Set();
 
@@ -16,7 +20,8 @@ async function waitForPort(url, deadline) {
   while (Date.now() < deadline) {
     try {
       const res = await fetch(`${url}/api/session`, { signal: AbortSignal.timeout(2000) });
-      if (res.ok) return true;
+      // Another HTTP process on the port answers HTML — not our server.
+      if (res.ok && (res.headers.get("content-type") || "").includes("application/json")) return true;
     } catch {}
     await new Promise((r) => setTimeout(r, PORT_POLL_MS));
   }
@@ -106,17 +111,21 @@ export async function ensureServer() {
 }
 
 function serverPort() {
-  return 41998;
+  return OPENCODE_SERVER_PORT;
 }
 
-async function api(method, path, body) {
+async function api(method, path, body, { timeoutMs = 30000 } = {}) {
   const url = await ensureServer();
   const res = await fetch(`${url}${path}`, {
     method,
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
-    signal: AbortSignal.timeout(30000)
+    signal: AbortSignal.timeout(timeoutMs)
   });
+  // Unmatched /api/* paths answer 200 with the web UI's HTML — never data.
+  if ((res.headers.get("content-type") || "").includes("text/html")) {
+    throw new Error(`opencode ${path} unavailable (HTML answer — route missing on this server)`);
+  }
   const text = await res.text();
   let parsed;
   try { parsed = text ? JSON.parse(text) : null; } catch { parsed = text; }
@@ -145,14 +154,59 @@ export const prompt = (sessionId, body) =>
 export const setSessionModel = (sessionId, model) =>
   api("POST", `/api/session/${sessionId}/model`, { model });
 
+// v1 routes on the same serve process: the command menu (GET /command) and
+// command execution (POST /session/:id/command) — /api/command is bare on 1.18.x.
+const COMMAND_WARMUP_RETRY_MS = 400;
+
+export async function listCommands() {
+  let list = await api("GET", "/command");
+  // First call after boot can answer [] while commands load — retry once.
+  if (!Array.isArray(list) || list.length === 0) {
+    await new Promise((r) => setTimeout(r, COMMAND_WARMUP_RETRY_MS));
+    list = await api("GET", "/command");
+  }
+  return Array.isArray(list) ? list : [];
+}
+
+export const runCommand = (sessionId, body) =>
+  api("POST", `/session/${sessionId}/command`, body, { timeoutMs: COMMAND_TIMEOUT_MS });
+
+// Mode = agent on the v2 server (build = full access, plan = read-only).
+export const setSessionAgent = (sessionId, agent) =>
+  api("POST", `/api/session/${sessionId}/agent`, { agent });
+
+// v2 gates: permission/question requests and their replies.
+export const requestPermission = (sessionId, body) =>
+  api("POST", `/api/session/${sessionId}/permission`, body);
+
+export const pendingPermissions = (sessionId) =>
+  api("GET", `/api/session/${sessionId}/permission`);
+
+export const replyPermission = (sessionId, requestId, reply, message = "") =>
+  api("POST", `/api/session/${sessionId}/permission/${requestId}/reply`, { reply, ...(message ? { message } : {}) });
+
+export const pendingQuestions = (sessionId) =>
+  api("GET", `/api/session/${sessionId}/question`);
+
+export const replyQuestion = (sessionId, requestId, answers) =>
+  api("POST", `/api/session/${sessionId}/question/${requestId}/reply`, { answers });
+
+export const rejectQuestion = (sessionId, requestId) =>
+  api("POST", `/api/session/${sessionId}/question/${requestId}/reject`);
+
 export async function interruptSession(sessionId) {
   const url = await ensureServer();
   const res = await fetch(`${url}/api/session/${sessionId}/interrupt`, { method: "POST", signal: AbortSignal.timeout(10000) });
+  if ((res.headers.get("content-type") || "").includes("text/html")) {
+    throw new Error(`opencode interrupt unavailable (HTML answer — route missing on this server)`);
+  }
   if (!res.ok) throw new Error(`interrupt failed: HTTP ${res.status}`);
 }
 
 // Subscribe to global v2 event bus (GET /api/event SSE); caller filters by sessionID.
-export function subscribeBus(onEvent) {
+// onReconnect fires after every successful (re)connection so the caller can
+// reconcile state the gap may have missed — the stream itself has no replay.
+export function subscribeBus(onEvent, { onReconnect = null } = {}) {
   let closed = false;
   let currentReader = null;
   (async function loop() {
@@ -161,6 +215,7 @@ export function subscribeBus(onEvent) {
         const url = await ensureServer();
         const res = await fetch(`${url}/api/event`, { headers: { accept: "text/event-stream" } });
         if (!res.ok || !res.body) throw new Error(`event stream HTTP ${res.status}`);
+        if (onReconnect) { try { onReconnect(); } catch {} }
         const reader = res.body.getReader();
         currentReader = reader;
         const decoder = new TextDecoder();
@@ -207,6 +262,14 @@ export const commitRevert = (sessionId) => api("POST", `/api/session/${sessionId
 
 export const deleteSession = (sessionId) =>
   api("DELETE", `/api/session/${sessionId}`).finally(() => v2Sessions.delete(sessionId));
+
+// Test hook: point api() at a fake server instead of spawning opencode.
+export function _useTestBase(url) {
+  base = url;
+  // ensureServer short-circuits on a live proc; fake one while overridden.
+  proc = url ? { exitCode: null } : null;
+  booting = null;
+}
 
 export function stopServer() {
   try { proc?.kill(); } catch {}

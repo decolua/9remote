@@ -76,8 +76,27 @@ test("an option table is not a server", () => {
 });
 
 test("an engine with no reader of its own reports nothing, not another's", () => {
-  assert.deepEqual(listMcpServers("opencode"), []);
   assert.deepEqual(listMcpServers("antigravity"), []);
+});
+
+test("opencode reads its own config: mcp.servers local + remote", () => {
+  write(".config/opencode/opencode.json", JSON.stringify({
+    mcp: { servers: {
+      filesystem: { type: "local", command: ["npx", "-y", "@modelcontextprotocol/server-filesystem"] },
+      exa: { type: "remote", url: "https://mcp.exa.ai/mcp" }
+    } }
+  }));
+  const servers = listMcpServers("opencode");
+  assert.deepEqual(servers.map((s) => s.name), ["filesystem", "exa"]);
+  assert.equal(servers[0].type, "stdio");
+  assert.match(servers[0].command, /server-filesystem/);
+  assert.equal(servers[1].type, "http");
+  assert.match(servers[1].command, /^https:/);
+});
+
+test("opencode broken config is empty, and project config is not borrowed", () => {
+  write(".config/opencode/opencode.json", "not json {");
+  assert.deepEqual(listMcpServers("opencode"), []);
 });
 
 test("a quoted name keeps its real name", () => {

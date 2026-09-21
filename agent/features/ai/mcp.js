@@ -13,7 +13,29 @@ import os from "node:os";
 export function listMcpServers(engine = "claude") {
   if (engine === "claude") return claudeServers();
   if (engine === "codex") return codexServers();
+  if (engine === "opencode") return opencodeServers();
   return [];
+}
+
+/** OpenCode keeps them in ~/.config/opencode/opencode.json under mcp.servers. */
+function opencodeServers() {
+  const file = path.join(os.homedir(), ".config", "opencode", "opencode.json");
+  let data;
+  try {
+    data = JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return [];
+  }
+  const servers = data?.mcp?.servers || {};
+  return Object.entries(servers)
+    .filter(([, cfg]) => cfg && !cfg.disabled)
+    .map(([name, cfg]) => ({
+      id: name,
+      name,
+      type: cfg.type === "remote" || cfg.url ? "http" : "stdio",
+      command: cfg.url || (Array.isArray(cfg.command) ? cfg.command.join(" ") : String(cfg.command || "")),
+      status: "configured"
+    }));
 }
 
 /** Claude keeps them in ~/.claude/settings.json, keyed by name. */

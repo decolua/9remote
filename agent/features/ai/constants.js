@@ -2,7 +2,8 @@ export const AI_ENGINES = {
   CLAUDE: "claude",
   CODEX: "codex",
   OPENCODE: "opencode",
-  ANTIGRAVITY: "antigravity"
+  ANTIGRAVITY: "antigravity",
+  OMP: "omp"
 };
 
 // Overridable chat engine binary for testing.
@@ -25,6 +26,8 @@ export const AI_SOCKET_EVENTS = {
   REWIND: "ai:rewind",
   FILES: "ai:files",
   DOCTOR: "ai:doctor",
+  QUEUE_REMOVE: "ai:queueRemove",
+  QUEUE_CLEAR: "ai:queueClear",
   EVENT: "ai:event"
 };
 
@@ -57,3 +60,10 @@ export const AI_DOCTOR_TIMEOUT_MS = 30000;
 export const AI_MODEL_CACHE_TTL_MS = 30000;
 
 
+
+// OpenCode's mode IS its agent (build = full access, plan = read-only); the v2
+// runner reads only agent permissions, so a session ruleset PATCH would be inert.
+export const OPENCODE_MODE_AGENTS = { auto: "build", plan: "plan" };
+
+// Port of the shared `opencode serve` process the adapter manages.
+export const OPENCODE_SERVER_PORT = 41998;

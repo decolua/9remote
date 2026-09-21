@@ -102,7 +102,8 @@ test("a hydrate ack ships a tail and says there is more — that is what arms sc
   assert.match(SOCKET, /function publicSession\(session\)/);
   assert.match(SOCKET, /const \{ events, hasMore \} = replayWindow\(session\.history, AI_REPLAY_BYTES\)/);
   assert.match(SOCKET, /events,\s*hasMore,/);
-  assert.equal((SOCKET.match(/\.\.\.doorSession\(/g) || []).length, 3);
+  // The doors await doorSession (the opencode catalog fetch is async) — count both spellings.
+  assert.equal((SOCKET.match(/\.\.\.(?:await )?doorSession\(/g) || []).length, 3);
 });
 
 test("one door reads the CLI's store, and nothing asks whether the log looks thin", () => {
@@ -124,7 +125,7 @@ test("an ack is rebuilt, then described — in that order, from one place", () =
     body.indexOf("session.refreshFromStore()") < body.indexOf("emitConnectMetadata("),
     "the rebuild must precede the metadata it would otherwise throw away"
   );
-  assert.equal((SOCKET.match(/\.\.\.doorSession\(/g) || []).length, 3, "three doors, one builder");
+  assert.equal((SOCKET.match(/\.\.\.(?:await )?doorSession\(/g) || []).length, 3, "three doors, one builder");
   assert.equal((SOCKET.match(/session: publicSession\(/g) || []).length, 1, "publicSession is paired only in doorSession");
   assert.match(body, /session: publicSession\(session\)/);
 });

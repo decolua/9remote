@@ -4,6 +4,7 @@ import { createLogger } from "../../../lib/logger.js";
 import { stageAttachment, stagedPaths } from "../aiAttachment.js";
 import * as opencodeServer from "../opencodeServer.js";
 import { createOpencodeBusParser } from "../opencodeBus.js";
+import { OPENCODE_MODE_AGENTS } from "../constants.js";
 
 // The v2 prompt endpoint rejects an empty message; an attachment-only turn has no caption.
 const ATTACHMENT_ONLY_PROMPT = "See the attached file.";
@@ -45,6 +46,12 @@ export class OpenCodeAdapter {
     this.bus = null;         // {close} — the SSE subscription
     this.parser = null;      // bus envelopes → the pane's events
     this._interrupted = false;
+    // Open gates by request id — the session snapshot and resolvers read it.
+    this.pendingRequests = new Map();
+    // The CLI's own /command menu, fetched once and replayed on init.
+    this._commands = [];
+    this._commandsLoaded = false;
+    this._commandsPromise = null;
   }
 
   setOptions({ model, variant, mode, resume, flags }) {
@@ -63,6 +70,7 @@ export class OpenCodeAdapter {
     if (mode) {
       this.permissionMode = mode;
       this.metadata.permissionMode = mode;
+      if (this.activeSessionId) this._applyMode();
     }
     if (resume && resume !== this.activeSessionId) {
       this.activeSessionId = resume;
@@ -72,7 +80,83 @@ export class OpenCodeAdapter {
       this.metadata.pure = Boolean(flags.pure);
       this.metadata.printLogs = Boolean(flags.printLogs);
     }
+    this._refreshCommands();
     this.onEvent?.("init", { ...this.metadata });
+  }
+
+  // Live command list (GET /command) feeds the web '/' menu through init.
+  _refreshCommands() {
+    if (this._commandsLoaded || this._commandsPromise) return;
+    this._commandsPromise = this.server.listCommands()
+      .then((list) => {
+        this._commandsPromise = null;
+        if (!Array.isArray(list) || !list.length) return;
+        this._commandsLoaded = true;
+        this._commands = list
+          .map((c) => ({ name: String(c.name || ""), description: String(c.description || "") }))
+          .filter((c) => c.name);
+        this.metadata.commands = this._commands;
+        this.onEvent?.("init", { ...this.metadata });
+      })
+      .catch(() => { this._commandsPromise = null; });
+  }
+
+  // A non-fatal adapter problem: a warning row, never an `error` event —
+  // those release the running turn (aiStatus TURN_END_EVENTS).
+  _warn(message) {
+    this.onEvent?.("cli_event", { type: "warning", record: { message } });
+  }
+
+  _commandNames() {
+    return new Set(this._commands.map((c) => c.name));
+  }
+
+  // Mode = agent on the engine (build/plan); applied when a session exists.
+  _applyMode() {
+    if (!this.activeSessionId) return Promise.resolve();
+    const agent = OPENCODE_MODE_AGENTS[this.permissionMode];
+    if (!agent) return Promise.resolve();
+    return this.server.setSessionAgent(this.activeSessionId, agent)
+      .catch((e) => this._warn(`Could not switch the OpenCode mode: ${e.message}`));
+  }
+
+  // A gap in the bus (SSE reconnect) or a lost step.ended must not spin the
+  // turn until a user stop: settle it when the engine itself says idle.
+  _reconcileTurn() {
+    if (!this.isTurnRunning || !this.activeSessionId) return;
+    this.server.activeSessions()
+      .then((active) => {
+        const state = active?.[this.activeSessionId];
+        if (this.isTurnRunning && (!state || state.type === "idle")) {
+          this.isTurnRunning = false;
+          this.onEvent?.("turn_complete", { stats: this.stats, result: "", isError: false, subtype: "" });
+        }
+      })
+      .catch(() => {});
+  }
+
+  // Card buttons → the engine's three-way reply (once/always/reject).
+  resolvePermission(requestId, behavior, message = "") {
+    if (!this.pendingRequests.has(requestId)) return false;
+    this.pendingRequests.delete(requestId);
+    const reply = behavior === "allow" ? "once" : behavior === "allowAlways" ? "always" : "reject";
+    this.server.replyPermission(this.activeSessionId, requestId, reply, message)
+      .catch((e) => this._warn(`OpenCode permission reply failed: ${e.message}`));
+    return true;
+  }
+
+  // Card answers are keyed by question text; the engine wants label arrays in order.
+  resolveQuestion(requestId, answers = {}) {
+    if (!this.pendingRequests.has(requestId)) return false;
+    const pending = this.pendingRequests.get(requestId);
+    this.pendingRequests.delete(requestId);
+    const perQuestion = (pending.input?.questions || []).map((q) =>
+      [].concat(answers?.[q.question] ?? []).map(String).filter(Boolean));
+    const call = perQuestion.some((a) => a.length)
+      ? this.server.replyQuestion(this.activeSessionId, requestId, perQuestion)
+      : this.server.rejectQuestion(this.activeSessionId, requestId);
+    call.catch((e) => this._warn(`OpenCode question reply failed: ${e.message}`));
+    return true;
   }
 
   // Set session model on server; model requires provider prefix.
@@ -87,7 +171,7 @@ export class OpenCodeAdapter {
         ...(this.currentVariant ? { variant: this.currentVariant } : {})
       });
     } catch (e) {
-      this.onEvent?.("error", { message: `Could not set the OpenCode model: ${e.message}` });
+      this._warn(`Could not set the OpenCode model: ${e.message}`);
     }
   }
 
@@ -106,10 +190,7 @@ export class OpenCodeAdapter {
       try {
         const active = await this.server.activeSessions();
         const state = active?.[this.activeSessionId];
-        if (state && state.type !== "idle") {
-          this.isTurnRunning = true;
-          logger.info(`[TEMP DIAGNOSTIC] oc adopt → turn still running on server (${this.activeSessionId})`);
-        }
+        if (state && state.type !== "idle") this.isTurnRunning = true;
       } catch {
       }
     }
@@ -142,7 +223,7 @@ export class OpenCodeAdapter {
         }
       }
       this.parser.handle(envelope);
-    });
+    }, { onReconnect: () => this._reconcileTurn() });
   }
 
   handleEvent(envelope) {
@@ -151,14 +232,17 @@ export class OpenCodeAdapter {
   }
 
   _onBusEvent(event, data) {
-    if (event === "turn_complete" || event === "error" || event === "tool_result") {
-      logger.info(`[TEMP DIAGNOSTIC] oc bus ${event} subtype=${data?.subtype || "-"} turnRunning=${this.isTurnRunning} interrupted=${this._interrupted}`);
+    // Gate mirror: pendingRequests feeds the session snapshot and resolvers.
+    if (event === "permission_request") {
+      this.isTurnRunning = true;
+      this.pendingRequests.set(data.requestId, { toolName: data.tool, input: data.input });
+    } else if (event === "permission_resolved") {
+      this.pendingRequests.delete(data.requestId);
     }
     // Swallow error echo from an interrupt we initiated.
     if (event === "error" && this._interrupted) {
       this._interrupted = false;
       this.isTurnRunning = false;
-      logger.info("[TEMP DIAGNOSTIC] oc bus swallowed interrupted echo");
       return;
     }
     if (event === "turn_complete" || event === "error") this.isTurnRunning = false;
@@ -184,7 +268,28 @@ export class OpenCodeAdapter {
       if (this._interrupted) return;
       await this._applyModel();
       if (this._interrupted) return;
+      await this._applyMode();
+      if (this._interrupted) return;
       this._ensureBus();
+      // Cold-start: a command sent before the list answers must wait for it,
+      // not fall through to the LLM as plain text.
+      if (this._commandsPromise) await this._commandsPromise.catch(() => {});
+      // Whole-text known command → the CLI's own command route, not a prompt.
+      if (!staged) {
+        const slash = /^\/([\w.-]+)(?:\s+([\s\S]*))?$/.exec((promptText || "").trim());
+        if (slash && this._commandNames().has(slash[1])) {
+          await this.server.runCommand(this.activeSessionId, {
+            command: slash[1],
+            arguments: slash[2] || "",
+            ...(this.currentModel ? { model: this.currentModel } : {}),
+            ...(this.currentVariant ? { variant: this.currentVariant } : {})
+          });
+          // The command call blocks until the loop ends; its return is itself
+          // the authoritative turn end when the bus missed the events.
+          this._reconcileTurn();
+          return;
+        }
+      }
       await this.server.prompt(this.activeSessionId, buildPromptBody(promptText, staged));
     }).catch((e) => {
       this.isTurnRunning = false;
@@ -196,14 +301,11 @@ export class OpenCodeAdapter {
 
   // Interrupt current turn on server; session and context are preserved.
   interrupt() {
-    logger.info(`[TEMP DIAGNOSTIC] oc interrupt turnRunning=${this.isTurnRunning} session=${this.activeSessionId || "-"}`);
     if (!this.isTurnRunning) return false;
     this._interrupted = true;
     this.isTurnRunning = false;
     if (this.activeSessionId) {
-      this.server.interruptSession(this.activeSessionId)
-        .then(() => logger.info("[TEMP DIAGNOSTIC] oc interrupt POST ok"))
-        .catch((e) => logger.warn(`[TEMP DIAGNOSTIC] oc interrupt POST refused: ${e.message}`));
+      this.server.interruptSession(this.activeSessionId).catch(() => {});
     }
     return true;
   }

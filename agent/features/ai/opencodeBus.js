@@ -34,6 +34,16 @@ const SILENT_TYPES = new Set([
 // A finish that means the model called a tool and another step is coming.
 const TOOL_CALLS = "tool-calls";
 
+// Non session.next.* records the pane draws: the live gates and the todo feed.
+const LIVE_TYPES = new Set([
+  "permission.v2.asked",
+  "permission.v2.replied",
+  "question.v2.asked",
+  "question.v2.replied",
+  "question.v2.rejected",
+  "todo.updated",
+]);
+
 /**
  * One bus parser per chat. `stats` is the adapter's own object, mutated in place
  * so the door metadata and tests keep reading the same reference the old
@@ -44,6 +54,7 @@ export function createOpencodeBusParser({ onEvent, stats = {} }) {
   // settling events reference the call by id alone.
   const names = new Map();
   const inputs = new Map();
+  let todoSeq = 0;
 
   const addTokens = (tokens) => {
     stats.inputTokens = (stats.inputTokens || 0) + (tokens.input || 0);
@@ -58,9 +69,56 @@ export function createOpencodeBusParser({ onEvent, stats = {} }) {
 
   function handle(envelope) {
     const type = envelope?.type || "";
-    if (!type.startsWith("session.next.")) return;
+    if (!type.startsWith("session.next.") && !LIVE_TYPES.has(type)) return;
     if (SILENT_TYPES.has(type)) return;
     const data = envelope.data || {};
+
+    if (type === "permission.v2.asked") {
+      onEvent("permission_request", {
+        requestId: data.id,
+        tool: data.action || "permission",
+        input: { resources: data.resources || [], ...(data.metadata || {}) },
+        type: "permission"
+      });
+      return;
+    }
+    if (type === "permission.v2.replied") {
+      onEvent("permission_resolved", { requestId: data.requestID });
+      return;
+    }
+    if (type === "question.v2.asked") {
+      // The question card's contract: options, multiSelect flag, free-text box
+      // unless the engine says custom:false.
+      onEvent("permission_request", {
+        requestId: data.id,
+        tool: "AskUserQuestion",
+        input: {
+          questions: (data.questions || []).map((q) => ({
+            question: q.question || "",
+            header: q.header || "",
+            options: (q.options || []).map((o) => ({ label: o?.label || "", description: o?.description || "" })),
+            ...(q.multiple ? { multiSelect: true } : {}),
+            ...(q.custom === false ? {} : { isOther: true })
+          }))
+        },
+        type: "permission"
+      });
+      return;
+    }
+    if (type === "question.v2.replied" || type === "question.v2.rejected") {
+      onEvent("permission_resolved", { requestId: data.requestID });
+      return;
+    }
+    if (type === "todo.updated") {
+      // Replay as the todowrite pair the strip already understands; the rows are
+      // hidden from the timeline, so only the checklist moves.
+      const id = `todo-upd-${++todoSeq}`;
+      const todos = (Array.isArray(data.todos) ? data.todos : [])
+        .map((t) => ({ content: String(t?.content || ""), status: String(t?.status || "pending") }));
+      onEvent("tool_start", { id, name: "todowrite", input: { todos }, status: "running" });
+      onEvent("tool_result", { id, name: "todowrite", output: "", status: "done" });
+      return;
+    }
 
     if (type === "session.next.text.delta") {
       if (data.delta) onEvent("delta", { text: data.delta });

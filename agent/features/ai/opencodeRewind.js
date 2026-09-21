@@ -1,9 +1,8 @@
 // Rewind for opencode conversations, driven from the agent host.
 //
-// The conversation is read from opencode's own SQLite rather than its server: the
-// server's v2 store cannot see sessions that `opencode run` created (verified — the
-// session resolves by id, its messages come back empty), and those are exactly the
-// sessions 9Remote runs.
+// The conversation is read from opencode's own SQLite: sessions are created through
+// the serve server now, but the SQLite reader also serves any session the server's
+// v2 store does not know, and one reader for both beats two code paths.
 //
 // The file half goes through the server, because the snapshot/restore machinery lives
 // there. Staging is reversible, so it is also how the confirm dialog learns which files

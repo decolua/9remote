@@ -246,3 +246,54 @@ export function resolveDefaultEffort(engine) {
 
   return "";
 }
+
+// The serve server's own model list (GET /api/model): the only source that
+// carries limit.context, so the pane gets a real context-window denominator.
+// Falls back to [] (caller keeps the CLI spawn path as last resort).
+export async function listOpencodeModelOptionsFromServer() {
+  try {
+    const { ensureServer } = await import("./opencodeServer.js");
+    const base = await ensureServer();
+    const res = await fetch(`${base}/api/model`, { signal: AbortSignal.timeout(10000) });
+    if (!res.ok) return [];
+    const body = await res.json();
+    const models = Array.isArray(body?.data) ? body.data : [];
+    return models
+      .filter((m) => m?.id && m?.providerID)
+      .map((m) => {
+        const variants = Object.keys(m.variants || {});
+        const efforts = variants.filter((v) => v !== "default");
+        return {
+          id: `${m.providerID}/${m.id}`,
+          label: m.name || `${m.providerID}/${m.id}`,
+          short: m.name || m.id,
+          desc: "",
+          efforts,
+          // 'default' is a marker, not a reasoning level; medium is OpenCode's own middle.
+          defaultEffort: m.variants?.medium ? "medium" : efforts[0] || "",
+          contextWindow: m.limit?.context || 0
+        };
+      });
+  } catch {
+    return [];
+  }
+}
+
+// Antigravity model ids come straight from `agy models` (no JSON mode).
+export function listAntigravityModelOptions() {
+  let out = "";
+  try {
+    const res = spawnSync("agy", ["models"], { encoding: "utf8", timeout: OPENCODE_CATALOG_TIMEOUT_MS });
+    if (!res.error && res.status === 0) out = res.stdout || "";
+  } catch {
+    return [];
+  }
+  return out.split("\n").map((l) => l.trim()).filter(Boolean).map((id) => ({
+    id,
+    label: id,
+    short: id,
+    desc: "",
+    efforts: [],
+    defaultEffort: ""
+  }));
+}
