@@ -192,6 +192,19 @@ test("a user record the harness wrote itself does not open a bubble", () => {
   assert.equal(ev[1].type, "user");
 });
 
+test("a user record with <task-notification> emits a system task_notification cli_event", () => {
+  const { of } = feeding([{
+    type: "user",
+    message: { role: "user", content: [{ type: "text", text: "<task-notification><task-id>sub_123</task-id><tool-use-id>call_456</tool-use-id><status>completed</status></task-notification>" }] },
+    origin: { kind: "task-notification" }, uuid: "u", session_id: "s"
+  }]);
+  const taskEvents = of("cli_event").filter(([, d]) => d?.subtype === "task_notification");
+  assert.equal(taskEvents.length, 1);
+  assert.equal(taskEvents[0][1].record.task_id, "sub_123");
+  assert.equal(taskEvents[0][1].record.tool_use_id, "call_456");
+  assert.equal(taskEvents[0][1].record.status, "completed");
+});
+
 test("a replayed user record arrives too, marked as a replay", () => {
   const { of } = feeding([{
     type: "user", message: { role: "user", content: [{ type: "text", text: "old" }] },

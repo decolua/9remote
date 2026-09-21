@@ -4,7 +4,7 @@ import path from "path";
 import os from "os";
 import { isInjectedTurn } from "../terminal/agentHistory.js";
 import { buildEditDiff, DIFF_TOOL_NAMES, collapsePersisted } from "./adapters/claudeAdapter.js";
-import { toolStart, toolResult, asyncHandle } from "./toolEvent.js";
+import { toolStart, toolResult, asyncHandle, taskNotificationFrom } from "./toolEvent.js";
 
 // Untrusted client-supplied id: plain ids only, plus a projects-dir jail below — `..` would otherwise read any file on disk.
 export const CLAUDE_SESSION_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
@@ -12,42 +12,8 @@ export const CLAUDE_SESSION_ID_RE = /^[A-Za-z0-9_][A-Za-z0-9_-]{0,127}$/;
 // Origins the CLI writes its own messages under — not turns anyone typed.
 const CLAUDE_INJECTED_ORIGINS = ["task-notification"];
 
-// Fields of a <task-notification> body — the only end signal the transcript keeps for a task.
-const taskField = (text, name) => {
-  const m = new RegExp(`<${name}>([^<]*)</${name}>`).exec(text);
-  return m ? m[1].trim() : "";
-};
-
-// The harness's own task_notification shape — the pane folds task records with ONE reader (web/features/ai/lib/harnessTasks.js).
-function taskNotificationFrom(record) {
-  const content = record?.message?.content;
-  const text = typeof content === "string"
-    ? content
-    : (content || []).map((c) => (typeof c === "string" ? c : c?.text || "")).join(" ");
-  if (!text.includes("<task-notification>")) return null;
-  const taskId = taskField(text, "task-id");
-  if (!taskId) return null;
-  const toolUseId = taskField(text, "tool-use-id");
-  const outputFile = taskField(text, "output-file");
-  const status = taskField(text, "status");
-  const summary = taskField(text, "summary");
-  return {
-    event: "cli_event",
-    data: {
-      type: "system",
-      subtype: "task_notification",
-      record: {
-        type: "system",
-        subtype: "task_notification",
-        task_id: taskId,
-        ...(toolUseId ? { tool_use_id: toolUseId } : null),
-        ...(status ? { status } : null),
-        ...(outputFile ? { output_file: outputFile } : null),
-        ...(summary ? { summary } : null)
-      }
-    }
-  };
-}
+// Replay emits subtype: "task_notification" via taskNotificationFrom (shared with claudeAdapter).
+export { taskNotificationFrom };
 
 // The flags decide, not the text — most injected records carry no text marker, and passing one to --rewind-files fails the whole rewind.
 export function isClaudeInjectedTurn(record) {

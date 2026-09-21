@@ -8,7 +8,7 @@ import { claudeBin } from "../constants.js";
 
 // A rewind of a long session is not instant; timeout is opt-in — see JsonRpcClient.request.
 const REWIND_CONTROL_TIMEOUT_MS = 60000;
-import { asyncHandle } from "../toolEvent.js";
+import { asyncHandle, taskNotificationFrom } from "../toolEvent.js";
 import { JsonRpcClient } from "../proc/jsonRpcClient.js";
 
 // Records travel to the pane WHOLE under the harness's own field names — every renamed field is a place for pane and TUI to drift.
@@ -378,6 +378,9 @@ export class ClaudeAdapter {
     }
 
     if (data.type === "user" && data.message) {
+      const taskNotice = taskNotificationFrom(data);
+      if (taskNotice?.data) this.onEvent?.("cli_event", taskNotice.data);
+
       const contents = data.message.content || [];
       let rendered = false;
       for (const item of contents) {
