@@ -16,12 +16,12 @@ const test = (name, fn) =>
 const tick = (ms = 15) => new Promise((r) => setTimeout(r, ms));
 
 function fakeServer() {
-  const state = { agents: [], prompted: [] };
+  const state = { agents: [], prompted: [], created: [] };
   return {
     state,
     listCommands: async () => [],
     runCommand: async () => ({}),
-    createSession: async () => ({ id: "ses_new" }),
+    createSession: async (cwd, extras) => { state.created.push(extras); return { id: "ses_new" }; },
     prompt: async (sessionId, body) => { state.prompted.push(body); },
     setSessionModel: async () => {},
     setSessionAgent: async (sessionId, agent) => { state.agents.push({ sessionId, agent }); },
@@ -44,27 +44,31 @@ await test("the mode table maps onto real agent ids", () => {
   assert.equal(OPENCODE_MODE_AGENTS.plan, "plan");
 });
 
-await test("first prompt applies the mode's agent right after session create", async () => {
+await test("first prompt is BORN with the mode's agent, no PATCH", async () => {
   const server = fakeServer();
   const adapter = makeAdapter(server, "plan");
   await tick();
   adapter.sendPrompt("hello");
   await tick();
-  assert.deepEqual(server.state.agents, [{ sessionId: "ses_new", agent: "plan" }]);
+  assert.deepEqual(server.state.created[0], { agent: "plan" });
+  assert.deepEqual(server.state.agents, [], "no agent PATCH may ride the first turn");
   assert.ok(server.state.prompted.length, "prompt must still go out");
 });
 
-await test("switching mode on a live session switches the agent", async () => {
+await test("switching mode between turns switches the agent", async () => {
   const server = fakeServer();
   const adapter = makeAdapter(server, "auto");
   await tick();
   adapter.sendPrompt("hello");
   await tick();
-  adapter.setOptions({ mode: "plan" });
+  assert.equal(server.state.created[0].agent, "build");
+  adapter.setOptions({ mode: "plan" }); // deferred: the turn is still claimed
   await tick();
-  assert.equal(server.state.agents.length, 2);
-  assert.equal(server.state.agents[0].agent, "build");
-  assert.equal(server.state.agents[1].agent, "plan");
+  assert.deepEqual(server.state.agents, [], "no switch while the turn runs");
+  adapter.isTurnRunning = false; // the turn ended (bus would say so)
+  adapter.handleEvent({ type: "session.next.step.ended", data: { sessionID: adapter.activeSessionId, finish: "stop", tokens: { input: 1 } } }); // production turn-end path
+  await tick();
+  assert.deepEqual(server.state.agents, [{ sessionId: "ses_new", agent: "plan" }]);
 });
 
 await test("an unknown mode switches nothing", async () => {
@@ -73,9 +77,10 @@ await test("an unknown mode switches nothing", async () => {
   await tick();
   adapter.sendPrompt("hello");
   await tick();
+  adapter.isTurnRunning = false;
   adapter.setOptions({ mode: "yolo" });
   await tick();
-  assert.equal(server.state.agents.length, 1);
+  assert.deepEqual(server.state.agents, []);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

@@ -136,8 +136,8 @@ async function api(method, path, body, { timeoutMs = 30000 } = {}) {
   return parsed?.data !== undefined ? parsed.data : parsed;
 }
 
-export async function createSession(cwd) {
-  const s = await api("POST", "/api/session", { location: { directory: cwd } });
+export async function createSession(cwd, extras = {}) {
+  const s = await api("POST", "/api/session", { location: { directory: cwd }, ...extras });
   if (s?.id) v2Sessions.add(s.id);
   return s;
 }
@@ -209,11 +209,14 @@ export async function interruptSession(sessionId) {
 export function subscribeBus(onEvent, { onReconnect = null } = {}) {
   let closed = false;
   let currentReader = null;
+  // Aborts the in-flight connect too: close() during the fetch await leaks a
+  // live SSE connection nothing will ever read.
+  const abort = new AbortController();
   (async function loop() {
     while (!closed) {
       try {
         const url = await ensureServer();
-        const res = await fetch(`${url}/api/event`, { headers: { accept: "text/event-stream" } });
+        const res = await fetch(`${url}/api/event`, { headers: { accept: "text/event-stream" }, signal: abort.signal });
         if (!res.ok || !res.body) throw new Error(`event stream HTTP ${res.status}`);
         if (onReconnect) { try { onReconnect(); } catch {} }
         const reader = res.body.getReader();
@@ -247,6 +250,7 @@ export function subscribeBus(onEvent, { onReconnect = null } = {}) {
   return {
     close() {
       closed = true;
+      try { abort.abort(); } catch {}
       try { currentReader?.cancel(); } catch {}
     }
   };
