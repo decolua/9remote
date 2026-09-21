@@ -6,8 +6,8 @@ import { vibrate } from "@/shared/utils/vibration";
 
 // Shown when a CLI refuses an action because of its permission/sandbox policy.
 // Unlike AiPermissionCard there is nothing to allow or deny here: codex `exec`
-// and opencode `run` are non-interactive, so they cannot raise a prompt. The
-// only remedy is a wider mode, which this card offers directly.
+// and antigravity headless runs are non-interactive, so they cannot raise a
+// prompt. The only remedy is a wider mode, which this card offers directly.
 export const AiBlockedCard = memo(function AiBlockedCard({
   engine = "",
   message = "",

@@ -75,7 +75,7 @@ export const AiPaneView = memo(function AiPaneView({
   const [noteModalOpen, setNoteModalOpen] = useState(false);
   const { t } = useI18n();
 
-  const { sendPrompt, resolvePermission, stop, stopTask, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced, hydrateFailed } = useAiSession({
+  const { sendPrompt, removeQueueItem, clearQueue, resolvePermission, stop, stopTask, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced, hydrateFailed } = useAiSession({
     sessionId,
     engine,
     workspacePath,
@@ -368,7 +368,7 @@ export const AiPaneView = memo(function AiPaneView({
         onReload={reload}
       />
 
-      {/* Pinned blocked-action card: codex/opencode cannot prompt, so this offers a mode escalation */}
+      {/* Pinned blocked-action card: engines that cannot hold a gate (codex, antigravity) get a mode escalation */}
       {activeBlocked && !activePermission && (
         <div className="px-3 pb-2 select-none animate-in fade-in slide-in-from-bottom-2 duration-150 flex-shrink-0 z-30">
           <AiBlockedCard
@@ -409,6 +409,8 @@ export const AiPaneView = memo(function AiPaneView({
         sessionId={sessionId}
         engine={engine}
         onSend={sendPrompt}
+        onRemoveQueueItem={removeQueueItem}
+        onClearQueue={clearQueue}
         onStop={stop}
         onRunShell={runShell}
         onResolvePermission={resolvePermission}

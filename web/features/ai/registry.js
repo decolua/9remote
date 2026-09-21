@@ -373,14 +373,16 @@ export class OpenCodeEngine extends AiEngine {
           grep: "search",
           list: "search",
           view: "file",
+          plan_enter: "plan",
+          plan_exit: "plan",
         },
         models: [],
         permissionModes: [
-          { id: "default", label: "Default", desc: "Ask before executing", icon: PERMISSION_ICONS.ask },
-          { id: "auto", label: "Auto", desc: "Auto-approve all actions", icon: PERMISSION_ICONS.bypass },
+          { id: "auto", label: "Auto", desc: "Full tool access (build agent)", icon: PERMISSION_ICONS.bypass },
+          { id: "plan", label: "Plan", desc: "Read-only planning (plan agent)", icon: PERMISSION_ICONS.ask },
         ],
         defaultMode: "auto",
-        features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: true },
+        features: { thinking: true, planMode: true, tasks: false, skills: false, mcp: false, rewind: true },
         slashCommands: [
           { name: "/model", description: "Choose the OpenCode model", action: "modal:model" },
           { name: "/variant", description: "Model variant / reasoning effort", action: "submenu", optionKey: "variant", subOptions: VARIANT_OPTIONS },
@@ -399,6 +401,50 @@ export class OpenCodeEngine extends AiEngine {
   parseTaskEvent(toolName, input, toolCallId) {
     if (toolName === "todowrite") return this._parseReplaceAllTodos(input, toolCallId);
     return null;
+  }
+}
+
+export class OmpEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "omp",
+        label: "OMP",
+        desc: "oh-my-pi coding agent (rpc mode)",
+        badge: "OMP",
+        icon: "Zap",
+        color: "#f59e0b",
+      },
+      overrides: {
+        tools: {
+          bash: "bash",
+          edit: "diff",
+          write: "diff",
+          read: "file",
+          task: "agent",
+          todo: "task",
+          glob: "search",
+          grep: "search",
+          web_search: "search",
+          ask: "question",
+        },
+        models: [],
+        permissionModes: [
+          { id: "default", label: "Default", desc: "Ask before risky tools", icon: PERMISSION_ICONS.ask },
+          { id: "auto", label: "Auto", desc: "Auto-approve everything", icon: PERMISSION_ICONS.bypass },
+        ],
+        defaultMode: "default",
+        features: { thinking: true, planMode: false, tasks: true, skills: false, mcp: false, rewind: true },
+        slashCommands: [
+          { name: "/model", description: "Choose the OMP model", action: "modal:model" },
+          { name: "/effort", description: "Thinking level (set_thinking_level)", action: "submenu", optionKey: "effort", subOptions: EFFORT_OPTIONS },
+          { name: "/resume", description: "Resume a previous OMP session", action: "modal:sessions" },
+          { name: "/clear", description: "Start a fresh OMP session", action: "clear" },
+          { name: "/doctor", description: "Check the OMP installation", action: "modal:doctor" },
+          { name: "/rewind", description: "Go back to an earlier prompt in this conversation", action: "modal:rewind" },
+        ],
+      },
+    });
   }
 }
 
@@ -503,7 +549,7 @@ export class AntigravityEngine extends AiEngine {
           { name: "/resume", description: "Resume a previous Antigravity conversation", action: "modal:sessions" },
           { name: "/clear", description: "Start a fresh Antigravity conversation", action: "clear" },
           { name: "/doctor", description: "Check the Antigravity CLI installation", action: "modal:doctor" },
-          { name: "/plan", description: "Switch the session into read-only plan mode", action: "send" },
+          { name: "/plan", description: "Switch the session into read-only plan mode", action: "setMode", mode: "plan" },
         ],
       },
     });
@@ -532,6 +578,7 @@ registerEngine(new ClaudeEngine());
 registerEngine(new CodexEngine());
 registerEngine(new OpenCodeEngine());
 registerEngine(new AntigravityEngine());
+registerEngine(new OmpEngine());
 
 export function getEngineConfig(engineId = DEFAULT_ENGINE_ID) {
   return getEngine(engineId).config;

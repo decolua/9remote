@@ -4,6 +4,7 @@ import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History } from "@/shared/components/ui/Icon";
 import { ENGINE_INFO, SKIP_BEHAVIOR, SKIP_MESSAGE } from "../constants";
 import { getEngineConfig } from "../registry";
+import { buildSlashItems } from "../lib/slashMenu";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
@@ -26,6 +27,8 @@ export const Composer = memo(function Composer({
   isTurnRunning: propTurnRunning = false,
   isFocused = false,
   onSend,
+  onRemoveQueueItem,
+  onClearQueue,
   onStop,
   onRunShell,
   onResolvePermission,
@@ -50,6 +53,8 @@ export const Composer = memo(function Composer({
   const hostModels = useAiStore((s) => s.bySession[sessionId]?.metadata?.modelOptions);
   const MODELS = hostModels?.length ? hostModels : engineConfig.models;
   const storeSkills = useAiStore((s) => s.bySession[sessionId]?.metadata?.skills) || EMPTY_ARRAY;
+  // Live engine command feed (opencode /command, omp available_commands_update).
+  const storeCommands = useAiStore((s) => s.bySession[sessionId]?.metadata?.commands) || EMPTY_ARRAY;
   const storeMode = useAiStore((s) => s.bySession[sessionId]?.permissionMode);
   const storeTier = useAiStore((s) => s.bySession[sessionId]?.metadata?.effort || s.bySession[sessionId]?.metadata?.variant);
   const permissionMode = storeMode || engineConfig.defaultMode;
@@ -58,8 +63,8 @@ export const Composer = memo(function Composer({
   const rawModel = storeModel !== undefined ? storeModel : propModel;
 
   const [text, setText] = useState("");
-  // Queue of messages sent while turn is running (unpersisted to avoid storage quota).
-  const [queue, setQueue] = useState(EMPTY_ARRAY);
+  // Queue from agent session store (persisted on host across mobile disconnects).
+  const queue = useAiStore((s) => s.bySession[sessionId]?.queue) || EMPTY_ARRAY;
   const [historyIdx, setHistoryIdx] = useState(-1);
   const draftRef = useRef("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -180,10 +185,9 @@ export const Composer = memo(function Composer({
     }
   }, [selectedIdx, menuOpen]);
 
-  // Reset queue, attachments, and restore draft on session change.
+  // Reset attachments and restore draft on session change.
   useEffect(() => {
     if (!sessionId) return;
-    setQueue(EMPTY_ARRAY);
     setAttachments([]);
     try {
       setText(localStorage.getItem(`9remote_draft_${sessionId}`) || "");
@@ -226,18 +230,12 @@ export const Composer = memo(function Composer({
     setSelectedIdx(0);
 
     if (trigger === "/") {
-      const skillCmds = storeSkills.map((s) => ({
-        name: `/${s.name || s.id}`,
-        description: s.description || `Skill: ${s.name || s.id}`,
-        isSkill: true
-      }));
-      const allCommands = [...SLASH_COMMANDS, ...skillCmds];
-      const seen = new Set();
-      // A skill can share a builtin's name (/simplify, /init): first one wins, no dup keys.
-      const filtered = allCommands.filter((cmd) => {
-        if (seen.has(cmd.name) || !cmd.name.toLowerCase().includes(filter)) return false;
-        seen.add(cmd.name);
-        return true;
+      // A live command or skill can share a host builtin's name: first one wins.
+      const filtered = buildSlashItems({
+        staticCommands: SLASH_COMMANDS,
+        liveCommands: storeCommands,
+        skills: storeSkills,
+        filter
       });
       setMenuItems(filtered);
       setMenuOpen(filtered.length > 0);
@@ -267,7 +265,7 @@ export const Composer = memo(function Composer({
         setMenuOpen(false);
       }
     }
-  }, [text, fileBus, workspacePath, storeSkills, SLASH_COMMANDS, submenuCmd]);
+  }, [text, fileBus, workspacePath, storeSkills, storeCommands, SLASH_COMMANDS, submenuCmd]);
 
   const executeSend = useCallback((overrideText) => {
     const raw = typeof overrideText === "string" ? overrideText : (textareaRef.current ? textareaRef.current.value : text);
@@ -300,40 +298,11 @@ export const Composer = memo(function Composer({
     const gate = useAiStore.getState().bySession[sessionId]?.activePermission;
     if (gate) onResolvePermission?.(gate.requestId, SKIP_BEHAVIOR, SKIP_MESSAGE);
 
-    if (useAiStore.getState().bySession[sessionId]?.isTurnRunning) {
-      setQueue((q) => [...q, { id: `q-${now}`, text: trimmed, attachments: pending }]);
-      setAttachments([]);
-      return;
-    }
-
     if (pending.length) setAttachments([]);
     onSend?.(trimmed, {
       attachments: pending.map(({ name, type, content }) => ({ filename: name, type, content }))
     });
-  }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias, setQueue]);
-
-  // Dispatch next queued message after previous turn ends.
-  const dispatchQueued = useCallback((item) => {
-    if (item.text.startsWith("!")) {
-      onRunShell?.(item.text.slice(1).trim());
-      return;
-    }
-    const files = (item.attachments || []).map(({ name, type, content }) => ({ filename: name, type, content }));
-    onSend?.(item.text, files.length ? { attachments: files } : undefined);
-  }, [onSend, onRunShell]);
-
-  // Dispatch one queued item on transition from running to idle.
-  const queueRef = useRef(queue);
-  useEffect(() => { queueRef.current = queue; }, [queue]);
-  const prevRunningRef = useRef(isTurnRunning);
-  useEffect(() => {
-    const ended = prevRunningRef.current && !isTurnRunning;
-    prevRunningRef.current = isTurnRunning;
-    if (!ended || queueRef.current.length === 0) return;
-    const [next, ...rest] = queueRef.current;
-    setQueue(rest);
-    dispatchQueued(next);
-  }, [isTurnRunning, dispatchQueued, setQueue]);
+  }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias]);
 
   const handleStopClick = useCallback(() => {
     vibrate();
@@ -360,17 +329,12 @@ export const Composer = memo(function Composer({
       return;
     }
     if (kind === "send" || action === "send") {
-      if (isTurnRunning) {
-        setQueue((q) => [...q, { id: `q-${Date.now()}`, text: item.name, attachments: EMPTY_ARRAY }]);
-        setText("");
-        return;
-      }
       onSend?.(item.name);
       setText("");
       return;
     }
     textareaRef.current?.focus();
-  }, [onOpenModal, onSend, isTurnRunning, onModeChange, setQueue]);
+  }, [onOpenModal, onSend, onModeChange]);
 
   const selectMenuItem = useCallback((item) => {
     vibrate();
@@ -399,7 +363,7 @@ export const Composer = memo(function Composer({
       return;
     }
     runSlashAction(item);
-  }, [text, menuType, runSlashAction]);
+  }, [text, menuType, runSlashAction, isTurnRunning]);
 
   const selectSubOption = useCallback((option) => {
     vibrate();
@@ -462,7 +426,7 @@ export const Composer = memo(function Composer({
       }
       if (queue.length > 0) {
         e.preventDefault();
-        setQueue(EMPTY_ARRAY);
+        onClearQueue?.();
         return;
       }
     }
@@ -703,21 +667,22 @@ export const Composer = memo(function Composer({
                 )}
               </div>
               <div className="flex items-center gap-1 shrink-0 ml-2">
+                {idx === 0 && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      vibrate();
+                      handleStopClick();
+                    }}
+                    className="text-text-muted hover:text-brand-400 p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer"
+                    title="Send now (stops the current turn)"
+                  >
+                    <Send size={13} />
+                  </button>
+                )}
                 <button
                   type="button"
-                  onClick={() => {
-                    vibrate();
-                    if (idx === 0) { handleStopClick(); return; }
-                    setQueue((q) => [item, ...q.filter((x) => x.id !== item.id)]);
-                  }}
-                  className="text-text-muted hover:text-brand-400 p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer"
-                  title={idx === 0 ? "Send now (stops the current turn)" : "Send this one next"}
-                >
-                  <Send size={13} />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { vibrate(); setQueue((q) => q.filter((x) => x.id !== item.id)); }}
+                  onClick={() => { vibrate(); onRemoveQueueItem?.(item.id); }}
                   className="text-text-muted hover:text-text p-1 rounded hover:bg-surface-2 transition-colors cursor-pointer"
                   title="Remove from queue"
                 >

@@ -159,3 +159,21 @@ if (fail > 0) {
 } else {
   console.log(`\nAll tests passed: ${pass}/${pass}`);
 }
+
+await test("antigravity /plan switches the mode instead of sending text", () => {
+  // agy cannot interpret a literal "/plan" prompt — the composer must flip the mode flag.
+  const plan = getEngineConfig("antigravity").slashCommands.find((c) => c.name === "/plan");
+  assert.equal(plan.action, "setMode");
+  assert.equal(plan.mode, "plan");
+});
+
+await test("OMP is a registered engine with the shared surfaces", () => {
+  const engine = listEngineInstances().find((e) => e.id === "omp");
+  assert.ok(engine, "omp engine not registered");
+  const cfg = getEngineConfig("omp");
+  assert.ok(cfg.slashCommands.some((c) => c.name === "/model"));
+  assert.equal(engine.getToolCategory("bash"), "bash");
+  assert.equal(engine.getToolCategory("write"), "diff");
+  assert.equal(engine.getToolCategory("task"), "agent");
+  assert.equal(cfg.permissionModes.length, 2);
+});

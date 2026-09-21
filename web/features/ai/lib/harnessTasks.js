@@ -287,6 +287,24 @@ function compactFrom(record) {
  */
 export function noticeFrom(type, record) {
   if (!record) return null;
+  // OpenCode runner records ride whole under session.next.* names (cli_event);
+  // only the ones a reader needs to see get a row, the rest stay stored silently.
+  if (type.startsWith("session.next.")) {
+    if (type === "session.next.retried") {
+      const text = `Retrying (attempt ${record.attempt ?? "?"}): ${record.error?.message || ""}`.trim();
+      return { subtype: type, level: "warning", content: text };
+    }
+    if (type === "session.next.compaction.started") {
+      return { subtype: type, level: "info", content: "Compacting…", compacting: true };
+    }
+    if (type === "session.next.compaction.ended") {
+      return { subtype: type, level: "info", content: "Compacted", compactSettled: true };
+    }
+    if (type === "session.next.revert.staged") return { subtype: type, level: "info", content: "Rewind staged" };
+    if (type === "session.next.revert.committed") return { subtype: type, level: "info", content: "Rewound the conversation" };
+    if (type === "session.next.agent.switched") return { subtype: type, level: "info", content: `Agent: ${record.agent || ""}` };
+    return null;
+  }
   if (type === "warning" || type === "guardianWarning" || type === "configWarning" || type === "deprecationNotice") return null;
   // Codex says the same things under its own names, and it says them the same way: a
   // record whose whole point IS the sentence (`warning`, `warning`/`guardianWarning`,

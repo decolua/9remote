@@ -523,3 +523,28 @@ test("a refused prompt is a notice, not a turn ending", () => {
 
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;
+
+// OpenCode runner records (session.next.*) that ride whole as cli_event.
+test("opencode retried becomes a warning row", () => {
+  const n = noticeFrom("session.next.retried", { attempt: 2, error: { message: "rate limited" } });
+  assert.equal(n.level, "warning");
+  assert.match(n.content, /attempt 2/);
+  assert.match(n.content, /rate limited/);
+});
+
+test("opencode compaction start and end share the claude row lifecycle", () => {
+  const start = noticeFrom("session.next.compaction.started", {});
+  assert.equal(start.compacting, true);
+  const end = noticeFrom("session.next.compaction.ended", {});
+  assert.equal(end.compactSettled, true);
+  assert.equal(noticeFrom("session.next.compaction.delta", {}), null);
+});
+
+test("opencode revert and agent switch become info rows", () => {
+  assert.match(noticeFrom("session.next.revert.committed", {}).content, /rewind/i);
+  assert.match(noticeFrom("session.next.agent.switched", { agent: "plan" }).content, /plan/);
+});
+
+test("unknown opencode records stay silent, not dropped", () => {
+  assert.equal(noticeFrom("session.next.shell.started", { command: "x" }), null);
+});
