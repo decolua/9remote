@@ -334,15 +334,29 @@ function registryFlag() {
   return "";
 }
 
-// Install back into prefix to avoid mislocating Electron-bundled installs
-function prefixFlag() {
+// Install back into the prefix we run from. `/lib/node_modules` marks a real
+// global root (npm -g lands in lib/ again); a bare `node_modules` prefix is a
+// private/local install (Tauri shell) where -g would add `lib/` and miss it on
+// POSIX. On Windows -g and non-g share the same dir, so this is safe there.
+function npmInstallFlags() {
   const cli = getCliEntry();
   const sep = path.sep;
-  for (const marker of [`${sep}lib${sep}node_modules${sep}`, `${sep}node_modules${sep}`]) {
-    const i = cli.indexOf(marker);
-    if (i > 0) return `--prefix "${cli.slice(0, i)}"`;
-  }
-  return "";
+  const libMarker = `${sep}lib${sep}node_modules${sep}`;
+  let i = cli.indexOf(libMarker);
+  if (i > 0) return { global: "-g", prefix: `--prefix "${cli.slice(0, i)}"` };
+  i = cli.indexOf(`${sep}node_modules${sep}`);
+  if (i > 0) return { global: "", prefix: `--prefix "${cli.slice(0, i)}"` };
+  return { global: "-g", prefix: "" };
+}
+
+// Restart in the mode the CLI was launched with — `ui` under the Tauri shell
+// (which owns the tray itself), tray/auto standalone. A bare TUI launch has no
+// mode flag and the detached script has no TTY, so fall back to tray mode.
+function restartArgs() {
+  const args = process.argv.slice(2).filter((a) => a !== "--skip-update");
+  const hasMode = args.includes("ui") || args.includes("start")
+    || args.some((a) => ["--tray", "--auto", "--start"].includes(a));
+  return hasMode ? `${args.join(" ")} --skip-update` : "--tray --skip-update --start";
 }
 
 // Fallback to bundled npm and Electron Node if system npm is missing
@@ -363,7 +377,8 @@ function buildUpdateScript({ currentVersion, latest, agentPid }) {
   const nodeEnv = nodeBinEnvPrefix();
   const cliEntry = getCliEntry();
   const lock = LOCK_PATH;
-  const npmFlags = `--prefer-online --no-audit --no-fund ${reg} ${prefixFlag()}`.trim();
+  const { global: globalFlag, prefix } = npmInstallFlags();
+  const npmFlags = `${globalFlag} --prefer-online --no-audit --no-fund ${reg} ${prefix}`.trim();
   const npm = npmCommand();
 
   if (process.platform === "win32") {
@@ -393,10 +408,10 @@ timeout /t 3 /nobreak >nul
 set ATTEMPT=0
 :installloop
 set /a ATTEMPT+=1
-call ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags} >nul 2>&1
+call ${npm} install ${NPM_INSTALL_SPEC} ${npmFlags} >nul 2>&1
 if !ERRORLEVEL! EQU 0 goto verify
 if !ATTEMPT! GEQ ${UPDATE.maxRetry} (
-  call ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional >nul 2>&1
+  call ${npm} install ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional >nul 2>&1
   goto verify
 )
 timeout /t 3 /nobreak >nul
@@ -415,7 +430,7 @@ for /f "usebackq tokens=* delims= " %%V in ("%VERFILE%") do (
 del /f /q "%VERFILE%" >nul 2>&1
 if defined NEWVER set "NEWVER=!NEWVER: =!"
 if not "!NEWVER!"=="${latest}" (
-  call ${npm} install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >nul 2>&1
+  call ${npm} install ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >nul 2>&1
 )
 del /f /q "${lock}" >nul 2>&1
 
@@ -428,7 +443,7 @@ exit /b 0
     // Run window style 0 = invisible; False = don't wait.
     writeFileSync(
       restartVbsPath,
-      `CreateObject("WScript.Shell").Run "\"\"%NODE%\"\" \"\"%CLI%\"\" --tray --skip-update --start", 0, False`
+      `CreateObject("WScript.Shell").Run "\"\"%NODE%\"\" \"\"%CLI%\"\" ${restartArgs()}", 0, False`
         .replace("%NODE%", nodeBin).replace("%CLI%", cliEntry) + "\n"
     );
     // Launch .bat fully hidden + detached via VBS (window style 0 = no console flash).
@@ -457,9 +472,9 @@ attempt=0
 while [ $attempt -lt ${UPDATE.maxRetry} ]; do
   attempt=$((attempt+1))
   echo "Installing (attempt $attempt)..."
-  if ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags}; then break; fi
+  if ${npm} install ${NPM_INSTALL_SPEC} ${npmFlags}; then break; fi
   if [ $attempt -eq ${UPDATE.maxRetry} ]; then
-    ${npm} install -g ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional || true
+    ${npm} install ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional || true
   fi
   sleep 3
 done
@@ -469,11 +484,11 @@ done
 NEWVER=$(${nodeEnv}"${nodeBin}" "${cliEntry}" --version 2>/dev/null | head -1 | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '[:space:]')
 if [ "$NEWVER" != "${latest}" ]; then
   echo "Verify failed (got $NEWVER, want ${latest}), rolling back to ${currentVersion}..."
-  ${npm} install -g ${PACKAGE_NAME}@${currentVersion} ${npmFlags} || true
+  ${npm} install ${PACKAGE_NAME}@${currentVersion} ${npmFlags} || true
 fi
 
 rm -f "${lock}"
-${nodeEnv}"${nodeBin}" "${cliEntry}" --tray --skip-update --start
+${nodeEnv}"${nodeBin}" "${cliEntry}" ${restartArgs()}
 `;
   const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.sh`);
   writeFileSync(scriptPath, script, { mode: 0o755 });

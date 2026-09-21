@@ -51,6 +51,8 @@ function getIconBase64() {
 }
 
 function isTraySupported() {
+  // Desktop shell (Tauri) hosts the agent and owns the tray — never add a second icon
+  if (process.env.NREMOTE_DESKTOP) return false;
   const platform = process.platform;
   if (!["darwin", "win32", "linux"].includes(platform)) return false;
   if (platform === "linux" && !process.env.DISPLAY) return false;
