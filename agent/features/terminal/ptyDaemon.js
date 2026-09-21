@@ -175,7 +175,9 @@ function createProc(procId, { bin, args = [], cwd, env } = {}) {
   const child = spawn(bin, args, {
     cwd: cwd && fs.existsSync(cwd) ? cwd : getDefaultCwd(),
     stdio: ["pipe", "pipe", "pipe"],
-    env: { ...process.env, ...(env || {}) }
+    env: { ...process.env, ...(env || {}) },
+    // Own session/group: stopping a CLI can then signal the whole tree like a closed terminal.
+    detached: process.platform !== "win32"
   });
 
   const proc = {
@@ -277,15 +279,28 @@ function signalProc(procId, signal = "SIGINT") {
   return { success: true };
 }
 
+// Signal the CLI's whole process group — mirrors a terminal, where closing the tab reaches every process the CLI spawned.
+function killProcTree(child, signal) {
+  if (!child?.pid) return;
+  try {
+    if (process.platform === "win32") {
+      // Windows cannot deliver a graceful SIGINT — tree-kill directly (spawn errors are async, so they need a handler).
+      spawn("taskkill", ["/pid", String(child.pid), "/T", "/F"]).on("error", () => {});
+    } else {
+      process.kill(-child.pid, signal);
+    }
+  } catch {}
+}
+
 function stopProc(procId) {
   const proc = procs.get(procId);
   if (!proc) return { success: false, error: "Process not found" };
   const child = proc.child;
   if (child) {
-    try { child.kill("SIGINT"); } catch {}
-    const timer = setTimeout(() => { try { child.kill("SIGKILL"); } catch {} }, PROC_KILL_GRACE_MS);
+    killProcTree(child, "SIGINT");
+    // SIGKILL stays armed even after a graceful exit — INT-ignoring grandchildren (shell `&` jobs) would otherwise orphan.
+    const timer = setTimeout(() => killProcTree(child, "SIGKILL"), PROC_KILL_GRACE_MS);
     timer.unref?.();
-    child.once("close", () => clearTimeout(timer));
   }
   procs.delete(procId);
   return { success: true };
@@ -639,7 +654,7 @@ function startDaemon() {
       }
     }
     for (const [, proc] of procs) {
-      try { proc.child?.kill("SIGINT"); } catch {}
+      killProcTree(proc.child, "SIGINT");
     }
     try { server.close(); } catch {}
     if (process.platform !== "win32" && fs.existsSync(SOCKET_PATH)) {
