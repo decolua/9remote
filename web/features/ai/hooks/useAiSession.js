@@ -456,6 +456,9 @@ export function useAiSession({
         if (data?.model) setMetadata(sid, { model: data.model });
         if (data?.effort) setMetadata(sid, { effort: data.effort });
         break;
+      case "queue_update":
+        useAiStore.getState().setQueue(sid, data?.queue || []);
+        break;
       // The host's span is the honest number for a client that joined mid-turn.
       case "turn_complete":
         finishTurn(sid, data.stats, data.turnMs, Boolean(data?.replay));
@@ -514,6 +517,9 @@ export function useAiSession({
         // Host task set applied before the replay — the tail alone may miss top-of-turn tasks.
         useAiStore.getState().setTaskRecords(sid, data?.taskRecords);
         useAiStore.getState().restoreTurnState(sid, data);
+        if (Array.isArray(data?.queue)) {
+          useAiStore.getState().setQueue(sid, data.queue);
+        }
         break;
       // Records go to the store as-is; the task fold happens there, like the replay's.
       case "cli_event": {
@@ -661,6 +667,7 @@ export function useAiSession({
         sameLog: epoch === logEpochRef.current
       })) return;
       let gateToRestore = null;
+      let queueToRestore = null;
       const events = res?.session?.events;
       termLog("ai-hydrate", "ack", {
         gen, stale: gen !== hydrateSeqRef.current, ms: Date.now() - sentAt,
@@ -723,7 +730,8 @@ export function useAiSession({
             // window alone is not the whole set — the host states it beside the log, the
             // way it states the turn. Same reader folds both, so this is one list, not
             // two that could disagree.
-            harnessTasks: foldTaskRecords(res.session.taskRecords, hydrated.harnessTasks)
+            harnessTasks: foldTaskRecords(res.session.taskRecords, hydrated.harnessTasks),
+            queue: res.session.queue || []
           });
         } else {
           setTurnRunning(sessionId, Boolean(res.session.isTurnRunning));
@@ -733,6 +741,9 @@ export function useAiSession({
           useAiStore.getState().setTaskRecords(sessionId, res.session.taskRecords);
           if (res.session.permissionMode) {
             useAiStore.getState().setPermissionMode(sessionId, res.session.permissionMode);
+          }
+          if (Array.isArray(res.session.queue)) {
+            useAiStore.getState().setQueue(sessionId, res.session.queue);
           }
           // No log to replay, but the adapter still knows what it has spent — a fresh
           // pane on a running session reads the same numbers as the one it replaced.
@@ -745,6 +756,7 @@ export function useAiSession({
         // comes with a hydrate's ack is drained by the `finally` AFTER this block, and
         // clearMessages drops the card on its way through.
         gateToRestore = res.session.activePermission || null;
+        queueToRestore = Array.isArray(res.session.queue) ? res.session.queue : null;
         // The snapshot is authoritative for this log. Assign rather than max: after a
         // /resume or /clear the host starts a NEW log whose seqs begin at 1, so a
         // higher watermark left over from the previous log would drop every replay.
@@ -761,6 +773,9 @@ export function useAiSession({
         // a gate is not in there.
         if (gateToRestore && gen === hydrateSeqRef.current) {
           useAiStore.getState().setPermission(sessionId, gateToRestore);
+        }
+        if (queueToRestore && gen === hydrateSeqRef.current) {
+          useAiStore.getState().setQueue(sessionId, queueToRestore);
         }
         // The drained events are HISTORY, and the log they came from ends wherever it ends
         // — a rebuild lands on a turn_complete, and a chat replayed mid-turn carries the
@@ -843,7 +858,9 @@ export function useAiSession({
         }
         const lastSeq = appliedSeqRef.current;
         const currentTurnRunning = Boolean(useAiStore.getState().bySession[sessionId]?.isTurnRunning);
-        if (res.seq === lastSeq && Boolean(res.isTurnRunning) === currentTurnRunning) {
+        const currentQueueLen = useAiStore.getState().bySession[sessionId]?.queue?.length || 0;
+        const hostQueueLen = typeof res.queueLength === "number" ? res.queueLength : currentQueueLen;
+        if (res.seq === lastSeq && Boolean(res.isTurnRunning) === currentTurnRunning && hostQueueLen === currentQueueLen) {
           termLog("ai-hydrate", "peekSeq: nothing missed", { seq: lastSeq });
           return;
         }
@@ -1103,15 +1120,8 @@ export function useAiSession({
 
   // 3. User actions
   const sendPrompt = useCallback(
-    (text, { force = false, attachments = null } = {}) => {
+    (text, { attachments = null } = {}) => {
       if (!text && !attachments?.length) return;
-      // The pane holds its own queue for a busy turn (Composer), so this is called only
-      // when the turn it saw has ended. `force` is for host-side commands (/clear), which
-      // reset state on the host and must work even mid-turn.
-      if (!force) {
-        const running = useAiStore.getState().bySession[sessionId]?.isTurnRunning;
-        if (running) return;
-      }
       const b = busRef.current || useConnectionStore.getState().bus;
       // Sending is what marks the previous turn read (the terminal side clears on typing) —
       // focusing the composer is not. The store emits clearStatus down to the host itself.
@@ -1132,6 +1142,25 @@ export function useAiSession({
       });
     },
     [sessionId, workspacePath]
+  );
+
+  const removeQueueItem = useCallback(
+    (id) => {
+      const curr = useAiStore.getState().bySession[sessionId]?.queue || [];
+      useAiStore.getState().setQueue(sessionId, curr.filter((item) => item.id !== id));
+      const b = busRef.current || useConnectionStore.getState().bus;
+      b?.emit("ai:queueRemove", { sessionId, id });
+    },
+    [sessionId]
+  );
+
+  const clearQueue = useCallback(
+    () => {
+      useAiStore.getState().setQueue(sessionId, []);
+      const b = busRef.current || useConnectionStore.getState().bus;
+      b?.emit("ai:queueClear", { sessionId });
+    },
+    [sessionId]
   );
 
   const resolvePermission = useCallback(
@@ -1348,6 +1377,8 @@ export function useAiSession({
     // events was lost while the carrier was up.
     reload: retryNow,
     sendPrompt,
+    removeQueueItem,
+    clearQueue,
     resolvePermission,
     stop,
     stopTask,

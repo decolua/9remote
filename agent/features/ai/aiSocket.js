@@ -473,7 +473,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       cb?.({
         ok: true,
         seq: session.history.at(-1)?.seq ?? 0,
-        isTurnRunning: Boolean(session.isTurnRunning)
+        isTurnRunning: Boolean(session.isTurnRunning),
+        queueLength: session.promptQueue?.length || 0
       });
     } catch (err) {
       cb?.({ ok: false, error: err.message });

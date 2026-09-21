@@ -44,6 +44,7 @@ const INITIAL_SESSION_STATE = {
   tasks: [], // TaskCreate/TaskUpdate checklist
   // Harness task state straight off the CLI's records — lib/harnessTasks.js owns the shape.
   harnessTasks: [],
+  queue: [], // Prompts queued while a turn is running
 };
 
 // Persisted slices keep prefs only — always read through the defaults.
@@ -184,6 +185,20 @@ export const useAiStore = create(
             bySession: {
               ...state.bySession,
               [sessionId]: { ...curr, isTurnRunning }
+            }
+          };
+        });
+      },
+
+      setQueue: (sessionId, queue) => {
+        if (!sessionId) return;
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          const next = Array.isArray(queue) ? queue : [];
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, queue: next }
             }
           };
         });
@@ -615,7 +630,7 @@ export const useAiStore = create(
 
       // Batch hydration: one state update instead of 5000+ actions on join/reconnect.
       // A gate the replay does not carry is one nobody waits on — the caller sets it back when it does.
-      hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null, elapsedMs = 0, lastTurnMs = 0, harnessTasks = null }) => {
+      hydrateSession: (sessionId, { messages = [], tasks = [], isTurnRunning = false, metadata = {}, stats = null, permissionMode = null, activeBlocked = null, elapsedMs = 0, lastTurnMs = 0, harnessTasks = null, queue = null }) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
           // A replayed `running` row may have ended since; the harness tasks say which.
@@ -629,6 +644,7 @@ export const useAiStore = create(
                 messages: settled || messages,
                 tasks,
                 isTurnRunning,
+                ...(Array.isArray(queue) ? { queue } : {}),
                 // Anchor to the host's duration so a mid-turn rejoin shows the whole turn.
                 turnStartedAt: isTurnRunning ? Date.now() - (elapsedMs || 0) : 0,
                 // 0 while running — the pane freezes its own span on the falling edge (see AiTurnStatus).

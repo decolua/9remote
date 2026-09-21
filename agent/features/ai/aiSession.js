@@ -262,6 +262,7 @@ export class AiSession {
     this.isTurnRunning = false;
     this.promptQueue = [];
     this._drainTimer = null;
+    this._stoppingForQueue = false;
     // Async watchdogs by tool id; ponytail: fallback only — task_* records disarm them on newer CLIs.
     this.asyncTimers = new Map();
     // A span, not timestamps — the client's clock is a different clock, and subtracting across them would print the skew.
@@ -616,6 +617,7 @@ export class AiSession {
       hasMore, fromSeq,
       lastTurnMs: this.lastTurnMs,
       taskRecords: this.taskRecords(),
+      queue: this.getQueue(),
       ...this.turnState()
     });
     for (const ev of replay) {
@@ -732,6 +734,21 @@ export class AiSession {
     if (event === "tool_result") {
       if (data?.async && data?.handle) this.armAsyncWatchdog(data.id, data.parentToolUseId);
       else if (data?.id) this.clearAsyncWatchdog(data.id);
+
+      // If there are queued prompts waiting, interrupt the loop after this tool finishes
+      // so the next queued prompt can be injected without waiting for the full loop.
+      if (!data?.async && !data?.parentToolUseId && this.promptQueue?.length > 0 && !this._stoppingForQueue) {
+        const hasPendingTools = Boolean(this.adapter?.toolCalls && this.adapter.toolCalls.size > 0);
+        if (!hasPendingTools && (typeof this.adapter?.interrupt === "function" || typeof this.adapter?.signal === "function")) {
+          this._stoppingForQueue = true;
+          setTimeout(() => {
+            this._stoppingForQueue = false;
+            if (this.isTurnRunning && this.promptQueue?.length > 0) {
+              this.stop();
+            }
+          }, 0);
+        }
+      }
     }
 
     // Any terminal event releases the turn, or a failed spawn leaves every client spinning.
@@ -984,10 +1001,8 @@ export class AiSession {
       return;
     }
 
-    // A new prompt ends every gate the old turn left open. The user typing IS them moving on.
-    this.skipOpenGates();
-
     if (this.isTurnRunning) {
+      this.skipOpenGates();
       if (!Array.isArray(this.promptQueue)) this.promptQueue = [];
       const item = {
         id: `q-${Date.now()}-${++queueIdSeq}`,
@@ -1002,6 +1017,7 @@ export class AiSession {
     this.lastPrompt = prompt;
     if (this.options.mock) {
       this.isTurnRunning = true;
+      this.skipOpenGates();
       this.emitNormalized("user_message", { text: prompt, attachments: attachmentMeta(attachments) });
       this.emitNormalized("delta", { text: `[Mock reply to: ${prompt}]` });
       this.emitNormalized("turn_complete", { stats: {} });
@@ -1181,9 +1197,10 @@ export class AiSession {
     this.clearAllAsyncWatchdogs();
     if (this._drainTimer) { clearTimeout(this._drainTimer); this._drainTimer = null; }
     this.promptQueue = [];
+    this._stoppingForQueue = false;
     if (this.persistTimer) { clearTimeout(this.persistTimer); this.persistTimer = null; }
     // Wait for the async stop before unlinking, or its exit event writes the snapshot right back.
-    const stopped = this.options.mock ? Promise.resolve() : this.adapter?.stop();
+    const stopped = this.options.mock || typeof this.adapter?.stop !== "function" ? Promise.resolve() : this.adapter.stop();
     // destroyed before emit, so nothing schedules a write after the unlink.
     this.destroyed = true;
     this.emitNormalized("stopped", {});
