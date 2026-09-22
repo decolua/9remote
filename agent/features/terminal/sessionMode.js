@@ -78,6 +78,9 @@ export async function setSessionMode(sessionId, mode, { sessions, io } = {}) {
 
 function sendTerminalInput(sessionId, session, input) {
   if (session?.daemon && daemonClient.isConnected()) {
+    // Fire-and-forget by contract: sendInput returns true/false (send() catches
+    // its own write errors), and a session that died between the two exit-Tui
+    // writes just yields false — nothing to reject.
     daemonClient.sendInput(sessionId, input);
     return true;
   }
@@ -88,9 +91,13 @@ function sendTerminalInput(sessionId, session, input) {
   return false;
 }
 
-// Ctrl+C x2 into the PTY — how the TUI exits.
+// Ctrl+C x2 into the PTY — how the TUI exits. Two separate writes, not one:
+// omp's key matcher reads a whole chunk and demands exactly one byte, so a
+// single "\x03\x03" write matches nothing and its TUI never exits.
 function exitTui(sessionId, session) {
-  return sendTerminalInput(sessionId, session, "\x03\x03");
+  const sent = sendTerminalInput(sessionId, session, "\x03");
+  if (sent) setTimeout(() => sendTerminalInput(sessionId, session, "\x03"), 200);
+  return sent;
 }
 
 // The chat's own CLI, which the daemon runs as a managed process. Stopping it is a
