@@ -6,6 +6,7 @@ import { getExtendedEnv } from "./env.js";
 import { AgentProc } from "../proc/agentProc.js";
 import { createLogger } from "../../../lib/logger.js";
 import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
+import { recoverFromAntigravityTranscript } from "../transcript.js";
 
 const logger = createLogger("ai");
 
@@ -26,8 +27,42 @@ const DENIED_RE = /(?:user denied permission|permission check failed|auto-denied
 const TIER_SUFFIX_RE = /-(?:low|medium|high)$/i;
 const EFFORT_LEVELS = ["low", "medium", "high"];
 
-// Normalize agy's PascalCase tool parameter names to lowercase standard aliases.
-const PARAM_ALIASES = {
+// Headless turns cannot answer agy's interactive question tool — the CLI auto-skips it in
+// milliseconds. agy loads ~/.gemini/config/GEMINI.md as a global rule at session start, so
+// the guidance rides that file instead of the prompt: nothing in the user's bubble, and the
+// conversation title (built from the first message) stays clean.
+const HEADLESS_RULE_MARKER = "<!-- 9remote:headless -->";
+const HEADLESS_RULE_BLOCK = `${HEADLESS_RULE_MARKER}
+When running headless (a session driven by a program such as 9remote), the ask_question tool cannot be answered and auto-skips — ask the user directly in your reply text instead.`;
+
+export function headlessRuleFile() {
+  return path.join(os.homedir(), ".gemini", "config", "GEMINI.md");
+}
+
+/** Append the headless rule to agy's global rules, idempotently and without touching
+ *  anything else in the file. Best effort — an unwritable config must not kill the chat. */
+export function ensureHeadlessRule() {
+  const file = headlessRuleFile();
+  try {
+    let text = "";
+    try { text = fs.readFileSync(file, "utf8"); } catch {}
+    if (text.includes(HEADLESS_RULE_MARKER)) return;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, (text ? `${text.replace(/\n*$/, "\n")}\n` : "") + HEADLESS_RULE_BLOCK + "\n");
+  } catch (err) {
+    logger.warn(`agy headless rule not installed: ${err.message}`);
+  }
+}
+let headlessRuleEnsured = false;
+
+// The same note earlier builds of 9remote prepended to the first prompt, as it reappears
+// inside the CLI's transcript — history replay strips it so the user's own bubble never
+// shows a line the user never typed.
+export const ANTIGRAVITY_HEADLESS_NOTE_RE = /^<system-note>[^\n]*<\/system-note>\n?/;
+
+// Normalize agy's PascalCase tool parameter names to lowercase standard aliases. Shared
+// with transcript.js so the live stream and the recovery door agree on one wire shape.
+export const ANTIGRAVITY_PARAM_ALIASES = {
   CommandLine: "command",
   AbsolutePath: "file_path",
   TargetFile: "file_path",
@@ -35,12 +70,21 @@ const PARAM_ALIASES = {
   SearchDirectory: "path",
   SearchPath: "path",
   Query: "query",
+  Subagents: "subagents",
+  Prompt: "prompt",
+  Role: "role",
+  Action: "action",
+  TaskId: "taskId",
+  Message: "message",
+  Recipient: "recipient",
+  RunPersistent: "runPersistent",
+  WaitMsBeforeAsync: "waitMsBeforeAsync",
 };
 
 function normalizeParameters(parameters) {
   const out = {};
   for (const [key, value] of Object.entries(parameters || {})) {
-    out[PARAM_ALIASES[key] || key] = value;
+    out[ANTIGRAVITY_PARAM_ALIASES[key] || key] = value;
   }
   return out;
 }
@@ -76,6 +120,27 @@ export function antigravityEditDiff(name, input = {}) {
   return { file, name, patch: lines.join("\n"), content: "" };
 }
 
+// agy's ask_question args → the question card's contract. Real transcripts deliver
+// `questions` as an array OR as a JSON-encoded string, with options as bare strings.
+export function antigravityQuestions(input = {}) {
+  const raw = input.questions;
+  if (typeof raw === "string") {
+    try { return antigravityQuestions({ questions: JSON.parse(raw) }); }
+    catch { return null; }
+  }
+  if (!Array.isArray(raw)) return null;
+  const questions = raw
+    .filter((q) => q && String(q.question || "").trim())
+    .map((q) => ({
+      question: String(q.question),
+      options: Array.isArray(q.options)
+        ? q.options.map((o) => (typeof o === "string" ? { label: o, description: "" } : o)).filter((o) => o?.label)
+        : [],
+      multiSelect: Boolean(q.is_multi_select ?? q.multiSelect),
+    }));
+  return questions.length ? { questions } : null;
+}
+
 export class AntigravityAdapter {
   constructor({ cwd, onEvent, proc = null, conversationId = null, model = "", hostSessionId = null } = {}) {
     this.cwd = cwd || process.cwd();
@@ -87,6 +152,10 @@ export class AntigravityAdapter {
     this.isTurnRunning = false;
     this._resultFailed = false;
     this._turnHadThinking = false;
+    // Per-turn bookkeeping for the transcript door (see _readHiddenTools).
+    this._liveToolNames = new Set();
+    this._liveDiffFiles = new Set();
+    this._doorEmitted = new Set();
     this.currentModel = String(model || "").split("\t")[0].trim();
     this.effort = "";
     this.permissionMode = "accept-edits";
@@ -191,14 +260,24 @@ export class AntigravityAdapter {
   }
 
   sendPrompt(prompt, attachments = null) {
-    this._resultFailed = false;
-    this._turnHadThinking = false;
     if (this.isTurnRunning) {
       throw new Error("Antigravity turn is already running.");
     }
+    this._resultFailed = false;
+    this._turnHadThinking = false;
+    // A persistent run's DONE always lands inside its own turn, so a fresh turn starts clean.
+    // Cleared only past the guard — a refused duplicate send must not wipe the running turn's state.
+    this._persistentRuns?.clear();
+    this._liveToolNames.clear();
+    this._liveDiffFiles.clear();
+    this._doorEmitted.clear();
 
     // agy stream-json only accepts text; pass all attachments as file paths in prompt.
     const staged = attachments?.length ? attachments.map(stageAttachment) : null;
+    if (!headlessRuleEnsured) {
+      ensureHeadlessRule();
+      headlessRuleEnsured = true;
+    }
     this.isTurnRunning = true;
     this._bind();
     this.proc.start({
@@ -207,7 +286,7 @@ export class AntigravityAdapter {
       cwd: this.cwd,
       env: getExtendedEnv({ hostSessionId: this.hostSessionId })
     }).then(
-      (started) => started.commit((line) => this.feed(line)),
+      (started) => started?.commit?.((line) => this.feed(line)),
       (err) => {
         this.isTurnRunning = false;
         this.onEvent?.("error", { message: err.message });
@@ -267,17 +346,53 @@ export class AntigravityAdapter {
     if (step.step_type === "tool") return this.handleToolStep(step);
     // Subagent steps run in separate conversation; show subagent card without child steps.
     if (step.step_type === "subagent") return this.handleSubagentStep(step);
+    // The live stream black-boxes user-interaction tools (ask_question among them) into
+    // empty "unknown" steps — their args and results exist only in the CLI's transcript.
+    if (step.step_type === "unknown") return this._readHiddenTools();
 
     this.onEvent?.("cli_event", { type: "step_update", subtype: step.step_type || "", record: step });
   }
 
+  // The transcript door: recovery reads the CLI's own transcript (current turn only) and
+  // this emits the calls the live stream never named. Idempotent — re-running it on every
+  // unknown step and at the result heals the race where the file was not flushed yet, and
+  // a call whose result lands later settles its already-emitted row.
+  _readHiddenTools() {
+    if (!this.activeConversationId) return;
+    const events = recoverFromAntigravityTranscript(this.cwd, this.activeConversationId);
+    if (!events) return;
+    for (const { event, data } of events) {
+      if (event === "diff") {
+        if (!data?.file || this._liveDiffFiles.has(data.file) || this._doorEmitted.has(`d:${data.file}`)) continue;
+        this._doorEmitted.add(`d:${data.file}`);
+        this.onEvent?.("diff", data);
+        continue;
+      }
+      if (event !== "tool_start" && event !== "tool_result") continue;
+      // Distinct keys per side: a call may start on one pass and settle on a later one.
+      const key = `${event === "tool_start" ? "s" : "r"}:${data?.id}`;
+      if (!data?.id || this._doorEmitted.has(key)) continue;
+      // The live stream already drew this call — its row may carry less, but twice is worse.
+      if (this._liveToolNames.has(data.name)) continue;
+      this._doorEmitted.add(key);
+      this.onEvent?.(event, event === "tool_start"
+        ? { ...data, input: this.shapeToolInput(data.name, data.input || {}) }
+        : data);
+    }
+  }
+
   handleSubagentStep(step) {
     if (step.state === "ACTIVE") {
-      const [sub] = step.subagent_info?.subagents || [];
+      this._liveToolNames.add(step.tool_name || "invoke_subagent");
+      const [sub = {}] = step.subagent_info?.subagents || [];
+      // Real transcripts carry PascalCase fields (Role/TypeName/Prompt); accept both.
       this.onEvent?.("tool_start", {
         id: `${step.tool_name}-${step.step_index}`,
         name: step.tool_name || "invoke_subagent",
-        input: { subagent_type: sub?.role || sub?.type_name, prompt: sub?.initial_prompt },
+        input: {
+          subagent_type: sub?.Role || sub?.role || sub?.TypeName || sub?.type_name,
+          prompt: sub?.Prompt || sub?.prompt || sub?.initial_prompt
+        },
         status: "running",
       });
       return;
@@ -302,24 +417,56 @@ export class AntigravityAdapter {
     }
   }
 
+  // Card contracts the generic params do not meet: the question card wants
+  // {questions:[{question, options:[{label}]}]}, the agent card wants the launching
+  // sub-agent's own name and prompt (Subagents entries keep agy's PascalCase).
+  shapeToolInput(name, input) {
+    if (name === "ask_question") return antigravityQuestions(input) || input;
+    if (name === "invoke_subagent" && Array.isArray(input.subagents) && input.subagents.length) {
+      const [sub] = input.subagents;
+      return {
+        ...input,
+        subagent_type: sub?.Role || sub?.TypeName || sub?.role || sub?.type_name,
+        prompt: sub?.Prompt || sub?.prompt
+      };
+    }
+    return input;
+  }
+
   handleToolStep(step) {
     const info = step.tool_info || {};
     const name = step.tool_name || info.name || "tool";
+    this._liveToolNames.add(name);
     const input = normalizeParameters(info.parameters);
     // step_index identifies the tool step: `tool_info` carries no id of its own, and
     // the result must attach to the same id the start announced.
     const id = `${name}-${step.step_index}`;
 
     if (step.state === "ACTIVE") {
-      this.onEvent?.("tool_start", { id, name, input, status: "running" });
+      // Remembered at start: the live stream may strip params off the DONE step, and the
+      // persistent flag decides that step's whole result shape.
+      if (name === "run_command" && input.runPersistent) (this._persistentRuns ||= new Set()).add(id);
+      this.onEvent?.("tool_start", { id, name, input: this.shapeToolInput(name, input), status: "running" });
       return;
     }
 
     if (step.state === "DONE") {
-      this.onEvent?.("tool_result", { id, name, output: info.output ?? "", status: "done" });
+      // A persistent command detaches at DONE and outlives the turn — claude's async row
+      // shape, so it rides the SHELLS strip until the session watchdog settles it.
+      const persistent = this._persistentRuns?.delete(id) || (name === "run_command" && Boolean(input.runPersistent));
+      this.onEvent?.("tool_result", {
+        id,
+        name,
+        output: info.output ?? "",
+        status: persistent ? "running" : "done",
+        ...(persistent ? { async: true, handle: id } : null)
+      });
       // Only a change that LANDED is a diff; a denied one is the tool row it already is.
       const diff = antigravityEditDiff(name, input);
-      if (diff) this.onEvent?.("diff", diff);
+      if (diff) {
+        this._liveDiffFiles.add(diff.file);
+        this.onEvent?.("diff", diff);
+      }
       return;
     }
 
@@ -342,6 +489,8 @@ export class AntigravityAdapter {
 
   handleResult(result) {
     if (!result) return;
+    // Last door pass — the transcript may not have been flushed when the unknown step fired.
+    this._readHiddenTools();
     this._checkTranscriptThinking();
     // result.usage is cumulative across turns, so usage is tracked per-step instead.
     this.stats.totalTurns += 1;

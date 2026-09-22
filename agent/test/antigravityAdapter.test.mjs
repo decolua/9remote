@@ -262,5 +262,171 @@ await test("a landed multi_replace_file_content draws a diff card", () => {
   assert.ok(diff[1].patch.includes("-baz\n+qux"));
 });
 
+await test("ask_question args reshape to the question card's contract, from an array or a JSON string", () => {
+  // Arg shapes read off real transcripts: `questions` holds {question, options:[string],
+  // is_multi_select}, and sometimes arrives JSON-encoded as a single string.
+  const arrayArgs = { questions: [{ is_multi_select: false, options: ["Web app", "CLI tool"], question: "Làm gì?" }] };
+  const [start] = replay([
+    step({ step_index: 2, state: "ACTIVE", step_type: "tool", tool_name: "ask_question", tool_info: { parameters: arrayArgs } })
+  ]).of("tool_start");
+  assert.deepEqual(start[1].input, {
+    questions: [{ question: "Làm gì?", options: [{ label: "Web app", description: "" }, { label: "CLI tool", description: "" }], multiSelect: false }]
+  });
+
+  const [strStart] = replay([
+    step({ step_index: 3, state: "ACTIVE", step_type: "tool", tool_name: "ask_question", tool_info: { parameters: { questions: JSON.stringify(arrayArgs.questions) } } })
+  ]).of("tool_start");
+  assert.deepEqual(strStart[1].input, start[1].input);
+
+  // Unparsable args fall back to the raw input — the generic row, not a broken card.
+  const [rawStart] = replay([
+    step({ step_index: 4, state: "ACTIVE", step_type: "tool", tool_name: "ask_question", tool_info: { parameters: { questions: "not json" } } })
+  ]).of("tool_start");
+  assert.deepEqual(rawStart[1].input, { questions: "not json" });
+});
+
+await test("an invoke_subagent tool step names the launching sub-agent", () => {
+  // Real transcript args: Subagents entries carry Role/TypeName/Prompt in PascalCase.
+  const { of } = replay([
+    step({
+      step_index: 1,
+      state: "ACTIVE",
+      step_type: "tool",
+      tool_name: "invoke_subagent",
+      tool_info: { parameters: { Subagents: [{ Model: "inherit", Prompt: "Run ls -la", Role: "Command Runner", TypeName: "self" }] } }
+    })
+  ]);
+  const [start] = of("tool_start");
+  assert.equal(start[1].input.subagent_type, "Command Runner");
+  assert.equal(start[1].input.prompt, "Run ls -la");
+});
+
+await test("a subagent step reads its info under both casings", () => {
+  const { of } = replay([
+    step({
+      step_index: 2,
+      state: "ACTIVE",
+      step_type: "subagent",
+      tool_name: "invoke_subagent",
+      subagent_info: { subagents: [{ Role: "Watcher", Prompt: "Watch the logs", TypeName: "self" }] }
+    })
+  ]);
+  const [start] = of("tool_start");
+  assert.equal(start[1].input.subagent_type, "Watcher");
+  assert.equal(start[1].input.prompt, "Watch the logs");
+});
+
+await test("a persistent run_command settles as an async row, not a finished one", () => {
+  // RunPersistent hands the command off at DONE — claude's async shape keeps it on the
+  // SHELLS strip until the session watchdog settles it.
+  const { of } = replay([
+    step({ step_index: 6, state: "ACTIVE", step_type: "tool", tool_name: "run_command", tool_info: { parameters: { CommandLine: "server", RunPersistent: true } } }),
+    step({ step_index: 6, state: "DONE", step_type: "tool", tool_name: "run_command", tool_info: { parameters: { CommandLine: "server", RunPersistent: true }, output: "detached" } })
+  ]);
+  const [result] = of("tool_result");
+  assert.equal(result[1].status, "running");
+  assert.equal(result[1].async, true);
+  assert.equal(result[1].handle, result[1].id);
+
+  // The live stream may strip params off DONE — the flag remembered at ACTIVE still counts.
+  const [stripped] = replay([
+    step({ step_index: 7, state: "ACTIVE", step_type: "tool", tool_name: "run_command", tool_info: { parameters: { CommandLine: "watch", RunPersistent: true } } }),
+    step({ step_index: 7, state: "DONE", step_type: "tool", tool_name: "run_command", tool_info: { output: "detached" } })
+  ]).of("tool_result");
+  assert.equal(stripped[1].status, "running");
+});
+
+await test("the transcript door surfaces an ask_question the live stream black-boxed as an unknown step", async () => {
+  // Recorded from a real turn: agy emits ask_question ONLY as an empty step_type
+  // "unknown"; the args and result live in the CLI's transcript (questions arrives as a
+  // JSON-encoded string, other values JSON-quoted).
+  const fsMod = await import("node:fs");
+  const osMod = await import("node:os");
+  const pathMod = await import("node:path");
+  const root = fsMod.mkdtempSync(pathMod.join(osMod.tmpdir(), "9remote-agy-door-"));
+  process.env.ANTIGRAVITY_HOME = root;
+  const convId = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const logsDir = pathMod.join(root, "brain", convId, ".system_generated", "logs");
+  fsMod.mkdirSync(logsDir, { recursive: true });
+  fsMod.writeFileSync(pathMod.join(logsDir, "transcript.jsonl"), [
+    { step_index: 0, type: "USER_INPUT", status: "DONE", content: "<USER_REQUEST>\nask a question\n</USER_REQUEST>" },
+    { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", tool_calls: [{ name: "ask_question", args: { questions: JSON.stringify([{ is_multi_select: false, options: ["Red", "Green", "Blue"], question: "What color?" }]), toolAction: "\"Asking color\"" } }] },
+    { step_index: 2, type: "GENERIC", status: "DONE", content: "Created At: now\nA1: User Skipped" },
+    { step_index: 3, type: "PLANNER_RESPONSE", status: "DONE", content: "The tool returned: skipped." }
+  ].map((r) => JSON.stringify(r)).join("\n"));
+
+  const init = JSON.stringify({ event: "init", conversation_id: convId, init: {} });
+  const unknown = step({ step_index: 2, state: "DONE", step_type: "unknown" });
+  const { of } = replay([init, unknown, unknown]);
+  const [qStart] = of("tool_start");
+  assert.equal(qStart[1].name, "ask_question");
+  assert.deepEqual(qStart[1].input.questions, [
+    { question: "What color?", options: [{ label: "Red", description: "" }, { label: "Green", description: "" }, { label: "Blue", description: "" }], multiSelect: false }
+  ]);
+  const [qResult] = of("tool_result");
+  assert.equal(qResult[1].id, qStart[1].id);
+  assert.match(qResult[1].output, /User Skipped/);
+  // Idempotent: the second unknown step emitted nothing new.
+  assert.equal(of("tool_start").length, 1);
+  assert.equal(of("tool_result").length, 1);
+
+  // A call the live stream DID show is not re-emitted by the door.
+  const { of: of2 } = replay([
+    init,
+    step({ step_index: 4, state: "ACTIVE", step_type: "tool", tool_name: "run_command", tool_info: { parameters: { CommandLine: "ls" } } }),
+    unknown
+  ]);
+  assert.equal(of2("tool_start").filter(([, d]) => d.name === "run_command").length, 1);
+  assert.equal(of2("tool_start").filter(([, d]) => d.name === "ask_question").length, 1);
+
+  fsMod.rmSync(root, { recursive: true, force: true });
+  delete process.env.ANTIGRAVITY_HOME;
+});
+
+await test("the headless rule installs into agy's global GEMINI.md, idempotently", async () => {
+  const fs = await import("node:fs");
+  const os = await import("node:os");
+  const path = await import("node:path");
+  const mod = await import("../features/ai/adapters/antigravityAdapter.js");
+  const home = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-agy-rule-"));
+  const realHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    // An empty config: the rule creates the file with only its own block.
+    mod.ensureHeadlessRule();
+    const file = path.join(home, ".gemini", "config", "GEMINI.md");
+    let text = fs.readFileSync(file, "utf8");
+    assert.match(text, /<!-- 9remote:headless -->/);
+    assert.match(text, /ask_question tool cannot be answered/);
+    assert.ok(!text.includes("system-note")); // the prompt hack is gone for good
+
+    // A user's own content survives untouched, and re-running changes nothing.
+    fs.writeFileSync(file, "My own rule.\n" + text);
+    mod.ensureHeadlessRule();
+    assert.ok(fs.readFileSync(file, "utf8").startsWith("My own rule.\n"));
+    assert.equal(fs.readFileSync(file, "utf8").split("<!-- 9remote:headless -->").length, 2);
+  } finally {
+    process.env.HOME = realHome;
+    fs.rmSync(home, { recursive: true, force: true });
+  }
+});
+
+await test("sendPrompt carries no note — the conversation title builds from the user's words", async () => {
+  const calls = [];
+  const stub = { start: ({ args }) => { calls.push(args); return Promise.resolve(null); } };
+  const a = new AntigravityAdapter({ cwd: "/tmp", onEvent: () => {}, proc: stub });
+  const home = (await import("node:fs")).mkdtempSync("/tmp/9remote-agy-rule2-");
+  const realHome = process.env.HOME;
+  process.env.HOME = home;
+  try {
+    a.sendPrompt("hello world", null);
+    await new Promise((r) => setTimeout(r, 0));
+    assert.equal(calls[0].at(-1), "-p=hello world");
+    assert.ok(!calls[0].at(-1).includes("system-note"));
+  } finally {
+    process.env.HOME = realHome;
+  }
+});
+
 console.log(`=== ${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

@@ -7,7 +7,7 @@ import { stripHarnessWrapping, isInjectedTurn } from "../terminal/agentHistory.j
 import { recoverFromClaudeTranscript, CLAUDE_SESSION_ID_RE } from "./claudeTranscript.js";
 import { codexItemEvents } from "./codexItems.js";
 import { opencodePartEvents, diffFor } from "./opencodePart.js";
-import { antigravityEditDiff } from "./adapters/antigravityAdapter.js";
+import { antigravityEditDiff, ANTIGRAVITY_PARAM_ALIASES, ANTIGRAVITY_HEADLESS_NOTE_RE } from "./adapters/antigravityAdapter.js";
 import { toolStart, toolResult } from "./toolEvent.js";
 
 const require = createRequire(import.meta.url);
@@ -84,16 +84,26 @@ function sameDir(a, b) {
 }
 
 // Cache rollout lines keyed by mtime/size to avoid re-reading growing rollout files.
+// Bounded, LRU: whole-file line arrays are heavy, and an unbounded map is a slow leak.
+const ROLLOUT_CACHE_MAX = 24;
 const codexRolloutCache = new Map();
 
 function readRolloutLines(file) {
   let stat;
   try { stat = fs.statSync(file); } catch { return null; }
   const hit = codexRolloutCache.get(file);
-  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) return hit.lines;
+  if (hit && hit.mtimeMs === stat.mtimeMs && hit.size === stat.size) {
+    codexRolloutCache.delete(file);
+    codexRolloutCache.set(file, hit);
+    return hit.lines;
+  }
   let lines;
   try { lines = fs.readFileSync(file, "utf8").trim().split("\n"); } catch { return null; }
+  codexRolloutCache.delete(file);
   codexRolloutCache.set(file, { mtimeMs: stat.mtimeMs, size: stat.size, lines });
+  if (codexRolloutCache.size > ROLLOUT_CACHE_MAX) {
+    codexRolloutCache.delete(codexRolloutCache.keys().next().value);
+  }
   return lines;
 }
 
@@ -298,17 +308,8 @@ function codexCallResult(id, name, output) {
   return toolResult({ id, name: tool, output: typeof text === "string" ? text : JSON.stringify(text) });
 }
 
-// Normalize Antigravity PascalCase tool parameters to lowercase wire names.
-const ANTIGRAVITY_PARAM_ALIASES = {
-  CommandLine: "command",
-  AbsolutePath: "file_path",
-  TargetFile: "file_path",
-  DirectoryPath: "path",
-  SearchDirectory: "path",
-  SearchPath: "path",
-  Query: "query"
-};
-
+// Normalize Antigravity PascalCase tool parameters to lowercase wire names — the shared
+// map lives in the adapter, so the live stream and this recovery read agree on one shape.
 function normalizeAntigravityArgs(args) {
   const out = {};
   for (const [key, value] of Object.entries(args || {})) {
@@ -349,8 +350,9 @@ export function recoverFromAntigravityTranscript(cwd, sessionId) {
     try { rec = JSON.parse(line); } catch { continue; }
 
     if (rec.type === "USER_INPUT") {
-      // Strip harness context wrapper from USER_INPUT content.
-      const text = stripHarnessWrapping(rec.content || "");
+      // Strip harness context wrapper, then the adapter's own headless note — the bubble
+      // must show what the user typed, not the plumbing that rode along.
+      const text = stripHarnessWrapping(rec.content || "").replace(ANTIGRAVITY_HEADLESS_NOTE_RE, "");
       if (text) events.push({ seq: seq++, event: "user_message", data: { text } });
       continue;
     }

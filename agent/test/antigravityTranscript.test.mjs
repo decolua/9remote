@@ -61,6 +61,21 @@ test("a path-traversal id is rejected before it reaches the filesystem", () => {
   assert.equal(recoverFromAntigravityTranscript("/tmp", "../../etc/passwd"), null);
 });
 
+test("the headless note never shows in the replayed user bubble", () => {
+  // The adapter prepends the note to the first prompt; the CLI wraps it inside
+  // USER_REQUEST like any user text. Recovery must return only what the user typed.
+  const sessionId2 = "99999999-8888-7777-6666-555555555555";
+  const logsDir2 = path.join(root, "brain", sessionId2, ".system_generated", "logs");
+  fs.mkdirSync(logsDir2, { recursive: true });
+  fs.writeFileSync(path.join(logsDir2, "transcript.jsonl"), [
+    { type: "USER_INPUT", status: "DONE", content: "<USER_REQUEST>\n<system-note>You are running headless: the ask_question tool auto-skips and can never be answered. Do not call ask_question; ask the user directly in your reply text instead.</system-note>\nhello there\n</USER_REQUEST>" },
+    { step_index: 1, type: "PLANNER_RESPONSE", status: "DONE", content: "Hi." }
+  ].map((r) => JSON.stringify(r)).join("\n"));
+  const events = recoverFromAntigravityTranscript("/tmp", sessionId2);
+  const user = events.find((e) => e.event === "user_message");
+  assert.equal(user.data.text, "hello there");
+});
+
 fs.rmSync(root, { recursive: true, force: true });
 delete process.env.ANTIGRAVITY_HOME;
 
