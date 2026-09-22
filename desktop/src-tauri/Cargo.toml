@@ -1,6 +1,6 @@
 [package]
 name = "nine-remote-desktop"
-version = "3.0.3"
+version = "3.0.6"
 description = "9Remote Desktop App"
 authors = ["9Remote"]
 edition = "2021"
