@@ -11,6 +11,7 @@ import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval, resetProgress } from "../utils/tui.js";
 import { createTempKey, connectUrlOf, registerSession } from "../utils/token.js";
 import { getConsistentMachineId } from "../utils/machineId.js";
+import { writePid } from "../utils/pids.js";
 import { generateApiKeyV2, headOf } from "../utils/apiKey.js";
 import {
   apiGet, apiPost, pushUiState, setStep, onBinaryProgress,
@@ -28,6 +29,7 @@ import { WORKER_URL, DELAYS, TUI, POLL } from "../config.js";
 let activeSubmenuRefresh = null;
 
 export async function tuiMode() {
+  writePid("agent", process.pid);
   console.clear();
   resetProgress();
   setTuiActive(true);
