@@ -116,10 +116,6 @@ export default function NewTerminalModal({
     if (cli) sortedPairs.push(cli);
     if (ui) sortedPairs.push(ui);
   }
-  // UI-only entries (no matching CLI detected)
-  for (const u of visibleAiUis) {
-    if (!allAgents.some((a) => !a.isAiUi && a.id === u.aiEngine)) sortedPairs.push(u);
-  }
 
   // CLI-only agents (no UI variant at all)
   const cliOnly = allAgents.filter((a) => !a.isAiUi && !pairBases.has(a.id) && a.id !== "claude");
