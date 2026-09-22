@@ -146,7 +146,15 @@ export class OpenCodeAdapter {
     if (!this.activeSessionId) return Promise.resolve();
     const agent = OPENCODE_MODE_AGENTS[this.permissionMode];
     if (!agent) return Promise.resolve();
-    return this.server.setSessionAgent(this.activeSessionId, agent)
+    // A re-applied mode must not PATCH: the server appends an "Agent: <name>" row
+    // to the transcript for every switch, even a no-op one (measured on resume).
+    // getSession runs inside the chain so a server without it fails open to PATCH.
+    return Promise.resolve()
+      .then(() => this.server.getSession(this.activeSessionId))
+      .then((info) => {
+        if (info?.agent === agent) return;
+        return this.server.setSessionAgent(this.activeSessionId, agent);
+      })
       .catch((e) => this._warn(`Could not switch the OpenCode mode: ${e.message}`));
   }
 
@@ -324,6 +332,20 @@ export class OpenCodeAdapter {
   _onBusEvent(event, data) {
     // Gate mirror: pendingRequests feeds the session snapshot and resolvers.
     if (event === "permission_request") {
+      // Mode auto mirrors the TUI's --dangerously-skip-permissions: the client
+      // itself replies "once" to every ask (the CLI's run.ts does the same), so
+      // no card interrupts the turn. AskUserQuestion is the MODEL asking the
+      // user, not a permission gate — it always reaches the card. A failed
+      // auto-reply falls back to the card too.
+      if (this.permissionMode === "auto" && this.activeSessionId && data.tool !== "AskUserQuestion") {
+        this.server.replyPermission(this.activeSessionId, data.requestId, "once")
+          .catch(() => {
+            this.isTurnRunning = true;
+            this.pendingRequests.set(data.requestId, { toolName: data.tool, input: data.input });
+            this.onEvent?.("permission_request", data);
+          });
+        return;
+      }
       this.isTurnRunning = true;
       this.pendingRequests.set(data.requestId, { toolName: data.tool, input: data.input });
     } else if (event === "permission_resolved") {

@@ -1,4 +1,7 @@
 // Manages long-lived OpenCode HTTP server process for rewind and file snapshot APIs.
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { spawn } from "node:child_process";
 import { createLogger } from "../../lib/logger.js";
 import { OPENCODE_SERVER_PORT } from "./constants.js";
@@ -15,6 +18,16 @@ const v2Sessions = new Set();
 let proc = null;
 let base = null;
 let booting = null;
+// PID of an adopted server a previous 9remote agent spawned (marker file match):
+// retirable when idle, unlike one the user started by hand.
+let adoptedOurs = null;
+
+const markerFile = () => path.join(os.tmpdir(), `9remote-opencode-serve-${OPENCODE_SERVER_PORT}.pid`);
+const clearMarker = () => { try { fs.unlinkSync(markerFile()); } catch {} };
+const markerMatches = async (pid) => {
+  if (!pid) return false;
+  try { return String(fs.readFileSync(markerFile(), "utf8")).trim() === String(pid); } catch { return false; }
+};
 
 async function waitForPort(url, deadline) {
   while (Date.now() < deadline) {
@@ -64,6 +77,9 @@ export async function ensureServer() {
     // Adopt running server if already answering on port.
     if (await waitForPort(url, Date.now() + 1000)) {
       base = url;
+      // A leftover from an earlier 9remote agent is still ours to retire.
+      const holder = await portHolder(port);
+      if (await markerMatches(holder)) adoptedOurs = Number(holder);
       return url;
     }
 
@@ -84,10 +100,13 @@ export async function ensureServer() {
       proc.on("exit", () => {
         proc = null;
         base = null;
+        clearMarker();
       });
 
       if (await waitForPort(url, Date.now() + BOOT_TIMEOUT_MS)) {
         base = url;
+        // Ownership marker: a later agent adopts this server knowing it is ours.
+        try { fs.writeFileSync(markerFile(), String(proc.pid)); } catch {}
         return url;
       }
       try { proc?.kill(); } catch {}
@@ -112,6 +131,39 @@ export async function ensureServer() {
 
 function serverPort() {
   return OPENCODE_SERVER_PORT;
+}
+
+// How long the server outlives its last chat session: long enough that closing
+// one pane and opening another does not pay the boot again, short enough that a
+// deleted session does not leave an `opencode serve` process running for good.
+const SERVER_IDLE_STOP_MS = 30000;
+let sessionCount = 0;
+let idleStopTimer = null;
+
+/** A chat session started using the server — keeps it alive past idle stops. */
+export function retainForSession() {
+  sessionCount += 1;
+  if (idleStopTimer) { clearTimeout(idleStopTimer); idleStopTimer = null; }
+}
+
+/** A chat session went away — the LAST one retires the server we spawned. */
+export function releaseForSession() {
+  sessionCount = Math.max(0, sessionCount - 1);
+  if (sessionCount > 0 || idleStopTimer) return;
+  idleStopTimer = setTimeout(() => {
+    idleStopTimer = null;
+    if (sessionCount > 0) return;
+    // Only servers WE spawned (now, or in an earlier agent run): one the user
+    // started by hand carries no marker and is not ours to stop.
+    // The ids belong to the retiring server; a fresh one repopulates on create.
+    v2Sessions.clear();
+    if (proc) { try { proc.kill("SIGTERM"); } catch {} return; }
+    if (adoptedOurs) {
+      try { process.kill(adoptedOurs, "SIGTERM"); } catch {}
+      clearMarker();
+    }
+  }, SERVER_IDLE_STOP_MS);
+  idleStopTimer.unref?.();
 }
 
 async function api(method, path, body, { timeoutMs = 30000 } = {}) {
@@ -145,6 +197,9 @@ export async function createSession(cwd, extras = {}) {
 export const isV2Session = (id) => v2Sessions.has(id);
 
 export const listMessages = (sessionId) => api("GET", `/api/session/${sessionId}/message`);
+
+// Session info including the agent it currently runs (read before a mode PATCH).
+export const getSession = (sessionId) => api("GET", `/api/session/${sessionId}`);
 
 export const activeSessions = () => api("GET", "/api/session/active");
 

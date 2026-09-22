@@ -13,6 +13,7 @@ import { AI_REPLAY_BYTES } from "./constants.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
 import { CodexAdapter } from "./adapters/codexAdapter.js";
 import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
+import { retainForSession as retainOpencodeServer, releaseForSession as releaseOpencodeServer } from "./opencodeServer.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 import { OmpAdapter } from "./adapters/ompAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
@@ -330,6 +331,9 @@ export class AiSession {
     this.skills = [];
 
     if (!options.mock) {
+      // The opencode server is shared; a session holds it open, and the LAST one
+      // out retires it so deleting chats leaves no `opencode serve` behind.
+      if (this.engine === AI_ENGINES.OPENCODE) retainOpencodeServer();
       this.ready = this.initAdapter();
       this._restoreFromDaemonKv();
     }
@@ -383,15 +387,17 @@ export class AiSession {
       if (saved.threadTitle && !this.threadTitle) {
         this.threadTitle = saved.threadTitle;
       }
-      // The user's own picks, fill-if-empty: the snapshot file and the client's create
-      // options are the primary doors; this one answers when both came up empty.
-      if (saved.permissionMode && !this.permissionMode) {
+      // The user's own picks, fill-if-untouched: the snapshot file and the client's
+      // create options are the primary doors; this one answers when the current
+      // mode is still just the engine's default (no snapshot, no explicit pick).
+      if (saved.permissionMode && this.permissionMode === (this.options.defaultMode || "default")) {
         this.permissionMode = saved.permissionMode;
         // Claude holds ONE process and it is already adopted by now, so the mode goes
         // onto the adapter too or the next respawn speaks the old one. Codex/opencode
         // keep theirs in a `permissionMode` field instead, read per spawned turn.
         if (this.adapter?.currentMode === "default") this.adapter.currentMode = saved.permissionMode;
         if (this.adapter && this.adapter.permissionMode === "default") this.adapter.permissionMode = saved.permissionMode;
+        else this.adapter?.setOptions?.({ mode: saved.permissionMode });
       }
       if (saved.model && !this.model) {
         this.model = saved.model;
@@ -1204,6 +1210,11 @@ export class AiSession {
     // destroyed before emit, so nothing schedules a write after the unlink.
     this.destroyed = true;
     this.emitNormalized("stopped", {});
+    if (this.engine === AI_ENGINES.OPENCODE && !this.options.mock) {
+      const release = () => releaseOpencodeServer();
+      if (stopped?.then) stopped.then(release, release);
+      else release();
+    }
     const file = aiSnapshotFile(this.id, this.engine);
     const drop = () => { try { fs.unlinkSync(file); } catch {} };
     if (stopped?.then) stopped.then(drop, drop);

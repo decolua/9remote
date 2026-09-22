@@ -16,15 +16,20 @@ const test = (name, fn) =>
 const tick = (ms = 15) => new Promise((r) => setTimeout(r, ms));
 
 function fakeServer() {
-  const state = { agents: [], prompted: [], created: [] };
+  const state = { agents: [], prompted: [], created: [], currentAgent: "" };
   return {
     state,
     listCommands: async () => [],
     runCommand: async () => ({}),
-    createSession: async (cwd, extras) => { state.created.push(extras); return { id: "ses_new" }; },
+    createSession: async (cwd, extras) => {
+      state.created.push(extras);
+      state.currentAgent = extras.agent || "";
+      return { id: "ses_new" };
+    },
     prompt: async (sessionId, body) => { state.prompted.push(body); },
     setSessionModel: async () => {},
-    setSessionAgent: async (sessionId, agent) => { state.agents.push({ sessionId, agent }); },
+    getSession: async () => ({ agent: state.currentAgent }),
+    setSessionAgent: async (sessionId, agent) => { state.agents.push({ sessionId, agent }); state.currentAgent = agent; },
     interruptSession: async () => {},
     activeSessions: async () => ({}),
     subscribeBus: () => ({ close() {} }),
@@ -81,6 +86,18 @@ await test("an unknown mode switches nothing", async () => {
   adapter.setOptions({ mode: "yolo" });
   await tick();
   assert.deepEqual(server.state.agents, []);
+});
+
+await test("a re-applied mode PATCHes nothing — no phantom 'Agent: build' row on resume", async () => {
+  const server = fakeServer();
+  const adapter = makeAdapter(server, "auto");
+  await tick();
+  adapter.sendPrompt("hello");
+  await tick();
+  adapter.isTurnRunning = false;
+  adapter.setOptions({ mode: "auto" }); // resume re-applies the same mode
+  await tick();
+  assert.deepEqual(server.state.agents, [], "an agent the session already runs must not be PATCHed again");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

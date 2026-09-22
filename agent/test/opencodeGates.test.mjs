@@ -55,6 +55,32 @@ await test("permission.v2.asked opens a permission gate with action+resources", 
   assert.equal(adapter.isTurnRunning, true, "a gate is only held mid-turn");
 });
 
+await test("mode auto answers every ask itself — the TUI's --dangerously-skip-permissions", async () => {
+  const { adapter, events, calls } = makeAdapter();
+  adapter.setOptions({ mode: "auto" });
+  events.length = 0;
+  adapter.handleEvent(env("permission.v2.asked", { id: "per_y", action: "read", resources: ["/app/.env"] }));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(calls.replies, [{ sessionId: "ses_t", requestId: "per_y", reply: "once", message: undefined }]);
+  assert.equal(events.filter(([e]) => e === "permission_request").length, 0, "no card may interrupt the turn");
+  assert.equal(adapter.pendingRequests.size, 0);
+});
+
+await test("mode auto never answers AskUserQuestion — that is the model asking the user", async () => {
+  const { adapter, events, calls } = makeAdapter();
+  adapter.setOptions({ mode: "auto" });
+  events.length = 0;
+  adapter.handleEvent(env("question.v2.asked", {
+    id: "qst_1",
+    questions: [{ question: "Ship to prod?", options: [{ label: "yes" }, { label: "no" }] }]
+  }));
+  await new Promise((r) => setTimeout(r, 10));
+  assert.deepEqual(calls.replies, [], "the question route must never be auto-answered");
+  const [req] = events.filter(([e]) => e === "permission_request");
+  assert.ok(req, "the question card must still reach the pane");
+  assert.equal(req[1].tool, "AskUserQuestion");
+});
+
 await test("resolvePermission maps allow→once, allowAlways→always, deny→reject", async () => {
   const { adapter, calls } = makeAdapter();
   adapter.handleEvent(env("permission.v2.asked", { id: "per_1", action: "bash", resources: ["ls"] }));
