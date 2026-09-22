@@ -700,6 +700,9 @@ export function useAiSession({
         // An empty host log means the host has nothing for this session yet (fresh
         // one, or a legacy session created before the daemon owned state). Leave
         // whatever the client already has instead of blanking it.
+        if (Array.isArray(res?.modelOptions) && res.modelOptions.length > 0) {
+          useAiStore.getState().setMetadata(sessionId, { modelOptions: res.modelOptions });
+        }
         if (events.length > 0) {
           // Pure in-memory reduction in <3ms instead of 5000+ synchronous store dispatches
           const hydrated = reduceSessionEvents(events, engine);
@@ -710,7 +713,12 @@ export function useAiSession({
             // the effort the CLI actually runs with, which the replay may not. An empty
             // one means the session has no pick of its own — leave the init event's
             // reading alone rather than blanking the chip.
-            metadata: { ...hydrated.metadata, ...(res.session.effort ? { effort: res.session.effort } : {}) },
+            metadata: {
+              ...useAiStore.getState().bySession[sessionId]?.metadata,
+              ...hydrated.metadata,
+              ...(Array.isArray(res?.modelOptions) ? { modelOptions: res.modelOptions } : {}),
+              ...(res.session.effort ? { effort: res.session.effort } : {})
+            },
             // The host's counters outrank the replay's: the log holds events, not the
             // adapter's running usage, so a reload would otherwise blank the context row.
             stats: { ...hydrated.stats, ...(res.session.stats || {}) },

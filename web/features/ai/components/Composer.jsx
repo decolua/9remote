@@ -1,10 +1,11 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History } from "@/shared/components/ui/Icon";
+import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History, Search } from "@/shared/components/ui/Icon";
 import { ENGINE_INFO, SKIP_BEHAVIOR, SKIP_MESSAGE } from "../constants";
 import { getEngineConfig } from "../registry";
 import { buildSlashItems } from "../lib/slashMenu";
+import { buildModelSections } from "../lib/modelSections";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
@@ -20,6 +21,8 @@ import CommandHistoryModal from "@/shared/components/ui/CommandHistoryModal";
 import VoicePill from "@/shared/components/ui/VoicePill";
 
 const EMPTY_ARRAY = [];
+// Only long lists (omp catalogs hundreds of models) get the inline search box.
+const MODEL_MENU_SEARCH_MIN = 20;
 
 export const Composer = memo(function Composer({
   sessionId = "",
@@ -85,6 +88,8 @@ export const Composer = memo(function Composer({
   );
 
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [modelQuery, setModelQuery] = useState("");
+  const [collapsedSections, setCollapsedSections] = useState(() => new Set());
   const [tierMenuOpen, setTierMenuOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const modelMenuRef = useRef(null);
@@ -545,6 +550,34 @@ export const Composer = memo(function Composer({
     return list;
   }, [MODELS, rawModel]);
 
+  const modelMenuModels = useMemo(() => {
+    if (allModels.length <= MODEL_MENU_SEARCH_MIN) return allModels;
+    const q = modelQuery.trim().toLowerCase();
+    if (!q) return allModels;
+    return allModels.filter((m) => {
+      const id = (m.id || "").toLowerCase();
+      return (m.label || "").toLowerCase().includes(q) || id.includes(q) || (m.provider || "").toLowerCase().includes(q);
+    });
+  }, [allModels, modelQuery]);
+
+  // Sections matching OpenCode TUI: Recent, OpenCode Go, OpenCode Zen, others.
+  // Short catalogs stay a flat single section — headers would be noise.
+  const modelMenuSections = useMemo(
+    () => allModels.length <= MODEL_MENU_SEARCH_MIN
+      ? [{ key: "all", title: "", items: allModels }]
+      : buildModelSections(allModels, modelMenuModels, rawModel, modelQuery.trim()),
+    [allModels, modelMenuModels, rawModel, modelQuery]
+  );
+
+  const toggleModelSection = (key) => {
+    setCollapsedSections((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
   const tierSpec = useMemo(
     () => (SLASH_COMMANDS || []).find((c) => c.action === "submenu" && (c.optionKey === "effort" || c.optionKey === "variant")),
     [SLASH_COMMANDS]
@@ -796,7 +829,7 @@ export const Composer = memo(function Composer({
               <button
                 type="button"
                 disabled={isTurnRunning}
-                onClick={() => { setModelMenuOpen((v) => !v); setTierMenuOpen(false); }}
+                onClick={() => { setModelMenuOpen(!modelMenuOpen); if (!modelMenuOpen) setModelQuery(""); setTierMenuOpen(false); }}
                 className="min-w-0 px-1.5 py-0.5 rounded text-[11px] font-medium flex items-center gap-1 font-mono text-text-muted hover:text-text hover:bg-surface-2 transition-colors cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed disabled:hover:bg-transparent"
                 title={isTurnRunning ? "Cannot change model while turn is running" : "Select model (/model)"}
               >
@@ -809,35 +842,67 @@ export const Composer = memo(function Composer({
                   <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
                     Select Model
                   </div>
-                  {allModels.map((m) => {
-                    const isSelected = rawModel === m.id;
-                    return (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => {
-                          vibrate();
-                          onSelectModel?.(m.id);
-                          setModelMenuOpen(false);
-                        }}
-                        className={`w-full px-2 py-1.5 rounded text-left text-xs flex flex-col gap-0.5 transition-colors ${
-                          isSelected
-                            ? "bg-brand-500/15 text-brand-400 font-semibold"
-                            : "text-text-muted hover:text-text hover:bg-surface-2"
-                        }`}
-                      >
-                        <span className="w-full flex items-center justify-between">
-                          <span className="truncate">{m.label}</span>
-                          {isSelected && (
-                            <Check size={12} className="text-brand-400 shrink-0 ml-1" />
-                          )}
-                        </span>
-                        {m.label !== m.id && (
-                          <span className="truncate font-mono text-[10px] opacity-70">{m.id}</span>
-                        )}
-                      </button>
-                    );
-                  })}
+                  {allModels.length > MODEL_MENU_SEARCH_MIN && (
+                    <div className="px-1.5 pb-1.5 mb-1 border-b border-border-subtle flex items-center gap-1.5 text-text-muted">
+                      <Search size={12} className="shrink-0" />
+                      <input
+                        type="text"
+                        value={modelQuery}
+                        onChange={(e) => setModelQuery(e.target.value)}
+                        placeholder="Search models..."
+                        autoFocus
+                        className="w-full bg-transparent text-[11px] text-text placeholder-text-muted/70 focus:outline-none py-0.5"
+                      />
+                    </div>
+                  )}
+                  {modelMenuModels.length === 0 && (
+                    <div className="px-2 py-2 text-[11px] text-text-muted">No models match &quot;{modelQuery}&quot;</div>
+                  )}
+                  {modelMenuSections.map((sec) => (
+                    <div key={sec.key}>
+                      {modelMenuSections.length > 1 && (
+                        <button
+                          type="button"
+                          onClick={() => toggleModelSection(sec.key)}
+                          aria-expanded={!collapsedSections.has(sec.key)}
+                          className="w-full px-2 py-0.5 text-[10px] font-mono uppercase tracking-wider font-semibold text-text flex items-center justify-between select-none border-b border-border-subtle mb-1 mt-1 first:mt-0"
+                        >
+                          <span className="flex items-center gap-1">
+                            <span className="text-[8px]">{collapsedSections.has(sec.key) ? "▶" : "▼"}</span>
+                            {sec.title}
+                          </span>
+                          <span className="text-[9px] text-text-subtle">{sec.items.length}</span>
+                        </button>
+                      )}
+                      {!collapsedSections.has(sec.key) && sec.items.map((m) => {
+                        const isSelected = rawModel === m.id;
+                        return (
+                          <button
+                            key={m.id}
+                            type="button"
+                            onClick={() => {
+                              vibrate();
+                              onSelectModel?.(m.id);
+                              setModelMenuOpen(false);
+                            }}
+                            title={m.id}
+                            className={`w-full pl-4 pr-2 py-1.5 rounded text-left text-xs flex flex-col gap-0.5 transition-colors ${
+                              isSelected
+                                ? "bg-surface-2 text-text font-semibold"
+                                : "text-text-muted hover:text-text hover:bg-surface-2"
+                            }`}
+                          >
+                            <span className="w-full flex items-center justify-between">
+                              <span className="truncate">{m.label}</span>
+                              {isSelected && (
+                                <Check size={12} className="text-text shrink-0 ml-1" />
+                              )}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  ))}
                 </div>
               )}
 

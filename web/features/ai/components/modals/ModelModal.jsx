@@ -3,6 +3,7 @@
 import { memo, useMemo, useState } from "react";
 import { Bot, Check, Search } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { buildModelSections, getProvider } from "../../lib/modelSections";
 import { ModalShell } from "./ModalShell";
 
 function formatContext(tokens) {
@@ -10,21 +11,6 @@ function formatContext(tokens) {
   if (tokens >= 1000000) return `${Math.round(tokens / 100000) / 10}M`;
   if (tokens >= 1000) return `${Math.round(tokens / 1000)}k`;
   return `${tokens}`;
-}
-
-function getProvider(m) {
-  if (m.provider) return m.provider;
-  if (m.id && m.id.includes("/")) return m.id.split("/")[0];
-  return "";
-}
-
-function providerDisplayName(p) {
-  if (p === "opencode") return "OpenCode Zen";
-  if (p === "opencode-go") return "OpenCode Go";
-  if (p === "anthropic") return "Anthropic";
-  if (p === "openai") return "OpenAI";
-  if (p === "google") return "Google";
-  return p ? p.toUpperCase() : "Models";
 }
 
 export const ModelModal = memo(function ModelModal({
@@ -38,6 +24,16 @@ export const ModelModal = memo(function ModelModal({
 }) {
   const [query, setQuery] = useState("");
   const [pendingModel, setPendingModel] = useState(currentModel);
+  const [collapsed, setCollapsed] = useState(() => new Set());
+
+  const toggleSection = (key) => {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const modelList = useMemo(() => {
     const list = [...(models || [])];
@@ -79,68 +75,11 @@ export const ModelModal = memo(function ModelModal({
     });
   }, [modelList, query]);
 
-  // Section grouping matching OpenCode TUI:
-  // 1. Recent (at top)
-  // 2. OpenCode Go (excluding Recent items)
-  // 3. OpenCode Zen (excluding Recent items)
-  // 4. Other providers (if any)
-  const groupedSections = useMemo(() => {
-    const q = query.trim();
-    if (q) {
-      return [{ key: "search", title: "Search Results", items: filteredModels }];
-    }
-
-    const sections = [];
-    const recentItems = modelList
-      .filter((m) => m.recent || m.id === currentModel)
-      .sort((a, b) => (a.recentRank ?? 999) - (b.recentRank ?? 999));
-
-    if (recentItems.length > 0) {
-      sections.push({
-        key: "recent",
-        title: "Recent",
-        items: recentItems
-      });
-    }
-
-    const recentIdSet = new Set(recentItems.map((m) => m.id));
-    const nonRecent = modelList.filter((m) => !recentIdSet.has(m.id));
-
-    // OpenCode Go models
-    const goItems = nonRecent.filter((m) => getProvider(m) === "opencode-go");
-    if (goItems.length > 0) {
-      sections.push({
-        key: "opencode-go",
-        title: "OpenCode Go",
-        items: goItems
-      });
-    }
-
-    // OpenCode Zen models
-    const zenItems = nonRecent.filter((m) => getProvider(m) === "opencode");
-    if (zenItems.length > 0) {
-      sections.push({
-        key: "opencode",
-        title: "OpenCode Zen",
-        items: zenItems
-      });
-    }
-
-    // Any other providers
-    const otherItems = nonRecent.filter((m) => {
-      const p = getProvider(m);
-      return p !== "opencode-go" && p !== "opencode";
-    });
-    if (otherItems.length > 0) {
-      sections.push({
-        key: "other",
-        title: "Other Models",
-        items: otherItems
-      });
-    }
-
-    return sections;
-  }, [modelList, filteredModels, query, currentModel]);
+  // Sections matching OpenCode TUI: Recent, OpenCode Go, OpenCode Zen, others.
+  const groupedSections = useMemo(
+    () => buildModelSections(modelList, filteredModels, currentModel, query.trim()),
+    [modelList, filteredModels, currentModel, query]
+  );
 
   return (
     <ModalShell
@@ -212,12 +151,20 @@ export const ModelModal = memo(function ModelModal({
           groupedSections.map((sec) => (
             <div key={sec.key} className="flex flex-col gap-0.5 mb-2">
               {groupedSections.length > 1 && (
-                <div className="text-[10px] font-mono uppercase tracking-wider text-text-muted px-2 pt-2 pb-1 select-none flex items-center justify-between">
-                  <span>{sec.title}</span>
+                <button
+                  type="button"
+                  onClick={() => toggleSection(sec.key)}
+                  aria-expanded={!collapsed.has(sec.key)}
+                  className="w-full text-left text-[10px] font-mono uppercase tracking-wider font-semibold text-text px-2 pt-2 pb-1 select-none flex items-center justify-between border-b border-border-subtle"
+                >
+                  <span className="flex items-center gap-1">
+                    <span className="text-[8px]">{collapsed.has(sec.key) ? "▶" : "▼"}</span>
+                    {sec.title}
+                  </span>
                   <span className="text-text-subtle text-[9px]">{sec.items.length}</span>
-                </div>
+                </button>
               )}
-              {sec.items.map((m) => {
+              {!collapsed.has(sec.key) && sec.items.map((m) => {
                 const isSelected = pendingModel === m.id;
                 const provider = getProvider(m);
                 const isZen = provider === "opencode";
@@ -228,11 +175,11 @@ export const ModelModal = memo(function ModelModal({
                     key={`${sec.key}-${m.id}`}
                     onClick={isTurnRunning ? undefined : () => handlePick(m.id)}
                     data-selected={isSelected}
-                    className={`modal-row ${isTurnRunning ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
-                    title={isTurnRunning ? "Cannot change model while turn is running" : undefined}
+                    className={`modal-row ml-2 ${isTurnRunning ? "opacity-40 cursor-not-allowed pointer-events-none" : ""}`}
+                    title={isTurnRunning ? "Cannot change model while turn is running" : m.id}
                   >
                     <div className="min-w-0 flex-1">
-                      <div className="text-xs font-semibold text-text flex items-center gap-1.5 flex-wrap">
+                      <div className={`text-xs flex items-center gap-1.5 flex-wrap ${isSelected ? "text-text font-semibold" : "text-text-muted"}`}>
                         <span className="truncate">{m.label || m.id}</span>
                         {isZen && (
                           <span className="text-[9px] px-1.5 py-0.2 rounded bg-emerald-500/10 border border-emerald-500/20 text-emerald-400 font-mono shrink-0">
@@ -250,13 +197,15 @@ export const ModelModal = memo(function ModelModal({
                           </span>
                         )}
                       </div>
-                      <div className="text-[10px] font-mono text-text-subtle truncate mt-0.5">
-                        {m.desc || m.id}
-                      </div>
+                      {m.desc && (
+                        <div className="text-[10px] font-mono text-text-subtle truncate mt-0.5">
+                          {m.desc}
+                        </div>
+                      )}
                     </div>
 
                     {isSelected && (
-                      <Check size={14} className="text-brand-500 shrink-0" />
+                      <Check size={14} className="text-text shrink-0" />
                     )}
                   </div>
                 );

@@ -102,15 +102,22 @@ export class OmpAdapter {
         if (!models.length) return;
         this.metadata.modelOptions = models
           .filter((m) => m?.id && m?.provider)
-          .map((m) => ({
-            id: `${m.provider}/${m.id}`,
-            label: m.name || `${m.provider}/${m.id}`,
-            short: m.name || m.id,
-            desc: "",
-            efforts: [],
-            defaultEffort: "",
-            contextWindow: m.contextWindow || m.limit?.context || 0
-          }));
+          .map((m) => {
+            const displayLabel = m.provider === "9router" ? m.id : (m.name || `${m.provider}/${m.id}`);
+            return {
+              id: `${m.provider}/${m.id}`,
+              provider: m.provider,
+              label: displayLabel,
+              short: displayLabel,
+              desc: "",
+              // The RPC shape nests levels under thinking.efforts (unlike `omp models --json`).
+              efforts: Array.isArray(m.thinking?.efforts) ? m.thinking.efforts : [],
+              defaultEffort: "",
+              contextWindow: m.contextWindow || m.limit?.context || 0
+            };
+          })
+          // Same order as listOmpModelOptions so the runtime refresh does not reshuffle the picker.
+          .sort((a, b) => a.provider.localeCompare(b.provider) || a.label.localeCompare(b.label));
         this.onEvent?.("init", { ...this.metadata });
       })
       .catch(() => {});
