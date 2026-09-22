@@ -531,6 +531,56 @@ export function recoverFromOmpTranscript(cwd, sessionId) {
   return events.length ? events : null;
 }
 
+// Devin keeps conversations in a SQLite node chain (sessions.db message_nodes);
+// every process spawn re-parents a fresh copy, so the rows alone would show the
+// same turns many times. The NEWEST node's parent chain is the whole
+// conversation as the CLI itself holds it. Text-only v1: tool calls stay in the TUI.
+export function recoverFromDevinTranscript(sessionId) {
+  if (!sessionId) return null;
+  const sqlite = loadSqlite();
+  if (!sqlite) return null;
+  const dbPath = path.join(os.homedir(), ".local", "share", "devin", "cli", "sessions.db");
+  if (!fs.existsSync(dbPath)) return null;
+  let db;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    const rows = db.prepare(
+      "SELECT node_id, parent_node_id, chat_message FROM message_nodes WHERE session_id = ? ORDER BY row_id ASC"
+    ).all(sessionId);
+    if (!rows.length) return null;
+    // Walk the newest node's parents to the root — that chain is the latest full copy.
+    const byId = new Map(rows.map((r) => [r.node_id, r]));
+    const chain = [];
+    let cur = rows[rows.length - 1];
+    while (cur && chain.length < MAX_EVENTS) {
+      chain.push(cur);
+      cur = cur.parent_node_id == null ? null : byId.get(cur.parent_node_id);
+    }
+    chain.reverse();
+
+    const events = [];
+    for (const row of chain) {
+      let msg = null;
+      try { msg = JSON.parse(row.chat_message || ""); } catch { continue; }
+      const text = String(msg?.content || "").trim();
+      if (!text || msg?.role === "system") continue;
+      if (msg.role === "user") {
+        // Pasted images ride as "[Image N: path]" lines — the file is gone by resume time.
+        const clean = text.split("\n").filter((l) => !/^\[Image \d+:/.test(l)).join("\n").trim();
+        if (clean && !isInjectedTurn(clean)) events.push({ event: "user_message", data: { text: clean } });
+      } else if (msg.role === "assistant") {
+        events.push({ event: "delta", data: { text } });
+        events.push({ event: "turn_complete", data: { stats: { inputTokens: 0, outputTokens: 0, totalTurns: 1 }, result: "", isError: false, subtype: "end_turn" } });
+      }
+    }
+    return events.length ? events : null;
+  } catch {
+    return null;
+  } finally {
+    try { db?.close(); } catch {}
+  }
+}
+
 // Dispatches transcript recovery by engine; leafOverride is Claude-specific for rewind.
 export function recoverFromTranscript(engine, cwd, sessionId, leafOverride = null) {
   if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId, 1, leafOverride);
@@ -538,5 +588,6 @@ export function recoverFromTranscript(engine, cwd, sessionId, leafOverride = nul
   if (engine === "opencode") return recoverFromOpencodeTranscript(cwd, sessionId);
   if (engine === "antigravity") return recoverFromAntigravityTranscript(cwd, sessionId);
   if (engine === "omp") return recoverFromOmpTranscript(cwd, sessionId);
+  if (engine === "devin") return recoverFromDevinTranscript(sessionId);
   return null;
 }

@@ -135,7 +135,7 @@ export const CLAUDE_SCROLLBACK_ENV = {
 };
 
 // Supported AI CLI tools for notification hooks — single source of truth
-export const AI_TOOLS = ["claude", "codex", "opencode", "grok", "cursor", "antigravity", "kiro", "copilot", "codebuddy", "factory", "qoder", "rovodev", "hermes", "amp", "pi", "omp"];
+export const AI_TOOLS = ["claude", "codex", "opencode", "grok", "cursor", "antigravity", "kiro", "copilot", "codebuddy", "factory", "qoder", "rovodev", "hermes", "amp", "pi", "omp", "devin"];
 export const TOOL_LABELS = { claude: "Claude", codex: "Codex", opencode: "OpenCode", grok: "Grok", cursor: "Cursor", antigravity: "Antigravity", kiro: "Kiro", copilot: "Copilot", codebuddy: "CodeBuddy", factory: "Factory", qoder: "Qoder", rovodev: "Rovo Dev", hermes: "Hermes", amp: "Amp", pi: "Pi", omp: "OMP" };
 
 // MCP endpoint served by the agent's own HTTP server — no extra process to spawn.

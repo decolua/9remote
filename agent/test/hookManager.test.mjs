@@ -24,8 +24,8 @@ const test = (name, fn) => Promise.resolve().then(fn)
   .then(() => { pass++; console.log(`  ✓ ${name}`); })
   .catch((e) => { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); });
 
-await test("SUPPORTED_TOOLS has 16 tools", () => {
-  assert.equal(m.SUPPORTED_TOOLS.length, 16);
+await test("SUPPORTED_TOOLS has 17 tools", () => {
+  assert.equal(m.SUPPORTED_TOOLS.length, 17);
 });
 
 const cmd = (entry) => entry?.hooks?.[0]?.command || "";
@@ -342,7 +342,7 @@ await test("codex disable keeps a foreign trust entry through the index shift", 
 
 await test("getHookStatus reports every tool", () => {
   const status = m.getHookStatus();
-  assert.equal(Object.keys(status).length, 16);
+  assert.equal(Object.keys(status).length, 17);
   for (const t of m.SUPPORTED_TOOLS) assert.ok(status[t].installed === false || status[t].installed === true);
 });
 

@@ -5,7 +5,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, listAntigravityModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
+import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, listAntigravityModelOptions, listOmpModelOptions, listDevinModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.js";
@@ -186,6 +186,8 @@ function listModelOptionsFor(engine) {
   if (engine === "codex") return listCodexModelOptions();
   if (engine === "opencode") return listOpencodeModelOptions();
   if (engine === "antigravity") return listAntigravityModelOptions();
+  if (engine === "omp") return listOmpModelOptions();
+  if (engine === "devin") return listDevinModelOptions();
   return null;
 }
 
@@ -225,6 +227,7 @@ async function emitConnectMetadata(session, engine) {
   const mcpServers = listMcpServers(engine, session.cwd);
   // Live '/' menu feed the adapter already fetched (opencode, omp).
   const commands = session.adapter?.metadata?.commands;
+  const modelOptions = await cachedModelOptionsFor(engine);
   // Kept on the session so a Clear can re-seed the log with the same metadata
   session.skills = skills;
   // Append init once; broadcast every connect so joiners still see current metadata.
@@ -232,12 +235,12 @@ async function emitConnectMetadata(session, engine) {
     skills,
     mcpServers,
     ...(commands?.length ? { commands } : {}),
-    modelOptions: await cachedModelOptionsFor(engine),
+    modelOptions,
     model: session.model || defaultModelFor(engine),
     // The session's pick wins; else the CLI's config is what the composer must show.
     effort: session.effort || defaultEffortFor(engine)
   }, !session.hasRecordedInit());
-  return { skills, mcpServers };
+  return { skills, mcpServers, modelOptions };
 }
 
 // init is the only place a chat session's conversation id surfaces; persist the terminal's agent, not the engine's.

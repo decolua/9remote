@@ -372,10 +372,11 @@ const HISTORY_SOURCES = [
   { id: "droid", layout: "cwdDir", root: () => path.join(home(), ".factory", "sessions"), encode: dashEncode, ext: ".jsonl", parse: parseDroid },
   { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok },
   { id: "antigravity", layout: "antigravity", root: () => path.join(home(), ".gemini", "antigravity-cli") },
-  { id: "omp", layout: "scan", root: () => path.join(home(), ".omp", "agent", "sessions"), ext: ".jsonl", parse: parseOmp }
+  { id: "omp", layout: "scan", root: () => path.join(home(), ".omp", "agent", "sessions"), ext: ".jsonl", parse: parseOmp },
+  { id: "devin", layout: "devin", root: () => path.join(home(), ".local", "share", "devin", "cli") }
 ];
 
-const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode, antigravity: collectAntigravity };
+const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode, antigravity: collectAntigravity, devin: collectDevin };
 
 const SOURCE_BY_ID = new Map(HISTORY_SOURCES.map((s) => [s.id, s]));
 const SOURCE_RANK = new Map(HISTORY_SOURCES.map((s, i) => [s.id, i]));
@@ -492,6 +493,37 @@ function collectOpencode(source, cwd, limit) {
   return byNewest(rows, source, cwd).slice(0, limit);
 }
 
+function devinDbRows(cwd) {
+  const sqlite = loadSqlite();
+  if (!sqlite) return [];
+  const dbPath = path.join(home(), ".local", "share", "devin", "cli", "sessions.db");
+  if (!fs.existsSync(dbPath)) return [];
+  let db;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    const records = db.prepare(
+      "SELECT id, title, working_directory, last_activity_at FROM sessions " +
+      "WHERE working_directory = ? AND (hidden = 0 OR hidden IS NULL) " +
+      "ORDER BY last_activity_at DESC LIMIT ?"
+    ).all(cwd, HISTORY.PER_AGENT_LIMIT);
+    return records.map((r) => ({
+      sessionId: r.id,
+      title: cleanTitle(r.title),
+      cwd: r.working_directory || cwd,
+      updatedAt: (r.last_activity_at || 0) * 1000
+    }));
+  } catch {
+    return [];
+  } finally {
+    try { db?.close(); } catch {}
+  }
+}
+
+function collectDevin(source, cwd, limit) {
+  const rows = devinDbRows(cwd);
+  return byNewest(rows, source, cwd).slice(0, limit);
+}
+
 function collectAntigravity(source, cwd, limit) {
   const rows = antigravityRows(cwd);
   return byNewest(rows, source, cwd).slice(0, limit);
@@ -582,6 +614,22 @@ export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
         try {
           db = new sqlite.DatabaseSync(dbPath);
           db.prepare("DELETE FROM session WHERE id = ?").run(sessionId);
+          deleted = true;
+        } catch {} finally {
+          try { db?.close(); } catch {}
+        }
+      }
+    }
+  }
+  if (agent === "devin") {
+    const sqlite = loadSqlite();
+    if (sqlite) {
+      const dbPath = path.join(home(), ".local", "share", "devin", "cli", "sessions.db");
+      if (fs.existsSync(dbPath)) {
+        let db;
+        try {
+          db = new sqlite.DatabaseSync(dbPath);
+          db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
           deleted = true;
         } catch {} finally {
           try { db?.close(); } catch {}

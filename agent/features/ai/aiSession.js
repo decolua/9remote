@@ -16,6 +16,7 @@ import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { retainForSession as retainOpencodeServer, releaseForSession as releaseOpencodeServer } from "./opencodeServer.js";
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 import { OmpAdapter } from "./adapters/ompAdapter.js";
+import { DevinAdapter } from "./adapters/devinAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
 import { getLastOutputAt, touchOutput, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
 import { TURN_END_EVENTS } from "./aiStatus.js";
@@ -30,7 +31,7 @@ const ANSI_RE = /\[[0-9;]*m/g;
 const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
 
 // Engines whose CLI the daemon owns, so a turn outlives an agent restart.
-const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY, AI_ENGINES.OMP]);
+const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY, AI_ENGINES.OMP, AI_ENGINES.DEVIN]);
 
 // Engine → the CLI's own health command, from each adapter's static spec; a Map so an engine id like "constructor" cannot hit Object.prototype.
 const DOCTOR_SPECS = new Map(
@@ -39,7 +40,8 @@ const DOCTOR_SPECS = new Map(
     [AI_ENGINES.CODEX]: CodexAdapter,
     [AI_ENGINES.OPENCODE]: OpenCodeAdapter,
     [AI_ENGINES.ANTIGRAVITY]: AntigravityAdapter,
-    [AI_ENGINES.OMP]: OmpAdapter
+    [AI_ENGINES.OMP]: OmpAdapter,
+    [AI_ENGINES.DEVIN]: DevinAdapter
   }).map(([engine, Adapter]) => [engine, Adapter.doctorSpec?.() || null])
 );
 
@@ -536,6 +538,19 @@ export class AiSession {
         if (this.permissionMode || this.options.model || this.effort) {
           mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
         }
+        return this._startManaged(mine, mode);
+      case AI_ENGINES.DEVIN:
+        mine = new DevinAdapter({
+          cwd: this.cwd,
+          onEvent,
+          proc: this.managed ? this.proc : null,
+          sessionId: this.cliSessionId,
+          model: this.model || this.options.model,
+          hostSessionId: this.id
+        });
+        this.adapter = mine;
+        // Mode is read-only on this wire (session/set-mode is absent) — only the model rides setOptions.
+        if (this.model || this.options.model) mine.setOptions({ model: this.model || this.options.model });
         return this._startManaged(mine, mode);
       default:
         throw new Error(`Unsupported engine: ${this.engine}`);
@@ -1103,11 +1118,16 @@ export class AiSession {
     }
     // Resuming moves the session's own id, so a reload keeps talking to the resumed conversation.
     if (resume) {
+      // Held for turn end: applyPendingOptions must re-send it, or the pane switches
+      // conversations while the still-live CLI keeps answering the old one.
+      this.pendingResume = resume;
       if (this.engine === AI_ENGINES.CLAUDE) this.cliSessionId = resume;
       else if (this.engine === AI_ENGINES.CODEX) this.threadId = resume;
       else if (this.engine === AI_ENGINES.OPENCODE) this.cliSessionId = resume;
       // Antigravity resumes by conversation id; the transcript reader fills the pane on reload.
       else if (this.engine === AI_ENGINES.ANTIGRAVITY) this.cliSessionId = resume;
+      // Devin resumes via session/load on a fresh process; same id store.
+      else if (this.engine === AI_ENGINES.DEVIN) this.cliSessionId = resume;
       // Replace the log with the resumed conversation's tail; the old transcript's byte offset goes with it.
       this.attachmentOffset = null;
       this._adoptLog(this._rebuildFromStore(resume) || []);
@@ -1143,7 +1163,9 @@ export class AiSession {
   applyPendingOptions() {
     if (!this.restartPending) return;
     this.restartPending = false;
-    const fetch = this.adapter?.setOptions?.({ mode: this.permissionMode, model: this.model, effort: this.effort });
+    const resume = this.pendingResume || null;
+    this.pendingResume = null;
+    const fetch = this.adapter?.setOptions?.({ mode: this.permissionMode, model: this.model, effort: this.effort, ...(resume ? { resume } : {}) });
     if (fetch?.then) fetch.then((f) => this._replay(f));
   }
 

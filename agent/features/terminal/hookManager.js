@@ -37,14 +37,19 @@ const PATHS = {
   rovodev: () => homeSub(".rovodev", "config.yml"),
   hermes: () => path.join(envDir("HERMES_HOME", ".hermes"), "config.yaml"),
   amp: () => homeSub(".config", "amp", "plugins", "9remote.ts"),
+  // Same Claude-style nested hooks the CLI's own config already carries.
+  devin: () => homeSub(".config", "devin", "config.json"),
   pi: () => path.join(envDir("PI_CODING_AGENT_DIR", ".pi", "agent"), "extensions", "9remote.ts"),
+  // omp resolves the same env var as its whole agent dir (default ~/.omp/agent).
+  // ponytail: profile-scoped installs (~/.omp/profiles/<name>/agent) are not covered; revisit when a profile user reports it.
+  omp: () => path.join(envDir("PI_CODING_AGENT_DIR", ".omp", "agent"), "extensions", "9remote.ts"),
 };
 
 const BINARIES = {
   claude: "claude", codex: "codex", opencode: "opencode",
   grok: "grok", cursor: "cursor-agent", antigravity: "agy", kiro: "kiro-cli",
   copilot: "copilot", codebuddy: "codebuddy", factory: "droid", qoder: "qodercli",
-  rovodev: "acli", hermes: "hermes", amp: "amp", pi: "pi",
+  rovodev: "acli", hermes: "hermes", amp: "amp", pi: "pi", omp: "omp", devin: "devin",
 };
 
 // Capture conversation ID from stdin JSON to support relaunching later.
@@ -539,6 +544,28 @@ export default function (${api}) {
 `;
 }
 
+// omp variant: also reports the CLI's own session id so a TUI terminal can be
+// switched to the chat UI. hasUI gates subagent/task sessions, which share this
+// process's env but must not claim the terminal's conversation.
+function buildOmpPlugin() {
+  return `// 9Remote omp status plugin (auto-generated)
+function post(type, csid) {
+  const sid = process.env.NINE_REMOTE_SESSION_ID || "";
+  if (!sid) return;
+  let url = ${JSON.stringify(NOTIFY_URL)} + "?type=" + type + "&sessionId=" + encodeURIComponent(sid) + "&tool=omp";
+  if (csid) url += "&csid=" + encodeURIComponent(csid);
+  try { fetch(url, { signal: AbortSignal.timeout(2000) }).catch(() => {}); } catch (_) {}
+}
+const csidOf = (ctx) => { try { return ctx?.sessionManager?.getSessionId() || ""; } catch { return ""; } };
+export default function (pi) {
+  pi.on("session_start", async (_e, ctx) => { if (ctx?.hasUI) post("idle", csidOf(ctx)); });
+  pi.on("session_switch", async (_e, ctx) => { if (ctx?.hasUI) post("idle", csidOf(ctx)); });
+  pi.on("agent_start", async (_e, ctx) => { if (ctx?.hasUI) post("working", csidOf(ctx)); });
+  pi.on("agent_end", async (_e, ctx) => { if (ctx?.hasUI) post("done", csidOf(ctx)); });
+}
+`;
+}
+
 // ─── Registry ───────────────────────────────────────────────────────────────
 // Each entry builds its hook object via the kind factory. Add a tool → add an entry.
 const HERMES_BEGIN = "# 9remote hooks begin";
@@ -552,6 +579,12 @@ const TOOL_REGISTRY = {
       Stop: "done", PermissionRequest: "blocked", Notification: "blocked" },
     (ms) => ms,
     { matchers: { Notification: "permission_prompt" }, extra: applyClaudeEnv, sessionId: true }),
+  // Claude-style hooks in the CLI's own config; the session_id key matches agentCatalog.
+  devin: makeNestedJsonHook("devin",
+    { UserPromptSubmit: "working", PreToolUse: "working", PostToolUse: "working",
+      Stop: "done", PermissionRequest: "blocked" },
+    (ms) => ms,
+    { sessionId: true }),
   codex: codexHook,
   opencode: opencodeHook,
   grok: makeNestedJsonHook("grok",
@@ -650,6 +683,17 @@ const TOOL_REGISTRY = {
     disable() { if (fs.existsSync(PATHS.pi())) fs.unlinkSync(PATHS.pi()); return { success: true }; },
     isEnabled() { return fs.existsSync(PATHS.pi()); },
   },
+  omp: {
+    enable() {
+      const filePath = PATHS.omp();
+      const dir = path.dirname(filePath);
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(filePath, buildOmpPlugin(), "utf8");
+      return { success: true };
+    },
+    disable() { if (fs.existsSync(PATHS.omp())) fs.unlinkSync(PATHS.omp()); return { success: true }; },
+    isEnabled() { return fs.existsSync(PATHS.omp()); },
+  },
 };
 
 // ─── Public API ─────────────────────────────────────────────────────────────
@@ -659,7 +703,7 @@ export function enableToolHook(tool) {
   const hook = TOOL_REGISTRY[tool];
   if (!hook) return { success: false, error: "Unknown tool" };
   try {
-    if (tool === "codex" || tool === "opencode" || tool === "amp" || tool === "pi") return hook.enable();
+    if (tool === "codex" || tool === "opencode" || tool === "amp" || tool === "pi" || tool === "omp") return hook.enable();
     return hook.enable(PATHS[tool]());
   } catch (e) {
     return { success: false, error: e.message };
@@ -670,7 +714,7 @@ export function disableToolHook(tool) {
   const hook = TOOL_REGISTRY[tool];
   if (!hook) return { success: false, error: "Unknown tool" };
   try {
-    if (tool === "codex" || tool === "opencode" || tool === "amp" || tool === "pi") return hook.disable();
+    if (tool === "codex" || tool === "opencode" || tool === "amp" || tool === "pi" || tool === "omp") return hook.disable();
     return hook.disable(PATHS[tool]());
   } catch (e) {
     return { success: false, error: e.message };
@@ -679,7 +723,7 @@ export function disableToolHook(tool) {
 function isToolHookEnabled(tool) {
   const hook = TOOL_REGISTRY[tool];
   if (!hook) return false;
-  if (tool === "codex" || tool === "opencode" || tool === "amp" || tool === "pi") return hook.isEnabled();
+  if (tool === "codex" || tool === "opencode" || tool === "amp" || tool === "pi" || tool === "omp") return hook.isEnabled();
   return hook.isEnabled(PATHS[tool]());
 }
 

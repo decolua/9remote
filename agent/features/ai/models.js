@@ -3,8 +3,12 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 import { spawnSync } from "node:child_process";
+import { createRequire } from "node:module";
 import { PATHS } from "../../lib/constants.js";
 import { writeJsonAtomic } from "../../lib/atomicFile.js";
+import { getExtendedEnv } from "./adapters/env.js";
+
+const require = createRequire(import.meta.url);
 
 // Env slots for Claude models; [1m] context suffix is preserved.
 const SLOTS = [
@@ -235,6 +239,26 @@ export function resolveDefaultModel(engine) {
     }
   }
 
+  if (engine === "devin") {
+    // The CLI's own record: the model its newest session actually ran — never a canned id.
+    try {
+      const { DatabaseSync } = require("node:sqlite");
+      const dbPath = path.join(os.homedir(), ".local", "share", "devin", "cli", "sessions.db");
+      if (!fs.existsSync(dbPath)) return "";
+      const db = new DatabaseSync(dbPath, { readOnly: true });
+      try {
+        const row = db.prepare(
+          "SELECT model FROM sessions WHERE model IS NOT NULL AND model != '' ORDER BY last_activity_at DESC LIMIT 1"
+        ).get();
+        return row?.model || "";
+      } finally {
+        db.close();
+      }
+    } catch {
+      return "";
+    }
+  }
+
   return "";
 }
 
@@ -319,6 +343,81 @@ export function listAntigravityModelOptions() {
       };
     })
     .filter((m) => Boolean(m.id));
+}
+
+// List OMP models via `omp models --json`; omp already filters to providers with auth.
+export function listOmpModelOptions() {
+  let out = "";
+  try {
+    const res = spawnSync("omp", ["models", "--json"], { encoding: "utf8", timeout: OPENCODE_CATALOG_TIMEOUT_MS });
+    if (!res.error && res.status === 0) out = res.stdout || "";
+  } catch {
+    return [];
+  }
+  let models = [];
+  try {
+    models = JSON.parse(out).models || [];
+  } catch {
+    return [];
+  }
+  return models
+    .filter((m) => m?.id && m.provider)
+    .map((m) => {
+      const id = m.selector || `${m.provider}/${m.id}`;
+      // 9router in TUI displays m.id (e.g. ag/claude-sonnet-4-6, bzl/...); others use m.name || m.id
+      const displayLabel = m.provider === "9router" ? m.id : (m.name || m.id);
+      return {
+        id,
+        provider: m.provider,
+        label: displayLabel,
+        short: displayLabel,
+        desc: "",
+        efforts: Array.isArray(m.thinking) ? m.thinking : [],
+        defaultEffort: "",
+        contextWindow: m.contextWindow || 0
+      };
+    })
+    .sort((a, b) => a.provider.localeCompare(b.provider) || a.label.localeCompare(b.label));
+}
+
+// List Devin models via `devin models list --format json`: families carry the
+// provider label, each variant (reasoning level baked into the uid) one option.
+export function listDevinModelOptions() {
+  let out = "";
+  try {
+    const res = spawnSync("devin", ["models", "list", "--format", "json"], {
+      encoding: "utf8",
+      env: getExtendedEnv(),
+      timeout: OPENCODE_CATALOG_TIMEOUT_MS
+    });
+    if (!res.error && res.status === 0) out = res.stdout || "";
+  } catch {
+    return [];
+  }
+  let families = [];
+  try {
+    families = JSON.parse(out).families || [];
+  } catch {
+    return [];
+  }
+  const options = [];
+  for (const family of families) {
+    for (const v of family.variants || []) {
+      if (!v.model_uid) continue;
+      options.push({
+        id: v.model_uid,
+        provider: family.family_label || family.slug || "Devin",
+        label: v.label || v.model_uid,
+        short: v.label || v.model_uid,
+        desc: v.cost_summary || "",
+        efforts: [],
+        defaultEffort: "",
+        // The catalog carries no window; usage_update reports the live one.
+        contextWindow: 0
+      });
+    }
+  }
+  return options.sort((a, b) => a.provider.localeCompare(b.provider) || a.label.localeCompare(b.label));
 }
 
 // Merge models matching OpenCode TUI structure:

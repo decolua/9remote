@@ -20,7 +20,7 @@ const CLI_EXIT_MS = 1200;
 // Engines whose CLI is daemon-owned, so the chat UI can drive it. Must list exactly
 // the ids the web registry gives a `ui:` entry — an engine missing here is refused a
 // switch, one listed without a registry entry renders as a plain terminal.
-const UI_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp"]);
+const UI_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp", "devin"]);
 // Whose id a session carries when status has not recorded the surface yet: only the
 // chat engines resolve here, and claude is the one every host has.
 const FALLBACK_ENGINE = "claude";
