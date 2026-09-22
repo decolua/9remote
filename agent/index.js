@@ -279,6 +279,7 @@ const ROUTES = [
     const version = typeof __CLI_VERSION__ !== "undefined"
       ? __CLI_VERSION__
       : JSON.parse(readFileSync(join(__dirname, "..", "package.json"), "utf8")).version;
+    res.setHeader("Cache-Control", "no-store");
     jsonOk(res, { version });
   }},
   { path: "/api/notify",           method: "POST", public: true, handler: handleNotifyPost },

@@ -48,6 +48,8 @@ export default function App() {
   const [sleepInhibitPresets, setSleepInhibitPresets] = useState([]);
   const [unlockStatus, setUnlockStatus] = useState(null); // {supported, built, running}
   const [version, setVersion] = useState("");
+  const versionRef = useRef("");
+  const checkingVersionRef = useRef(false);
   const [theme, setTheme] = useState(() => {
     const saved = localStorage.getItem("app_theme_v2") || localStorage.getItem("9remote-theme");
     return saved || "dark";
@@ -85,7 +87,27 @@ export default function App() {
       };
       window.addEventListener("keydown", reloadKey);
     }
-    fetch("/api/version").then((r) => r.json()).then((d) => setVersion(d.version ?? "")).catch(() => {});
+    const checkVersion = () => {
+      if (checkingVersionRef.current) return;
+      checkingVersionRef.current = true;
+      fetch("/api/version", { cache: "no-store" })
+        .then((r) => r.json())
+        .then((d) => {
+          const v = d.version ?? "";
+          if (!v) return;
+          if (versionRef.current && versionRef.current !== v) {
+            window.location.reload();
+            return;
+          }
+          versionRef.current = v;
+          setVersion(v);
+        })
+        .catch(() => {})
+        .finally(() => {
+          checkingVersionRef.current = false;
+        });
+    };
+    checkVersion();
     // Single fetch for all initial state (ui + permissions + desktop + theme)
     fetch("/api/ui/state")
       .then((r) => r.json())
@@ -130,6 +152,7 @@ export default function App() {
         const data = JSON.parse(e.data);
         setAgentReachable(true);
         if (data.type === "state") {
+          checkVersion();
           setMainState({
             step: data.step ?? 0,
             stepDesc: data.stepDesc ?? "",
@@ -175,7 +198,10 @@ export default function App() {
     // over a server that is gone. EventSource reconnects on its own, so this only
     // raises the flag; a message that arrives later clears it.
     es.onerror = () => setAgentReachable(false);
-    es.onopen = () => setAgentReachable(true);
+    es.onopen = () => {
+      setAgentReachable(true);
+      checkVersion();
+    };
 
     // Load initial auto-approve state
     fetch("/api/device/auto-approve").then(r => r.json()).then(d => {

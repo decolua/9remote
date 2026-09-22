@@ -169,6 +169,24 @@ function UpdateBanner({ version }) {
   const busy = phase !== "idle" && phase !== "timeout";
   // Time-estimated progress (update runs detached → no real %)
   const progress = phase === "ready" ? 100 : Math.min((seconds * 1000 / UPDATE_UI.timeoutMs) * 100, 95);
+
+  // Full-screen wait overlay while the detached update script reinstalls the agent —
+  // mirrors web's UpdateModal so the Tauri webview never sits on a dead page.
+  if (busy) {
+    return (
+      <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "var(--bg-main)" }}>
+        <div className="text-center mx-4" style={{ maxWidth: 320 }}>
+          <span className={`material-symbols-outlined text-4xl ${p.spin ? "animate-spin" : ""}`} style={{ color: "var(--brand-400)" }}>{p.icon}</span>
+          <div className="text-sm font-semibold mt-3" style={{ color: "var(--text-main)" }}>{p.text(version, seconds)}</div>
+          <div className="mt-4 h-1.5 w-full rounded-full overflow-hidden" style={{ background: "var(--surface-2)" }}>
+            <div className="h-full rounded-full transition-all duration-1000 ease-linear" style={{ width: `${progress}%`, background: "var(--brand-400)" }} />
+          </div>
+          <div className="text-xs mt-2" style={{ color: "var(--text-subtle)" }}>{seconds}s</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative px-5 py-2 flex items-center gap-2 border-b" style={{ background: "rgba(var(--brand-rgb),0.08)", borderColor: "rgba(var(--brand-rgb),0.2)" }}>
       <span className={`material-symbols-outlined text-sm flex-shrink-0 ${p.spin ? "animate-spin" : ""}`} style={{ color: "var(--brand-400)" }}>{p.icon}</span>
@@ -184,10 +202,6 @@ function UpdateBanner({ version }) {
       )}
       {phase === "timeout" && (
         <button onClick={() => location.reload()} className="flex-shrink-0 text-xs px-2 py-0.5 rounded font-medium" style={{ background: "rgba(var(--brand-rgb),0.15)", color: "var(--brand-400)" }}>Reload</button>
-      )}
-      {busy && <span className="text-xs flex-shrink-0" style={{ color: "var(--brand-400)", opacity: 0.6 }}>{seconds}s</span>}
-      {busy && (
-        <div className="absolute left-0 bottom-0 h-0.5 transition-all duration-1000 ease-linear" style={{ width: `${progress}%`, background: "var(--brand-400)" }} />
       )}
     </div>
   );
