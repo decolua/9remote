@@ -8,7 +8,7 @@ const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todo
 // Engines whose question gate renders pinned above the composer (a permission channel the
 // CLI answers through). Elsewhere a running question stays in the timeline as a plain row —
 // headless engines cannot be answered, but the ask must stay visible while it blocks.
-const GATE_ENGINES = new Set(["claude", "omp"]);
+const GATE_ENGINES = new Set(["claude", "omp", "devin"]);
 
 // Diff-emitting tools across agent adapters (hidden inline to prevent duplicate file cards).
 const DIFF_TOOL_NAMES = new Set([

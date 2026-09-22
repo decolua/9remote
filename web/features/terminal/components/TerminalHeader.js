@@ -33,7 +33,7 @@ import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useKanbanStore } from "@/shared/stores/kanbanStore";
 
 // Engines a terminal can be swapped into the chat UI.
-const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp"]);
+const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp", "devin"]);
 // A turn in flight owns the conversation: the host would have to move it out from under
 // a running CLI. Only a settled terminal (idle, or a finished turn) may switch.
 export const SWITCHABLE_STATES = new Set(["idle", "done"]);
@@ -728,7 +728,10 @@ function TerminalHeader({
           >
             <ImageIcon size={13} className="flex-shrink-0" /> {t("menu.terminalBackground")}
           </button>
-          {sessionStatus[tabMenu.sessionId]?.conversationId && (
+          {/* A UI pane may always restart its AI; a terminal only offers resume once
+              the CLI has reported a conversation id (lazy engines have none before
+              their first prompt — claude/codex spawn eager and do). */}
+          {(agentBySession[tabMenu.sessionId]?.endsWith("-ui") || sessionStatus[tabMenu.sessionId]?.conversationId) && (
             <button
               onClick={() => {
                 vibrate();

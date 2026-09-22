@@ -740,7 +740,9 @@ function TerminalSidebar({
           >
             <ImageIcon size={13} className="flex-shrink-0" /> {t("menu.terminalBackground")}
           </button>
-          {sessionStatus[ctxMenu.sessionId]?.conversationId && (
+          {/* Same door as the tab menu: a UI pane may always restart its AI; a
+              terminal only offers resume once a conversation id exists. */}
+          {(agentBySession[ctxMenu.sessionId]?.endsWith("-ui") || sessionStatus[ctxMenu.sessionId]?.conversationId) && (
             <button
               onClick={() => {
                 vibrate();

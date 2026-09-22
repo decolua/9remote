@@ -573,6 +573,63 @@ export class AntigravityEngine extends AiEngine {
   }
 }
 
+export class DevinEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "devin",
+        label: "Devin",
+        desc: "Devin CLI agent (acp mode)",
+        badge: "Devin",
+        icon: "Compass",
+        color: "#6d5dfc",
+      },
+      ui: { id: "devin-ui", label: "Devin UI", short: "Devin UI" },
+      overrides: {
+        // Tool names are the wire's inferenceToolName; unknowns fall back to the ACP kind.
+        tools: {
+          exec: "bash",
+          edit: "diff",
+          write: "diff",
+          read: "file",
+          glob: "search",
+          grep: "search",
+          search: "search",
+          web_search: "search",
+          fetch: "search",
+          list_dir: "search",
+          think: "thought",
+          todo: "task",
+          ask: "question",
+        },
+        models: [
+          { id: "swe-1-6-slow", label: "SWE-1.6 Slow", short: "SWE-1.6 Slow", desc: "Low cost balanced default", provider: "Devin" },
+          { id: "swe-1-7", label: "SWE-1.7 Max", short: "SWE-1.7 Max", provider: "Devin" },
+          { id: "swe-2-high", label: "SWE-2 High", short: "SWE-2 High", provider: "Devin" },
+          { id: "claude-opus-5-medium", label: "Claude Opus 5 Medium", short: "Opus 5 M", provider: "Anthropic" },
+          { id: "claude-sonnet-5-medium", label: "Claude Sonnet 5 Medium", short: "Sonnet 5 M", provider: "Anthropic" },
+          { id: "claude-fable-5-1-medium", label: "Claude Fable 5.1 Medium", short: "Fable 5.1 M", provider: "Anthropic" },
+          { id: "gpt-5-6-sol-medium", label: "GPT-5.6 Sol Medium Thinking", short: "5.6 Sol M", provider: "OpenAI" },
+          { id: "gpt-6-astra-medium", label: "GPT-6 Astra Medium Thinking", short: "6 Astra M", provider: "OpenAI" },
+        ],
+        // The ACP wire has no set-mode method: the mode travels only as the
+        // config the CLI itself holds — one mode, shown, not switched.
+        permissionModes: [
+          { id: "accept-edits", label: "Code", desc: "Auto-approve reads and edits (set in Devin)", icon: PERMISSION_ICONS.edit },
+        ],
+        defaultMode: "accept-edits",
+        features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: false },
+        slashCommands: [
+          { name: "/model", description: "Choose the Devin model", action: "modal:model" },
+          { name: "/resume", description: "Resume a previous Devin session", action: "modal:sessions" },
+          { name: "/clear", description: "Start a fresh Devin session", action: "clear" },
+          { name: "/doctor", description: "Check the Devin installation", action: "modal:doctor" },
+        ],
+      },
+    });
+  }
+}
+
 export const DEFAULT_ENGINE_ID = "claude";
 
 const registry = new Map();
@@ -596,6 +653,7 @@ registerEngine(new CodexEngine());
 registerEngine(new OpenCodeEngine());
 registerEngine(new AntigravityEngine());
 registerEngine(new OmpEngine());
+registerEngine(new DevinEngine());
 
 export function getEngineConfig(engineId = DEFAULT_ENGINE_ID) {
   return getEngine(engineId).config;
