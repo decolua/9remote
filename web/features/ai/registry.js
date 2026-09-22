@@ -445,7 +445,7 @@ export class OmpEngine extends AiEngine {
           { id: "default", label: "Default", desc: "Ask before risky tools", icon: PERMISSION_ICONS.ask },
           { id: "auto", label: "Auto", desc: "Auto-approve everything", icon: PERMISSION_ICONS.bypass },
         ],
-        defaultMode: "default",
+        defaultMode: "auto",
         features: { thinking: true, planMode: false, tasks: true, skills: false, mcp: false, rewind: true },
         slashCommands: [
           { name: "/model", description: "Choose the OMP model", action: "modal:model" },

@@ -13,7 +13,8 @@ export const AiQuestionCard = memo(function AiQuestionCard({
   answers = null,
   declined = false,
   failed = false,
-  onResolve
+  onResolve,
+  engine = ""
 }) {
   const { isFocused, activate } = useAiPaneScope();
   const [selectedAnswers, setSelectedAnswers] = useState({});
@@ -116,6 +117,13 @@ export const AiQuestionCard = memo(function AiQuestionCard({
       <div className="my-2 p-3 rounded-brand-lg bg-surface text-[13px] flex flex-col gap-1">
         <span className="text-text-muted font-medium">Skipped</span>
         {current && <span className="text-text-muted/70 leading-snug">{current.question}</span>}
+        {/* Headless agy auto-skips every question (no answer channel exists); the TUI in
+            a real terminal is the one place it waits — say so where the skip is seen. */}
+        {engine === "antigravity" && (
+          <span className="text-[11px] text-text-muted/60 leading-snug">
+            Headless Antigravity cannot wait for an answer — open it in a terminal (new terminal → Antigravity) to answer questions interactively.
+          </span>
+        )}
       </div>
     );
   }

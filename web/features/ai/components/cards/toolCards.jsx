@@ -36,14 +36,23 @@ const CARDS = {
   // Answered question — the host's tool output is the only record of the choice.
   // A rejected call carries no output, only a refusal message; feeding that in as
   // `answers` painted the green "Answered" view over a question nobody answered.
-  question: (tool) => (
-    <AiQuestionCard
-      key={tool.id}
-      questions={tool.input?.questions || []}
-      answers={tool.error ? null : tool.output || ""}
-      declined={Boolean(tool.error) || tool.status === "error"}
-    />
-  )
+  // Display-only while running or outputless (engines with no permission gate): the
+  // interactive card has no `onResolve` on this path and would render nothing.
+  question: (tool, _deferred, ctx) => {
+    if (tool.status === "running" || (!tool.output && !tool.error)) return null;
+    // agy headless auto-skips a question within milliseconds — nothing can answer it —
+    // so the CLI's own "User Skipped" record reads as the muted Skipped view, not Answered.
+    const skipped = ctx?.engine === "antigravity" && /user skipped/i.test(String(tool.output || ""));
+    return (
+      <AiQuestionCard
+        key={tool.id}
+        engine={ctx?.engine}
+        questions={tool.input?.questions || []}
+        answers={skipped || tool.error ? null : tool.output || ""}
+        declined={skipped || Boolean(tool.error) || tool.status === "error"}
+      />
+    );
+  }
 };
 
 /**
@@ -53,5 +62,5 @@ const CARDS = {
  */
 export function renderToolCard(engine, tool, ctx = {}) {
   const make = CARDS[getToolCategory(engine, tool.name)];
-  return make ? make(tool, ctx.deferred, ctx) : null;
+  return make ? make(tool, ctx.deferred, { ...ctx, engine }) : null;
 }

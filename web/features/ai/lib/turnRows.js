@@ -5,6 +5,11 @@ import { getToolCategory } from "../registry.js";
 // Tools rendered in pinned checklist strip rather than inline.
 const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todowrite"]);
 
+// Engines whose question gate renders pinned above the composer (a permission channel the
+// CLI answers through). Elsewhere a running question stays in the timeline as a plain row —
+// headless engines cannot be answered, but the ask must stay visible while it blocks.
+const GATE_ENGINES = new Set(["claude", "omp"]);
+
 // Diff-emitting tools across agent adapters (hidden inline to prevent duplicate file cards).
 const DIFF_TOOL_NAMES = new Set([
   "Edit", "Write", "MultiEdit", "NotebookEdit", "file_change",
@@ -48,7 +53,7 @@ export function buildTurnRows(messages = [], engine = "claude") {
     const tools = visibleTools(engine, m.tools, m.diffs);
     for (let i = 0; i < tools.length; i++) {
       const t = tools[i];
-      if (getToolCategory(engine, t.name) === "question" && t.status === "running") continue;
+      if (getToolCategory(engine, t.name) === "question" && t.status === "running" && GATE_ENGINES.has(engine)) continue;
       const id = t.id || `${m.id}-t${i}`;
       if (seenToolIds.has(id)) continue;
       seenToolIds.add(id);
