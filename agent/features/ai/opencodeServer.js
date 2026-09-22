@@ -5,6 +5,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { createLogger } from "../../lib/logger.js";
 import { OPENCODE_SERVER_PORT } from "./constants.js";
+import { getExtendedEnv } from "./adapters/env.js";
 
 const logger = createLogger("ai");
 const BOOT_TIMEOUT_MS = 15000;
@@ -28,6 +29,54 @@ const markerMatches = async (pid) => {
   if (!pid) return false;
   try { return String(fs.readFileSync(markerFile(), "utf8")).trim() === String(pid); } catch { return false; }
 };
+
+function opencodeDataDir() {
+  if (process.platform === "win32") {
+    return path.join(process.env.LOCALAPPDATA || path.join(os.homedir(), "AppData", "Local"), "opencode");
+  }
+  return path.join(process.env.XDG_DATA_HOME || path.join(os.homedir(), ".local", "share"), "opencode");
+}
+
+function readOpencodeAuth() {
+  try {
+    const authPath = path.join(opencodeDataDir(), "auth.json");
+    if (!fs.existsSync(authPath)) return null;
+    return JSON.parse(fs.readFileSync(authPath, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function buildOpencodeEnv() {
+  const env = getExtendedEnv();
+  const auth = readOpencodeAuth();
+  if (auth && typeof auth === "object") {
+    if (auth["opencode-go"]?.key && !env.OPENCODE_API_KEY) {
+      env.OPENCODE_API_KEY = auth["opencode-go"].key;
+    }
+  }
+  return env;
+}
+
+// Sync API keys from auth.json to v2 server integrations so models become available.
+async function syncCredentials(url) {
+  const auth = readOpencodeAuth();
+  if (!auth || typeof auth !== "object") return;
+  for (const [id, entry] of Object.entries(auth)) {
+    if (entry?.type === "api" && entry.key) {
+      try {
+        await fetch(`${url}/api/integration/${id}/connect/key`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ key: entry.key }),
+          signal: AbortSignal.timeout(3000)
+        });
+      } catch (e) {
+        logger.warn(`[opencode] failed to sync credential for ${id}: ${e.message}`);
+      }
+    }
+  }
+}
 
 async function waitForPort(url, deadline) {
   while (Date.now() < deadline) {
@@ -80,12 +129,14 @@ export async function ensureServer() {
       // A leftover from an earlier 9remote agent is still ours to retire.
       const holder = await portHolder(port);
       if (await markerMatches(holder)) adoptedOurs = Number(holder);
+      syncCredentials(url).catch(() => {});
       return url;
     }
 
     // Terminate unresponsive OpenCode server holding the port.
     for (let attempt = 0; attempt < 2; attempt++) {
       proc = spawn("opencode", ["serve", "--port", String(port), "--hostname", "127.0.0.1"], {
+        env: buildOpencodeEnv(),
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true
       });
@@ -107,6 +158,7 @@ export async function ensureServer() {
         base = url;
         // Ownership marker: a later agent adopts this server knowing it is ours.
         try { fs.writeFileSync(markerFile(), String(proc.pid)); } catch {}
+        syncCredentials(url).catch(() => {});
         return url;
       }
       try { proc?.kill(); } catch {}
