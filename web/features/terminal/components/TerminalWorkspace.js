@@ -26,6 +26,8 @@ import TerminalEmptyState from "@/features/terminal/components/TerminalEmptyStat
 import AiPaneView from "@/features/ai/components/AiPaneView";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
+import useClampedMenu from "@/shared/hooks/useClampedMenu";
+import { vibrate } from "@/shared/utils/vibration";
 
 // Per-pane wrapper positioning terminal directly above the bottom input bar
 const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
@@ -345,6 +347,54 @@ function TerminalWorkspace({
     setPaneWidth?.(null);
   }, [activeWorkspaceId, setAutoPaneWidth, setPaneWidth]);
 
+  const [splitterMenu, setSplitterMenu] = useState(null);
+  const splitterMenuRef = useRef(null);
+  const splitterMenuPos = useClampedMenu(splitterMenuRef, splitterMenu?.x ?? 0, splitterMenu?.y ?? 0);
+
+  const handleSplitterContextMenu = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setSplitterMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const applySplitPreset = useCallback((fraction) => {
+    if (fraction === "auto") {
+      fitPaneWidth();
+    } else {
+      const containerWidth = panesContainerRef.current?.clientWidth
+        || (rowWidth - (sidebarCollapsed ? 0 : sidebarWidth) - sideWidth);
+      if (containerWidth > 0) {
+        const targetWidth = Math.max(
+          PANE_WIDTH.min,
+          Math.floor((containerWidth - (fraction - 1) * PANE_GAP_PX) / fraction)
+        );
+        setAutoPaneWidth(activeWorkspaceId, null);
+        setPaneWidth?.(targetWidth);
+      }
+    }
+    setSplitterMenu(null);
+  }, [fitPaneWidth, panesContainerRef, rowWidth, sidebarCollapsed, sidebarWidth, sideWidth, activeWorkspaceId, setAutoPaneWidth, setPaneWidth]);
+
+  useEffect(() => {
+    if (!splitterMenu) return;
+    const onDoc = (e) => {
+      if (splitterMenuRef.current && !splitterMenuRef.current.contains(e.target)) {
+        setSplitterMenu(null);
+      }
+    };
+    const onKey = (e) => {
+      if (e.key === "Escape") setSplitterMenu(null);
+    };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("touchstart", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("touchstart", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [splitterMenu]);
+
   useEffect(() => {
     const onFit = () => fitPaneWidth();
     window.addEventListener("terminal:fitPanes", onFit);
@@ -619,6 +669,7 @@ function TerminalWorkspace({
                     <div
                       onPointerDown={startPaneResize}
                       onDoubleClick={fitPaneWidth}
+                      onContextMenu={handleSplitterContextMenu}
                       className="absolute top-0 right-0 bottom-0 w-1 cursor-col-resize hover:bg-brand-500/40 transition-colors z-30"
                       title={hasKeyboard ? withHint(t("shortcuts.fitPanes") || "Auto-fit panes", "fitPanes") : undefined}
                     />
@@ -745,6 +796,51 @@ function TerminalWorkspace({
           platform={platform}
           homeDir={homeDir}
         />
+      )}
+
+      {/* Splitter context menu for layout presets */}
+      {splitterMenu && (
+        <div
+          ref={splitterMenuRef}
+          className="fixed z-[70] menu-popover p-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100 shadow-xl"
+          style={{ left: splitterMenuPos.left, top: splitterMenuPos.top }}
+        >
+          <div className="px-2 py-1 text-[10px] font-semibold text-text-subtle uppercase tracking-wider">
+            Split
+          </div>
+          <button
+            type="button"
+            onClick={() => { vibrate(); applySplitPreset("auto"); }}
+            className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+          >
+            <span>Auto Fit</span>
+            <span className="text-[10px] text-text-muted">Auto</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { vibrate(); applySplitPreset(2); }}
+            className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+          >
+            <span>1/2</span>
+            <span className="text-[10px] text-text-muted">50%</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { vibrate(); applySplitPreset(3); }}
+            className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+          >
+            <span>1/3</span>
+            <span className="text-[10px] text-text-muted">33%</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => { vibrate(); applySplitPreset(4); }}
+            className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+          >
+            <span>1/4</span>
+            <span className="text-[10px] text-text-muted">25%</span>
+          </button>
+        </div>
       )}
     </div>
   );
