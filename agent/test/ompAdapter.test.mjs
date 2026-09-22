@@ -127,6 +127,44 @@ test("a cancelled dialog settles the gate", () => {
   assert.equal(adapter.pendingRequests.size, 0);
 });
 
+test("a live mode change recycles the process so the next spawn carries the new tier", async () => {  const { adapter, ui } = makeAdapter();
+  adapter.activeSessionId = "ses_omp1";
+  adapter.rpc = { uiRespondValue: () => {}, uiRespondConfirm: () => {}, send: () => new Promise(() => {}), close: () => { ui.closed = true; } };
+  let stopped = false;
+  adapter.proc = { stop: async () => { stopped = true; }, start: async () => ({ commit() {} }), onExit: null };
+  adapter.setOptions({ mode: "auto" });
+  assert.equal(adapter.permissionMode, "auto");
+  assert.equal(ui.closed, true, "the old rpc pipe must close");
+  assert.equal(stopped, true, "the old process must stop");
+  assert.equal(adapter._resumeId, "ses_omp1", "the conversation survives via --resume");
+  assert.ok(adapter._stopping, "the next spawn waits for the recycle");
+  const spawned = [];
+  adapter.proc.start = async (opts) => { spawned.push(opts); return { commit() {} }; };
+  adapter._refreshModels = () => {};
+  adapter._syncState = () => {};
+  await adapter._ensureStarted();
+  assert.ok(spawned[0].args.includes("--approval-mode"), "respawn carries the approval flag");
+  assert.ok(spawned[0].args.includes("yolo"), "auto maps to yolo");
+  assert.ok(spawned[0].args.includes("--resume"), "respawn resumes the conversation");
+});
+
+test("Esc still stops when the pane is stale — abort goes out even past a settled flag", () => {
+  const { adapter } = makeAdapter();
+  const sent = [];
+  adapter.rpc = { uiRespondValue: () => {}, uiRespondConfirm: () => {}, send: (type) => { sent.push(type); return new Promise(() => {}); }, close: () => {} };
+  adapter.isTurnRunning = false; // the engine ended the turn; the pane missed it
+  assert.equal(adapter.interrupt(), true, "a live rpc must accept the stop");
+  assert.deepEqual(sent, ["abort"]);
+  assert.equal(adapter.isTurnRunning, false);
+
+  // rpc gone: the daemon signal is the fallback, not another interrupt refusal.
+  adapter.rpc = null;
+  const signals = [];
+  adapter.proc = { signal: (s) => signals.push(s) };
+  assert.equal(adapter.signal("SIGINT"), true);
+  assert.deepEqual(signals, ["SIGINT"]);
+});
+
 test("subagent lifecycle rides the harness task rows", () => {
   const { feed, of } = makeAdapter();
   feed({ type: "subagent_lifecycle", payload: { id: "s1", agent: "coder", description: "fix tests", status: "started", index: 0 } });

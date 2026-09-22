@@ -39,6 +39,8 @@ export class OmpAdapter {
     this.stats = { inputTokens: 0, outputTokens: 0, reasoningTokens: 0, totalTurns: 0 };
     this.metadata = { model: this.currentModel, sessionId: this.activeSessionId || "", permissionMode: this.permissionMode, effort: this.effort };
     this._toolArgs = new Map();
+    // A mode-change recycle in flight: the next spawn waits for it (see setOptions).
+    this._stopping = null;
   }
 
   // Non-fatal adapter problem: a warning row, never an `error` event (those
@@ -57,6 +59,8 @@ export class OmpAdapter {
 
   async _ensureStarted() {
     if (this.rpc) return;
+    // A mode change may still be tearing the old process down; start only once free.
+    if (this._stopping) { await this._stopping; this._stopping = null; }
     this.proc.onExit = ({ code, error }) => {
       this.rpc = null;
       const wasRunning = this.isTurnRunning;
@@ -132,7 +136,15 @@ export class OmpAdapter {
     if (mode && mode !== this.permissionMode) {
       this.permissionMode = mode;
       this.metadata.permissionMode = mode;
-      if (this.rpc) this._warn("OMP applies a mode change when the session next starts.");
+      // --approval-mode is a launch flag with no runtime RPC: recycle the process
+      // so the next prompt spawns under the new tier, resuming this conversation.
+      if (this.rpc) {
+        this._resumeId = this.activeSessionId || this._resumeId;
+        this.rpc.close();
+        this.rpc = null;
+        this._stopping = this.proc.stop().catch(() => {});
+        this._warn("OMP mode changed — its process restarts to apply.");
+      }
     }
     if (resume && resume !== this.activeSessionId) {
       this._resumeId = resume;
@@ -184,21 +196,34 @@ export class OmpAdapter {
   feed() {}
 
   interrupt() {
-    if (!this.isTurnRunning) return false;
+    // A stop may arrive after the engine already ended the turn (a missed
+    // agent_end leaves the pane "working"): abort is idempotent server-side
+    // (agent-session abort just drains controllers/queues), so send it anyway
+    // rather than strand the pane behind a refused stop.
+    const sent = this.rpc != null;
     this.isTurnRunning = false;
-    this.rpc?.send("abort", {}, { timeoutMs: 10000 }).catch((e) => logger.warn(`omp abort refused: ${e.message}`));
-    return true;
+    if (sent) this.rpc.send("abort", {}, { timeoutMs: 10000 }).catch((e) => logger.warn(`omp abort refused: ${e.message}`));
+    return sent;
   }
 
-  signal(sig) {
-    return this.interrupt();
+  signal(sig = "SIGINT") {
+    // rpc-less fallback: the daemon routes the signal to the real process.
+    if (this.rpc) return this.interrupt();
+    if (typeof this.proc?.signal !== "function") return false;
+    try { this.proc.signal(sig); return true; } catch { return false; }
   }
 
   stop() {
     this.isTurnRunning = false;
     this.rpc?.close();
     this.rpc = null;
-    return Promise.resolve();
+    // The daemon-held process IS the conversation: closing the pipe alone leaves
+    // `omp --mode rpc` running forever with nobody reading its frames (same leak
+    // the opencode serve server had before its refcount). A recycle already in
+    // flight is awaited instead of double-stopping.
+    const stopping = this._stopping || this.proc.stop().catch(() => {});
+    this._stopping = stopping;
+    return stopping;
   }
 
   // ── rewind (conversation only: the session tree branches in place) ─────────
