@@ -37,6 +37,9 @@ const RECENT_SESSIONS = 8;
 const LOAD_MORE_THRESHOLD_PX = 120;
 // Cooldown prevents back-to-back page fetches when collapsed turns leave scrollTop under threshold.
 const PAGE_COOLDOWN_MS = 300;
+
+// Throttle interval for following streaming text growth; one catch-up per window, no per-chunk spam.
+const SCROLL_FOLLOW_THROTTLE_MS = 150;
 // Poll limit while waiting for engine to make conversation rewindable.
 const REWIND_ASKS_MAX = 6;
 
@@ -348,6 +351,7 @@ export const AiMessagesList = memo(function AiMessagesList({
   const sentinelRef = useRef(null);
   const isAtBottomRef = useRef(true);
   const scrollTimerRef = useRef(null);
+  const followTimerRef = useRef(null);
   // Anchor holds DOM element across await because React key reconciliation preserves the node.
   const topRef = useRef(null);
   // Pending scroll correction armed by handleLoadMore, applied in useLayoutEffect.
@@ -514,6 +518,25 @@ export const AiMessagesList = memo(function AiMessagesList({
     if (!el || !isAtBottomRef.current) return;
     el.scrollTop = el.scrollHeight;
   }, [structureKey]);
+
+  // Streaming text grows in place without changing structure; throttled catch-up, only when pinned at bottom.
+  const contentLength = useMemo(
+    () => messages.reduce((sum, m) => sum + (m.content?.length || 0), 0),
+    [messages]
+  );
+
+  useEffect(() => {
+    if (!isAtBottomRef.current) return;
+    if (followTimerRef.current) return;
+    // Trailing fire reads the freshest scrollHeight, so continuous streams keep reaching the live bottom.
+    followTimerRef.current = setTimeout(() => {
+      followTimerRef.current = null;
+      const el = scrollRef.current;
+      if (el && isAtBottomRef.current) el.scrollTop = el.scrollHeight;
+    }, SCROLL_FOLLOW_THROTTLE_MS);
+  }, [contentLength]);
+
+  useEffect(() => () => { if (followTimerRef.current) clearTimeout(followTimerRef.current); }, []);
 
   // Re-pin to bottom on container resize (e.g. keyboard) if already at bottom.
   useEffect(() => {
