@@ -80,7 +80,7 @@ await test("runCommand posts {command, arguments} to the v1 session command rout
 
 await test("a 200 text/html answer (SPA trap) is an error, not data", async () => {
   const { srv, port } = await fakeServe({
-    "GET /api/session/nope/message": { json: { html: true }, contentType: "text/html" },
+    "GET /session/nope/message": { json: { html: true }, contentType: "text/html" },
     "POST /api/session/nope/interrupt": { json: { html: true }, contentType: "text/html" },
   });
   server._useTestBase(`http://127.0.0.1:${port}`);

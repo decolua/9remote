@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createLogger } from "../../lib/logger.js";
-import { OPENCODE_SERVER_PORT } from "./constants.js";
+import { OPENCODE_SERVER_PORT, OPENCODE_PROMPT_TIMEOUT_MS } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 
 const logger = createLogger("ai");
@@ -248,15 +248,22 @@ export async function createSession(cwd, extras = {}) {
 
 export const isV2Session = (id) => v2Sessions.has(id);
 
-export const listMessages = (sessionId) => api("GET", `/api/session/${sessionId}/message`);
+// v1 route: the v2 mirror answers an empty list even for sessions it holds.
+export const listMessages = (sessionId) => api("GET", `/session/${sessionId}/message`);
 
 // Session info including the agent it currently runs (read before a mode PATCH).
 export const getSession = (sessionId) => api("GET", `/api/session/${sessionId}`);
 
 export const activeSessions = () => api("GET", "/api/session/active");
 
+// v1 message route, NOT /api/.../prompt: on 1.18.x the v2 endpoint only steers a
+// running turn — an idle session admits the prompt (200 OK) but never runs it,
+// and even a resumed turn persists nothing to the store. ponytail: if v1 goes
+// away, its replacement must both start the turn and persist messages.
+// The call resolves when the whole agent loop ends, so it needs the long
+// command timeout, not the generic 30s api one.
 export const prompt = (sessionId, body) =>
-  api("POST", `/api/session/${sessionId}/prompt`, typeof body === "string" ? { prompt: { text: body } } : body);
+  api("POST", `/session/${sessionId}/message`, typeof body === "string" ? { parts: [{ type: "text", text: body }] } : body, { timeoutMs: OPENCODE_PROMPT_TIMEOUT_MS });
 
 export const setSessionModel = (sessionId, model) =>
   api("POST", `/api/session/${sessionId}/model`, { model });
@@ -315,7 +322,6 @@ export async function interruptSession(sessionId) {
 // reconcile state the gap may have missed — the stream itself has no replay.
 export function subscribeBus(onEvent, { onReconnect = null } = {}) {
   let closed = false;
-  let currentReader = null;
   // Aborts the in-flight connect too: close() during the fetch await leaks a
   // live SSE connection nothing will ever read.
   const abort = new AbortController();
@@ -327,7 +333,6 @@ export function subscribeBus(onEvent, { onReconnect = null } = {}) {
         if (!res.ok || !res.body) throw new Error(`event stream HTTP ${res.status}`);
         if (onReconnect) { try { onReconnect(); } catch {} }
         const reader = res.body.getReader();
-        currentReader = reader;
         const decoder = new TextDecoder();
         let buf = "";
         while (!closed) {
@@ -347,8 +352,6 @@ export function subscribeBus(onEvent, { onReconnect = null } = {}) {
           }
         }
       } catch {
-      } finally {
-        currentReader = null;
       }
       if (closed) return;
       await new Promise((r) => setTimeout(r, 1000));
@@ -356,9 +359,11 @@ export function subscribeBus(onEvent, { onReconnect = null } = {}) {
   })();
   return {
     close() {
+      // No reader.cancel() here: on an aborted body it rejects with the abort's
+      // own AbortError, and nothing is left to catch it (the unhandled
+      // rejection on every surface switch). The signal tears the stream down.
       closed = true;
       try { abort.abort(); } catch {}
-      try { currentReader?.cancel(); } catch {}
     }
   };
 }

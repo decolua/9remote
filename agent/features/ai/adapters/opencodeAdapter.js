@@ -4,7 +4,8 @@ import { createLogger } from "../../../lib/logger.js";
 import { stageAttachment, stagedPaths } from "../aiAttachment.js";
 import * as opencodeServer from "../opencodeServer.js";
 import { createOpencodeBusParser } from "../opencodeBus.js";
-import { OPENCODE_MODE_AGENTS } from "../constants.js";
+import { opencodePartEvents } from "../opencodePart.js";
+import { OPENCODE_MODE_AGENTS, OPENCODE_TITLE_FETCH_DELAY_MS, OPENCODE_POLL_MS } from "../constants.js";
 
 // The v2 prompt endpoint rejects an empty message; an attachment-only turn has no caption.
 const ATTACHMENT_ONLY_PROMPT = "See the attached file.";
@@ -15,12 +16,10 @@ function buildPromptBody(promptText, staged) {
   const text = [stagedPaths(staged), promptText].filter(Boolean).join(" ")
     || (images.length ? ATTACHMENT_ONLY_PROMPT : "");
   return {
-    prompt: {
-      text,
-      ...(images.length
-        ? { files: images.map((a) => ({ uri: `data:${a.mediaType};base64,${a.data}` })) }
-        : {})
-    }
+    parts: [
+      { type: "text", text },
+      ...images.map((a) => ({ type: "file", mime: a.mediaType, url: `data:${a.mediaType};base64,${a.data}` }))
+    ]
   };
 }
 
@@ -71,6 +70,8 @@ export class OpenCodeAdapter {
     this._commandsPromise = null;
     // Engine session id whose title the metadata already carries (see sendPrompt).
     this._titledSession = null;
+    this._titleTimer = null;
+    this._pollTimer = null;
   }
 
   setOptions({ model, variant, mode, resume, flags }) {
@@ -112,6 +113,20 @@ export class OpenCodeAdapter {
     }
     this._refreshCommands();
     this.onEvent?.("init", { ...this.metadata });
+  }
+
+  // Adopt the server's own session title so the pane matches the TUI and /resume.
+  _refreshServerTitle() {
+    this._titleTimer = null;
+    if (!this.activeSessionId || this._titledSession !== this.activeSessionId) return;
+    this.server.getSession(this.activeSessionId)
+      .then((info) => {
+        const title = String(info?.title || "").trim();
+        if (!title || title.startsWith("New session") || title === this.metadata.threadName) return;
+        this.metadata.threadName = title.slice(0, 80);
+        this.onEvent?.("init", { ...this.metadata });
+      })
+      .catch(() => {});
   }
 
   // Live command list (GET /command) feeds the web '/' menu through init.
@@ -410,12 +425,12 @@ export class OpenCodeAdapter {
         if (!staged) {
           const slash = /^\/([\w.-]+)(?:\s+([\s\S]*))?$/.exec((promptText || "").trim());
           if (slash && this._commandNames().has(slash[1])) {
-            await this.server.runCommand(this.activeSessionId, {
+            await this._followTurn(this.activeSessionId, this.server.runCommand(this.activeSessionId, {
               command: slash[1],
               arguments: slash[2] || "",
               // No variant: same no-variants catalog rule as the model PATCH.
               ...(this.currentModel ? { model: this.currentModel } : {})
-            });
+            }));
             // A command runs the whole agent loop — it proves the session ran.
             this._sessionRan = true;
             // The command call blocks until the loop ends; its return is itself
@@ -426,12 +441,10 @@ export class OpenCodeAdapter {
             return;
           }
         }
-        await this.server.prompt(this.activeSessionId, buildPromptBody(promptText, staged));
+        await this._followTurn(this.activeSessionId, this.server.prompt(this.activeSessionId, buildPromptBody(promptText, staged)));
         this._sessionRan = true;
-        // serve mode never auto-titles a session (only the TUI does), so the
-        // pane would otherwise show the placeholder "New session - <ts>" from
-        // the store. The first prompt is the title, claude-style, once per
-        // engine session.
+        // The pane header needs a title instantly; the server's own (from the
+        // title model, like the TUI) lands a beat later and replaces this.
         if (this._titledSession !== this.activeSessionId) {
           this._titledSession = this.activeSessionId;
           const firstLine = String(promptText || "").split("\n")[0].trim();
@@ -439,6 +452,9 @@ export class OpenCodeAdapter {
             this.metadata.threadName = firstLine.slice(0, 80);
             this.onEvent?.("init", { ...this.metadata });
           }
+          // The message route makes the server title the session like the TUI
+          // does; swap the first-line stand-in for it once it lands.
+          this._titleTimer = setTimeout(() => this._refreshServerTitle(), OPENCODE_TITLE_FETCH_DELAY_MS);
         }
       } finally {
         this._promptInFlight = false;
@@ -449,6 +465,75 @@ export class OpenCodeAdapter {
         this.onEvent?.("error", { message: e.message });
       }
     });
+  }
+
+  // The v1 routes persist every part but relay none of the assistant's content
+  // on the event bus (only the user's message is published), so the pane follows
+  // the turn by polling the store those routes write. `done` is the route call
+  // itself, already in flight; it resolves when the whole agent loop ends, which
+  // is the authoritative turn end.
+  async _followTurn(sessionId, done) {
+    const sentText = new Map();   // part id → chars already emitted
+    const toolState = new Map();  // part id → last emitted state.status
+    const counted = new Set();    // message ids whose tokens already hit stats
+    // markOnly: record what the store holds without emitting — the baseline
+    // pass must mark the past as seen, never replay it into the live turn.
+    const consume = (messages, markOnly = false) => {
+      let last = null;
+      for (const m of messages || []) {
+        if (m?.info?.role !== "assistant") continue;
+        last = m;
+        const id = m.info.id;
+        if (!counted.has(id) && m.info.time?.completed) {
+          counted.add(id);
+          if (!markOnly) {
+            const t = m.info.tokens || {};
+            // Same rule as the bus parser: the last step's input is what the window
+            // holds; output/reasoning bill per message.
+            this.stats.inputTokens = t.input || 0;
+            this.stats.outputTokens = (this.stats.outputTokens || 0) + (t.output || 0);
+            this.stats.reasoningTokens = (this.stats.reasoningTokens || 0) + (t.reasoning || 0);
+            this.stats.contextTokens = t.input || 0;
+          }
+        }
+        for (const part of m.parts || []) {
+          if (part.type === "text" || part.type === "reasoning") {
+            const text = String(part.text || "");
+            const at = sentText.get(part.id) || 0;
+            if (text.length > at) {
+              // A part can land whole or keep growing in the store — the suffix
+              // is the delta either way.
+              sentText.set(part.id, text.length);
+              if (!markOnly) this.onEvent?.(part.type === "text" ? "delta" : "thinking", { text: text.slice(at) });
+            }
+          } else if (part.type === "tool") {
+            const status = part.state?.status || "";
+            if (toolState.get(part.id) === status) continue;
+            toolState.set(part.id, status);
+            // tool_start repeats are upserts, so re-announcing on completion is
+            // how the card gets its result.
+            if (!markOnly) for (const ev of opencodePartEvents(part)) this.onEvent?.(ev.event, ev.data);
+          }
+        }
+      }
+      return last;
+    };
+    // Baseline: everything already in the store is the past, not this turn.
+    try { consume(await this.server.listMessages(sessionId), true); } catch {}
+    const poll = () => this.server.listMessages(sessionId).then(consume).catch(() => {});
+    this._pollTimer = setInterval(poll, OPENCODE_POLL_MS);
+    try {
+      await done;
+    } finally {
+      clearInterval(this._pollTimer);
+      this._pollTimer = null;
+    }
+    await poll();
+    this.isTurnRunning = false;
+    this._queueSwitches();
+    this.stats.totalTurns = (this.stats.totalTurns || 0) + 1;
+    this.onEvent?.("stats", { stats: this.stats });
+    this.onEvent?.("turn_complete", { stats: this.stats, result: "", isError: false, subtype: "" });
   }
 
   // Interrupt current turn on server; session and context are preserved.
@@ -468,6 +553,8 @@ export class OpenCodeAdapter {
 
   stop() {
     this.isTurnRunning = false;
+    if (this._titleTimer) { clearTimeout(this._titleTimer); this._titleTimer = null; }
+    if (this._pollTimer) { clearInterval(this._pollTimer); this._pollTimer = null; }
     this.bus?.close();
     this.bus = null;
     this.parser = null;

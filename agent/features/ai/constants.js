@@ -68,3 +68,13 @@ export const OPENCODE_MODE_AGENTS = { auto: "build", plan: "plan" };
 
 // Port of the shared `opencode serve` process the adapter manages.
 export const OPENCODE_SERVER_PORT = 41998;
+
+// How long after the first turn before reading back the server's own session
+// title (the title model runs alongside the turn, like the TUI's does).
+export const OPENCODE_TITLE_FETCH_DELAY_MS = 5000;
+
+// The v1 message route never streams the assistant's parts on the event bus, so
+// the pane follows the turn by polling the store that route writes.
+export const OPENCODE_POLL_MS = 800;
+// The v1 prompt call resolves only when the whole agent loop ends.
+export const OPENCODE_PROMPT_TIMEOUT_MS = 600000;
