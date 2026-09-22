@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check, Image as ImageIcon, Maximize2, Minimize2 } from "@/shared/components/ui/Icon";
+import { Terminal, Plus, Pencil, Trash2, GripVertical, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check, Image as ImageIcon, Maximize2, Minimize2, Eye, EyeOff, Columns2 } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
@@ -19,7 +19,7 @@ import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { AGENT_PORT } from "@/shared/constants/API";
 import { groupSessionsByWorkspace, shortenHomePath, workspaceGitPath } from "../lib/workspaceGrouping";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
-import { sessionWorkspaceId } from "../lib/paneLayout";
+import { sessionWorkspaceId, UNGROUPED_KEY } from "../lib/paneLayout";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "../constants/shortcuts";
 import { useDragReorder } from "../hooks/useDragReorder";
@@ -157,8 +157,13 @@ function TerminalSidebar({
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
+  const fullModes = useTerminalStore((s) => s.fullModes || {});
   const fullMode = useTerminalStore((s) => s.fullMode);
   const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
+  const setFullMode = useTerminalStore((s) => s.setFullMode);
+  const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
+  const toggleHidePane = useTerminalStore((s) => s.toggleHidePane);
+  const unhidePane = useTerminalStore((s) => s.unhidePane);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
   const notifications = propNotifications || storeNotifications;
@@ -203,6 +208,8 @@ function TerminalSidebar({
   const ctxConversationId = sessionStatus[ctxMenu?.sessionId]?.conversationId;
   const ctxSwitchable = isChatEngine(ctxAgent);
   const ctxSwitchReady = ctxSwitchable && SWITCHABLE_STATES.has(sessionStatus[ctxMenu?.sessionId]?.state || "idle");
+  const ctxWsId = sessionWorkspaceId(allSessions.find((s) => s.id === ctxMenu?.sessionId)) ?? UNGROUPED_KEY;
+  const ctxFullMode = fullModes[ctxWsId] ?? false;
 
   // Rename prompt (shared modal — same UX as tab header and session list)
   const [renameDialog, setRenameDialog] = useState({ sessionId: null, name: "", value: "" });
@@ -305,7 +312,9 @@ function TerminalSidebar({
   const handleItemClick = (e) => {
     if (consumeClick()) return;
     vibrate();
-    onSelectSession?.(e.currentTarget.dataset.sid);
+    const sid = e.currentTarget.dataset.sid;
+    if (sid && hiddenPaneSessionIds.includes(sid)) unhidePane(sid);
+    onSelectSession?.(sid);
   };
 
   const handleTouchStart = (e) => {
@@ -425,6 +434,23 @@ function TerminalSidebar({
                             const title = s.name || t("terminal.defaultName");
                             return <span className="text-[11px] truncate" data-tip={title}>{title}</span>;
                           })()}
+                          {hiddenPaneSessionIds.includes(s.id) && (
+                            <button
+                              type="button"
+                              tabIndex={-1}
+                              onPointerDown={(e) => e.stopPropagation()}
+                              onMouseDown={(e) => e.stopPropagation()}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                vibrate();
+                                unhidePane(s.id);
+                              }}
+                              className="p-0.5 rounded text-amber-400 hover:text-amber-300 hover:bg-amber-400/20 transition-colors flex items-center justify-center shrink-0 ml-1"
+                              title={t("sessions.showPanel") || "Show panel"}
+                            >
+                              <EyeOff size={12} />
+                            </button>
+                          )}
                         </span>
                         <SessionMeta
                           fileBus={fileBus}
@@ -573,21 +599,135 @@ function TerminalSidebar({
           >
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
-          <button
-            onClick={() => {
-              vibrate();
-              const id = ctxMenu.sessionId;
-              if (!fullMode && id && id !== activeSessionId) {
-                onSelectSession?.(id);
-              }
-              toggleFullMode();
-              setCtxMenu(null);
-            }}
-            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
-          >
-            {fullMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-            {fullMode ? t("sessions.restoreSplit") : t("sessions.maximize")}
-          </button>
+          <div className="relative group/split">
+            <button
+              type="button"
+              onClick={() => {
+                vibrate();
+                const id = ctxMenu.sessionId;
+                if (!ctxFullMode && id && id !== activeSessionId) {
+                  onSelectSession?.(id);
+                }
+                toggleFullMode(ctxWsId);
+                setCtxMenu(null);
+              }}
+              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+            >
+              <span className="flex items-center gap-2">
+                <Columns2 size={13} />
+                <span>{t("sessions.split") || "Split"}</span>
+              </span>
+              <ChevronRight size={12} className="text-text-muted" />
+            </button>
+
+            {/* Flyout submenu on hover */}
+            <div
+              className={`hidden group-hover/split:block absolute top-0 menu-popover p-1 min-w-[130px] shadow-xl z-20 ${
+                ctxPos.left > (typeof window !== "undefined" ? window.innerWidth - 280 : 500)
+                  ? "right-full -mr-0.5"
+                  : "left-full -ml-0.5"
+              }`}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  vibrate();
+                  const id = ctxMenu.sessionId;
+                  if (!ctxFullMode && id && id !== activeSessionId) {
+                    onSelectSession?.(id);
+                  }
+                  toggleFullMode(ctxWsId);
+                  setCtxMenu(null);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+              >
+                <span className="flex items-center gap-1.5">
+                  {ctxFullMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                  <span>{ctxFullMode ? (t("sessions.restoreSplit") || "Restore Split") : (t("sessions.maximize") || "Maximize")}</span>
+                </span>
+                <span className="text-[10px] text-text-muted">100%</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  vibrate();
+                  if (ctxMenu.sessionId && ctxMenu.sessionId !== activeSessionId) {
+                    onSelectSession?.(ctxMenu.sessionId);
+                  }
+                  if (ctxFullMode) setFullMode(ctxWsId, false);
+                  window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 2 } }));
+                  setCtxMenu(null);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+              >
+                <span>1/2</span>
+                <span className="text-[10px] text-text-muted">50%</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  vibrate();
+                  if (ctxMenu.sessionId && ctxMenu.sessionId !== activeSessionId) {
+                    onSelectSession?.(ctxMenu.sessionId);
+                  }
+                  if (ctxFullMode) setFullMode(ctxWsId, false);
+                  window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 3 } }));
+                  setCtxMenu(null);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+              >
+                <span>1/3</span>
+                <span className="text-[10px] text-text-muted">33%</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  vibrate();
+                  if (ctxMenu.sessionId && ctxMenu.sessionId !== activeSessionId) {
+                    onSelectSession?.(ctxMenu.sessionId);
+                  }
+                  if (ctxFullMode) setFullMode(ctxWsId, false);
+                  window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 4 } }));
+                  setCtxMenu(null);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+              >
+                <span>1/4</span>
+                <span className="text-[10px] text-text-muted">25%</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  vibrate();
+                  if (ctxMenu.sessionId && ctxMenu.sessionId !== activeSessionId) {
+                    onSelectSession?.(ctxMenu.sessionId);
+                  }
+                  if (ctxFullMode) setFullMode(ctxWsId, false);
+                  window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: "auto" } }));
+                  setCtxMenu(null);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+              >
+                <span>Auto Fit</span>
+                <span className="text-[10px] text-text-muted">Auto</span>
+              </button>
+              <div className="h-px bg-border-subtle my-1" />
+              <button
+                type="button"
+                onClick={() => {
+                  vibrate();
+                  toggleHidePane(ctxMenu.sessionId);
+                  setCtxMenu(null);
+                }}
+                className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+              >
+                <span className="flex items-center gap-1.5">
+                  {hiddenPaneSessionIds.includes(ctxMenu.sessionId) ? <Eye size={12} /> : <EyeOff size={12} />}
+                  <span>{hiddenPaneSessionIds.includes(ctxMenu.sessionId) ? (t("sessions.showPanel") || "Show") : (t("sessions.hidePanel") || "Hide")}</span>
+                </span>
+              </button>
+            </div>
+          </div>
           {/* Per-session background, same door as the tab menu */}
           <button
             onClick={() => {

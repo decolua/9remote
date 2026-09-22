@@ -18,7 +18,10 @@ export const createNavigationSlice = (set, get) => ({
 
   // Active workspace
   activeWorkspaceId: null,
-  setActiveWorkspaceId: (workspaceId) => set({ activeWorkspaceId: workspaceId }),
+  setActiveWorkspaceId: (workspaceId) => set((state) => ({
+    activeWorkspaceId: workspaceId,
+    fullMode: !!state.fullModes?.[workspaceId ?? UNGROUPED_KEY]
+  })),
 
   // LRU live panes
   livePanes: [],
@@ -92,6 +95,7 @@ export const createNavigationSlice = (set, get) => ({
       artifactsBySession: artifacts,
       openedSessions: state.openedSessions.filter(id => id !== sessionId),
       livePanes: state.livePanes.filter(id => id !== sessionId),
+      hiddenPaneSessionIds: state.hiddenPaneSessionIds ? state.hiddenPaneSessionIds.filter((id) => id !== sessionId) : [],
       drafts,
       pendingStartup: startups
     };

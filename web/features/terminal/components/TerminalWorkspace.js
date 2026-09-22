@@ -6,7 +6,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
-import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth } from "@/features/terminal/lib/paneLayout";
+import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
 import { startWidthDrag } from "@/shared/utils/dragResize";
 import MobileKeyboard from "@/features/terminal/components/MobileKeyboard";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
@@ -140,7 +140,9 @@ function TerminalWorkspace({
   // tabs keep the workspace root, so a deep cwd must not blank their repo scan.
   const rightPanelRoots = useTerminalStore((s) => s.rightPanelRoots);
   const agentBySession = useTerminalStore((s) => s.agentBySession);
-  const fullMode = useTerminalStore((s) => s.fullMode);
+  const fullModes = useTerminalStore((s) => s.fullModes || {});
+  const fullMode = fullModes[activeWorkspaceId ?? UNGROUPED_KEY] ?? false;
+  const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
   const openRightPanel = useTerminalStore((s) => s.openRightPanel);
   const reorderOpenedSessions = useTerminalStore((s) => s.reorderOpenedSessions);
@@ -268,7 +270,11 @@ function TerminalWorkspace({
     return () => { cancelled = true; clearTimeout(timer); };
   }, [isConnected, activeBus]);
 
-  const paneCount = workspaceOpenedSessions.length;
+  const visibleWorkspaceSessions = useMemo(
+    () => workspaceOpenedSessions.filter((id) => !hiddenPaneSessionIds.includes(id)),
+    [workspaceOpenedSessions, hiddenPaneSessionIds]
+  );
+  const paneCount = visibleWorkspaceSessions.length;
   const appliedWidth = useTerminalStore((s) => s.autoPaneWidths[activeWorkspaceId] ?? null);
   const setAutoPaneWidth = useTerminalStore((s) => s.setAutoPaneWidth);
   // The side panels' own widths, not the row's: the row spans sidebar + panes + panels and
@@ -400,6 +406,14 @@ function TerminalWorkspace({
     window.addEventListener("terminal:fitPanes", onFit);
     return () => window.removeEventListener("terminal:fitPanes", onFit);
   }, [fitPaneWidth]);
+
+  useEffect(() => {
+    const onPreset = (e) => {
+      if (e.detail?.fraction) applySplitPreset(e.detail.fraction);
+    };
+    window.addEventListener("terminal:splitPreset", onPreset);
+    return () => window.removeEventListener("terminal:splitPreset", onPreset);
+  }, [applySplitPreset]);
 
   const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => {
     const session = sessions.find((s) => s.id === sessionId);
@@ -598,7 +612,8 @@ function TerminalWorkspace({
             {renderedSessions.map((sessionId) => {
               const inActiveWorkspace = workspaceSessionIds.has(sessionId);
               const isFocused = sessionId === activeSessionId;
-              const isVisible = inActiveWorkspace && (isDesktop ? (!fullMode || isFocused) : isFocused);
+              const isHidden = hiddenPaneSessionIds.includes(sessionId);
+              const isVisible = inActiveWorkspace && !isHidden && (isDesktop ? (!fullMode || isFocused) : isFocused);
               // Background pool position — matches the header tab order
               const bgIndex = tabIndexBySession.get(sessionId) ?? 0;
               // Panes outside the active workspace stay mounted (LRU) but fully hidden
@@ -607,7 +622,7 @@ function TerminalWorkspace({
                   key={sessionId}
                   ref={(el) => registerPaneElement(sessionId, el)}
                   className={
-                    !inActiveWorkspace || (isDesktop && fullMode && !isFocused)
+                    !inActiveWorkspace || (isDesktop && fullMode && !isFocused) || (isDesktop && isHidden)
                       ? "hidden"
                       : isDesktop
                       ? `h-full relative bg-bg ${fullMode ? "w-full flex-1" : `border-r-2 border-border-subtle last:border-r-0 ${isPaneResizing ? "" : "transition-[width] duration-200 ease-out"}`}`
@@ -665,7 +680,7 @@ function TerminalWorkspace({
                   ) : renderPane(sessionId, isVisible, isFocused, bgIndex)}
 
                   {/* Splitter — drags the one shared width; double-click returns to auto-fit. */}
-                  {inActiveWorkspace && isDesktop && !fullMode && (
+                  {inActiveWorkspace && isDesktop && !fullMode && !isHidden && (
                     <div
                       onPointerDown={startPaneResize}
                       onDoubleClick={fitPaneWidth}

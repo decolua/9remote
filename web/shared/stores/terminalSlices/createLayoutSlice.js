@@ -1,6 +1,7 @@
 import {
   SIDEBAR_WIDTH, RIGHT_PANEL_WIDTH, EDITOR_PANEL_WIDTH, MOBILE_PANEL_WIDTH, PANE_WIDTH, DESKTOP_BREAKPOINT
 } from "@/features/terminal/constants/terminalConfig";
+import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
 
 const clampWidth = (w, { min, max }) => Math.max(min, Math.min(max, Math.round(w)));
 
@@ -23,10 +24,36 @@ export const createLayoutSlice = (set, get) => ({
   sidebarWidth: SIDEBAR_WIDTH.default,
   setSidebarWidth: (w) => set({ sidebarWidth: clampWidth(w, SIDEBAR_WIDTH) }),
 
-  // Desktop full / split mode (default: split)
+  // Desktop full / split mode per workspace (default: split)
+  fullModes: {},
   fullMode: false,
-  toggleFullMode: () => set((state) => ({ fullMode: !state.fullMode })),
-  setFullMode: (v) => set({ fullMode: !!v }),
+  toggleFullMode: (wsId) => set((state) => {
+    const id = wsId ?? state.activeWorkspaceId ?? UNGROUPED_KEY;
+    const nextVal = !state.fullModes[id];
+    return {
+      fullModes: { ...state.fullModes, [id]: nextVal },
+      fullMode: id === (state.activeWorkspaceId ?? UNGROUPED_KEY) ? nextVal : state.fullMode
+    };
+  }),
+  setFullMode: (wsId, v) => set((state) => {
+    const targetWsId = typeof wsId === "boolean" ? (state.activeWorkspaceId ?? UNGROUPED_KEY) : (wsId ?? state.activeWorkspaceId ?? UNGROUPED_KEY);
+    const val = typeof wsId === "boolean" ? wsId : !!v;
+    return {
+      fullModes: { ...state.fullModes, [targetWsId]: val },
+      fullMode: targetWsId === (state.activeWorkspaceId ?? UNGROUPED_KEY) ? val : state.fullMode
+    };
+  }),
+
+  // Hidden pane session ids (desktop panel hide)
+  hiddenPaneSessionIds: [],
+  toggleHidePane: (sessionId) => set((state) => ({
+    hiddenPaneSessionIds: state.hiddenPaneSessionIds.includes(sessionId)
+      ? state.hiddenPaneSessionIds.filter((id) => id !== sessionId)
+      : [...state.hiddenPaneSessionIds, sessionId]
+  })),
+  unhidePane: (sessionId) => set((state) => ({
+    hiddenPaneSessionIds: state.hiddenPaneSessionIds.filter((id) => id !== sessionId)
+  })),
 
   // Pane width per workspace (px). null/missing = auto
   paneWidths: {},

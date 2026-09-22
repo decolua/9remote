@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2 } from "@/shared/components/ui/Icon";
+import { ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2 } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -21,7 +21,7 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import SessionBackgroundModal from "./SessionBackgroundModal";
-import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { sessionWorkspaceId, UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL } from "@/shared/constants/github";
@@ -87,7 +87,8 @@ function TerminalHeader({
 }) {
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
-  const fullMode = useTerminalStore((s) => s.fullMode);
+  const fullModes = useTerminalStore((s) => s.fullModes || {});
+  const fullMode = fullModes[activeWorkspaceId ?? UNGROUPED_KEY] ?? false;
   const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
   const storeNotifications = useNotificationStore((s) => s.notifications);
   const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
@@ -182,6 +183,10 @@ function TerminalHeader({
   // Hidden by id rather than listed by id, so a button added later shows up
   // instead of being invisible until the user finds the setting.
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
+  const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
+  const toggleHidePane = useTerminalStore((s) => s.toggleHidePane);
+  const unhidePane = useTerminalStore((s) => s.unhidePane);
+  const setFullMode = useTerminalStore((s) => s.setFullMode);
   // A windowless emulator shows nothing on the host, so the button itself is
   // the only indication that one is running.
   const mobileDeviceCount = useTerminalStore((s) => s.mobileDeviceCount);
@@ -340,6 +345,7 @@ function TerminalHeader({
         <div className="flex gap-0 min-w-max items-stretch h-full">
           {sessions.map((session) => {
             const isActiveTab = session.id === activeSessionId;
+            const isHidden = hiddenPaneSessionIds.includes(session.id);
             const st = sessionStatus[session.id]?.state || "idle";
             const v = statusVisual(st);
             const tabName = session.name || t("terminal.defaultName");
@@ -366,11 +372,13 @@ function TerminalHeader({
                 onClick={() => {
                   if (consumeClick()) return;
                   vibrate();
+                  if (isHidden) unhidePane(session.id);
                   onSwitchSession?.(session.id);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
+                    if (isHidden) unhidePane(session.id);
                     onSwitchSession?.(session.id);
                   }
                 }}
@@ -380,7 +388,7 @@ function TerminalHeader({
                 onTouchEnd={clearTabLongPress}
                 className={`term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none ${
                   isActiveTab ? "term-tab-active" : ""
-                } ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
+                } ${isHidden ? "opacity-75 hover:opacity-100" : ""} ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
               >
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
                   {/* A quiet tab shows WHO lives here; the state dot only takes the slot when
@@ -419,6 +427,23 @@ function TerminalHeader({
                   )}
                 </div>
                 <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tabName}>{tabName}</span>
+                {isHidden && (
+                  <button
+                    type="button"
+                    tabIndex={-1}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onMouseDown={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      vibrate();
+                      unhidePane(session.id);
+                    }}
+                    className="p-0.5 rounded text-amber-400 hover:text-amber-300 hover:bg-amber-400/20 transition-colors flex items-center justify-center shrink-0"
+                    title={t("sessions.showPanel") || "Show panel"}
+                  >
+                    <EyeOff size={13} />
+                  </button>
+                )}
               </div>
             );
           })}
@@ -580,20 +605,121 @@ function TerminalHeader({
             <Pencil size={13} /> {t("sessions.editName")}
           </button>
           {isDesktop && (
-            <button
-              onClick={() => {
-                vibrate();
-                if (!fullMode && tabMenu.sessionId && tabMenu.sessionId !== activeSessionId) {
-                  onSwitchSession?.(tabMenu.sessionId);
-                }
-                toggleFullMode();
-                setTabMenu({ sessionId: null, x: 0, y: 0 });
-              }}
-              className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
-            >
-              {fullMode ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
-              {fullMode ? t("sessions.restoreSplit") : t("sessions.maximize")}
-            </button>
+            <div className="relative group/split">
+              <button
+                type="button"
+                onClick={() => {
+                  vibrate();
+                  if (!fullMode && tabMenu.sessionId && tabMenu.sessionId !== activeSessionId) {
+                    onSwitchSession?.(tabMenu.sessionId);
+                  }
+                  toggleFullMode(activeWorkspaceId);
+                  setTabMenu({ sessionId: null, x: 0, y: 0 });
+                }}
+                className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+              >
+                <span className="flex items-center gap-2">
+                  <Columns2 size={13} />
+                  <span>{t("sessions.split") || "Split"}</span>
+                </span>
+                <ChevronRight size={12} className="text-text-muted" />
+              </button>
+
+              {/* Flyout submenu on hover */}
+              <div
+                className={`hidden group-hover/split:block absolute top-0 menu-popover p-1 min-w-[130px] shadow-xl z-20 ${
+                  tabMenuPos.left > (typeof window !== "undefined" ? window.innerWidth - 280 : 500)
+                    ? "right-full -mr-0.5"
+                    : "left-full -ml-0.5"
+                }`}
+              >
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrate();
+                    if (!fullMode && tabMenu.sessionId && tabMenu.sessionId !== activeSessionId) {
+                      onSwitchSession?.(tabMenu.sessionId);
+                    }
+                    toggleFullMode(activeWorkspaceId);
+                    setTabMenu({ sessionId: null, x: 0, y: 0 });
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-1.5">
+                    {fullMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
+                    <span>{fullMode ? (t("sessions.restoreSplit") || "Restore Split") : (t("sessions.maximize") || "Maximize")}</span>
+                  </span>
+                  <span className="text-[10px] text-text-muted">100%</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrate();
+                    if (fullMode) setFullMode(activeWorkspaceId, false);
+                    window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 2 } }));
+                    setTabMenu({ sessionId: null, x: 0, y: 0 });
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+                >
+                  <span>1/2</span>
+                  <span className="text-[10px] text-text-muted">50%</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrate();
+                    if (fullMode) setFullMode(activeWorkspaceId, false);
+                    window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 3 } }));
+                    setTabMenu({ sessionId: null, x: 0, y: 0 });
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+                >
+                  <span>1/3</span>
+                  <span className="text-[10px] text-text-muted">33%</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrate();
+                    if (fullMode) setFullMode(activeWorkspaceId, false);
+                    window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: 4 } }));
+                    setTabMenu({ sessionId: null, x: 0, y: 0 });
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+                >
+                  <span>1/4</span>
+                  <span className="text-[10px] text-text-muted">25%</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrate();
+                    if (fullMode) setFullMode(activeWorkspaceId, false);
+                    window.dispatchEvent(new CustomEvent("terminal:splitPreset", { detail: { fraction: "auto" } }));
+                    setTabMenu({ sessionId: null, x: 0, y: 0 });
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+                >
+                  <span>Auto Fit</span>
+                  <span className="text-[10px] text-text-muted">Auto</span>
+                </button>
+                <div className="h-px bg-border-subtle my-1" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    vibrate();
+                    toggleHidePane(tabMenu.sessionId);
+                    setTabMenu({ sessionId: null, x: 0, y: 0 });
+                  }}
+                  className="w-full text-left px-2 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center justify-between"
+                >
+                  <span className="flex items-center gap-1.5">
+                    {hiddenPaneSessionIds.includes(tabMenu.sessionId) ? <Eye size={12} /> : <EyeOff size={12} />}
+                    <span>{hiddenPaneSessionIds.includes(tabMenu.sessionId) ? (t("sessions.showPanel") || "Show") : (t("sessions.hidePanel") || "Hide")}</span>
+                  </span>
+                </button>
+              </div>
+            </div>
           )}
           {/* Per-tab background: the pool is global, this pins one for this terminal only */}
           <button
