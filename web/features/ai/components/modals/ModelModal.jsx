@@ -197,9 +197,9 @@ export const ModelModal = memo(function ModelModal({
                           </span>
                         )}
                       </div>
-                      {m.desc && (
+                      {(m.desc || (m.label !== m.id && m.id)) && (
                         <div className="text-[10px] font-mono text-text-subtle truncate mt-0.5">
-                          {m.desc}
+                          {m.desc || m.id}
                         </div>
                       )}
                     </div>

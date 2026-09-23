@@ -898,6 +898,9 @@ export const Composer = memo(function Composer({
                                 <Check size={12} className="text-text shrink-0 ml-1" />
                               )}
                             </span>
+                            {m.label !== m.id && (
+                              <span className="truncate font-mono text-[10px] text-text-subtle">{m.id}</span>
+                            )}
                           </button>
                         );
                       })}
