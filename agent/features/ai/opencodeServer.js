@@ -299,14 +299,23 @@ export const pendingPermissions = (sessionId) =>
 export const replyPermission = (sessionId, requestId, reply, message = "") =>
   api("POST", `/api/session/${sessionId}/permission/${requestId}/reply`, { reply, ...(message ? { message } : {}) });
 
-export const pendingQuestions = (sessionId) =>
-  api("GET", `/api/session/${sessionId}/question`);
+// The question tool's gates live in the v1 store behind /question — the
+// /api/session mirror answers an empty list even for sessions it holds. That store is
+// instance state scoped by directory: without the param the server reads the serve
+// process's own cwd, a different store than the session's directory.
+const scopedQuestion = (path, directory) =>
+  directory ? `${path}?directory=${encodeURIComponent(directory)}` : path;
 
-export const replyQuestion = (sessionId, requestId, answers) =>
-  api("POST", `/api/session/${sessionId}/question/${requestId}/reply`, { answers });
+// Pending gates, all sessions in the directory; each entry carries the que_ id
+// its reply route wants and the sessionID it blocks.
+export const listPendingQuestions = (directory) =>
+  api("GET", scopedQuestion("/question", directory));
 
-export const rejectQuestion = (sessionId, requestId) =>
-  api("POST", `/api/session/${sessionId}/question/${requestId}/reject`);
+export const replyQuestion = (requestId, answers, directory) =>
+  api("POST", scopedQuestion(`/question/${requestId}/reply`, directory), { answers });
+
+export const rejectQuestion = (requestId, directory) =>
+  api("POST", scopedQuestion(`/question/${requestId}/reject`, directory));
 
 export async function interruptSession(sessionId) {
   const url = await ensureServer();

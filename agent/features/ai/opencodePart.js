@@ -81,9 +81,13 @@ export function opencodePartEvents(part) {
   // (a read of a missing file) says itself; "(exit undefined)" says nothing.
   const exit = state.metadata?.exit;
   const failed = state.status === "error" || (typeof exit === "number" && exit !== 0);
+  // A rejected question tool arrives as status "error" with NO text — Boolean("") then
+  // flips toolResult into a "done" with empty output and the row reads "Running…" forever.
+  const error = [String(output), exit != null ? `(exit ${exit})` : ""].filter(Boolean).join("\n")
+    || (name === "question" ? "User skipped this request" : "Tool failed.");
   events.push(
     failed
-      ? toolResult({ id, name, error: [String(output), exit != null ? `(exit ${exit})` : ""].filter(Boolean).join("\n") })
+      ? toolResult({ id, name, error })
       : toolResult({ id, name, output: String(output) })
   );
   // Only a change that LANDED is a diff — a rejected edit stays the tool row it is

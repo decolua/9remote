@@ -27,8 +27,8 @@ function makeAdapter() {
     activeSessions: async () => ({}),
     subscribeBus: () => ({ close() {} }),
     replyPermission: async (sessionId, requestId, reply, message) => { calls.replies.push({ sessionId, requestId, reply, message }); },
-    replyQuestion: async (sessionId, requestId, answers) => { calls.qReplies.push({ sessionId, requestId, answers }); },
-    rejectQuestion: async (sessionId, requestId) => { calls.qRejects.push({ sessionId, requestId }); },
+    replyQuestion: async (requestId, answers, directory) => { calls.qReplies.push({ requestId, answers, directory }); },
+    rejectQuestion: async (requestId, directory) => { calls.qRejects.push({ requestId, directory }); },
   };
   const events = [];
   const adapter = new OpenCodeAdapter({ cwd: "/tmp", onEvent: (e, d) => events.push([e, d]), server });
@@ -139,6 +139,7 @@ await test("resolveQuestion maps card answers to ordered string[][] labels", asy
   }));
   assert.equal(adapter.resolveQuestion("que_3", { "Which DB?": ["D1", "R2"], "Sure?": "yes" }), true);
   assert.deepEqual(calls.qReplies[0].answers, [["D1", "R2"], ["yes"]]);
+  assert.equal(calls.qReplies[0].directory, "/tmp", "the reply must scope the v1 question store by the session cwd");
   assert.equal(adapter.pendingRequests.size, 0);
 });
 
@@ -148,6 +149,14 @@ await test("resolveQuestion with no answers rejects the request", async () => {
   adapter.resolveQuestion("que_4", {});
   assert.equal(calls.qRejects.length, 1);
   assert.equal(calls.qReplies.length, 0);
+});
+
+await test("skipping a question rejects it on the question store, not the permission route", async () => {
+  const { adapter, calls } = makeAdapter();
+  adapter.handleEvent(env("question.v2.asked", { id: "que_6", questions: [{ question: "Q?", header: "H", options: [{ label: "a", description: "" }] }] }));
+  assert.equal(adapter.resolvePermission("que_6", "deny"), true);
+  assert.equal(calls.qRejects.length, 1, "the skip must reach rejectQuestion");
+  assert.equal(calls.replies.length, 0, "the permission route must not see a question id");
 });
 
 await test("question.v2.replied/rejected settle the gate", () => {
@@ -177,9 +186,10 @@ await test("e2e: live serve permission/question routes answer the v2 contract", 
       console.log("    (no ask on this machine's config — round-trip skipped)");
     }
     await assert.rejects(() => server.replyPermission(s.id, "per_bogus", "once"), /not found|404|PermissionNotFound/i);
-    const qPending = await server.pendingQuestions(s.id);
+    const qPending = await server.listPendingQuestions(dir);
     assert.ok(Array.isArray(qPending));
-    await assert.rejects(() => server.replyQuestion(s.id, "que_bogus", [["x"]]), /not found|404|QuestionNotFound/i);
+    assert.ok(qPending.every((q) => q.id && q.sessionID), "entries must carry id and sessionID");
+    await assert.rejects(() => server.replyQuestion("que_bogus", [["x"]], dir), /not found|404|QuestionNotFound/i);
   } finally {
     await server.deleteSession(s.id).catch(() => {});
   }

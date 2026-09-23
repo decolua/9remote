@@ -3,7 +3,7 @@ import { AgentProc } from "../proc/agentProc.js";
 import { createLogger } from "../../../lib/logger.js";
 import { stageAttachment, stagedPaths } from "../aiAttachment.js";
 import * as opencodeServer from "../opencodeServer.js";
-import { createOpencodeBusParser } from "../opencodeBus.js";
+import { createOpencodeBusParser, questionCardInput } from "../opencodeBus.js";
 import { opencodePartEvents } from "../opencodePart.js";
 import { OPENCODE_MODE_AGENTS, OPENCODE_TITLE_FETCH_DELAY_MS, OPENCODE_POLL_MS } from "../constants.js";
 
@@ -194,8 +194,16 @@ export class OpenCodeAdapter {
 
   // Card buttons → the engine's three-way reply (once/always/reject).
   resolvePermission(requestId, behavior, message = "") {
-    if (!this.pendingRequests.has(requestId)) return false;
+    const pending = this.pendingRequests.get(requestId);
+    if (!pending) return false;
     this.pendingRequests.delete(requestId);
+    // A question id is not a permission id — the permission route would miss the gate's
+    // store and the question stays open. Skip on a question is a reject on that store.
+    if (pending.toolName === "AskUserQuestion") {
+      this.server.rejectQuestion(requestId, this.cwd)
+        .catch((e) => this._warn(`OpenCode question reply failed: ${e.message}`));
+      return true;
+    }
     const reply = behavior === "allow" ? "once" : behavior === "allowAlways" ? "always" : "reject";
     this.server.replyPermission(this.activeSessionId, requestId, reply, message)
       .catch((e) => this._warn(`OpenCode permission reply failed: ${e.message}`));
@@ -210,8 +218,8 @@ export class OpenCodeAdapter {
     const perQuestion = (pending.input?.questions || []).map((q) =>
       [].concat(answers?.[q.question] ?? []).map(String).filter(Boolean));
     const call = perQuestion.some((a) => a.length)
-      ? this.server.replyQuestion(this.activeSessionId, requestId, perQuestion)
-      : this.server.rejectQuestion(this.activeSessionId, requestId);
+      ? this.server.replyQuestion(requestId, perQuestion, this.cwd)
+      : this.server.rejectQuestion(requestId, this.cwd);
     call.catch((e) => this._warn(`OpenCode question reply failed: ${e.message}`));
     return true;
   }
@@ -520,7 +528,34 @@ export class OpenCodeAdapter {
     };
     // Baseline: everything already in the store is the past, not this turn.
     try { consume(await this.server.listMessages(sessionId), true); } catch {}
-    const poll = () => this.server.listMessages(sessionId).then(consume).catch(() => {});
+    // The question tool blocks on a gate the v1 routes never announce on the bus:
+    // the pending /question list is the only live signal, and its que_ ids are
+    // what the reply route takes. The list is instance state scoped by directory,
+    // so the poll must carry the session's cwd — the serve process's is another store.
+    const carded = new Set();
+    const askCards = async () => {
+      let pending;
+      try { pending = await this.server.listPendingQuestions(this.cwd); } catch { return; }
+      const mine = (pending || []).filter((q) => q.sessionID === sessionId);
+      for (const q of mine) {
+        if (carded.has(q.id)) continue;
+        carded.add(q.id);
+        const input = questionCardInput(q.questions);
+        this.pendingRequests.set(q.id, { toolName: "AskUserQuestion", input });
+        this.onEvent?.("permission_request", { requestId: q.id, tool: "AskUserQuestion", input, type: "permission" });
+      }
+      // A question that left the list without passing through resolveQuestion
+      // was answered elsewhere or rejected — drop its card.
+      for (const id of carded) {
+        if (mine.some((q) => q.id === id) || !this.pendingRequests.has(id)) continue;
+        this.pendingRequests.delete(id);
+        this.onEvent?.("permission_resolved", { requestId: id });
+      }
+    };
+    const poll = () => Promise.all([
+      this.server.listMessages(sessionId).then(consume).catch(() => {}),
+      askCards()
+    ]);
     this._pollTimer = setInterval(poll, OPENCODE_POLL_MS);
     try {
       await done;

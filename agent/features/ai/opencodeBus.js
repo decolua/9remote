@@ -34,6 +34,20 @@ const SILENT_TYPES = new Set([
 // A finish that means the model called a tool and another step is coming.
 const TOOL_CALLS = "tool-calls";
 
+// The question card's contract, in ONE place: the bus's question.v2.asked and the
+// adapter's /question poll both feed raw opencode questions into the same card.
+export function questionCardInput(rawQuestions = []) {
+  return {
+    questions: (rawQuestions || []).map((q) => ({
+      question: q.question || "",
+      header: q.header || "",
+      options: (q.options || []).map((o) => ({ label: o?.label || "", description: o?.description || "" })),
+      ...(q.multiple ? { multiSelect: true } : {}),
+      ...(q.custom === false ? {} : { isOther: true })
+    }))
+  };
+}
+
 // Non session.next.* records the pane draws: the live gates and the todo feed.
 const LIVE_TYPES = new Set([
   "permission.v2.asked",
@@ -87,20 +101,10 @@ export function createOpencodeBusParser({ onEvent, stats = {} }) {
       return;
     }
     if (type === "question.v2.asked") {
-      // The question card's contract: options, multiSelect flag, free-text box
-      // unless the engine says custom:false.
       onEvent("permission_request", {
         requestId: data.id,
         tool: "AskUserQuestion",
-        input: {
-          questions: (data.questions || []).map((q) => ({
-            question: q.question || "",
-            header: q.header || "",
-            options: (q.options || []).map((o) => ({ label: o?.label || "", description: o?.description || "" })),
-            ...(q.multiple ? { multiSelect: true } : {}),
-            ...(q.custom === false ? {} : { isOther: true })
-          }))
-        },
+        input: questionCardInput(data.questions),
         type: "permission"
       });
       return;
