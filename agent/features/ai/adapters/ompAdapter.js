@@ -50,7 +50,7 @@ export class OmpAdapter {
   }
 
   _args() {
-    const args = ["--mode", "rpc"];
+    const args = ["--mode", "rpc-ui"];
     if (this.currentModel) args.push("--model", this.currentModel);
     args.push("--approval-mode", OMP_APPROVAL_MODES[this.permissionMode] || "yolo");
     if (this._resumeId) args.push("--resume", this._resumeId);
@@ -255,7 +255,11 @@ export class OmpAdapter {
     const pending = this.pendingRequests.get(requestId);
     if (!pending) return false;
     this.pendingRequests.delete(requestId);
-    this.rpc?.uiRespondValue(requestId, behavior === "allow" ? "Approve" : "Deny");
+    if (pending.kind === "approval") {
+      this.rpc?.uiRespondValue(requestId, behavior === "allow" ? "Approve" : "Deny");
+      return true;
+    }
+    this.rpc?.uiRespondCancel(requestId);
     return true;
   }
 

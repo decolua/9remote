@@ -12,12 +12,13 @@ const test = (name, fn) => {
 
 function makeAdapter() {
   const events = [];
-  const ui = { values: [], confirms: [] };
+  const ui = { values: [], confirms: [], cancels: [] };
   const adapter = new OmpAdapter({ cwd: "/tmp", onEvent: (e, d) => events.push([e, d]) });
   // A silent rpc: start flows are exercised by the e2e; unit scope is frames.
   adapter.rpc = {
     uiRespondValue: (id, value) => ui.values.push({ id, value }),
     uiRespondConfirm: (id, confirmed) => ui.confirms.push({ id, confirmed }),
+    uiRespondCancel: (id) => ui.cancels.push({ id }),
     send: () => new Promise(() => {}),
     close: () => {},
   };
@@ -107,6 +108,18 @@ test("an ask-style select becomes a question card and answers with the label", (
   assert.deepEqual(req[1].input.questions[0].options, [{ label: "prod", description: "live" }, { label: "staging", description: "" }]);
   adapter.resolveQuestion("u2", { "Deploy where?": "staging" });
   assert.deepEqual(ui.values, [{ id: "u2", value: "staging" }]);
+});
+
+test("skipping a question resolves it via cancel", () => {
+  const { feed, ui, adapter } = makeAdapter();
+  feed({ type: "extension_ui_request", id: "u2-skip", method: "select", title: "Deploy where?", options: ["prod", "staging"] });
+  assert.equal(adapter.resolvePermission("u2-skip", "deny"), true);
+  assert.deepEqual(ui.cancels, [{ id: "u2-skip" }]);
+});
+
+test("omp launches with --mode rpc-ui so interactive tools are exposed", () => {
+  const adapter = new OmpAdapter({ cwd: "/tmp" });
+  assert.ok(adapter._args().includes("rpc-ui"), "launch flags must include rpc-ui mode");
 });
 
 test("confirm answers yes/no and input answers free text", () => {
