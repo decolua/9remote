@@ -146,6 +146,24 @@ test("a settled compaction with nothing to say still closes the row in the store
   assert.equal(useAiStore.getState().bySession["live-settle"].messages.length, 0, "the spinner is dropped");
 });
 
+test("the CLI's ~30s heartbeat restates a compaction without stacking a second row", () => {
+  useAiStore.getState().initSession("live-heartbeat");
+  useAiStore.getState().addNotice("live-heartbeat", { subtype: "status", level: "info", content: "Compacting…", compacting: true });
+  useAiStore.getState().addNotice("live-heartbeat", { subtype: "status", level: "info", content: "Compacting…", compacting: true });
+  const rows = useAiStore.getState().bySession["live-heartbeat"].messages;
+  assert.equal(rows.filter((m) => m.compacting).length, 1, "same compaction, same row and its clock");
+  // A pre-fix store can hold one row per heartbeat; the boundary sweeps them all.
+  rows.push({ ...rows[0], id: "n-stale" });
+  useAiStore.getState().addNotice("live-heartbeat", {
+    subtype: "compact_boundary", level: "info", content: "Compacted", compactSettled: true,
+    compact: { trigger: "auto", preTokens: 100, postTokens: 10, durationMs: 5 }
+  });
+  const after = useAiStore.getState().bySession["live-heartbeat"].messages;
+  assert.equal(after.filter((m) => m.compacting).length, 0, "no spinner left behind");
+  assert.equal(after.length, 1, "one settled row where the first spinner sat");
+  assert.equal(after[0].compact.preTokens, 100, "the settled row keeps the boundary's numbers");
+});
+
 test("a compaction whose row is NOT the last one still gets replaced", () => {
   const out = reduceSessionEvents([
     { seq: 1, event: "user_message", data: { text: "/compact" } },

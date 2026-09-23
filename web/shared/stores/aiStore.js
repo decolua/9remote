@@ -133,13 +133,22 @@ export const useAiStore = create(
         if (!content && !notice?.compactSettled) return;
         set((state) => {
           const curr = sessionOf(state, sessionId);
+          // The CLI re-announces a running compaction on a ~30s heartbeat (a precomputed compact
+          // awaiting the turn) — same compaction, so the row and its clock stay as they are.
+          if (notice?.compacting && lastIndexOfCompacting(curr.messages) !== -1) return state;
           // Scan back, not the last row — another record can sit between a compaction's start and end.
           const runningAt = notice?.compactSettled ? lastIndexOfCompacting(curr.messages) : -1;
-          // A settled compaction REPLACES the "Compacting…" row it ends.
+          // A settled compaction REPLACES the "Compacting…" row(s) it ends.
           if (runningAt !== -1) {
-            const messages = content
-              ? [...curr.messages.slice(0, runningAt), { id: nextId("n"), role: "notice", subtype: notice.subtype || "", level: notice.level || "info", content }, ...curr.messages.slice(runningAt + 1)]
-              : [...curr.messages.slice(0, runningAt), ...curr.messages.slice(runningAt + 1)];
+            // All of them, not just the last: a pre-fix store can hold one row per heartbeat.
+            const first = curr.messages.findIndex((m) => m?.compacting);
+            const messages = curr.messages.filter((m) => !m?.compacting);
+            if (content) {
+              messages.splice(first, 0, {
+                id: nextId("n"), role: "notice", subtype: notice.subtype || "", level: notice.level || "info", content,
+                ...(notice.compact ? { compact: notice.compact } : null)
+              });
+            }
             return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages } } };
           }
           // A bare `return` hands zustand undefined, which wipes the whole store.
