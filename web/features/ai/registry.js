@@ -100,6 +100,18 @@ const CODEX_EFFORT_OPTIONS = Object.freeze([
   { value: "ultra", label: "ultra", desc: "Max reasoning + automatic task delegation" },
 ]);
 
+// Hermes thinking levels (hermes_constants.py VALID_REASONING_EFFORTS; "none" disables)
+const HERMES_EFFORT_OPTIONS = Object.freeze([
+  { value: "none", label: "none", desc: "Thinking off" },
+  { value: "minimal", label: "minimal", desc: "Barely think" },
+  { value: "low", label: "low", desc: "Fastest reasoning" },
+  { value: "medium", label: "medium", desc: "Balanced default" },
+  { value: "high", label: "high", desc: "Deeper reasoning for hard tasks" },
+  { value: "xhigh", label: "xhigh", desc: "Extra-high reasoning" },
+  { value: "max", label: "max", desc: "Maximum reasoning" },
+  { value: "ultra", label: "ultra", desc: "Highest reasoning" },
+]);
+
 // Only models without a tier suffix accept --effort in Antigravity
 const ANTIGRAVITY_EFFORT_OPTIONS = Object.freeze([
   { value: "low", label: "low", desc: "Fastest, least reasoning" },
@@ -630,6 +642,59 @@ export class DevinEngine extends AiEngine {
   }
 }
 
+export class HermesEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "hermes",
+        label: "Hermes",
+        desc: "Hermes CLI agent (acp mode)",
+        badge: "Hermes",
+        icon: "Send",
+        color: "#22d3ee",
+      },
+      ui: { id: "hermes-ui", label: "Hermes UI", short: "Hermes UI" },
+      overrides: {
+        // Canonical tool names the adapter derives from hermes' titled tool calls.
+        tools: {
+          terminal: "bash",
+          execute_code: "bash",
+          read_file: "file",
+          vision_analyze: "file",
+          write_file: "diff",
+          patch: "diff",
+          search_files: "search",
+          web_search: "search",
+          web_extract: "search",
+          delegate_task: "agent",
+          todo_list: "task",
+        },
+        models: [],
+        // The ACP mode ids (acp_adapter/server.py _MODES); dont_ask is the --yolo spawn tier.
+        permissionModes: [
+          { id: "default", label: "Default", desc: "Ask before edits", icon: PERMISSION_ICONS.ask },
+          { id: "accept_edits", label: "Accept Edits", desc: "Auto-allow workspace edits, ask for sensitive paths", icon: PERMISSION_ICONS.edit },
+          { id: "dont_ask", label: "Don't Ask", desc: "Auto-allow edits for this session except sensitive paths", icon: PERMISSION_ICONS.bypass },
+        ],
+        defaultMode: "default",
+        features: { thinking: true, planMode: false, tasks: true, skills: false, mcp: false, rewind: false },
+        slashCommands: [
+          { name: "/model", description: "Choose the Hermes model", action: "modal:model" },
+          { name: "/effort", description: "Thinking level (config.yaml)", action: "submenu", optionKey: "effort", subOptions: HERMES_EFFORT_OPTIONS },
+          { name: "/resume", description: "Resume a previous Hermes session", action: "modal:sessions" },
+          { name: "/clear", description: "Start a fresh Hermes session", action: "clear" },
+          { name: "/doctor", description: "Check the Hermes installation", action: "modal:doctor" },
+        ],
+      },
+    });
+  }
+
+  parseTaskEvent(toolName, input, toolCallId) {
+    if (toolName === "todo_list") return this._parseReplaceAllTodos(input, toolCallId);
+    return null;
+  }
+}
+
 export const DEFAULT_ENGINE_ID = "claude";
 
 const registry = new Map();
@@ -654,6 +719,7 @@ registerEngine(new OpenCodeEngine());
 registerEngine(new AntigravityEngine());
 registerEngine(new OmpEngine());
 registerEngine(new DevinEngine());
+registerEngine(new HermesEngine());
 
 export function getEngineConfig(engineId = DEFAULT_ENGINE_ID) {
   return getEngine(engineId).config;

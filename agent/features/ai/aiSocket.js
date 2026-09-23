@@ -5,7 +5,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, listAntigravityModelOptions, listOmpModelOptions, listDevinModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
+import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, listAntigravityModelOptions, listOmpModelOptions, listDevinModelOptions, listHermesModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.js";
@@ -188,6 +188,7 @@ function listModelOptionsFor(engine) {
   if (engine === "antigravity") return listAntigravityModelOptions();
   if (engine === "omp") return listOmpModelOptions();
   if (engine === "devin") return listDevinModelOptions();
+  if (engine === "hermes") return listHermesModelOptions();
   return null;
 }
 

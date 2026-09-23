@@ -17,6 +17,7 @@ import { retainForSession as retainOpencodeServer, releaseForSession as releaseO
 import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
 import { OmpAdapter } from "./adapters/ompAdapter.js";
 import { DevinAdapter } from "./adapters/devinAdapter.js";
+import { HermesAdapter } from "./adapters/hermesAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
 import { getLastOutputAt, touchOutput, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
 import { TURN_END_EVENTS } from "./aiStatus.js";
@@ -31,7 +32,7 @@ const ANSI_RE = /\[[0-9;]*m/g;
 const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
 
 // Engines whose CLI the daemon owns, so a turn outlives an agent restart.
-const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY, AI_ENGINES.OMP, AI_ENGINES.DEVIN]);
+const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY, AI_ENGINES.OMP, AI_ENGINES.DEVIN, AI_ENGINES.HERMES]);
 
 // Engine → the CLI's own health command, from each adapter's static spec; a Map so an engine id like "constructor" cannot hit Object.prototype.
 const DOCTOR_SPECS = new Map(
@@ -41,7 +42,8 @@ const DOCTOR_SPECS = new Map(
     [AI_ENGINES.OPENCODE]: OpenCodeAdapter,
     [AI_ENGINES.ANTIGRAVITY]: AntigravityAdapter,
     [AI_ENGINES.OMP]: OmpAdapter,
-    [AI_ENGINES.DEVIN]: DevinAdapter
+    [AI_ENGINES.DEVIN]: DevinAdapter,
+    [AI_ENGINES.HERMES]: HermesAdapter
   }).map(([engine, Adapter]) => [engine, Adapter.doctorSpec?.() || null])
 );
 
@@ -551,6 +553,20 @@ export class AiSession {
         this.adapter = mine;
         // Mode is read-only on this wire (session/set-mode is absent) — only the model rides setOptions.
         if (this.model || this.options.model) mine.setOptions({ model: this.model || this.options.model });
+        return this._startManaged(mine, mode);
+      case AI_ENGINES.HERMES:
+        mine = new HermesAdapter({
+          cwd: this.cwd,
+          onEvent,
+          proc: this.managed ? this.proc : null,
+          sessionId: this.cliSessionId,
+          model: this.model || this.options.model,
+          hostSessionId: this.id
+        });
+        this.adapter = mine;
+        if (this.permissionMode || this.model || this.effort) {
+          mine.setOptions({ mode: this.permissionMode || this.options.mode, model: this.model || this.options.model, effort: this.effort || this.options.effort });
+        }
         return this._startManaged(mine, mode);
       default:
         throw new Error(`Unsupported engine: ${this.engine}`);

@@ -282,6 +282,10 @@ export function resolveDefaultEffort(engine) {
     }
   }
 
+  if (engine === "hermes") {
+    return /^\s*reasoning_effort:\s*["']?([\w-]+)/m.exec(readHermesConfig())?.[1] || "";
+  }
+
   return "";
 }
 
@@ -475,4 +479,39 @@ export async function listAllOpencodeModelOptions() {
   });
 
   return all;
+}
+
+// ── Hermes ──────────────────────────────────────────────────────────────────
+// hermes_constants.py VALID_REASONING_EFFORTS (0.21.4); "none" disables thinking.
+export const HERMES_EFFORTS = new Set(["none", "minimal", "low", "medium", "high", "xhigh", "max", "ultra"]);
+
+const hermesConfigPath = () => path.join(os.homedir(), ".hermes", "config.yaml");
+const readHermesConfig = () => {
+  try { return fs.readFileSync(hermesConfigPath(), "utf8"); } catch { return ""; }
+};
+
+// The wire has no reasoning switch — config.yaml is the only door and it is read
+// once per session build, so a change costs a config write + process recycle.
+export function setHermesReasoningEffort(effort) {
+  const file = hermesConfigPath();
+  const text = fs.readFileSync(file, "utf8");
+  if (!/^(\s*)reasoning_effort:/m.test(text)) throw new Error("no reasoning_effort key in ~/.hermes/config.yaml");
+  fs.writeFileSync(file, text.replace(/^(\s*reasoning_effort:\s*).*/m, `$1${effort}`));
+}
+
+// The live catalog the running adapter absorbed from session/new — the connect ack
+// serves it, so a reconnect never trades the full menu for the config fallback.
+let hermesLiveCatalog = null;
+export function setHermesLiveCatalog(options) {
+  hermesLiveCatalog = Array.isArray(options) && options.length ? options : null;
+}
+
+export function listHermesModelOptions() {
+  if (hermesLiveCatalog) return hermesLiveCatalog;
+  const text = readHermesConfig();
+  const model = /^\s*default:\s*["']?([^"'\n]+)/m.exec(text)?.[1]?.trim() || "";
+  if (!model) return [];
+  const provider = /^\s*provider:\s*["']?([^"'\n]+)/m.exec(text)?.[1]?.trim() || "";
+  const id = provider ? `${provider}:${model}` : model;
+  return [{ id, label: id, short: id, desc: "", efforts: [...HERMES_EFFORTS], defaultEffort: "" }];
 }

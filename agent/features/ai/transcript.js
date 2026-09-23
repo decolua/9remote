@@ -581,6 +581,42 @@ export function recoverFromDevinTranscript(sessionId) {
   }
 }
 
+// Hermes keeps the conversation in state.db (messages table) — resume replays the
+// chat rows; reasoning rides the thought column, tool rows stay out like devin's.
+export function recoverFromHermesTranscript(sessionId) {
+  if (!sessionId) return null;
+  const sqlite = loadSqlite();
+  if (!sqlite) return null;
+  const dbPath = path.join(os.homedir(), ".hermes", "state.db");
+  if (!fs.existsSync(dbPath)) return null;
+  let db;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    const rows = db.prepare(
+      "SELECT role, content, reasoning FROM messages WHERE session_id = ? ORDER BY timestamp ASC, id ASC LIMIT ?"
+    ).all(sessionId, MAX_EVENTS);
+    const events = [];
+    for (const row of rows) {
+      const text = typeof row?.content === "string" ? row.content.trim() : "";
+      const thought = typeof row?.reasoning === "string" ? row.reasoning.trim() : "";
+      if (row.role === "user") {
+        if (text && !isInjectedTurn(text)) events.push({ event: "user_message", data: { text } });
+      } else if (row.role === "assistant") {
+        if (thought) events.push({ event: "thinking", data: { text: thought } });
+        if (text) {
+          events.push({ event: "delta", data: { text } });
+          events.push({ event: "turn_complete", data: { stats: { inputTokens: 0, outputTokens: 0, totalTurns: 1 }, result: "", isError: false, subtype: "end_turn" } });
+        }
+      }
+    }
+    return events.length ? events : null;
+  } catch {
+    return null;
+  } finally {
+    try { db?.close(); } catch {}
+  }
+}
+
 // Dispatches transcript recovery by engine; leafOverride is Claude-specific for rewind.
 export function recoverFromTranscript(engine, cwd, sessionId, leafOverride = null) {
   if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId, 1, leafOverride);
@@ -589,5 +625,6 @@ export function recoverFromTranscript(engine, cwd, sessionId, leafOverride = nul
   if (engine === "antigravity") return recoverFromAntigravityTranscript(cwd, sessionId);
   if (engine === "omp") return recoverFromOmpTranscript(cwd, sessionId);
   if (engine === "devin") return recoverFromDevinTranscript(sessionId);
+  if (engine === "hermes") return recoverFromHermesTranscript(sessionId);
   return null;
 }

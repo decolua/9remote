@@ -42,6 +42,26 @@ export function stripHarnessWrapping(text) {
   return out.trim();
 }
 
+// Hermes titles its own sessions in state.db (sessions.title) a beat after the
+// turn ends — the pane header adopts it the way the TUI does.
+export function readHermesSessionTitle(sessionId) {
+  if (!sessionId) return "";
+  try {
+    const { DatabaseSync } = require("node:sqlite");
+    const dbPath = path.join(home(), ".hermes", "state.db");
+    if (!fs.existsSync(dbPath)) return "";
+    const db = new DatabaseSync(dbPath, { readOnly: true });
+    try {
+      const row = db.prepare("SELECT title FROM sessions WHERE id = ?").get(sessionId);
+      return String(row?.title || "").trim();
+    } finally {
+      db.close();
+    }
+  } catch {
+    return "";
+  }
+}
+
 function contentText(content) {
   if (typeof content === "string") return content;
   if (!Array.isArray(content)) return "";

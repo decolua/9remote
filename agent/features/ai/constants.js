@@ -4,7 +4,8 @@ export const AI_ENGINES = {
   OPENCODE: "opencode",
   ANTIGRAVITY: "antigravity",
   OMP: "omp",
-  DEVIN: "devin"
+  DEVIN: "devin",
+  HERMES: "hermes"
 };
 
 // Overridable chat engine binary for testing.
