@@ -393,10 +393,11 @@ const HISTORY_SOURCES = [
   { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok },
   { id: "antigravity", layout: "antigravity", root: () => path.join(home(), ".gemini", "antigravity-cli") },
   { id: "omp", layout: "scan", root: () => path.join(home(), ".omp", "agent", "sessions"), ext: ".jsonl", parse: parseOmp },
-  { id: "devin", layout: "devin", root: () => path.join(home(), ".local", "share", "devin", "cli") }
+  { id: "devin", layout: "devin", root: () => path.join(home(), ".local", "share", "devin", "cli") },
+  { id: "hermes", layout: "hermes", root: () => path.join(home(), ".hermes") }
 ];
 
-const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode, antigravity: collectAntigravity, devin: collectDevin };
+const COLLECTORS = { cwdDir: collectCwdDir, scan: collectScan, opencode: collectOpencode, antigravity: collectAntigravity, devin: collectDevin, hermes: collectHermes };
 
 const SOURCE_BY_ID = new Map(HISTORY_SOURCES.map((s) => [s.id, s]));
 const SOURCE_RANK = new Map(HISTORY_SOURCES.map((s, i) => [s.id, i]));
@@ -541,6 +542,39 @@ function devinDbRows(cwd) {
 
 function collectDevin(source, cwd, limit) {
   const rows = devinDbRows(cwd);
+  return byNewest(rows, source, cwd).slice(0, limit);
+}
+
+function hermesDbRows(cwd) {
+  const sqlite = loadSqlite();
+  if (!sqlite) return [];
+  const dbPath = path.join(home(), ".hermes", "state.db");
+  if (!fs.existsSync(dbPath)) return [];
+  let db;
+  try {
+    db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
+    const cols = db.prepare("PRAGMA table_info(sessions)").all();
+    // Pre-0.11 state.db has no cwd column and nothing else carries it — the
+    // honest list is the RECENT sessions (every project), not an empty one.
+    // Rows with no title are background/worker sessions, not conversations.
+    const [stmt, args] = cols.some((c) => c.name === "cwd")
+      ? [db.prepare("SELECT id, title, started_at FROM sessions WHERE cwd = ? AND title != '' ORDER BY started_at DESC LIMIT ?"), [cwd, HISTORY.PER_AGENT_LIMIT]]
+      : [db.prepare("SELECT id, title, started_at FROM sessions WHERE title != '' ORDER BY started_at DESC LIMIT ?"), [HISTORY.PER_AGENT_LIMIT]];
+    return stmt.all(...args).map((r) => ({
+      sessionId: r.id,
+      title: cleanTitle(r.title),
+      cwd,
+      updatedAt: (r.started_at || 0) * 1000
+    }));
+  } catch {
+    return [];
+  } finally {
+    try { db?.close(); } catch {}
+  }
+}
+
+function collectHermes(source, cwd, limit) {
+  const rows = hermesDbRows(cwd);
   return byNewest(rows, source, cwd).slice(0, limit);
 }
 

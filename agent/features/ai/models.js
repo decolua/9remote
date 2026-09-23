@@ -283,7 +283,9 @@ export function resolveDefaultEffort(engine) {
   }
 
   if (engine === "hermes") {
-    return /^\s*reasoning_effort:\s*["']?([\w-]+)/m.exec(readHermesConfig())?.[1] || "";
+    // Scoped to the agent: block — a loose match catches reasoning_effort under
+    // other sections (summaries, image description) that this engine never reads.
+    return /^\s*reasoning_effort:\s*["']?([\w-]+)/m.exec(yamlBlock(readHermesConfig(), "agent"))?.[1] || "";
   }
 
   return "";
@@ -490,13 +492,31 @@ const readHermesConfig = () => {
   try { return fs.readFileSync(hermesConfigPath(), "utf8"); } catch { return ""; }
 };
 
+// Top-level `key:` block of a YAML file — a loose key match anywhere would catch
+// the same name nested under another section.
+function yamlBlock(text, key) {
+  const m = new RegExp(`^${key}:\\s*$`, "m").exec(text);
+  if (!m) return "";
+  const rest = text.slice(m.index + m[0].length);
+  const next = /^[A-Za-z_]/m.exec(rest);
+  return next ? rest.slice(0, next.index) : rest;
+}
+
 // The wire has no reasoning switch — config.yaml is the only door and it is read
 // once per session build, so a change costs a config write + process recycle.
 export function setHermesReasoningEffort(effort) {
   const file = hermesConfigPath();
   const text = fs.readFileSync(file, "utf8");
-  if (!/^(\s*)reasoning_effort:/m.test(text)) throw new Error("no reasoning_effort key in ~/.hermes/config.yaml");
-  fs.writeFileSync(file, text.replace(/^(\s*reasoning_effort:\s*).*/m, `$1${effort}`));
+  const head = /^agent:[ \t]*$/m.exec(text);
+  if (!head) throw new Error("No agent: block in ~/.hermes/config.yaml");
+  const start = head.index + head[0].length;
+  const rest = text.slice(start);
+  const next = /^[A-Za-z_]/m.exec(rest);
+  const end = next ? start + next.index : text.length;
+  const block = text.slice(start, end);
+  if (!/^[ \t]*reasoning_effort:/m.test(block)) throw new Error("No agent.reasoning_effort key in ~/.hermes/config.yaml");
+  const patched = block.replace(/^([ \t]*reasoning_effort:\s*).*$/m, `$1${effort}`);
+  fs.writeFileSync(file, text.slice(0, start) + patched + text.slice(end));
 }
 
 // The live catalog the running adapter absorbed from session/new — the connect ack
@@ -508,10 +528,12 @@ export function setHermesLiveCatalog(options) {
 
 export function listHermesModelOptions() {
   if (hermesLiveCatalog) return hermesLiveCatalog;
-  const text = readHermesConfig();
-  const model = /^\s*default:\s*["']?([^"'\n]+)/m.exec(text)?.[1]?.trim() || "";
+  const modelBlock = yamlBlock(readHermesConfig(), "model");
+  const model = /^\s*default:\s*["']?([^"'\n]+)/m.exec(modelBlock)?.[1]?.trim() || "";
   if (!model) return [];
-  const provider = /^\s*provider:\s*["']?([^"'\n]+)/m.exec(text)?.[1]?.trim() || "";
-  const id = provider ? `${provider}:${model}` : model;
-  return [{ id, label: id, short: id, desc: "", efforts: [...HERMES_EFFORTS], defaultEffort: "" }];
+  const provider = /^\s*provider:\s*["']?([^"'\n]+)/m.exec(modelBlock)?.[1]?.trim() || "";
+  // ids are "provider:model" on this wire (the picker's own encoding), so the
+  // fallback row must match or a pick from it would 404 the session/set_model.
+  const id = provider && !model.startsWith(`${provider}:`) ? `${provider}:${model}` : model;
+  return [{ id, label: id, short: id, desc: "", efforts: [], defaultEffort: "", contextWindow: 0 }];
 }

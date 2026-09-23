@@ -656,8 +656,11 @@ export class HermesEngine extends AiEngine {
       ui: { id: "hermes-ui", label: "Hermes UI", short: "Hermes UI" },
       overrides: {
         // Canonical tool names the adapter derives from hermes' titled tool calls.
+        // The hermes-acp toolset (toolsets.py _CODING_TOOLS): coding posture minus clarify.
         tools: {
           terminal: "bash",
+          process_manage: "bash",
+          process: "bash",
           execute_code: "bash",
           read_file: "file",
           vision_analyze: "file",
@@ -666,31 +669,46 @@ export class HermesEngine extends AiEngine {
           search_files: "search",
           web_search: "search",
           web_extract: "search",
+          session_search: "search",
+          browser_navigate: "search",
+          browser_snapshot: "file",
+          browser_get_images: "file",
+          browser_vision: "file",
           delegate_task: "agent",
           todo_list: "task",
+          todo: "task",
         },
         models: [],
         // The ACP mode ids (acp_adapter/server.py _MODES); dont_ask is the --yolo spawn tier.
         permissionModes: [
           { id: "default", label: "Default", desc: "Ask before edits", icon: PERMISSION_ICONS.ask },
           { id: "accept_edits", label: "Accept Edits", desc: "Auto-allow workspace edits, ask for sensitive paths", icon: PERMISSION_ICONS.edit },
-          { id: "dont_ask", label: "Don't Ask", desc: "Auto-allow edits for this session except sensitive paths", icon: PERMISSION_ICONS.bypass },
+          { id: "dont_ask", label: "Don't Ask (full)", desc: "Spawn with --yolo: every approval bypassed except hermes' own deny floors", icon: PERMISSION_ICONS.bypass },
         ],
-        defaultMode: "default",
-        features: { thinking: true, planMode: false, tasks: true, skills: false, mcp: false, rewind: false },
+        // Full permission out of the box, like the pane's other engines default.
+        defaultMode: "dont_ask",
+        features: { thinking: true, planMode: false, tasks: true, skills: true, mcp: false, rewind: false },
+        // The commands hermes' ACP server advertises (acp_adapter/commands.py _COMMANDS);
+        // an unrecognized '/' falls through to the model as a normal message.
         slashCommands: [
           { name: "/model", description: "Choose the Hermes model", action: "modal:model" },
           { name: "/effort", description: "Thinking level (config.yaml)", action: "submenu", optionKey: "effort", subOptions: HERMES_EFFORT_OPTIONS },
           { name: "/resume", description: "Resume a previous Hermes session", action: "modal:sessions" },
           { name: "/clear", description: "Start a fresh Hermes session", action: "clear" },
           { name: "/doctor", description: "Check the Hermes installation", action: "modal:doctor" },
+          { name: "/help", description: "List available commands", action: "send" },
+          { name: "/tools", description: "List available tools with descriptions", action: "send" },
+          { name: "/context", description: "Show conversation message counts by role", action: "send" },
+          { name: "/compress", description: "Compress conversation context", action: "send" },
+          { name: "/reset", description: "Clear conversation history", action: "send" },
+          { name: "/version", description: "Show Hermes version", action: "send" },
         ],
       },
     });
   }
 
   parseTaskEvent(toolName, input, toolCallId) {
-    if (toolName === "todo_list") return this._parseReplaceAllTodos(input, toolCallId);
+    if (toolName === "todo_list" || toolName === "todo") return this._parseReplaceAllTodos(input, toolCallId);
     return null;
   }
 }

@@ -89,6 +89,11 @@ function skillDirs(engine, home, workspacePath) {
       ...(workspacePath ? [path.join(workspacePath, ".claude", "skills")] : [])
     ];
   }
+  if (engine === "hermes") {
+    // Hermes resolves skills only from its home (tools/skills_tool.py: "all
+    // skills live in ~/.hermes/skills/") — no workspace-level library exists.
+    return [path.join(home, ".hermes", "skills")];
+  }
   // An engine nobody has taught: no library, rather than another engine's.
   return [];
 }

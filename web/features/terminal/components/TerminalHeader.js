@@ -33,7 +33,7 @@ import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useKanbanStore } from "@/shared/stores/kanbanStore";
 
 // Engines a terminal can be swapped into the chat UI.
-const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp", "devin"]);
+const UI_SWITCHABLE_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp", "devin", "hermes"]);
 // A turn in flight owns the conversation: the host would have to move it out from under
 // a running CLI. Only a settled terminal (idle, or a finished turn) may switch.
 export const SWITCHABLE_STATES = new Set(["idle", "done"]);
