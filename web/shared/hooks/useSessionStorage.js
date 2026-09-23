@@ -15,6 +15,23 @@ function clearAuthCookie() {
   document.cookie = `${AUTH_COOKIE_NAME}=; path=/; max-age=0`;
 }
 
+// Plain (non-hook) auth writer for flows outside React, e.g. host switching.
+export function setAuthData({ apiKey, tunnelUrl, mode = "remote", tempKey = null, localIp = null }) {
+  if (typeof window === "undefined") return;
+  // Storage may be unavailable (private mode / blocked cookies) — the auth
+  // cookie below still carries the key, so persistence is best-effort.
+  try {
+    sessionStorage.setItem("apiKey", apiKey);
+    sessionStorage.setItem("tunnelUrl", tunnelUrl);
+    sessionStorage.setItem("mode", mode || "remote");
+    if (tempKey) sessionStorage.setItem("tempKey", tempKey);
+    else sessionStorage.removeItem("tempKey");
+    if (localIp) sessionStorage.setItem("localIp", localIp);
+    else sessionStorage.removeItem("localIp");
+  } catch {}
+  setAuthCookie(apiKey);
+}
+
 // Type-safe session storage for auth data
 export function useSessionStorage() {
   const getAuth = useCallback(() => {
@@ -38,32 +55,7 @@ export function useSessionStorage() {
     return { apiKey, tunnelUrl, mode, tempKey, localIp };
   }, []);
 
-  const setAuth = useCallback((data) => {
-    if (typeof window === "undefined") return;
-    
-    // Storage may be unavailable (private mode / blocked cookies) — the auth
-    // cookie below still carries the key, so persistence is best-effort.
-    try {
-      sessionStorage.setItem("apiKey", data.apiKey);
-      sessionStorage.setItem("tunnelUrl", data.tunnelUrl);
-      sessionStorage.setItem("mode", data.mode || "remote");
-
-      if (data.tempKey) {
-        sessionStorage.setItem("tempKey", data.tempKey);
-      } else {
-        sessionStorage.removeItem("tempKey");
-      }
-
-      if (data.localIp) {
-        sessionStorage.setItem("localIp", data.localIp);
-      } else {
-        sessionStorage.removeItem("localIp");
-      }
-    } catch {}
-
-    // Set cookie for proxy auth
-    setAuthCookie(data.apiKey);
-  }, []);
+  const setAuth = useCallback((data) => setAuthData(data), []);
 
   const clearAuth = useCallback(() => {
     if (typeof window === "undefined") return;

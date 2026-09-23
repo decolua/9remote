@@ -40,6 +40,9 @@ import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 
 import SessionList from "@/features/session/components/SessionList";
+import HostsView from "@/features/hosts/components/HostsView";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
 import BrowserView from "@/features/browser/components/BrowserView";
@@ -213,6 +216,27 @@ export default function WorkspaceLayout({ children }) {
     };
   }, []);
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
+  // Fleet: one background bus per saved host other than the current one; the
+  // mobile home shows the fleet overview until the user enters a host (focus).
+  const { loadKeys } = useApiKeyStorage();
+  const [savedKeys, setSavedKeys] = useState([]);
+  useEffect(() => {
+    if (!hydrated) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
+    setSavedKeys(loadKeys());
+  }, [hydrated, loadKeys]);
+  const currentFleetKey = auth?.apiKey ? headOf(auth.apiKey) : "";
+  const fleetMode = savedKeys.length >= 2;
+  const fleetFocus = useFleetStore((s) => s.focus);
+  const fleetOverlayOpen = useFleetStore((s) => s.overlayOpen);
+  useEffect(() => {
+    if (!hydrated) return;
+    useFleetStore.getState().sync(savedKeys, currentFleetKey);
+  }, [hydrated, savedKeys, currentFleetKey]);
+  // Home defaults to the fleet overview for multi-key users (focus null) and into
+  // the host for single-key users; "" (explicit "show hosts") opens it for anyone.
+  const showFleetHome = fleetFocus !== currentFleetKey && (fleetMode || fleetFocus === "");
+
   const [shells, setShells] = useState([]);
 
   const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
@@ -568,6 +592,7 @@ export default function WorkspaceLayout({ children }) {
 
   // Full page load, not router.push — a lazy chunk fetch can hang forever on a dead network
   const handleDisconnect = useCallback(() => {
+    useFleetStore.getState().closeAll();
     resetStore();
     sessionStorage.clear();
     sessionStorage.setItem("9remote_manual_disconnect", "1");
@@ -634,6 +659,40 @@ export default function WorkspaceLayout({ children }) {
     onResizeStart: handleMobileResizeStart
   }), [mobileOpen, mobileMode, mobilePanelWidth, protocolRef, handleMobileResizeStart]);
 
+  // Fleet home replaces SessionList in its slot, so it carries the same slide-menu
+  // context SessionList would have set (memoized: the effect keys off identity).
+  const remoteEntryEarly = connected && remoteAvailable && !codespaceInfo?.isCodespaces;
+  const fleetMenuContext = useMemo(() => ({
+    connected,
+    remoteAvailable: remoteEntryEarly,
+    codespaceInfo,
+    showTheme: false,
+    theme: "default",
+    busRef,
+    hideActions: ["remote", "files", "sites"],
+    tunnelUrl: auth?.tunnelUrl,
+    apiKey: auth?.apiKey,
+    connectionMode,
+    subscribeToPush,
+    unsubscribeFromPush,
+    notifications,
+    agentVersion,
+    carrier
+  }), [connected, remoteEntryEarly, codespaceInfo, busRef, auth, connectionMode, subscribeToPush,
+    unsubscribeFromPush, notifications, agentVersion, carrier]);
+  const fleetMenuCallbacks = useMemo(() => ({
+    onRemote: null,
+    onFiles: null,
+    onSelectSite: null,
+    onRefreshSites: null,
+    onCodespace: null,
+    onLogout: handleLogoutWithConfirm,
+    onThemeChange: null,
+    onStopCodespace: stopCodespace,
+    onUpdate: handleUpdate,
+    onRestart: handleRestart
+  }), [handleLogoutWithConfirm, stopCodespace, handleUpdate, handleRestart]);
+
   // A missing tunnelUrl is not a missing connection — the DO relay carries RTC,
   // and the transport reports connected when that opens. Only the bus is a gate.
   const isInitializing = !hydrated || !bus;
@@ -662,6 +721,15 @@ export default function WorkspaceLayout({ children }) {
             : "opacity-0 z-0 pointer-events-none"
             }`}
         >
+          {showFleetHome ? (
+          <HostsView
+            currentKey={currentFleetKey}
+            homeDir={systemInfo?.homedir}
+            fullHost={{ sessions, workspaces, platform, version: agentVersion }}
+            menuContext={fleetMenuContext}
+            menuCallbacks={fleetMenuCallbacks}
+          />
+          ) : (
           <SessionList
             sessions={sessions}
             cwdBySession={cwdBySession}
@@ -698,7 +766,9 @@ export default function WorkspaceLayout({ children }) {
             onReorderSession={handleReorderSession}
             recentWorkspaces={recentWorkspaces}
             shells={shells}
+            onShowHosts={() => useFleetStore.getState().clearFocus()}
           />
+          )}
         </div>
         )}
 
@@ -917,6 +987,27 @@ export default function WorkspaceLayout({ children }) {
             carrier can be open while the key TAIL is still being proven, and
             the workspace must not show through that window. */}
         {(!connected || !admitted) && <ReconnectScreen />}
+        {/* Fleet overlay — the slide-menu "Hosts" entry (desktop's only door in) */}
+        {fleetOverlayOpen && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150"
+            style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+            onClick={() => useFleetStore.getState().closeOverlay()}
+          >
+            <div
+              className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto h-[min(85%,calc(var(--app-height,85vh)-2rem))] animate-in zoom-in-95 duration-150"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <HostsView
+                currentKey={currentFleetKey}
+                homeDir={systemInfo?.homedir}
+                fullHost={{ sessions, workspaces, platform, version: agentVersion }}
+                onClose={() => useFleetStore.getState().closeOverlay()}
+              />
+            </div>
+          </div>
+        )}
+
         {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Update Modal — progress overlay during agent self-update */}

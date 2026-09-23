@@ -15,7 +15,7 @@ import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import SitesList from "@/features/terminal/components/SitesList";
 import {
-  Folder, Monitor, Smartphone, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight, Image
+  Folder, Monitor, Smartphone, Plus, Settings, Globe, Pencil, Trash2, ChevronRight, Zap, ArrowRight, Image, HardDrive
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -45,7 +45,7 @@ export default function SessionList({
   notifications: propNotifications, sessionStatus: propStatus, agentVersion,
   updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, carrier: propCarrier,
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
-  fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession
+  fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession, onShowHosts = null
 }) {
   const { t } = useI18n();
   // Callers may pass no bus; the store is the single live connection anyway
@@ -197,6 +197,9 @@ export default function SessionList({
           )}
           {showButton("sites") && (
             <HeaderButton icon={Globe} label={t("menu.sites")} onClick={() => setSitesOpen(true)} disabled={!connected} />
+          )}
+          {onShowHosts && (
+            <HeaderButton icon={HardDrive} label={t("hosts.title")} onClick={onShowHosts} />
           )}
           <HeaderButton icon={Settings} label={t("menu.title")} onClick={openMenu} />
         </div>

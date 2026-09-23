@@ -54,6 +54,16 @@ export default {
     connecting: "Connecting…",
     unreachable: "Can't reach this device. Is it online?"
   },
+  hosts: {
+    title: "Hosts",
+    openHost: "Open host",
+    connecting: "Connecting…",
+    lastSeen: "Last seen",
+    sessions: "sessions",
+    working: "working",
+    attention: "need you",
+    noSessions: "No sessions"
+  },
   login: {
     tagline: "Access your terminal from anywhere",
     heroLine1: "Any machine.",

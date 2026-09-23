@@ -4,8 +4,9 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
-  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot
+  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot, HardDrive
 } from "@/shared/components/ui/Icon";
+import { useFleetStore } from "@/shared/stores/fleetStore";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
@@ -176,6 +177,14 @@ export default function SettingsDialog({
             {section === "background" && <BackgroundPickerSheet inline busRef={context.busRef} />}
             {section === "general" && (
               <div className="space-y-6">
+                <Group title={t("hosts.title")}>
+                  <ActionRow
+                    icon={HardDrive}
+                    label={t("hosts.openHost")}
+                    onClick={() => { vibrate(); onClose(); useFleetStore.getState().openOverlay(); }}
+                  />
+                </Group>
+
                 {(push.supported || showInstall) && (
                   <Group>
                     {push.supported && (
