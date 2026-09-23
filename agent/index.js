@@ -37,7 +37,7 @@ import {
 } from "./api/ui.js";
 import { broadcastServerInfo, setConnectCheckHandler } from "./features/terminal/terminalSocket.js";
 import { UPDATE } from "./cli/config.js";
-import { handleOneTimeKey, handleRegenerate } from "./api/key.js";
+import { handleOneTimeKey, handleRegenerate, handleSignalingRetry } from "./api/key.js";
 import { handleApprove, handleReject, handlePending, handleApproved, handleRemove, handleDisconnect, handleRejected, handleApproveRejected, handleClearRejected, handleGetAutoApprove, handleSetAutoApprove, handleSetLabel } from "./api/device.js";
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
 import { handleMcpPost } from "./api/mcp.js";
@@ -304,6 +304,7 @@ const ROUTES = [
   // Key management (localhost-only)
   { path: "/api/key/one-time",     method: "POST", handler: handleOneTimeKey },
   { path: "/api/key/regenerate",   method: "POST", handler: handleRegenerate },
+  { path: "/api/signaling/retry",  method: "POST", handler: handleSignalingRetry },
 
   // Device approval (localhost-only)
   { path: "/api/device/approve",        method: "POST", handler: handleApprove },

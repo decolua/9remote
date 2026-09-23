@@ -69,6 +69,8 @@ export async function tuiMode() {
       body: JSON.stringify({ apiKey: headOf(keyData.key), hostPublicKey: getHostPublicKeyB64(), hostX25519Key: getHostX25519PublicKeyB64() }),
     });
     if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
+    // The row the DO gate needs now exists — revive a relay that gave up before it did.
+    await apiPost("/api/signaling/retry", {});
   } catch (err) {
     logger.error(`Failed to connect: ${err.message}`);
     process.exit(1);

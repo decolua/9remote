@@ -10,7 +10,7 @@ import { updateTrayTooltip } from "../utils/tray.js";
 import { getConsistentMachineId } from "../utils/machineId.js";
 import { generateApiKeyV2, headOf, maskApiKey } from "../utils/apiKey.js";
 import { registerSession } from "../utils/token.js";
-import { apiGet, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
+import { apiGet, apiPost, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
 import { makeTunnelRestartHandler, startBackgroundTunnelReconnect, cancelActiveBgTunnel } from "../tunnel/manager.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { updateTunnelUrl } from "../tunnel/urlSync.js";
@@ -88,6 +88,8 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
       body: JSON.stringify({ apiKey: headOf(apiKey), hostPublicKey: getHostPublicKeyB64(), hostX25519Key: getHostX25519PublicKeyB64() }),
     });
     if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
+    // The row the DO gate needs now exists — revive a relay that gave up before it did.
+    await apiPost("/api/signaling/retry", {});
 
     // Spawn tunnel after a successful session. Fail/health-timeout is non-fatal:
     // show QR (RTC-only) and let the background reconnect loop retry.

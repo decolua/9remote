@@ -8,7 +8,7 @@ import { generateApiKeyV2 } from "../cli/utils/apiKey.js";
 import { getConsistentMachineId } from "../cli/utils/machineId.js";
 import { getUiState, updateUiState } from "./ui.js";
 import { createTempKey, connectUrlOf, registerSession } from "../cli/utils/token.js";
-import { initSignalingGlobal } from "../lib/signalingGlobal.js";
+import { initSignalingGlobal, retrySignalingNow, getSignalingState } from "../lib/signalingGlobal.js";
 import { headOf } from "../cli/utils/apiKey.js";
 import { WORKER_URL } from "../cli/config.js";
 
@@ -21,6 +21,14 @@ export async function handleOneTimeKey(req, res) {
   const qrUrl = connectUrlOf(workerUrl, data);
   updateUiState({ oneTimeKey: data.oneTimeKey, oneTimeKeyExpiresAt: data.expiresAt, qrUrl });
   jsonOk(res, { oneTimeKey: data.oneTimeKey, expiresAt: data.expiresAt, qrUrl });
+}
+
+// The boot join can hit the DO's 401 gate (no session row yet) and give up
+// permanently; registering the session later must revive it or RTC-only
+// clients spin forever in a room the agent never listens to.
+export async function handleSignalingRetry(req, res) {
+  retrySignalingNow("session-registered");
+  jsonOk(res, getSignalingState());
 }
 
 export async function handleRegenerate(req, res) {
