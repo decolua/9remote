@@ -61,6 +61,11 @@ export function diffFor(name, input = {}) {
   return { file, name, patch: lines.join("\n"), content: "" };
 }
 
+// opencode's read wraps its payload for the model (XML-ish tags around the
+// content); the pane's file card wants the bare content, claude-style. Inner
+// `</content>` strings truncate — ponytail: files that embed the tag are rare.
+const READ_CONTENT_RE = /<content>\n?([\s\S]*?)\n?<\/content>/;
+
 export function opencodePartEvents(part) {
   const state = part?.state || {};
   const id = part?.callID || part?.id;
@@ -75,7 +80,11 @@ export function opencodePartEvents(part) {
   // A `task` call runs its sub-agent in a separate session (state.metadata.sessionId):
   // those tool calls stream under that id and never reach this one, so the card shows
   // the brief instead of a child count that could only ever read zero.
-  const output = state.output ?? "";
+  let output = state.output ?? "";
+  if (name === "read") {
+    const bare = READ_CONTENT_RE.exec(String(output));
+    if (bare) output = bare[1];
+  }
   // A failing shell command still reports "completed" — the exit code is what says it
   // failed, so a non-zero one must surface as an error card. An error with no exit
   // (a read of a missing file) says itself; "(exit undefined)" says nothing.

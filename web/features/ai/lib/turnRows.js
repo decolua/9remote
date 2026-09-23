@@ -8,7 +8,9 @@ const TASK_STRIP_TOOLS = new Set(["TaskCreate", "TaskUpdate", "TodoWrite", "todo
 // Engines whose question gate renders pinned above the composer (a permission channel the
 // CLI answers through). Elsewhere a running question stays in the timeline as a plain row —
 // headless engines cannot be answered, but the ask must stay visible while it blocks.
-const GATE_ENGINES = new Set(["claude", "omp", "devin"]);
+// opencode is here on both counts: the poller pins the card from its /question store, and
+// the ask is also a `question` tool part the poller turns into a row (the card would double it).
+const GATE_ENGINES = new Set(["claude", "omp", "devin", "opencode"]);
 
 // Diff-emitting tools across agent adapters (hidden inline to prevent duplicate file cards).
 const DIFF_TOOL_NAMES = new Set([
