@@ -4,7 +4,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { busForSession, fleetBusOf } from "@/shared/stores/fleetStore";
+import { busForSession, fleetBusOf, useFleetStore } from "@/shared/stores/fleetStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
@@ -109,8 +109,12 @@ function TerminalWorkspace({
   // main-host ones the workspace singleton.
   const busFor = useCallback((sessionId) => {
     const fb = busForSession(sessionId);
-    return fb || activeBus;
-  }, [activeBus]);
+    if (fb) return fb;
+    // Main sessions ride the workspace bus; another host's cached session with
+    // no bus yet waits (null) — never join it on the wrong machine. The bus
+    // opening flips host status, re-renders, and the pane comes alive.
+    return sessions.find((s) => s.id === sessionId)?.hostKey ? null : activeBus;
+  }, [activeBus, sessions]);
   const isConnected = connected ?? storeConnected;
   const activeCarrier = carrier || storeCarrier;
   const activeFileBus = fileBus || useFileBusStore.getState();
@@ -181,10 +185,11 @@ function TerminalWorkspace({
     [activeWsHostKey, activeBusRef]
   );
   const [foreignShells, setForeignShells] = useState([]);
+  const activeHostStatus = useFleetStore((s) => (activeWsHostKey ? s.hosts[activeWsHostKey]?.status || null : null));
   useEffect(() => {
     if (!activeWsHostKey) return;
     fleetBusOf(activeWsHostKey)?.emit("getShells", (res) => setForeignShells(res?.shells || []));
-  }, [activeWsHostKey]);
+  }, [activeWsHostKey, activeHostStatus]);
   // The chat pane's "+" opens a fresh chat of the same engine and closes the one it
   // replaced — the tab strip must not grow an entry per chat.
   const handleNewChat = useCallback((aiUi, sessionId) => {

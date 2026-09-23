@@ -233,6 +233,9 @@ export default function WorkspaceLayout({ children }) {
   const fleetOverlayOpen = useFleetStore((s) => s.overlayOpen);
   useEffect(() => {
     if (!hydrated) return;
+    // Logged out — drop every fleet bus so agent data stops flowing to a session
+    // that just signed out (the buses are module-level and survive unmount).
+    if (!currentFleetKey) { useFleetStore.getState().closeAll(); return; }
     useFleetStore.getState().sync(savedKeys, currentFleetKey);
   }, [hydrated, savedKeys, currentFleetKey]);
   // Other hosts' sessions/workspaces, workspace ids scoped "head:" — they ride the
@@ -395,7 +398,10 @@ export default function WorkspaceLayout({ children }) {
   // host owns the target workspace gets the session (main via nav, a fleet host
   // via its own bus with the workspace id unscoped).
   const createSessionOnHost = useCallback((name, wsId, shellId, cwd, agent, yolo, nameIsAuto) => {
-    const hostKey = allWorkspaces.find((w) => w.id === wsId)?.hostKey;
+    // Fallback prefix match: a fleet workspace just created may not be in the
+    // merged list yet (refetch pending) — its scoped id still names its host.
+    const hostKey = allWorkspaces.find((w) => w.id === wsId)?.hostKey
+      || Object.values(fleetHostsMap).find((h) => typeof wsId === "string" && wsId.startsWith(`${h.key}:`))?.key;
     if (hostKey) {
       const host = useFleetStore.getState().hosts[hostKey];
       if (!host) return;
@@ -404,7 +410,7 @@ export default function WorkspaceLayout({ children }) {
       return;
     }
     nav.handleCreateSession(name, wsId, shellId, cwd, agent, yolo, nameIsAuto);
-  }, [allWorkspaces, nav]);
+  }, [allWorkspaces, fleetHostsMap, nav]);
 
   // "New terminal here" from the file tree / worktree list — cwd is the clicked folder.
   const createTerminalAt = useCallback((folderPath) => {

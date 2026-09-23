@@ -37,14 +37,9 @@ function readDeviceId() {
 // registry holds ProtocolManagers; the pane needs the PM's client-bus facade.
 export function busForSession(sessionId) {
   if (!sessionId) return null;
-  const st = useFleetStore.getState();
-  for (const h of Object.values(st.hosts)) {
-    if (h.sessions?.some((s) => s.id === sessionId)) {
-      // ponytail: a cached session tapped before its lazy bus opens joins on the
-      // wrong bus for that one press; upgrade = have the pane await the bus.
-      st.ensureHost(h.key);
-      return buses.get(h.key)?.busRef?.current || null;
-    }
+  const { hosts } = useFleetStore.getState();
+  for (const h of Object.values(hosts)) {
+    if (h.sessions?.some((s) => s.id === sessionId)) return buses.get(h.key)?.busRef?.current || null;
   }
   return null;
 }

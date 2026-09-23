@@ -19,11 +19,19 @@ export function makeFleetActions(host, { onSelectSession = null } = {}) {
   };
 
   return {
-    selectSession: onSelectSession,
+    // Selecting is also the lazy-connect door: a tap opens the host's bus if it
+    // is not up yet (side effects belong here, never in a render path).
+    selectSession: (sessionId) => {
+      useFleetStore.getState().ensureHost(host.key);
+      onSelectSession?.(sessionId);
+    },
     createSession: (name, workspaceId, shellId, cwd, agent, yolo, nameIsAuto, callback) => {
       // The modal hands the picked OPTION object; the wire and the tree want its id.
       const agentId = typeof agent === "string" ? agent : (agent?.id || null);
-      bus()?.emit("createSession",
+      const b = bus();
+      // Bus not up yet (lazy): open it and give up silently — the next press lands.
+      if (!b) { useFleetStore.getState().ensureHost(host.key); return; }
+      b.emit("createSession",
         { name, shellId, workspaceId, cwd, nameIsAuto, agent: agentId },
         (res) => {
           if (res?.success && res.sessionId) {
