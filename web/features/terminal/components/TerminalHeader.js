@@ -68,6 +68,11 @@ function TerminalHeader({
   carrier = "ws",
   isActive = true,
   shells = [],
+  // Host-aware overrides for the new-terminal modal: when the active workspace
+  // belongs to another host, these point the modal at THAT host's bus/key/shells.
+  modalBusRef = null,
+  modalHostKey = "main",
+  modalShells = null,
   workspaces = [],
   activeWorkspaceId = null,
   onRenameSession,
@@ -809,8 +814,9 @@ function TerminalHeader({
         <NewTerminalModal
           onClose={() => setCreateModalOpen(false)}
           onCreate={handleModalCreate}
-          shells={shells}
-          busRef={busRef}
+          shells={modalShells || shells}
+          busRef={modalBusRef || busRef}
+          hostKey={modalHostKey}
           suggestName={suggestTerminalName(activeWorkspaceId)}
           workspacePath={activeWorkspace?.path || null}
           workspaceName={activeWorkspace?.name || ""}

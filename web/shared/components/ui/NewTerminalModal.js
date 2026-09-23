@@ -45,10 +45,10 @@ export default function NewTerminalModal({
   onClose, onCreate, shells = [], suggestName = "", busRef = null,
   workspacePath = null, workspaceName = "", fileBus = null, homeDir = null,
   onResumeAgentSession = null, liveSessionIds = null, activeSessionId = null,
-  onSelectSession = null, connected = true
+  onSelectSession = null, connected = true, hostKey = "main"
 }) {
   const { t } = useI18n();
-  const agentClis = useAgentClis(busRef);
+  const agentClis = useAgentClis(busRef, hostKey);
   // "" = plain terminal. Held as an id (not the object) so the last-used agent
   // restores from localStorage before detection lands, with no effect/setState race.
   const [agentId, setAgentId] = useState(() => loadTerminalPrefs().agentId);
@@ -87,14 +87,14 @@ export default function NewTerminalModal({
     listRef.current?.querySelector("[data-picked=true]")?.scrollIntoView({ block: "nearest" });
   }, [agentClis, agentId]);
 
-  // Combine built-in AI UI options with detected agent CLIs, then sort:
+  // Detected agent CLIs, each with its UI variant — but a UI only shows when its
+  // CLI is installed on THIS host (no Claude Code on the machine, no Claude UI).
   //  empty spacer → Claude CLI → Claude UI → other pairs (CLI then UI) → CLI-only
   const visibleAiUis = AI_UI_OPTIONS;
   const allAgents = (agentClis || []).flatMap((a) => {
     const ui = visibleAiUis.find((u) => u.aiEngine === a.id);
     return ui ? [a, ui] : [a];
   });
-  for (const u of visibleAiUis) if (!allAgents.some((a) => a.id === u.id)) allAgents.push(u);
 
   // Build a lookup: base engine id → its UI option (if any)
   const uiById = new Map(visibleAiUis.map((u) => [u.aiEngine, u]));

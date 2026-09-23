@@ -27,9 +27,12 @@ export const createAgentSlice = (set, get) => ({
   setMcpClients: (ids) => set({ mcpClients: Array.isArray(ids) ? ids : [] }),
 
   // TUI agent CLIs
-  agentClis: null,
-  agentClisAt: 0,
-  setAgentClis: (list) => set({ agentClis: Array.isArray(list) ? list : [], agentClisAt: Date.now() }),
+  // TUI agent CLIs per host — one machine's PATH list must never show as
+  // another's (the fleet's new-terminal modal reads its own host's entry).
+  agentClisBy: {},
+  setAgentClis: (hostKey, list) => set((state) => ({
+    agentClisBy: { ...state.agentClisBy, [hostKey]: { list: Array.isArray(list) ? list : [], at: Date.now() } }
+  })),
 
   // Past agent conversations
   agentHistory: {},

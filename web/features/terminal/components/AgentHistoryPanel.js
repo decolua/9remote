@@ -84,7 +84,7 @@ export default function AgentHistoryPanel({
         style={asList ? undefined : { maxHeight: collapsed ? undefined : AGENT_HISTORY_MAX_HEIGHT }}
       >
         {!asList && (
-          <div className="w-full pl-1 pr-2 py-0.5 flex items-center justify-between text-text-subtle">
+          <div className="w-full pl-1 pr-1 py-0.5 flex items-center justify-between text-text-subtle">
             <button
               onClick={() => { vibrate(); setCollapsed((c) => !c); }}
               className="flex items-center gap-1 hover:text-text transition-colors flex-1 min-w-0"
@@ -120,7 +120,7 @@ export default function AgentHistoryPanel({
               return (
                 <div
                   key={`${row.agent}:${row.sessionId}`}
-                  className={`group w-full flex items-center gap-1 text-left transition-colors rounded-brand hover:bg-text/5 ${
+                  className={`group relative w-full flex items-center gap-1 text-left transition-colors rounded-brand hover:bg-text/5 ${
                     asList ? "gap-2 px-2.5 py-1.5" : "pl-3 pr-1 py-px"
                   } ${isActive ? "bg-text/8" : ""}`}
                 >
@@ -140,22 +140,34 @@ export default function AgentHistoryPanel({
                     <span className={`truncate flex-1 min-w-0 ${asList ? "text-sm" : "text-[11px]"}`} data-tip={title}>
                       {title}
                     </span>
-                    <span className={`text-[10px] text-text-subtle flex-shrink-0 opacity-70 tabular-nums whitespace-nowrap ${asList ? "" : "hidden group-hover:inline"}`}>
+                    {/* The time is the row's last in-flow item; the ExplorerRow door
+                        floats the delete button over it on hover with a backdrop. */}
+                    <span className={`text-[10px] text-text-subtle flex-shrink-0 opacity-70 tabular-nums whitespace-nowrap ${asList ? "mr-1" : ""}`}>
                       {relativeAge(row.updatedAt, t)}
                     </span>
                   </button>
 
-                  <button
-                    onClick={(e) => { e.stopPropagation(); setDeletingSession(row); }}
-                    disabled={!connected || !!openId}
-                    className={`flex-shrink-0 p-1 rounded hover:bg-red-500/15 hover:text-red-400 text-text-subtle transition-opacity ${
-                      asList ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover:opacity-100"
-                    } ${openId ? "invisible" : ""}`}
-                    title={openId ? t("agentHistory.openNow") : t("agentHistory.delete")}
-                    aria-label={t("agentHistory.delete")}
-                  >
-                    <Trash2 size={asList ? 13 : 11} />
-                  </button>
+                  {asList ? (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeletingSession(row); }}
+                      disabled={!connected || !!openId}
+                      className={`flex-shrink-0 p-1 rounded-[4px] text-text-subtle transition-colors hover:bg-red-500/15 hover:text-red-400 opacity-60 hover:opacity-100 ${openId ? "invisible" : ""}`}
+                      title={openId ? t("agentHistory.openNow") : t("agentHistory.delete")}
+                      aria-label={t("agentHistory.delete")}
+                    >
+                      <Trash2 size={14} />
+                    </button>
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeletingSession(row); }}
+                      disabled={!connected || !!openId}
+                      className={`absolute right-1 top-1/2 -translate-y-1/2 pl-1.5 pr-0.5 rounded-[4px] bg-surface-2 text-text-subtle group-hover:text-red-400 hover:bg-red-500/15 transition-colors opacity-0 group-hover:opacity-100 ${openId ? "invisible" : ""}`}
+                      title={openId ? t("agentHistory.openNow") : t("agentHistory.delete")}
+                      aria-label={t("agentHistory.delete")}
+                    >
+                      <Trash2 size={13} />
+                    </button>
+                  )}
                 </div>
               );
             })}

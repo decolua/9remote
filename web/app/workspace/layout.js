@@ -23,6 +23,8 @@ import { useTerminalPageViewport } from "@/features/terminal/hooks/useTerminalPa
 import { useWorkspaceFileNav } from "@/features/fileExplorer/hooks/useWorkspaceFileNav";
 import { usePaneRegistry } from "@/features/terminal/hooks/usePaneRegistry";
 import { useSessionNavigation } from "@/features/terminal/hooks/useSessionNavigation";
+import { scopedFleetLists, rawWsIdOf } from "@/features/hosts/lib/fleetTree";
+import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { useAgentUpdate } from "@/features/session/hooks/useAgentUpdate";
 import { useGlobalShortcuts } from "@/shared/hooks/useGlobalShortcuts";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
@@ -41,7 +43,7 @@ import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 
 import SessionList from "@/features/session/components/SessionList";
 import HostsView from "@/features/hosts/components/HostsView";
-import { useFleetStore } from "@/shared/stores/fleetStore";
+import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
@@ -218,7 +220,7 @@ export default function WorkspaceLayout({ children }) {
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   // Fleet: one background bus per saved host other than the current one; the
   // mobile home shows the fleet overview until the user enters a host (focus).
-  const { loadKeys } = useApiKeyStorage();
+  const { loadKeys, renameKey, removeKey } = useApiKeyStorage();
   const [savedKeys, setSavedKeys] = useState([]);
   useEffect(() => {
     if (!hydrated) return;
@@ -233,9 +235,40 @@ export default function WorkspaceLayout({ children }) {
     if (!hydrated) return;
     useFleetStore.getState().sync(savedKeys, currentFleetKey);
   }, [hydrated, savedKeys, currentFleetKey]);
+  // Other hosts' sessions/workspaces, workspace ids scoped "head:" — they ride the
+  // SAME workspace model (nav, panes, tabs) as the main host's, so a foreign
+  // terminal opens as a real parallel tab instead of a host switch.
+  const fleetHostsMap = useFleetStore((s) => s.hosts);
+  const scopedLists = useMemo(
+    () => scopedFleetLists(Object.values(fleetHostsMap), currentFleetKey),
+    [fleetHostsMap, currentFleetKey]
+  );
+  const allSessions = useMemo(
+    () => [...sessions, ...scopedLists.sessions],
+    [sessions, scopedLists]
+  );
+  const allWorkspaces = useMemo(
+    () => [...workspaces, ...scopedLists.workspaces],
+    [workspaces, scopedLists]
+  );
   // Home defaults to the fleet overview for multi-key users (focus null) and into
   // the host for single-key users; "" (explicit "show hosts") opens it for anyone.
   const showFleetHome = fleetFocus !== currentFleetKey && (fleetMode || fleetFocus === "");
+
+  // Rename a saved host: the storage entry is keyed by id, the fleet row by key HEAD.
+  const handleRenameHost = useCallback((key, label) => {
+    const item = loadKeys().find((k) => headOf(k.key) === key);
+    if (!item) return;
+    renameKey(item.id, label);
+    setSavedKeys(loadKeys());
+  }, [loadKeys, renameKey]);
+
+  const handleDeleteHost = useCallback((key) => {
+    const item = loadKeys().find((k) => headOf(k.key) === key);
+    if (!item) return;
+    removeKey(item.id);
+    setSavedKeys(loadKeys());
+  }, [loadKeys, removeKey]);
 
   const [shells, setShells] = useState([]);
 
@@ -320,7 +353,7 @@ export default function WorkspaceLayout({ children }) {
   const paneRegistry = usePaneRegistry({ isDesktop, isTerminalView, activeSessionId, currentView, openedSessions });
 
   const nav = useSessionNavigation({
-    sessions, currentView, viewStack, setViewStack, pushView, storePopView,
+    sessions: allSessions, currentView, viewStack, setViewStack, pushView, storePopView,
     activeWorkspaceId, setActiveWorkspaceId, activeSessionId,
     addOpenedSession, removeOpenedSession, touchLivePane,
     createSession, deleteSession, renameSession, busRef,
@@ -358,14 +391,38 @@ export default function WorkspaceLayout({ children }) {
     setFolderPicker({ initialPath: null });
   }, [createWorkspaceAt]);
 
+  // Host-aware terminal create — ONE door for every "+ new terminal": whichever
+  // host owns the target workspace gets the session (main via nav, a fleet host
+  // via its own bus with the workspace id unscoped).
+  const createSessionOnHost = useCallback((name, wsId, shellId, cwd, agent, yolo, nameIsAuto) => {
+    const hostKey = allWorkspaces.find((w) => w.id === wsId)?.hostKey;
+    if (hostKey) {
+      const host = useFleetStore.getState().hosts[hostKey];
+      if (!host) return;
+      makeFleetActions(host, { onSelectSession: nav.handleSelectSession })
+        .createSession(name, rawWsIdOf(wsId, hostKey), shellId, cwd, agent, yolo, nameIsAuto);
+      return;
+    }
+    nav.handleCreateSession(name, wsId, shellId, cwd, agent, yolo, nameIsAuto);
+  }, [allWorkspaces, nav]);
+
   // "New terminal here" from the file tree / worktree list — cwd is the clicked folder.
   const createTerminalAt = useCallback((folderPath) => {
-    nav.handleCreateSession(null, activeWorkspaceId, null, folderPath);
-  }, [nav, activeWorkspaceId]);
+    createSessionOnHost(null, activeWorkspaceId, null, folderPath);
+  }, [createSessionOnHost, activeWorkspaceId]);
 
   // Mod+Shift chords for the workspace shell. Desktop-only — a phone has no physical
   // keyboard to serve, and the mobile input bar already owns Tab / Ctrl+1-9.
-  const agentClis = useAgentClis(busRef);
+  // Same cache key the main host's HostTree modal uses (its fleet HEAD), so the
+  // shortcut list and the modal share one entry per machine.
+  const activeWsHostKey = allWorkspaces.find((w) => w.id === activeWorkspaceId)?.hostKey || null;
+  const activeHostKey = activeWsHostKey || currentFleetKey || "main";
+  // Keeps the ACTIVE host's agent-CLI cache warm so the Mod+T chord replays prefs
+  // against that host even if its modal was never opened this session.
+  const activeHostBusRef = useMemo(() => ({
+    get current() { return activeWsHostKey ? fleetBusOf(activeWsHostKey) : busRef.current; }
+  }), [activeWsHostKey, busRef]);
+  const activeAgentClis = useAgentClis(activeHostBusRef, activeHostKey);
   const openShortcutsModal = useShortcutsModalStore((st) => st.open);
   const shortcutsOpen = useShortcutsModalStore((st) => st.isOpen);
   const closeShortcutsModal = useShortcutsModalStore((st) => st.close);
@@ -375,20 +432,20 @@ export default function WorkspaceLayout({ children }) {
     || null;
 
   // Replays the new-terminal modal's last choice (agent + skip-permissions + shell) so
-  // the chord opens what the user last opened, not a bare shell. An agent that has since
-  // left the host's PATH falls back to a plain terminal, same as the modal does.
+  // the chord opens what the user last opened, not a bare shell. The agent list follows
+  // the ACTIVE host — an agent that has since left its PATH falls back to a plain
+  // terminal, same as the modal does.
   const createTerminalFromPrefs = useCallback(() => {
     const { agentId, shellId, yolo } = loadTerminalPrefs();
-    const allAgents = (agentClis || []).flatMap((a) => {
+    const allAgents = (activeAgentClis || []).flatMap((a) => {
       const ui = AI_UI_OPTIONS.find((u) => u.aiEngine === a.id);
       return ui ? [a, ui] : a;
     });
-    for (const u of AI_UI_OPTIONS) if (!allAgents.includes(u)) allAgents.push(u);
     const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
-    const index = sessions.filter((s) => sessionWorkspaceId(s) === (activeWorkspaceId ?? null)).length + 1;
+    const index = allSessions.filter((s) => sessionWorkspaceId(s) === (activeWorkspaceId ?? null)).length + 1;
     const name = agent ? `${agent.short || agent.label} ${index}` : null;
-    nav.handleCreateSession(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo, true);
-  }, [agentClis, sessions, activeWorkspaceId, nav]);
+    createSessionOnHost(name, activeWorkspaceId, agent ? null : shellId, null, agent, yolo, true);
+  }, [activeAgentClis, allSessions, activeWorkspaceId, createSessionOnHost]);
 
   const handleSwitchWorkspace = useCallback((direction) => {
     const ids = workspaces.map((w) => w.id);
@@ -551,15 +608,17 @@ export default function WorkspaceLayout({ children }) {
   }, [bus, loadSessions]);
 
   // Drop openedSessions that no longer exist. Delayed to avoid racing newly-created sessions
-  // (server create → loadSessions is async).
+  // (server create → loadSessions is async). Validated against the MERGED list —
+  // another host's session is as real as the main host's, and sweeping against the
+  // main list alone evicted it on every refetch (the remount loop).
   useEffect(() => {
-    if (sessions.length === 0 || openedSessions.length === 0) return;
+    if (allSessions.length === 0 || openedSessions.length === 0) return;
     const timer = setTimeout(() => {
-      const validSessionIds = sessions.map(s => s.id);
+      const validSessionIds = allSessions.map(s => s.id);
       openedSessions.filter(sid => !validSessionIds.includes(sid)).forEach(sid => removeOpenedSession(sid));
     }, 500);
     return () => clearTimeout(timer);
-  }, [sessions, openedSessions, removeOpenedSession]);
+  }, [allSessions, openedSessions, removeOpenedSession]);
 
   useTerminalPageViewport({ setKeyboardOpen });
 
@@ -766,7 +825,8 @@ export default function WorkspaceLayout({ children }) {
             onReorderSession={handleReorderSession}
             recentWorkspaces={recentWorkspaces}
             shells={shells}
-            onShowHosts={() => useFleetStore.getState().clearFocus()}
+            onRenameHost={handleRenameHost}
+            onDeleteHost={handleDeleteHost}
           />
           )}
         </div>
@@ -780,8 +840,10 @@ export default function WorkspaceLayout({ children }) {
           <TerminalWorkspace
             platform={platform}
             agentVersion={agentVersion}
-            sessions={sessions}
-            workspaces={workspaces}
+            sessions={allSessions}
+            workspaces={allWorkspaces}
+            onCreateAnyHost={createSessionOnHost}
+            onQuickCreateHostAware={createTerminalFromPrefs}
             activeSessionId={activeSessionId}
             activeSession={activeSession}
             activeWorkspaceId={activeWorkspaceId}
@@ -816,6 +878,8 @@ export default function WorkspaceLayout({ children }) {
             onAddWorkspace={openFolderPicker}
             onSetHiddenRepos={setWorkspaceHiddenRepos}
             onOpenSettings={openSlideMenu}
+            onRenameHost={handleRenameHost}
+            onDeleteHost={handleDeleteHost}
             homeDir={systemInfo?.homedir}
             recentWorkspaces={recentWorkspaces}
             onOpenArtifact={openArtifact}

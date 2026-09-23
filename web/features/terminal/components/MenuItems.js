@@ -1,11 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, QrCode, Bot, HardDrive } from "@/shared/components/ui/Icon";
-import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
+import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
-import { useFleetStore } from "@/shared/stores/fleetStore";
 import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
 import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonIcons";
 import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
@@ -288,15 +286,6 @@ export default function MenuItems({
         </div>
       ) */}
 
-      {/* Fleet hosts — multi-host overview overlay (the only entry on desktop) */}
-      <button
-        onClick={() => { vibrate(); closeMenu(); useFleetStore.getState().openOverlay(); }}
-        className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-      >
-        <HardDrive className="text-brand-500" size={16} />
-        <span className="text-sm flex-1">{t("hosts.title")}</span>
-      </button>
-
       {/* Terminal settings — collapsible dropdown (font + theme + GPU render) */}
       {/* Header buttons — the same list the desktop settings screen offers, so a
           button hidden on one is hidden on the other. */}
@@ -562,17 +551,6 @@ export default function MenuItems({
         </div>
       )}
       */}
-
-      {/* Back to Host / Pair Device (Agent integrated only) */}
-      {(isLoopbackOrigin() || (typeof window !== "undefined" && window.__TAURI__)) && (
-        <button
-          onClick={() => { vibrate(); window.location.href = "/"; }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <QrCode className="text-brand-500" size={16} />
-          <span className="text-sm">Pair Device</span>
-        </button>
-      )}
 
       {/* Logout */}
       {onLogout && (
