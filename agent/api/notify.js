@@ -7,7 +7,7 @@ import { getIO } from "../transport/server.js";
 import { broadcast } from "../transport/broadcast.js";
 import { sendPushNotification } from "../features/terminal/pushManager.js";
 import { applyEvent, STATES, TYPE_TO_STATE, setConversationId, getConversation, requestAutoName, scheduleDoneCommit } from "../features/terminal/statusManager.js";
-import { sessionIdFromHookPayload, hookSessionIdKeys } from "../features/terminal/agentCatalog.js";
+import { sessionIdFromHookPayload, SESSION_ID_RE } from "../features/terminal/agentCatalog.js";
 import { addNotification } from "../features/terminal/notificationManager.js";
 import { onWorkerDone } from "../features/jarvis/jarvisWake.js";
 
@@ -17,9 +17,9 @@ const PUSH_RATE_LIMIT_MS = 10000;
 // spelling, so a new CLI's hook needs no change here. `csid` is the flat form
 // the shell hooks send; a plugin may post the CLI's own field name instead.
 function conversationIdFrom(tool, params) {
-  const fromOwnField = sessionIdFromHookPayload(tool, params);
-  if (fromOwnField) return fromOwnField;
-  return hookSessionIdKeys(tool).length ? sessionIdFromHookPayload(tool, { [hookSessionIdKeys(tool)[0]]: params.csid }) : null;
+  if (params?.csid && SESSION_ID_RE.test(params.csid)) return params.csid;
+  const { sessionId: _terminalSessionId, ...ownFields } = params || {};
+  return sessionIdFromHookPayload(tool, ownFields);
 }
 
 function parseNotifyParams(body, query) {

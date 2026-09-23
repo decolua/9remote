@@ -28,7 +28,7 @@ export const AGENT_CLIS = [
   { id: "cline", label: "Cline", cmd: "cline", yolo: "--auto-approve true" },
   { id: "rovo", label: "Rovo Dev", short: "Rovo", cmd: "rovo", yolo: "--yolo", resume: (id) => `acli rovodev run --restore ${id}` },
   { id: "hermes", label: "Hermes", cmd: "hermes", yolo: "--yolo", resume: (id) => `hermes --resume ${id}` },
-  { id: "devin", label: "Devin", cmd: "devin", yolo: "--permission-mode bypass", sessionIdKeys: ["session_id", "sessionId"], resume: (id) => `devin --resume ${id}` },
+  { id: "devin", label: "Devin", cmd: "devin", yolo: "--permission-mode bypass", sessionIdKeys: ["session_id"], resume: (id) => `devin --resume ${id}` },
   { id: "auggie", label: "Auggie", cmd: "auggie" },
   { id: "continue", label: "Continue", cmd: "cn", yolo: "--allow \"*\"" },
   { id: "antigravity", label: "Antigravity", cmd: "agy", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["conversationId"], resume: (id) => `agy --conversation ${id}` },

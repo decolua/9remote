@@ -74,7 +74,7 @@ function persistConversation(sessionId) {
 }
 
 export function setConversationId(sessionId, agent, id, source = "hook") {
-  if (!sessionId || !agent || !id) return;
+  if (!sessionId || !agent || !id || id === sessionId) return;
   const rank = CONVERSATION_SOURCE_RANK[source] || 0;
   if (!rank) return;
   const prev = conversations.get(sessionId);
@@ -270,7 +270,7 @@ export function restoreConversation(sessionId, metadata) {
 function replayConversation(sessionId, agent, metadata) {
   setSessionAgent(sessionId, agent);
   const id = metadata.conversationId;
-  if (!id || !SESSION_ID_RE.test(id)) return;
+  if (!id || id === sessionId || !SESSION_ID_RE.test(id)) return;
   // An older agent persisted no source. Restoring it as a hook would launder a
   // guess into proof and then lock out the live hook that could correct it, so
   // an unlabelled id comes back at the weakest confidence.

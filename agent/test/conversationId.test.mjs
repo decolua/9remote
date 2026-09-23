@@ -97,6 +97,12 @@ test("an incomplete record is ignored rather than stored half-formed", () => {
   assert.equal(getConversation("s6"), null);
 });
 
+test("a conversation id matching the terminal's own id is rejected", () => {
+  clearConversation("session-123");
+  setConversationId("session-123", "devin", "session-123", "hook");
+  assert.equal(getConversation("session-123"), null);
+});
+
 test("statuses carry the conversation so an idle terminal still reports one", () => {
   clearConversation("s7");
   setConversationId("s7", "opencode", "ses_9", "hook");
