@@ -434,8 +434,18 @@ await test("an answer that arrives before its request is held, not discarded", a
   assert.equal(adapter.activeThreadId, "t-1");
 });
 
-console.log(`\n${pass} passed, ${fail} failed`);
-process.exit(fail === 0 ? 0 : 1);
+await test("a request_user_input refusal becomes the Plan-mode blocked card", async () => {
+  const events = [];
+  const { adapter } = await startedAdapter({ onEvent: (e, d) => events.push([e, d]) });
+  adapter.handleEvent({
+    type: "item.completed",
+    item: { type: "agent_message", id: "msg_1", text: "Hệ thống vẫn báo lỗi: `request_user_input is unavailable in Default mode`." }
+  });
+  const [blocked] = events.filter(([e]) => e === "blocked");
+  assert.ok(blocked, "the refusal must surface as a blocked card");
+  assert.equal(blocked[1].escalate.mode, "plan");
+  assert.equal(blocked[1].escalate.label, "Plan");
+});
 
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

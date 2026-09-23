@@ -389,6 +389,17 @@ await test("a user-input gate is answered on the raw id too", async () => {
   assert.strictEqual(answer.id, 12);
 });
 
+await test("skipping a user-input gate answers with the empty question shape, not a decision", async () => {
+  const { proc, server } = await started();
+  proc.emit({
+    jsonrpc: "2.0", id: 17, method: "item/tool/requestUserInput",
+    params: { threadId: "t-1", questions: [{ id: "q1", question: "Which?", options: [{ label: "A" }] }] }
+  });
+  assert.equal(server.resolvePermission("17", "deny"), true);
+  const answer = JSON.parse(proc.written[proc.written.length - 1]);
+  assert.deepStrictEqual(answer.result, { answers: {} }, "skip is the empty answer sheet");
+});
+
 await test("the server's own resolved record does not eat the gate we are still holding", async () => {
   // `serverRequest/resolved` fires for our own answer too, before the write flushes — clearing the map there broke the retry check.
   const { proc, server, of } = await started();

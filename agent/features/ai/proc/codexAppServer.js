@@ -540,6 +540,13 @@ export class CodexAppServer {
     if (!requestId) return false;
     const gate = this.gates.get(String(requestId));
     if (!this.gates.delete(String(requestId))) return false;
+    // A question gate has no allow/deny of its own: a skip is the answer sheet returned
+    // empty — the same wire resolveQuestion speaks. `decision` is the approval shape
+    // and the server refuses it here.
+    if (gate?.toolName === "request_user_input") {
+      this.rpc.respond(gate?.rawId ?? requestId, { answers: {} });
+      return true;
+    }
     const answer = gate?.input?.kind === "permission_grant"
       ? (behavior === "allow"
         ? { permissions: gate.input.permissions || {}, scope: "turn" }

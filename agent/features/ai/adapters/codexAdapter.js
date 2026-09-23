@@ -460,6 +460,16 @@ export class CodexAdapter {
               });
             }
           }
+          // Codex gates request_user_input on the PLAN collaboration mode — Full Access
+          // is a sandbox axis and never unlocks it. The harness refuses the call with no
+          // tool item, so the model's prose quoting the error is the only visible trace.
+          if (item.text && /request_user_input is unavailable/i.test(item.text)) {
+            this.onEvent?.("blocked", {
+              engine: "codex",
+              message: "The ask-user tool only exists in Codex Plan mode. Full Access governs the sandbox — switch to Plan to let the agent ask questions.",
+              escalate: { mode: "plan", label: MODE_LABELS.plan }
+            });
+          }
         } else if (item?.type === "web_search") {
           this.onEvent?.("tool_result", { id: item.id, name: "web_search", output: item.query || "", status: "done" });
         }
