@@ -58,23 +58,42 @@ function fitName(title) {
   return text.length > SESSION_NAME_MAX ? `${text.slice(0, SESSION_NAME_MAX - 1)}\u2026` : text;
 }
 
+// Live terminals shaped for matchLiveSessions: conversation/prompt signals plus
+// start time and cwd for the correlation fallbacks.
+function liveHistoryRows(sessions) {
+  return getLiveConversations().map((l) => {
+    const session = sessions.get(l.sessionId);
+    return { ...l, startedAt: session?.createdAt || null, cwd: session?.cwd || session?.workspacePath || null };
+  });
+}
+
 async function nameOneSession(io, sessions, sessionId) {
   const session = sessions.get(sessionId);
   if (!session || !isAutoNamed(session)) return false;
   const conv = getConversation(sessionId);
+  const agent = conv?.agent || getSessionAgent(sessionId);
   const cwd = session.cwd || session.workspacePath;
-  if (!conv || !cwd) return false;
+  if (!agent || !cwd) return false;
   // Rescan sessions cache only if conversation is missing.
-  await listAgentSessions({ cwd });
+  const rows = await listAgentSessions({ cwd });
   // The engine, not the surface: a chat UI session records "claude-ui", which is no
   // store's id — the transcript source is keyed by engine.
-  const engine = engineFromAgent(conv.agent) || conv.agent;
+  const engine = engineFromAgent(agent) || agent;
   // Prefer CLI-reported thread name over initial prompt from transcript.
   const named = globalAiManager.getSession(sessionId)?.threadTitle;
-  let title = named || conversationTitle(engine, conv.id, cwd);
-  if (!title) {
+  // With a recorded id the title is exact; without one (hook reports no id) the
+  // history list's prompt/cwd heuristic is the only signal — same single-candidate
+  // rule the modal itself tags rows with.
+  const matched = conv
+    ? conversationTitle(engine, conv.id, cwd)
+    : matchLiveSessions(rows, liveHistoryRows(sessions)).find((r) => r.openSessionId === sessionId)?.title || "";
+  let title = named || matched;
+  if (!title && conv) {
     await listAgentSessions({ cwd, fresh: true });
     title = conversationTitle(engine, conv.id, cwd);
+  }
+  if (!title) {
+    title = matchLiveSessions(rows, liveHistoryRows(sessions)).find((r) => r.openSessionId === sessionId)?.title || "";
   }
   const name = fitName(title);
   if (!name || name === session.name) return false;
@@ -358,13 +377,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
 
   // List past agent CLI conversations for a directory to resume in place.
   socket.on("getAgentSessions", async ({ cwd, limit } = {}, callback) => {
-    // Pass terminal start time and cwd so matcher can correlate transcript timestamps.
-    const live = getLiveConversations().map((l) => {
-      const session = sessions.get(l.sessionId);
-      return { ...l, startedAt: session?.createdAt || null, cwd: session?.cwd || session?.workspacePath || null };
-    });
     const rows = await listAgentSessions({ cwd, limit });
-    callback?.({ success: true, sessions: matchLiveSessions(rows, live) });
+    callback?.({ success: true, sessions: matchLiveSessions(rows, liveHistoryRows(sessions)) });
     syncAutoNames(io, sessions);
   });
 
