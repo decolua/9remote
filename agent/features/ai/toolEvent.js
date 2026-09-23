@@ -79,7 +79,8 @@ const taskField = (text, name) => {
 
 // The harness's own task_notification shape — the pane folds task records with ONE reader (web/features/ai/lib/harnessTasks.js).
 export function taskNotificationFrom(record) {
-  const content = record?.message?.content;
+  // Two wrappers: a delivered notification rides a user record (.message.content), a queued one carries the text itself (.content).
+  const content = record?.type === "queue-operation" ? record?.content : record?.message?.content;
   const text = typeof content === "string"
     ? content
     : (content || []).map((c) => (typeof c === "string" ? c : c?.text || "")).join(" ");

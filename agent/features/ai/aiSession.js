@@ -763,10 +763,15 @@ export class AiSession {
     this.onEvent?.(this.id, wire.event, data, record ? seq : undefined);
     if (record) this.scheduleSaveSnapshot();
 
-    // The CLI's own task-end record is what disarms an async clock (keyed by tool_use_id).
+    // The CLI's own task-end record settles the async row and disarms its clock (keyed by tool_use_id).
     if (event === "cli_event" && data?.subtype === "task_notification") {
       const toolUseId = data.record?.tool_use_id;
-      if (toolUseId) this.clearAsyncWatchdog(toolUseId);
+      if (toolUseId) {
+        this.clearAsyncWatchdog(toolUseId);
+        // Clearing alone left the row spinning forever when no task record named it — the settle is the row's end.
+        // ponytail: no parentToolUseId — a nested async row misses this settle and waits for the watchdog's parent-aware one; carry the parent when that 120s lag matters.
+        this.emitNormalized("tool_result", { id: toolUseId, status: "done", async: true });
+      }
     }
     if (event === "tool_result") {
       if (data?.async && data?.handle) this.armAsyncWatchdog(data.id, data.parentToolUseId);
@@ -1144,6 +1149,8 @@ export class AiSession {
       else if (this.engine === AI_ENGINES.ANTIGRAVITY) this.cliSessionId = resume;
       // Devin resumes via session/load on a fresh process; same id store.
       else if (this.engine === AI_ENGINES.DEVIN) this.cliSessionId = resume;
+      // Hermes resumes via session/load on a recycled process; same id store.
+      else if (this.engine === AI_ENGINES.HERMES) this.cliSessionId = resume;
       // Replace the log with the resumed conversation's tail; the old transcript's byte offset goes with it.
       this.attachmentOffset = null;
       this._adoptLog(this._rebuildFromStore(resume) || []);

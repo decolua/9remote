@@ -225,6 +225,11 @@ assert.equal(done[0].data.record.tool_use_id, TOOL_USE);
 assert.equal(done[0].data.record.status, "completed");
 assert.equal(done[0].data.type, "system", "the harness's own type, not a name of our own");
 
+const taskSettle = taskLog.filter((e) => e.event === "tool_result" && e.data.id === TOOL_USE);
+assert.equal(taskSettle.length, 1, "a delivered notification settles its tool row");
+assert.equal(taskSettle[0].data.status, "done");
+assert.equal(taskSettle[0].data.async, true);
+
 const ASYNC_ID = "77777777-6666-5555-4444-333333333333";
 const ASYNC_TOOL = "toolu_monitor_1";
 fs.writeFileSync(path.join(dir, `${ASYNC_ID}.jsonl`), [
@@ -270,6 +275,31 @@ const quoted = recover(elsewhere, QUOTE_ID);
 const [quoteResult] = quoted.filter((e) => e.event === "tool_result").map((e) => e.data);
 assert.equal(quoteResult.status, "done", "quoting the phrase is not a refusal");
 assert.equal(quoted.filter((e) => e.event === "diff").length, 1, "and its diff is drawn");
+
+// A notification queued mid-turn (CLI busy) rides a queue-operation record and is removed at the turn's end —
+// never re-delivered as a user record. Without reading it here, the row replays as running forever.
+const QOP_ID = "aaaaaaaa-9999-4bbb-cccc-dddddddddddd";
+const QOP_TOOL = "call_qop_monitor_1";
+const qopNotification = (op) => JSON.stringify({
+  type: "queue-operation", operation: op,
+  content: `<task-notification>\n<task-id>bq1</task-id>\n<tool-use-id>${QOP_TOOL}</tool-use-id>\n<status>completed</status>\n</task-notification>`
+});
+fs.writeFileSync(path.join(dir, `${QOP_ID}.jsonl`), [
+  JSON.stringify({ type: "user", message: { content: [{ type: "text", text: "watch it" }] } }),
+  JSON.stringify({ type: "assistant", message: { content: [{ type: "tool_use", id: QOP_TOOL, name: "Monitor", input: { command: "until …" } }] } }),
+  JSON.stringify({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: QOP_TOOL, content: [{ type: "text", text: "Monitor started (task bq1, timeout 600000ms)." }] }] } }),
+  qopNotification("enqueue"),
+  JSON.stringify({ type: "queue-operation", operation: "enqueue", content: "a typed prompt, not a notification" }),
+  qopNotification("remove")
+].join("\n"));
+
+const qopLog = recover(elsewhere, QOP_ID);
+const qopResults = qopLog.filter((e) => e.event === "tool_result" && e.data.id === QOP_TOOL).map((e) => e.data);
+assert.equal(qopResults.length, 3, `ack + one settle per notification copy, got ${JSON.stringify(qopResults)}`);
+assert.equal(qopResults.at(-1).status, "done", "the row ends when the queued notification says so");
+assert.equal(qopResults.at(-1).async, true);
+assert.equal(qopLog.filter((e) => e.event === "cli_event" && e.data?.subtype === "task_notification").length, 2,
+  "a queued typed prompt is not a notification");
 
 fs.rmSync(home, { recursive: true, force: true });
 console.log("recoverTranscript: ok");

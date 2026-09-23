@@ -102,6 +102,24 @@ test("a task record is not written down either — the ring still has it, and th
   );
 });
 
+test("a task notification settles the async row it names — clearing the clock alone left it spinning", () => {
+  const s = makeSession();
+  const results = [];
+  s.onEvent = (id, event, data) => { if (event === "tool_result") results.push(data); };
+  s.emitNormalized("tool_start", { id: "c1", name: "Monitor", input: {} });
+  s.emitNormalized("tool_result", { id: "c1", name: "Monitor", output: "Monitor started (task b1…)", status: "running", async: true, handle: "b1" });
+  s.emitNormalized("cli_event", {
+    type: "system", subtype: "task_notification",
+    record: { type: "system", subtype: "task_notification", task_id: "b1", tool_use_id: "c1", status: "completed" }
+  });
+  s.clearAllAsyncWatchdogs();
+  const last = results.at(-1);
+  assert.equal(last?.id, "c1", "the settle addresses the row the notification named");
+  assert.equal(last?.status, "done");
+  assert.equal(last?.async, true);
+  assert.equal(s.asyncTimers.size, 0, "and the idle clock is disarmed");
+});
+
 test("the CLI's chatter never reaches the disk", () => {
   const s = makeSession();
   for (const [event, data] of LOG_EVENTS) s.emitNormalized(event, data);

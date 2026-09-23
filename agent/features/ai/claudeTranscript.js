@@ -130,6 +130,16 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1, lea
     let seq = startSeq;
     let cut = false;   // set when the walk passes a turn the branch no longer holds
 
+    // A notification ends the tool row it names — on this door the settle is the row's only end (no watchdog in a replay).
+    const pushTaskNotification = (task) => {
+      events.push({ seq: seq++, ...task });
+      const toolUseId = task.data.record.tool_use_id;
+      if (toolUseId) {
+        // Same shape armAsyncWatchdog settles with, so both doors close the row the same way.
+        events.push({ seq: seq++, event: "tool_result", data: { id: toolUseId, status: "done", async: true } });
+      }
+    };
+
     for (const line of lines) {
       if (!line.trim()) continue;
       try {
@@ -140,7 +150,7 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1, lea
         // Read before the injection guard drops it: the only end signal for a task, or a replay shows it running forever.
         if (d.type === "user" && d.message) {
           const task = taskNotificationFrom(d);
-          if (task) events.push({ seq: seq++, ...task });
+          if (task) pushTaskNotification(task);
         }
         // Sidechain/injected records are not typed turns — drawing them miscounts the rewind indices and ends the log mid-turn.
         if (d.type === "user" && d.message && !d.isSidechain && !isClaudeInjectedTurn(d)) {
@@ -190,6 +200,10 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1, lea
             event: "cli_event",
             data: { type: "attachment", subtype: d.attachment?.type || "", record: stripAttachmentBody(d) }
           });
+        } else if (d.type === "queue-operation") {
+          // A notification queued mid-turn is removed at the turn's end, never re-delivered as a user record — this is its only door.
+          const task = taskNotificationFrom(d);
+          if (task) pushTaskNotification(task);
         } else if (d.type === "system") {
           // Carried whole under its own name — the pane (noticeFrom) decides what to show.
           events.push({
