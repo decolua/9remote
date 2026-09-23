@@ -255,10 +255,12 @@ test("a tool returning an object crosses the wire as JSON, not [object Object]",
   }
 });
 
+/* Hidden from the manifest until the jarvis release — restore with mcp/tools/index.js TOOLS.
 test("report_task is a BASE tool — every session sees it", async () => {
   const res = await rpc("tools/list", {}, { sessionId: "worker-1" });
   assert.ok(res.result.tools.some((t) => t.name === "report_task"));
 });
+*/
 
 test("report_task reports for the CALLER's session, taken from ctx — never from args", async () => {
   const actions = [];
