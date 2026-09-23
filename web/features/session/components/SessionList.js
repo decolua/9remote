@@ -26,6 +26,7 @@ import HostTreeRow from "@/features/hosts/components/HostTreeRow";
 import HostTree from "@/features/hosts/components/HostTree";
 import AddHostModal from "@/features/hosts/components/AddHostModal";
 import { otherHostsOf } from "@/features/hosts/lib/fleetTree";
+import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
@@ -102,7 +103,9 @@ export default function SessionList({
   const [confirm, setConfirm] = useState(null);             // { kind, id, name }
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
   const [addHostOpen, setAddHostOpen] = useState(false);
-  const [hostCollapsed, setHostCollapsed] = useState(false);
+  // Collapse state persisted per host — the main tree's root and each workspace.
+  const { isCollapsed, toggle: toggleNode } = useTreeCollapse(currentHost?.key || "");
+  const hostCollapsed = isCollapsed(TREE_ROOT);
   // Other saved keys: tree roots under this host's tree (same as the desktop
   // sidebar); tapping a session opens a parallel tab.
   const otherHosts = otherHostsOf(fleetHosts, currentHost?.key);
@@ -256,7 +259,7 @@ export default function SessionList({
             label={currentHost.label || ""}
             connected={connected}
             collapsed={hostCollapsed}
-            onToggleCollapse={() => setHostCollapsed((v) => !v)}
+            onToggleCollapse={() => toggleNode(TREE_ROOT)}
             showAdd={false}
             onRename={onRenameHost}
             onDelete={onDeleteHost}
@@ -291,6 +294,8 @@ export default function SessionList({
                   key={section.id ?? UNGROUPED_KEY}
                   section={section}
                   items={items}
+                  collapsed={isCollapsed(section.id ?? "ungrouped")}
+                  onToggleCollapse={() => toggleNode(section.id ?? "ungrouped")}
                   connected={connected}
                   cwdBySession={cwdBySession}
                   fileBus={activeFileBus}
@@ -405,7 +410,7 @@ export default function SessionList({
 // Hold a card ~500ms to pick it up and drop it on another card to reorder — order
 // persists to localStorage; a swipe before the deadline scrolls the list as usual.
 function WorkspaceSection({
-  section, items, connected, cwdBySession = {}, fileBus, homeDir, sessionStatus,
+  section, items, collapsed = false, onToggleCollapse = null, connected, cwdBySession = {}, fileBus, homeDir, sessionStatus,
   onSelect, onNewTerminal, onRenameSession, onBackgroundSession, onDeleteSession, onWorkspaceMenu, onReorderSession
 }) {
   // Same drag the desktop sidebar runs, minus the grip: a finger holds ~250ms on the
@@ -429,7 +434,6 @@ function WorkspaceSection({
   const gitPath = workspaceGitPath(section);
   // Same badge the desktop header draws — one way to name a branch everywhere.
   const { branch, dirty } = useWorkspaceGit(gitPath, fileBus);
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <section>
@@ -437,7 +441,7 @@ function WorkspaceSection({
           The whole row toggles — a chevron alone is a small target on a phone. */}
       <div className={`flex items-center gap-1 py-1.5 ${connected ? "cursor-pointer" : ""}`}>
         <button
-          onClick={() => { vibrate(); setCollapsed((v) => !v); }}
+          onClick={() => { vibrate(); onToggleCollapse?.(); }}
           className="flex-1 min-w-0 flex items-center gap-1.5 text-left"
         >
           <span className="p-1 text-text-subtle flex-shrink-0">

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { EyeOff, GripVertical, Loader2, MoreHorizontal, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -50,8 +51,8 @@ export default function HostTree({
   rowCls = "hover:bg-text/5 hover:text-text"
 }) {
   const { t } = useI18n();
-  const [open, setOpen] = useState(true);
-  const [collapsed, setCollapsed] = useState({});
+  const { isCollapsed, toggle: toggleNode } = useTreeCollapse(host.key);
+  const open = !isCollapsed(TREE_ROOT);
   const [termModalWs, setTermModalWs] = useState(null);   // workspace id the modal creates in
   const [wsRename, setWsRename] = useState(null);         // {id, value}
   const [wsDelete, setWsDelete] = useState(null);         // {id, name}
@@ -100,10 +101,8 @@ export default function HostTree({
         meta={connecting ? <Loader2 size={12} className="animate-spin text-text-subtle" /> : null}
         onToggleCollapse={expandable ? () => {
           vibrate();
-          setOpen((v) => {
-            if (!v) useFleetStore.getState().ensureHost(host.key); // expanding opens the bus
-            return !v;
-          });
+          if (!open) useFleetStore.getState().ensureHost(host.key); // expanding opens the bus
+          toggleNode(TREE_ROOT);
         } : null}
         onRetry={status === "offline" ? () => useFleetStore.getState().retryHost(host.key) : null}
         onDisconnect={host.onDisconnect}
@@ -131,14 +130,14 @@ export default function HostTree({
                   isActive={isActiveWs}
                   connected={connected && online}
                   fileBus={fileBus}
-                  collapsed={!!collapsed[wsKey]}
-                  onToggleCollapse={() => setCollapsed((c) => ({ ...c, [wsKey]: !c[wsKey] }))}
+                  collapsed={isCollapsed(wsKey)}
+                  onToggleCollapse={() => toggleNode(wsKey)}
                   onSelect={actions.selectWorkspace ? () => { vibrate(); actions.selectWorkspace(rawId); } : null}
                   onNewTerminal={actions.createSession ? () => setTermModalWs(wsKey) : null}
                   onRename={actions.renameWorkspace && rawId != null ? () => setWsRename({ id: rawId, value: workspace.name }) : null}
                   onDelete={actions.deleteWorkspace && rawId != null ? () => setWsDelete({ id: rawId, name: workspace.name }) : null}
                 />
-                {!collapsed[wsKey] && sessions.map((s) => {
+                {!isCollapsed(wsKey) && sessions.map((s) => {
                   const st = host.statusMap?.[s.id]?.state || "idle";
                   const v = statusVisual(st);
                   const isActive = activeSessionId === s.id;
