@@ -24,27 +24,9 @@ import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
 import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
 import { headOf, tailOf, isLegacyApiKey } from "@/shared/utils/apiKey";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
+import { parsePairingInput } from "@/features/hosts/lib/parsePairingInput";
 import { AGENT_PORT } from "@/shared/constants/API";
 
-// Parse one-time pairing input: 6-char tempKey routing prefix + optional 2-char TAIL.
-function parsePairingInput(raw) {
-  const str = String(raw || "").trim();
-  const split = (code) => ({
-    tempKey: code.slice(0, 6).toUpperCase(),
-    tail: code.slice(6, 8).toUpperCase()
-  });
-
-  const hashMatch = /#([A-NP-Z1-9]{6}-?[a-np-z1-9]{2})$/i.exec(str);
-  if (hashMatch) return split(hashMatch[1].replace(/-/g, ""));
-
-  const codeMatch = /^([A-NP-Z1-9]{6}-?[a-np-z1-9]{2})$/i.exec(str);
-  if (codeMatch) return split(codeMatch[1].replace(/-/g, ""));
-
-  const kMatch = /[?&]k=([A-NP-Z1-9]{6})(?:[^A-NP-Z1-9]|$)/i.exec(str);
-  if (kMatch) return { tempKey: kMatch[1].toUpperCase() };
-  if (/^[A-NP-Z1-9]{6}$/i.test(str)) return { tempKey: str.toUpperCase() };
-  return null;
-}
 
 function LoginContent() {
   const { t } = useI18n();

@@ -18,6 +18,10 @@ const FOCUS_KEY = "9remote_fleet_focus";
 // Safari's per-origin WebSocket ceiling is the tightest budget the page lives under.
 export const MAX_FLEET_HOSTS = 8;
 const PERSIST_DEBOUNCE_MS = 1000;
+// A bus that never opens (dead tunnel, pending device approval) fires neither
+// onConnect nor onDisconnect — without a deadline the row would read "connecting"
+// forever. Past it the host shows offline from its cache.
+const CONNECT_TIMEOUT_MS = 15000;
 
 // apiKey HEAD -> ProtocolManager (module-level: transport objects, not render state)
 const buses = new Map();
@@ -26,6 +30,29 @@ let persistTimer = null;
 function readDeviceId() {
   if (typeof window === "undefined") return null;
   try { return localStorage.getItem(DEVICE_ID_KEY); } catch { return null; }
+}
+
+// Which host's bus a session belongs to — null for the main host (its bus lives in
+// useConnectionStore) or an unknown id. Panes resolve their bus through this. The
+// registry holds ProtocolManagers; the pane needs the PM's client-bus facade.
+export function busForSession(sessionId) {
+  if (!sessionId) return null;
+  const st = useFleetStore.getState();
+  for (const h of Object.values(st.hosts)) {
+    if (h.sessions?.some((s) => s.id === sessionId)) {
+      // ponytail: a cached session tapped before its lazy bus opens joins on the
+      // wrong bus for that one press; upgrade = have the pane await the bus.
+      st.ensureHost(h.key);
+      return buses.get(h.key)?.busRef?.current || null;
+    }
+  }
+  return null;
+}
+
+// A host's client-bus facade, for callers that hold the HEAD (trees, actions).
+export function fleetBusOf(head) {
+  if (!head) return null;
+  return buses.get(head)?.busRef?.current || null;
 }
 
 function readCache() {
@@ -67,6 +94,9 @@ const emptyHost = (key) => ({
 
 export const useFleetStore = create((set, get) => ({
   hosts: {},
+  // The head the live workspace connection serves — ensureHost never opens a
+  // second bus to it.
+  currentKey: null,
   // Which host the mobile home is "inside" (its SessionList); null = fleet overview.
   focus: readFocus(),
   // Fleet overlay (slide-menu "Hosts" entry) — the desktop's only door in.
@@ -106,9 +136,28 @@ export const useFleetStore = create((set, get) => ({
             : "offline"
         };
       }
-      return { hosts };
+      return { hosts, currentKey: current };
     });
-    for (const head of wantedHeads) get()._openHost(head);
+    // One batched liveness read replaces opening a bus to every saved key on
+    // load. A bus opens lazily when a host is expanded (ensureHost) or retried.
+    if (wantedHeads.length) {
+      fetch("/api/host-status", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ heads: wantedHeads })
+      })
+        .then((r) => (r.ok ? r.json() : null))
+        .then((data) => {
+          for (const head of wantedHeads) {
+            const info = data?.hosts?.[head];
+            if (!info) continue;
+            const st = get().hosts[head];
+            if (!st || st.status === "connecting" || st.status === "full") continue; // live bus wins
+            get()._patchHost(head, { status: info.online ? "online" : "offline" });
+          }
+        })
+        .catch(() => {}); // Status stays "offline" — the retry button is the fallback
+    }
   },
 
   _openHost(head) {
@@ -122,11 +171,14 @@ export const useFleetStore = create((set, get) => ({
 
     const patch = (p) => get()._patchHost(head, p);
     let bound = false;
+    let connectTimer = null;
 
     // Metadata only: lists + status. The bus outlives carrier switches, so the
     // listeners bind once; later connects just refetch.
     const refetch = (bus) => {
-      bus?.emit("getSessions", (list) => { if (Array.isArray(list)) patch({ sessions: list }); });
+      bus?.emit("getSessions", (list) => {
+        if (Array.isArray(list)) patch({ sessions: list });
+      });
       bus?.emit("getWorkspaces", (list) => { if (Array.isArray(list)) patch({ workspaces: list }); });
       bus?.emit("getStatusState");
     };
@@ -141,6 +193,7 @@ export const useFleetStore = create((set, get) => ({
         deviceId,
         tempKey: null,
         onConnect: (bus) => {
+          clearTimeout(connectTimer);
           patch({ status: "online", lastSeenAt: Date.now() });
           if (bound) { refetch(bus); return; }
           bound = true;
@@ -175,6 +228,9 @@ export const useFleetStore = create((set, get) => ({
     );
     buses.set(head, pm);
     patch({ status: "connecting" });
+    connectTimer = setTimeout(() => {
+      if (get().hosts[head]?.status === "connecting") get()._patchHost(head, { status: "offline" });
+    }, CONNECT_TIMEOUT_MS);
     pm.connect();
   },
 
@@ -196,6 +252,27 @@ export const useFleetStore = create((set, get) => ({
   setFocus(key) {
     try { localStorage.setItem(FOCUS_KEY, key); } catch {}
     set({ focus: key });
+  },
+
+  // Lazy open: expanding a host's tree is what opens its bus — saved keys no
+  // longer all connect on load (sync reads liveness in one batched request).
+  ensureHost(key) {
+    if (key === get().currentKey || buses.has(key)) return;
+    get()._openHost(key);
+  },
+
+  // Manual reconnect for an offline root: drop its (dead) bus and open a fresh
+  // one. No lastSeen bump — the machine has not actually been seen.
+  retryHost(key) {
+    const pm = buses.get(key);
+    if (pm) { pm.disconnect(); buses.delete(key); }
+    get()._openHost(key);
+  },
+
+  // The row's "Disconnect": drop the background bus (the host stays saved and
+  // shows offline). Seeing it just now makes the lastSeen bump correct here.
+  disconnectHost(key) {
+    get()._closeHost(key);
   },
 
   clearFocus() {
