@@ -41,7 +41,7 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
       refs.setJoining(true);
       refs.joinQueueRef.current = [];
       const myGen = ++refs.joinGenRef.current;
-      termLog("join", `emit gen=${myGen} cols=${cols} rows=${rows}`);
+      termLog("join", `emit gen=${myGen} sid=${String(sessionId).slice(-8)} cols=${cols} rows=${rows}`);
 
       // ponytail: 8s safety ceiling; upgrade path is bus-level ack retry + carrier fallback
       if (joinTimer) clearTimeout(joinTimer);
@@ -66,7 +66,7 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
         if (joinTimer) { clearTimeout(joinTimer); joinTimer = null; }
         if (myGen !== refs.joinGenRef.current) { termLog("join", `stale ack gen=${myGen} (current=${refs.joinGenRef.current})`); return; }
         const res = result || {};
-        termLog("join", `ack gen=${myGen} success=${!!res.success} total=${res.total} replaySize=${res.replaySize}`);
+        termLog("join", `ack gen=${myGen} sid=${String(sessionId).slice(-8)} success=${!!res.success} total=${res.total} replaySize=${res.replaySize}`);
         if (res.success) {
           // Flush queued live output (deferred one tick so any in-flight replay packet lands first).
           setTimeout(() => {
