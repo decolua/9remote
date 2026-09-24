@@ -66,12 +66,13 @@ export function relTime(ts, t) {
   return new Date(ts).toLocaleDateString();
 }
 
-// The sibling roots a sidebar renders below the current host's tree: other saved
-// keys in the order they were added (the store's insertion order — sync() builds
-// it from the saved-key list). No current host yet (fleet not settled) renders
-// nothing — every key would look like "another" host.
-export function otherHostsOf(hosts, currentKey) {
-  return hosts.filter((h) => currentKey && h.key !== currentKey);
+// Every host root in ADD order (the store's insertion order — sync() builds it
+// from the saved-key list). Equal siblings: the current host's tree renders at
+// its own spot, no login-based sorting. Before the fleet settles, a synthetic
+// "main" entry keeps the current tree visible next to whatever is known.
+export function orderedHostsOf(hosts, currentKey) {
+  const mainKey = currentKey || "main";
+  return hosts.some((h) => h.key === mainKey) ? hosts : [{ key: "main" }, ...hosts];
 }
 
 // Other hosts' sessions/workspaces re-keyed under "head:" so they flow through the

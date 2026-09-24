@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { hostTree, hostSummary, relTime, otherHostsOf, scopedFleetLists, scopedWsId, rawWsIdOf, activeWsForHost, scopeOf } from "../features/hosts/lib/fleetTree.js";
+import { hostTree, hostSummary, relTime, orderedHostsOf, scopedFleetLists, scopedWsId, rawWsIdOf, activeWsForHost, scopeOf } from "../features/hosts/lib/fleetTree.js";
 
 const ws = [
   { id: "w1", name: "9remote", path: "/w/9remote" },
@@ -39,12 +39,14 @@ assert.match(relTime(Date.now() - 30 * 86400000, t), /20\d\d/); // beyond a week
 assert.equal(relTime(null, t), "");
 assert.equal(relTime(0, t), "");
 
-// otherHostsOf: drop the current host, keep add order (store insertion order)
+// orderedHostsOf: every host in add order — the current host keeps its spot (no
+// login-based sorting), a synthetic "main" keeps the tree visible pre-settle
 const mk = (key, label, status) => ({ key, label, status });
 const all = [mk("off", "Zeta", "offline"), mk("cur", "Current", "full"), mk("b", "Bravo", "online"), mk("a", "Alpha", "online"), mk("off2", "Alpha", "offline")];
-assert.deepEqual(otherHostsOf(all, "cur").map((h) => h.key), ["off", "b", "a", "off2"]);
-assert.deepEqual(otherHostsOf(all, null), []); // fleet not settled yet → render nothing
-assert.deepEqual(otherHostsOf([], "cur"), []);
+assert.deepEqual(orderedHostsOf(all, "cur").map((h) => h.key), ["off", "cur", "b", "a", "off2"]);
+// fleet not settled yet → the main entry still renders, ahead of whatever is known
+assert.deepEqual(orderedHostsOf([mk("b", "Bravo", "online")], null).map((h) => h.key), ["main", "b"]);
+assert.deepEqual(orderedHostsOf([], "cur").map((h) => h.key), ["main"]);
 
 // workspace-id scoping round trip
 assert.equal(scopedWsId("h2", "w1"), "h2:w1");

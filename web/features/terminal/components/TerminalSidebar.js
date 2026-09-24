@@ -7,7 +7,7 @@ import {
 } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useFleetStore } from "@/shared/stores/fleetStore";
-import { connForSession } from "@/shared/transport/hostConn";
+import { connForSession, useAllSessionStatus } from "@/shared/transport/hostConn";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { vibrate } from "@/shared/utils/vibration";
@@ -30,7 +30,7 @@ import HostTreeRow from "@/features/hosts/components/HostTreeRow";
 import HostTree from "@/features/hosts/components/HostTree";
 import AddHostModal from "@/features/hosts/components/AddHostModal";
 import IconMenu from "@/shared/components/ui/IconMenu";
-import { otherHostsOf, activeWsForHost } from "@/features/hosts/lib/fleetTree";
+import { orderedHostsOf, activeWsForHost } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 
 // Inside the Tauri shell or on a page the agent itself serves (its own port), the
@@ -50,6 +50,7 @@ import { REVEAL_CLS } from "./WorkspaceHeader";
 // (rename / delete / drag-reorder within workspace).
 function TerminalSidebar({
   allSessions = [],
+  mainSessions = null,
   workspaces = [],
   activeSessionId,
   activeWorkspaceId,
@@ -66,9 +67,9 @@ function TerminalSidebar({
   onAddWorkspace,
   onRenameWorkspace = null,
   onOpenSettings,
-  onLogout = null,
   onRenameHost = null,
   onDeleteHost = null,
+  onMainDisconnect = null,
   busRef = null,
   fileBus,
   homeDir,
@@ -87,7 +88,7 @@ function TerminalSidebar({
   // Remote-SSH style: every other saved key is a tree root below the current
   // host's tree, fed by its fleet background bus; tapping a session opens a
   // parallel tab on that host's bus.
-  const otherHosts = otherHostsOf(fleetHosts, currentHost?.key);
+  const orderedHosts = orderedHostsOf(fleetHosts, currentHost?.key);
   const fullModes = useTerminalStore((s) => s.fullModes || {});
   const fullMode = useTerminalStore((s) => s.fullMode);
   const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
@@ -95,13 +96,14 @@ function TerminalSidebar({
   const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
   const toggleHidePane = useTerminalStore((s) => s.toggleHidePane);
   const unhidePane = useTerminalStore((s) => s.unhidePane);
-  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const storeSessionStatus = useAllSessionStatus();
   const sessionStatus = propStatus || storeSessionStatus;
   const hasKeyboard = useInputMode() === "mouse";
   const collapseHint = hasKeyboard ? withHint(t("common.close"), "toggleSidebar") : t("common.close");
   // Which terminals actually exist right now — the history rows are a snapshot
   // and can name one that has since closed.
   const liveSessionIds = useMemo(() => new Set(allSessions.map((s) => s.id)), [allSessions]);
+  const mainHostSessions = useMemo(() => mainSessions || allSessions.filter((s) => !s.hostKey), [mainSessions, allSessions]);
   const activeCwd = activeSessionId
     ? (cwdBySession[activeSessionId] ?? allSessions.find((s) => s.id === activeSessionId)?.cwd ?? allSessions.find((s) => s.id === activeSessionId)?.workspacePath ?? null)
     : null;
@@ -260,76 +262,71 @@ function TerminalSidebar({
         </div>
       </div>
 
-      {/* The whole main-host tree — the SAME component every other host draws
-          through; only its action set and rich-menu hooks differ. The -ml cancels
-          the container's pl so this root sits at x=0 like every other host's, with
-          its workspaces indented by treeCls. */}
+      {/* Every host root in ADD order — equal siblings, the current host's tree at
+          its own spot (same HostTree component; only its action set and rich-menu
+          hooks differ). The -ml cancels the container's pl so each root sits at
+          x=0 like every other host's, with its workspaces indented by treeCls. */}
       <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable pt-1.5 pl-3.5 relative z-10">
-        <div className="-ml-3.5">
-        <HostTree
-          host={{
-            key: currentHost?.key || "main",
-            label: currentHost?.label || "",
-            status: "full",
-            workspaces,
-            sessions: allSessions,
-            statusMap: sessionStatus,
-            onDisconnect: onLogout
-          }}
-          busRef={busRef}
-          actions={{
-            selectSession: (sid) => { if (hiddenPaneSessionIds.includes(sid)) unhidePane(sid); onSelectSession?.(sid); },
-            selectWorkspace: (wsId) => { vibrate(); onSelectWorkspace?.(wsId); },
-            createSession: onCreateNamedSession,
-            renameSession: onRenameSession,
-            deleteSession: onDeleteSession,
-            reorderSession: onReorderSession,
-            renameWorkspace: onRenameWorkspace,
-            deleteWorkspace: onDeleteWorkspace,
-            renameHost: onRenameHost,
-            deleteHost: onDeleteHost
-          }}
-          activeSessionId={activeSessionId}
-          activeWorkspaceId={activeWorkspaceId}
-          connected={connected}
-          fileBus={fileBus}
-          homeDir={homeDir}
-          cwdBySession={cwdBySession}
-          agentBySession={agentBySession}
-          hiddenPaneSessionIds={hiddenPaneSessionIds}
-          onUnhidePane={unhidePane}
-          onAddWorkspace={onAddWorkspace}
-          menuAddWorkspace={onAddWorkspace}
-          onRowContextMenu={openContext}
-          onRowTouch={{ start: handleTouchStart, move: clearLongPress, end: clearLongPress }}
-          onRowMenu={(sessionId, name, rect) => setCtxMenu({ sessionId, left: rect.left, top: rect.bottom + 2, name })}
-          treeCls="pl-3.5"
-        />
-        </div>
-
-        {/* Other saved keys — sibling roots under the current host's tree. Online
-            ones carry live status; offline ones draw from the fleet cache. */}
-        {otherHosts.length > 0 && (
-          <div className="mt-1 -ml-3.5 border-t border-border-subtle pt-1">
-            {otherHosts.map((h) => (
-              <HostTree
-                key={h.key}
-                host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
-                actions={{
-                  ...makeFleetActions(h, { onSelectSession, onSelectWorkspace }),
-                  renameHost: onRenameHost,
-                  deleteHost: onDeleteHost
-                }}
-                activeSessionId={activeSessionId}
-                activeWorkspaceId={activeWsForHost(activeWorkspaceId, h.key)}
-                connected={connected}
-                hiddenPaneSessionIds={hiddenPaneSessionIds}
-                onUnhidePane={unhidePane}
-                treeCls="pl-3.5"
-              />
-            ))}
+        {orderedHosts.map((h, i) => (
+          <div key={h.key} className={i === 0 ? "-ml-3.5" : "mt-1 -ml-3.5 border-t border-border-subtle pt-1"}>
+          {h.key === (currentHost?.key || "main") ? (
+            <HostTree
+              host={{
+                key: currentHost?.key || "main",
+                label: currentHost?.label || "",
+                status: "full",
+                workspaces,
+                sessions: mainHostSessions,
+                statusMap: sessionStatus,
+                onDisconnect: onMainDisconnect
+              }}
+              busRef={busRef}
+              actions={{
+                selectSession: (sid) => { if (hiddenPaneSessionIds.includes(sid)) unhidePane(sid); onSelectSession?.(sid); },
+                selectWorkspace: (wsId) => { vibrate(); onSelectWorkspace?.(wsId); },
+                createSession: onCreateNamedSession,
+                renameSession: onRenameSession,
+                deleteSession: onDeleteSession,
+                reorderSession: onReorderSession,
+                renameWorkspace: onRenameWorkspace,
+                deleteWorkspace: onDeleteWorkspace,
+                renameHost: onRenameHost,
+                deleteHost: onDeleteHost
+              }}
+              activeSessionId={activeSessionId}
+              activeWorkspaceId={activeWorkspaceId}
+              connected={connected}
+              fileBus={fileBus}
+              homeDir={homeDir}
+              cwdBySession={cwdBySession}
+              agentBySession={agentBySession}
+              hiddenPaneSessionIds={hiddenPaneSessionIds}
+              onUnhidePane={unhidePane}
+              onAddWorkspace={onAddWorkspace}
+              menuAddWorkspace={onAddWorkspace}
+              onRowContextMenu={openContext}
+              onRowTouch={{ start: handleTouchStart, move: clearLongPress, end: clearLongPress }}
+              onRowMenu={(sessionId, name, rect) => setCtxMenu({ sessionId, left: rect.left, top: rect.bottom + 2, name })}
+              treeCls="pl-3.5"
+            />
+          ) : (
+            <HostTree
+              host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
+              actions={{
+                ...makeFleetActions(h, { onSelectSession, onSelectWorkspace }),
+                renameHost: onRenameHost,
+                deleteHost: onDeleteHost
+              }}
+              activeSessionId={activeSessionId}
+              activeWorkspaceId={activeWsForHost(activeWorkspaceId, h.key)}
+              connected={connected}
+              hiddenPaneSessionIds={hiddenPaneSessionIds}
+              onUnhidePane={unhidePane}
+              treeCls="pl-3.5"
+            />
+          )}
           </div>
-        )}
+        ))}
       </div>
 
       {/* Past agent-CLI conversations for wherever the active terminal is standing —

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Folder, KeyRound, Monitor, Pencil, Power, RotateCw, Trash2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, Folder, KeyRound, Monitor, Pencil, Plug, Power, RotateCw, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
@@ -34,6 +34,7 @@ export default function HostTreeRow({
   meta = null,
   mutedOffline = false,
   connecting = false,
+  onConnect = null,
   onRetry = null,
   // The desktop sidebar keeps its add-key button up in the brand row instead.
   showAdd = true,
@@ -54,13 +55,13 @@ export default function HostTreeRow({
   return (
     <>
       <div
-        className={`relative pr-2 ${mobile ? "py-1.5" : "py-1"} flex items-center gap-1 group group/host ${className}`}
+        className={`relative pr-2 ${mobile ? "py-1.5" : "py-1"} flex items-center gap-1.5 group group/host ${className}`}
         onContextMenu={(e) => { e.preventDefault(); vibrate(); setMenuAt({ left: e.clientX, top: e.clientY }); }}
       >
         {onToggleCollapse ? (
           <button
             onClick={(e) => { e.stopPropagation(); vibrate(); onToggleCollapse(); }}
-            className="p-1 text-text-subtle hover:text-text flex-shrink-0"
+            className="text-text-subtle hover:text-text flex-shrink-0"
             tabIndex={-1}
             aria-expanded={!collapsed}
             aria-label={displayLabel}
@@ -70,7 +71,7 @@ export default function HostTreeRow({
         ) : (
           // Same box, invisible — every host row's glyph stays at the same x even
           // when a row cannot expand (an offline host).
-          <span className="p-1 flex-shrink-0 invisible" aria-hidden="true">
+          <span className="flex-shrink-0 invisible" aria-hidden="true">
             <ChevronRight size={mobile ? 18 : 12} />
           </span>
         )}
@@ -93,7 +94,7 @@ export default function HostTreeRow({
 
         {/* Actions pinned absolute right — the ExplorerRow door: text runs full
             width, hover floats the cluster over its end with a surface backdrop. */}
-        <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center ${mobile ? "gap-1.5" : "gap-1 sm:gap-1.5"} px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:bg-transparent [@media(hover:none)]:px-0 transition-opacity`}>
+        <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center ${mobile ? "gap-1.5 opacity-100" : "gap-1 sm:gap-1.5 px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"} transition-opacity`}>
           {showAdd && (
             <button
               onClick={(e) => { e.stopPropagation(); vibrate(); setAddOpen(true); }}
@@ -103,14 +104,14 @@ export default function HostTreeRow({
               <KeyRound size={13.5} />
             </button>
           )}
-          {/* Retry an offline host's background bus without switching to it. */}
-          {onRetry && !connected && !connecting && (
+          {/* Connect an offline host's background bus without switching to it. */}
+          {(onConnect || onRetry) && !connected && !connecting && (
             <button
-              onClick={(e) => { e.stopPropagation(); vibrate(); onRetry(); }}
+              onClick={(e) => { e.stopPropagation(); vibrate(); (onConnect || onRetry)(); }}
               className={`${mobile ? "p-1.5" : "p-0.5"} text-text-subtle hover:text-text rounded-[2px] transition-colors`}
-              title={t("common.retry")}
+              title={t("common.connect")}
             >
-              <RotateCw size={mobile ? 16 : 13} />
+              <Plug size={mobile ? 16 : 13} />
             </button>
           )}
           {/* New workspace — its own folder button, one tap shallower than the menu. */}

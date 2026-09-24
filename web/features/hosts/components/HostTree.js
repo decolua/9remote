@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
-import { EyeOff, GripVertical, Loader2, MoreHorizontal, Plus } from "@/shared/components/ui/Icon";
+import { EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -117,7 +117,7 @@ export default function HostTree({
           if (!open) useFleetStore.getState().ensureHost(host.key); // expanding opens the bus
           toggleNode(TREE_ROOT);
         } : null}
-        onRetry={status === "offline" ? () => useFleetStore.getState().retryHost(host.key) : null}
+        onConnect={status === "offline" ? () => useFleetStore.getState().connectHost(host.key) : null}
         onDisconnect={host.onDisconnect}
         // The add-workspace door only exists on a host that can answer (its picker
         // browses that machine's disks); offline/connecting rows hide it.
@@ -129,9 +129,6 @@ export default function HostTree({
 
       {open && expandable && (
         <div className={treeCls}>
-          {!groups.length && (
-            <p className="px-3 py-6 text-center text-xs text-text-muted">{t("workspaces.emptyWorkspace")}</p>
-          )}
           {groups.map(({ workspace, sessions }) => {
             const rawId = workspace?.id ?? null;
             const wsKey = rawId ?? "ungrouped";
@@ -139,7 +136,7 @@ export default function HostTree({
             // host — null means THIS host's ungrouped is active.
             const isActiveWs = activeWorkspaceId === rawId;
             return (
-              <div key={wsKey} className="flex flex-col mt-2 first:mt-0">
+              <div key={wsKey} className={`flex flex-col ${mobile ? "" : "mt-1 first:mt-0"}`}>
                 <WorkspaceHeader
                   mobile={mobile}
                   workspace={{ id: rawId, name: workspace?.name || t("workspaces.ungrouped"), path: workspace?.path || null, items: sessions }}
@@ -165,7 +162,7 @@ export default function HostTree({
                       key={s.id}
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      className={`group flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer touch-manipulation touch-pan-y ${
+                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer touch-manipulation touch-pan-y ${
                         isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
                       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
                       onClick={(e) => { if (consumeClick()) return; vibrate(); actions.selectSession?.(s.id); }}
@@ -188,7 +185,7 @@ export default function HostTree({
                       )}
                       <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
                       <span className="flex-1 min-w-0 flex flex-col">
-                        <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
+                        <span className={`flex items-center gap-1.5 min-w-0 ${isActive ? "font-medium" : ""}`}>
                           <SessionAgentIcon agent={agentBySession?.[s.id] ?? s.agent} tool={host.statusMap?.[s.id]?.tool} />
                           <span className={`${mobile ? "text-base" : "text-[11px]"} truncate`} data-tip={title}>{title}</span>
                           {hidden && onUnhidePane && (
@@ -215,7 +212,7 @@ export default function HostTree({
                       </span>
                       {/* Row actions — the ExplorerRow door: text runs full width,
                           hover floats the cluster over its end with a backdrop. */}
-                      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-60 transition-opacity">
+                      <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center ${mobile ? "opacity-100" : "px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-60"} transition-opacity`}>
                         {onRowMenu ? (
                           <button
                             onClick={(e) => {
@@ -227,19 +224,26 @@ export default function HostTree({
                             className="p-0.5 text-text-subtle hover:text-text rounded-[2px] transition-colors"
                             title={t("sessions.sessionActions")}
                           >
-                            <MoreHorizontal size={13.5} />
+                            <MoreHorizontal size={mobile ? 18 : 13.5} />
                           </button>
                         ) : (
                           <IconMenu
-                            size={13.5}
+                            size={mobile ? 18 : 13.5}
                             label={t("sessions.sessionActions")}
                             revealCls=""
                             items={[
                               actions.renameSession && {
+                                icon: Pencil,
                                 label: t("sessions.editName"),
                                 onClick: () => setSessRename({ id: s.id, value: s.name || "" })
                               },
+                              actions.backgroundSession && {
+                                icon: Image,
+                                label: t("menu.terminalBackground"),
+                                onClick: () => actions.backgroundSession(s)
+                              },
                               actions.deleteSession && {
+                                icon: Trash2,
                                 label: t("sessions.deleteTitle"), danger: true,
                                 onClick: () => setSessDelete({ id: s.id, name: s.name || "" })
                               }
@@ -250,29 +254,40 @@ export default function HostTree({
                     </div>
                   );
                 })}
-                {!isCollapsed(wsKey) && sessions.length === 0 && (
-                  <button
-                    onClick={() => { vibrate(); setTermModalWs(wsKey); }}
-                    disabled={!actionable}
-                    className="pl-3.5 pr-2 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 italic transition-colors disabled:opacity-40"
-                  >
-                    {t("workspaces.emptyWorkspace")}
-                  </button>
+                {!isCollapsed(wsKey) && (
+                  mobile ? (
+                    <button
+                      onClick={() => { vibrate(); setTermModalWs(wsKey); }}
+                      disabled={!actionable}
+                      className="w-full flex items-center gap-1.5 pl-[38px] py-1.5 text-left text-sm text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
+                      title={t("workspaces.addTerminal")}
+                    >
+                      <Plus size={14} className="flex-shrink-0" />
+                      <span>{t("terminal.newTerminal")}</span>
+                    </button>
+                  ) : sessions.length === 0 ? (
+                    <button
+                      onClick={() => { vibrate(); setTermModalWs(wsKey); }}
+                      disabled={!actionable}
+                      className="pl-3.5 pr-2 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 italic transition-colors disabled:opacity-40"
+                    >
+                      {t("workspaces.emptyWorkspace")}
+                    </button>
+                  ) : null
                 )}
               </div>
             );
           })}
 
-          <div className="px-2 pt-3 pb-1">
-            <button
-              onClick={() => { vibrate(); if (onAddWorkspace) onAddWorkspace(); else setWsPicker(true); }}
-              disabled={!actionable}
-              className="mx-auto flex items-center gap-1.5 py-1.5 px-4 text-xs text-text-subtle hover:text-text border border-dashed border-border-subtle hover:border-text-muted/40 rounded-brand hover:bg-surface-2 transition-colors disabled:opacity-40"
-            >
-              <Plus size={12} className="flex-shrink-0" />
-              <span>{t("workspaces.newWorkspace")}</span>
-            </button>
-          </div>
+          <button
+            onClick={() => { vibrate(); if (onAddWorkspace) onAddWorkspace(); else setWsPicker(true); }}
+            disabled={!actionable}
+            className={`w-full flex items-center gap-1.5 ${mobile ? "text-sm" : "text-[12px] mt-1"} py-1.5 text-left text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40`}
+            title={t("workspaces.newWorkspace")}
+          >
+            <Plus size={mobile ? 18 : 12} className="flex-shrink-0" />
+            <span>{t("workspaces.newWorkspace")}</span>
+          </button>
         </div>
       )}
 

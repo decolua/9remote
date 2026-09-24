@@ -10,6 +10,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import {
   Folder, Monitor, Smartphone, Plus, Settings, Pencil, Trash2, ChevronRight, Zap, ArrowRight, Image, KeyRound
 } from "@/shared/components/ui/Icon";
@@ -25,7 +26,7 @@ import SessionMeta from "@/features/terminal/components/SessionMeta";
 import HostTreeRow from "@/features/hosts/components/HostTreeRow";
 import HostTree from "@/features/hosts/components/HostTree";
 import AddHostModal from "@/features/hosts/components/AddHostModal";
-import { otherHostsOf } from "@/features/hosts/lib/fleetTree";
+import { orderedHostsOf } from "@/features/hosts/lib/fleetTree";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
@@ -36,7 +37,6 @@ import BranchBadge from "@/features/terminal/components/BranchBadge";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
-import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 
 const UNGROUPED_KEY = "ungrouped";
 
@@ -76,7 +76,7 @@ export default function SessionList({
   updateAvailable = null, canSelfUpdate = false, onUpdate, onRestart, carrier: propCarrier,
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession,
-  onRenameHost = null, onDeleteHost = null
+  onRenameHost = null, onDeleteHost = null, onMainDisconnect = null
 }) {
   const { t } = useI18n();
   // Callers may pass no bus; the store is the single live connection anyway
@@ -90,7 +90,7 @@ export default function SessionList({
   const carrier = propCarrier || storeCarrier || "ws";
   const busRef = propBusRef || storeBusRef;
   const storeNotifications = useNotificationStore((s) => s.notifications);
-  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const storeSessionStatus = useAllSessionStatus();
   const notifications = propNotifications || storeNotifications;
   const sessionStatus = propStatus || storeSessionStatus;
   // Actions only — same reason as TerminalHeader: this writes context/callbacks.
@@ -109,9 +109,9 @@ export default function SessionList({
   // Collapse state persisted per host — the main tree's root and each workspace.
   const { isCollapsed, toggle: toggleNode } = useTreeCollapse(currentHost?.key || "");
   const hostCollapsed = isCollapsed(TREE_ROOT);
-  // Other saved keys: tree roots under this host's tree (same as the desktop
-  // sidebar); tapping a session opens a parallel tab.
-  const otherHosts = otherHostsOf(fleetHosts, currentHost?.key);
+  // Every host root in add order — the current host's tree renders at its own
+  // spot among the siblings (tapping a foreign session opens a parallel tab).
+  const orderedHosts = orderedHostsOf(fleetHosts, currentHost?.key);
 
   // Mod+Alt+T opens the new-terminal modal on the ungrouped workspace
   // (browser reserves bare Mod+T)
@@ -195,9 +195,9 @@ export default function SessionList({
     updateAvailable
   );
 
-  // Exactly one host and nothing on it yet — the same wait a fresh connection opens
-  // on, covering the host row/tree entirely (remote stays reachable in the header).
-  const showBareWait = !sessions.length && !workspaces.length && fleetHosts.length === 1;
+  // Exactly one host and no workspace: show the two-half poster stage (workspace/remote).
+  // Multi-host skips this stage so the user sees the fleet instead.
+  const showWelcomeStage = !sessions.length && !workspaces.length && fleetHosts.length <= 1;
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
@@ -247,42 +247,8 @@ export default function SessionList({
         className="relative z-10 flex-1 overflow-auto modal-scrollable pt-2 pb-12"
         style={{ overflowAnchor: "none" }}
       >
-        {showBareWait && <ReconnectScreen inline label={t("workspace.loading")} />}
-
-        {!showBareWait && showBanner && (
-          <AgentOutdatedBanner
-            agentVersion={agentVersion}
-            webVersion={process.env.NEXT_PUBLIC_SERVER_VERSION}
-            updateAvailable={updateAvailable}
-            canSelfUpdate={canSelfUpdate}
-            onUpdate={onUpdate}
-            className="mb-4 mx-4"
-          />
-        )}
-
-        {!showBareWait && currentHost && (
-          <div className="pl-1 pr-3">
-          <HostTreeRow
-            className="flex-shrink-0"
-            mobile
-            hostKey={currentHost.key}
-            label={currentHost.label || ""}
-            connected={connected}
-            collapsed={hostCollapsed}
-            onToggleCollapse={() => toggleNode(TREE_ROOT)}
-            showAdd={false}
-            onRename={onRenameHost}
-            onDelete={onDeleteHost}
-            onDisconnect={onLogout}
-            onAddWorkspace={onAddWorkspace}
-          />
-          </div>
-        )}
-
-        {/* The host row collapses the tree under it, same as the desktop sidebar. */}
-        {!showBareWait && !hostCollapsed && (
-          !sessions.length && !workspaces.length ? (
-          <div className="px-4 pt-2">
+        {showWelcomeStage ? (
+          <div className="absolute inset-0 z-10">
             <WelcomeCards
               onAddWorkspace={onAddWorkspace}
               onOpenRemote={onOpenRemote}
@@ -292,73 +258,105 @@ export default function SessionList({
             />
           </div>
         ) : (
-          /* Same frame as the desktop tree so both screens indent a workspace the
-              same distance from the host row; every row's last button then sits the
-              same 8px from the right edge (the wrapper owns the right padding). */
-          <div className="pl-5 pr-4 pt-1.5">
-            {grouped.map((section) => {
-              const items = section.items;
-              if (section.id === null && !items.length) return null;
-              return (
-                <WorkspaceSection
-                  key={section.id ?? UNGROUPED_KEY}
-                  section={section}
-                  items={items}
-                  collapsed={isCollapsed(section.id ?? "ungrouped")}
-                  onToggleCollapse={() => toggleNode(section.id ?? "ungrouped")}
-                  connected={connected}
-                  cwdBySession={cwdBySession}
-                  fileBus={activeFileBus}
-                  homeDir={homeDir}
-                  sessionStatus={sessionStatus}
-                  onSelect={onSelect}
-                  onNewTerminal={() => setTerminalModal({ workspaceId: section.id })}
-                  onRenameSession={(s) => setRenaming({ kind: "session", id: s.id, value: s.name })}
-                  onBackgroundSession={(s) => setBgTarget(s)}
-                  onDeleteSession={(s) => setConfirm({ kind: "session", id: s.id, name: s.name })}
-                  onReorderSession={onReorderSession}
-                  onWorkspaceMenu={section.id === null ? null : (action) => {
-                    if (action === "rename") setRenaming({ kind: "workspace", id: section.id, value: section.name });
-                    else setConfirm({ kind: "workspace", id: section.id, name: section.name });
-                  }}
-                />
-              );
-            })}
-
-            {/* New workspace — the same dashed button the desktop tree uses, sized
-                to its label, left-aligned with the tree instead of centered. */}
-            <button
-              onClick={() => { vibrate(); onAddWorkspace(); }}
-              disabled={!connected}
-              className="mt-3 flex items-center gap-1.5 py-1.5 px-4 text-sm text-text-subtle active:text-text border border-dashed border-border-subtle active:border-text-muted/40 rounded-brand active:bg-surface-2 transition-colors disabled:opacity-40"
-            >
-              <Plus size={12} className="flex-shrink-0" />
-              <span>{t("workspaces.newWorkspace")}</span>
-            </button>
-          </div>
-        ))}
-
-        {/* Other saved keys — sibling roots under this host's tree, mirroring the
-            desktop sidebar. Online roots carry live status; offline ones draw
-            from the fleet cache. */}
-        {otherHosts.length > 0 && !showBareWait && (
-          <div className="mt-3 border-t border-border-subtle pt-2 pl-1 pr-3">
-            {otherHosts.map((h) => (
-              <HostTree
-                key={h.key}
-                mobile
-                host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
-                actions={{
-                  ...makeFleetActions(h, { onSelectSession: onSelect }),
-                  renameHost: onRenameHost,
-                  deleteHost: onDeleteHost
-                }}
-                connected={connected}
-                treeCls="pl-5 pr-4"
-                rowCls="active:bg-surface-2 active:text-text"
+          <>
+            {showBanner && (
+              <AgentOutdatedBanner
+                agentVersion={agentVersion}
+                webVersion={process.env.NEXT_PUBLIC_SERVER_VERSION}
+                updateAvailable={updateAvailable}
+                canSelfUpdate={canSelfUpdate}
+                onUpdate={onUpdate}
+                className="mb-4 mx-4"
               />
-            ))}
-          </div>
+            )}
+
+            {/* Every host root in ADD order — the current host's tree (header +
+                native sections) renders at its own spot, other hosts as sibling
+                trees. Online roots carry live status; offline ones draw from the
+                fleet cache. */}
+            {orderedHosts.map((h, i) => (h.key === (currentHost?.key || "main") ? (
+              <div key={h.key} className={i === 0 ? "" : "mt-3 border-t border-border-subtle pt-2"}>
+            {currentHost && (
+              <div className="pl-1 pr-3">
+              <HostTreeRow
+                className="flex-shrink-0"
+                mobile
+                hostKey={currentHost.key}
+                label={currentHost.label || ""}
+                connected={connected}
+                collapsed={hostCollapsed}
+                onToggleCollapse={() => toggleNode(TREE_ROOT)}
+                showAdd={false}
+                onRename={onRenameHost}
+                onDelete={onDeleteHost}
+                onDisconnect={onMainDisconnect}
+                onAddWorkspace={onAddWorkspace}
+              />
+              </div>
+            )}
+
+            {/* The host row collapses the tree under it, same as the desktop sidebar. */}
+            {!hostCollapsed && (
+              <div className="pl-5 pr-4 pt-1.5">
+                {grouped.map((section) => {
+                  const items = section.items;
+                  if (section.id === null && !items.length) return null;
+                  return (
+                    <WorkspaceSection
+                      key={section.id ?? UNGROUPED_KEY}
+                      section={section}
+                      items={items}
+                      collapsed={isCollapsed(section.id ?? "ungrouped")}
+                      onToggleCollapse={() => toggleNode(section.id ?? "ungrouped")}
+                      connected={connected}
+                      cwdBySession={cwdBySession}
+                      fileBus={activeFileBus}
+                      homeDir={homeDir}
+                      sessionStatus={sessionStatus}
+                      onSelect={onSelect}
+                      onNewTerminal={() => setTerminalModal({ workspaceId: section.id })}
+                      onRenameSession={(s) => setRenaming({ kind: "session", id: s.id, value: s.name })}
+                      onBackgroundSession={(s) => setBgTarget(s)}
+                      onDeleteSession={(s) => setConfirm({ kind: "session", id: s.id, name: s.name })}
+                      onReorderSession={onReorderSession}
+                      onWorkspaceMenu={section.id === null ? null : (action) => {
+                        if (action === "rename") setRenaming({ kind: "workspace", id: section.id, value: section.name });
+                        else setConfirm({ kind: "workspace", id: section.id, name: section.name });
+                      }}
+                    />
+                  );
+                })}
+
+                {/* New workspace — flat item aligned with workspace chevron above */}
+                <button
+                  onClick={() => { vibrate(); onAddWorkspace(); }}
+                  disabled={!connected}
+                  className="w-full flex items-center gap-1.5 py-1.5 text-left text-sm text-text-subtle hover:text-brand-500 active:text-brand-500 transition-colors disabled:opacity-40"
+                  title={t("workspaces.newWorkspace")}
+                >
+                  <Plus size={18} className="flex-shrink-0" />
+                  <span>{t("workspaces.newWorkspace")}</span>
+                </button>
+              </div>
+            )}
+              </div>
+            ) : (
+              <div key={h.key} className={i === 0 ? "pl-1 pr-3" : "mt-3 border-t border-border-subtle pt-2 pl-1 pr-3"}>
+                <HostTree
+                  mobile
+                  host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
+                  actions={{
+                    ...makeFleetActions(h, { onSelectSession: onSelect }),
+                    renameHost: onRenameHost,
+                    deleteHost: onDeleteHost
+                  }}
+                  connected={connected}
+                  treeCls="pl-5 pr-4"
+                  rowCls="active:bg-surface-2 active:text-text"
+                />
+              </div>
+            )))}
+          </>
         )}
       </div>
 
@@ -455,7 +453,7 @@ function WorkspaceSection({
           onClick={() => { vibrate(); onToggleCollapse?.(); }}
           className="flex-1 min-w-0 flex items-center gap-1.5 text-left"
         >
-          <span className="p-1 text-text-subtle flex-shrink-0">
+          <span className="text-text-subtle flex-shrink-0">
             <ChevronRight
               size={18}
               className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}
@@ -535,15 +533,6 @@ function WorkspaceSection({
               swallowClick={consumeClick}
             />
           ))}
-          <button
-            onClick={() => { vibrate(); onNewTerminal(); }}
-            disabled={!connected}
-            className="w-full flex items-center gap-1 pl-[38px] py-1.5 text-left text-sm text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
-            title={t("workspaces.addTerminal")}
-          >
-            <Plus size={14} className="flex-shrink-0" />
-            <span>{t("terminal.newTerminal")}</span>
-          </button>
         </div>
       )}
     </section>
@@ -616,7 +605,7 @@ function SessionRow({
     >
       <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
       <span className="flex-1 min-w-0 flex flex-col">
-        <span className="flex items-center gap-1 min-w-0">
+        <span className="flex items-center gap-1.5 min-w-0">
           <AgentGlyph agentId={session.agent} tool={tool} />
           <span className="text-base text-text truncate" data-tip={session.name || t("terminal.defaultName")}>
             {session.name || t("terminal.defaultName")}
@@ -666,8 +655,7 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
   const { t } = useI18n();
   const remoteReady = connected && !!onOpenRemote;
   return (
-    // Bleed past the scroll container's px-4 pt-4 pb-6 so the backdrop reaches the edges
-    <div className="empty-stage w-[calc(100%_+_2rem)] h-[calc(100%_+_2.5rem)] -mx-4 -mt-4 -mb-6">
+    <div className="empty-stage w-full h-full">
       <div className="empty-grid" />
 
       <button

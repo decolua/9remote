@@ -25,7 +25,6 @@ import TerminalEditorPanel from "@/features/terminal/components/TerminalEditorPa
 import OverflowTip from "@/shared/components/ui/OverflowTip";
 import TerminalBeam from "@/shared/components/ui/TerminalBeam";
 import TerminalEmptyState from "@/features/terminal/components/TerminalEmptyState";
-import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 import AiPaneView from "@/features/ai/components/AiPaneView";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
@@ -86,7 +85,7 @@ function TerminalWorkspace({
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
   onBack, onOpenRemote, onOpenMobile, onOpenFiles, onLogout, onStopCodespace, onUpdate, onRestart,
-  onRenameHost, onDeleteHost,
+  onRenameHost, onDeleteHost, onMainDisconnect,
   onDeleteWorkspace, onRenameWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
   rightPanel, editorPanel, mobilePanel, onOpenArtifact, fileBus,
@@ -230,11 +229,10 @@ function TerminalWorkspace({
     setRightPanelRoot(baseRoot, null);
   }, [activeSessionId, baseRoot, setRightPanelRoot]);
   const showEmptyState = !sessions.length;
-  // No workspace AND a single host — the machine is as fresh as the moment it first
-  // connected, so show that wait instead of the two-half picker (remote is one tap
-  // away in the header; a second host keeps the picker to choose whose folder).
+  // Exactly one host and no workspace: show the two-half poster stage (workspace/remote).
+  // Multi-host skips this stage so the user sees the fleet instead.
   const fleetHostCount = useFleetStore((s) => Object.keys(s.hosts).length);
-  const showBareWait = showEmptyState && !workspaces.length && fleetHostCount === 1;
+  const showWelcomeStage = showEmptyState && !workspaces.length && fleetHostCount <= 1;
 
   // The collapsed panel stays mounted so its width can animate, but only after a first
   // open — otherwise a user who never opens it still pays for the tree and git scan.
@@ -556,7 +554,8 @@ function TerminalWorkspace({
             style={{ width: sidebarCollapsed ? 0 : sidebarWidth }}
           >
             <TerminalSidebar
-              allSessions={mainSessions}
+              allSessions={sessions}
+              mainSessions={mainSessions}
               workspaces={mainWorkspaces}
               activeSessionId={activeSessionId}
               activeWorkspaceId={activeWorkspaceId}
@@ -574,6 +573,7 @@ function TerminalWorkspace({
               onOpenSettings={onOpenSettings}
               onLogout={onLogout}
               onRenameHost={onRenameHost}
+              onMainDisconnect={onMainDisconnect}
               onDeleteHost={onDeleteHost}
               busRef={activeBusRef}
               homeDir={homeDir}
@@ -642,11 +642,7 @@ function TerminalWorkspace({
           )}
 
           {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
-          {showBareWait ? (
-            <div className="relative flex-1 min-h-0">
-              <ReconnectScreen inline label={t("workspace.loading")} />
-            </div>
-          ) : showEmptyState ? (
+          {showWelcomeStage ? (
             <div className="flex-1 min-h-0">
               <TerminalEmptyState
                 onAddWorkspace={onAddWorkspace}

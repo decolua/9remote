@@ -6,7 +6,6 @@ import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useFleetStore } from "@/shared/stores/fleetStore";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
-import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { WORKSPACE_BASE } from "@/features/terminal/constants/routeConfig";
 import { hostSummary, relTime } from "../lib/fleetTree";
 import { switchHost } from "../lib/switchHost";
@@ -41,17 +40,17 @@ export default function HostsView({
   }, [menuContext, menuCallbacks, setContext, setCallbacks]);
 
   const hostsMap = useFleetStore((s) => s.hosts);
-  const liveStatus = useNotificationStore((s) => s.sessionStatus);
   const [busyKey, setBusyKey] = useState(null);
   const [error, setError] = useState("");
 
+  // Add order — Object.values follows sync()'s insertion order (saved keys in
+  // the order they were added). The current host keeps its place; only its
+  // Active badge distinguishes it.
   const hosts = useMemo(() => Object.values(hostsMap)
     .map((h) => (h.key === currentKey
-      ? { ...h, ...fullHost, statusMap: liveStatus, status: "full" }
-      : h))
-    // Local on top, the rest in add order (stable sort keeps insertion order).
-    .sort((a, b) => (b.key === currentKey) - (a.key === currentKey)),
-  [hostsMap, currentKey, fullHost, liveStatus]);
+      ? { ...h, ...fullHost, status: "full" }
+      : h)),
+  [hostsMap, currentKey, fullHost]);
 
   const currentFullKey = hosts.find((h) => h.key === currentKey)?.full || currentKey;
 

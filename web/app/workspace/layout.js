@@ -43,9 +43,10 @@ import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 
 import SessionList from "@/features/session/components/SessionList";
 import HostsView from "@/features/hosts/components/HostsView";
-import { useFleetStore, emitWhenReady } from "@/shared/stores/fleetStore";
+import { useFleetStore, fleetBusOf, emitWhenReady } from "@/shared/stores/fleetStore";
+import { switchHost } from "@/features/hosts/lib/switchHost";
 import { connOf } from "@/shared/transport/hostConn";
-import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
+import { useApiKeyStorage, KEYS_CHANGED_EVENT } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
 import BrowserView from "@/features/browser/components/BrowserView";
@@ -218,7 +219,7 @@ export default function WorkspaceLayout({ children }) {
       window.removeEventListener("contextmenu", onContextMenu);
     };
   }, []);
-  const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
+  const { bus, busRef, protocolRef, disconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   // Fleet: one background bus per saved host other than the current one; the
   // mobile home shows the fleet overview until the user enters a host (focus).
   const { loadKeys, saveKey, renameKey, removeKey } = useApiKeyStorage();
@@ -227,6 +228,14 @@ export default function WorkspaceLayout({ children }) {
     if (!hydrated) return;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
     setSavedKeys(loadKeys());
+  }, [hydrated, loadKeys]);
+  // Saved keys change from anywhere (add-host modal in sidebar/list/tree-row,
+  // rename, delete) — one listener keeps this state honest, no callback threading.
+  useEffect(() => {
+    if (!hydrated) return;
+    const refresh = () => setSavedKeys(loadKeys());
+    window.addEventListener(KEYS_CHANGED_EVENT, refresh);
+    return () => window.removeEventListener(KEYS_CHANGED_EVENT, refresh);
   }, [hydrated, loadKeys]);
   const currentFleetKey = auth?.apiKey ? headOf(auth.apiKey) : "";
   // Cache scope of the HOST this connection serves: switchHost makes another key this
@@ -246,6 +255,11 @@ export default function WorkspaceLayout({ children }) {
   // SAME workspace model (nav, panes, tabs) as the main host's, so a foreign
   // terminal opens as a real parallel tab instead of a host switch.
   const fleetHostsMap = useFleetStore((s) => s.hosts);
+  // Single lane: the main host's lists ride the fleet store entry like every other
+  // host. Memoized so the [] fallback keeps one identity across renders.
+  const mainHost = fleetHostsMap[currentFleetKey];
+  const sessions = useMemo(() => mainHost?.sessions || [], [mainHost]);
+  const workspaces = useMemo(() => mainHost?.workspaces || [], [mainHost]);
   const scopedLists = useMemo(
     () => scopedFleetLists(Object.values(fleetHostsMap), currentFleetKey),
     [fleetHostsMap, currentFleetKey]
@@ -267,19 +281,10 @@ export default function WorkspaceLayout({ children }) {
     const item = loadKeys().find((k) => headOf(k.key) === key);
     if (!item) {
       saveKey(key, label);
-      setSavedKeys(loadKeys());
       return;
     }
     renameKey(item.id, label);
-    setSavedKeys(loadKeys());
   }, [loadKeys, renameKey, saveKey]);
-
-  const handleDeleteHost = useCallback((key) => {
-    const item = loadKeys().find((k) => headOf(k.key) === key);
-    if (!item) return;
-    removeKey(item.id);
-    setSavedKeys(loadKeys());
-  }, [loadKeys, removeKey]);
 
   const [shells, setShells] = useState([]);
 
@@ -718,6 +723,45 @@ export default function WorkspaceLayout({ children }) {
     });
   }, [handleDisconnect, t]);
 
+  const handleDeleteHost = useCallback((key) => {
+    const item = loadKeys().find((k) => headOf(k.key) === key);
+    if (item) removeKey(item.id);
+    // Removing the host this session lives on ends the session — sync() would
+    // keep re-adding it as the live connection's host otherwise. The row's own
+    // confirm already asked; no second logout dialog.
+    if (key === currentFleetKey) handleDisconnect();
+  }, [loadKeys, removeKey, currentFleetKey, handleDisconnect]);
+
+  // Disconnect the session's own host like any fleet row: hop to the next host
+  // in add order — a live bus first, then probe-online, then anything else
+  // (switchHost health-checks the target before committing, so an unknown
+  // status is safe to try; a dead pick leaves this session untouched). Only
+  // with NO other host does the link drop for real and the retry screen own
+  // the page.
+  const onMainDisconnect = useCallback(() => {
+    const st = useFleetStore.getState();
+    const others = Object.values(st.hosts).filter(
+      (h) => h.key !== currentFleetKey && (h.status === "online" || h.status === "connecting")
+    );
+    const rest = Object.values(st.hosts).filter((h) => h.key !== currentFleetKey);
+    const target = others.find((h) => fleetBusOf(h.key) && h.status === "online")
+      || others.find((h) => h.status === "online")
+      || others.find((h) => fleetBusOf(h.key))
+      || others[0]
+      || rest[0]
+      || null;
+    if (!target) {
+      disconnect();
+      st.setAutoConnect(currentFleetKey, false);
+      st._patchHost(currentFleetKey, { status: "offline", lastSeenAt: Date.now() });
+      return;
+    }
+    switchHost(target.full || target.key, { currentKey: st.hosts[currentFleetKey]?.full || currentFleetKey }).catch(() => {});
+    // switchHost re-marks the host being left as auto-connect; the user just
+    // dropped it on purpose, so put that back off (both writes are sync).
+    st.setAutoConnect(currentFleetKey, false);
+  }, [currentFleetKey, disconnect]);
+
   const closeConfirmDialog = useCallback(() => {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
   }, []);
@@ -873,6 +917,7 @@ export default function WorkspaceLayout({ children }) {
             shells={shells}
             onRenameHost={handleRenameHost}
             onDeleteHost={handleDeleteHost}
+            onMainDisconnect={onMainDisconnect}
           />
           )}
         </div>
@@ -927,6 +972,7 @@ export default function WorkspaceLayout({ children }) {
             onOpenSettings={openSlideMenu}
             onRenameHost={handleRenameHost}
             onDeleteHost={handleDeleteHost}
+            onMainDisconnect={onMainDisconnect}
             homeDir={systemInfo?.homedir}
             recentWorkspaces={recentWorkspaces}
             onOpenArtifact={openArtifact}
@@ -1154,7 +1200,7 @@ export default function WorkspaceLayout({ children }) {
       </div>
       {/* Child routes are URL markers only (render nothing) */}
       <div hidden><Suspense fallback={null}>{children}</Suspense></div>
-      {/* TEMP DIAGNOSTIC — on while the short-reopen is being chased. Remove after. */}
+      {/* Dev-only termLog overlay (hidden in production) — mobile has no DevTools. */}
       <DevTermLog />
     </>
   );
