@@ -101,20 +101,24 @@ function TerminalRightPanel({
 
   // Worktree removal from a root header: probe lists what removal takes with it,
   // the dialog confirms, then removal closes the rooted sessions server-side.
-  const [removeTarget, setRemoveTarget] = useState(null); // { root, sessions, branchMerged }
+  const [removeTarget, setRemoveTarget] = useState(null); // { root, sessions, branchMerged, dirty }
   const [rootError, setRootError] = useState(null);
   const [branchKept, setBranchKept] = useState(null);
+  const mainRepoPath = roots.find((r) => r.isMain)?.path || workspacePath;
+
   const askRemove = async (root) => {
     setRootError(null);
-    const res = await activeFileBus.gitWorktreeRemove(root.path, root.path, { probe: true, deleteBranch: root.branch || undefined });
+    const res = await activeFileBus.gitWorktreeRemove(mainRepoPath, root.path, { probe: true, deleteBranch: root.branch || undefined });
     if (!res?.success) return setRootError(res?.error || "Probe failed");
     setRemoveTarget({ root, sessions: res.sessions || [], branchMerged: res.branchMerged });
   };
-  const removeRoot = async (root) => {
+  const removeRoot = async (root, force = false) => {
     setRootError(null);
     setBranchKept(null);
-    // The worktree path itself resolves the repo — git runs fine from inside one.
-    const res = await activeFileBus.gitWorktreeRemove(root.path, root.path, { confirmed: true, deleteBranch: root.branch || undefined });
+    const res = await activeFileBus.gitWorktreeRemove(mainRepoPath, root.path, { confirmed: true, force, deleteBranch: root.branch || undefined });
+    if (!res?.success && /use --force/i.test(res?.error || "")) {
+      return setRemoveTarget({ root, dirty: true });
+    }
     setRemoveTarget(null);
     if (!res?.success) return setRootError(res?.error || "Remove failed");
     if (res.branchKept) setBranchKept(root.branch);
@@ -435,23 +439,27 @@ function TerminalRightPanel({
       <ConfirmDialog
         isOpen={!!removeTarget}
         onClose={() => setRemoveTarget(null)}
-        onConfirm={() => { vibrate(); void removeRoot(removeTarget.root); }}
+        onConfirm={() => { vibrate(); void removeRoot(removeTarget.root, !!removeTarget.dirty); }}
         title={t("workspaces.removeWorktree")}
-        message={removeTarget ? [
-          t("workspaces.removeWorktreeFolder", { path: removeTarget.root.path }),
-          removeTarget.root.branch && t(
-            removeTarget.branchMerged === true ? "workspaces.removeWorktreeBranchDelete"
-              : removeTarget.branchMerged === false ? "workspaces.removeWorktreeBranchKeep"
-              : "workspaces.removeWorktreeBranch",
-            { branch: removeTarget.root.branch }
-          ),
-          removeTarget.sessions?.length
-            ? t("workspaces.removeWorktreeSessions", {
-                count: removeTarget.sessions.length,
-                names: removeTarget.sessions.map((s) => s.name).join(", ")
-              })
-            : null
-        ].filter(Boolean).join("\n") : ""}
+        message={removeTarget ? (
+          removeTarget.dirty
+            ? t("workspaces.worktreeDirty")
+            : [
+                t("workspaces.removeWorktreeFolder", { path: removeTarget.root.path }),
+                removeTarget.root.branch && t(
+                  removeTarget.branchMerged === true ? "workspaces.removeWorktreeBranchDelete"
+                    : removeTarget.branchMerged === false ? "workspaces.removeWorktreeBranchKeep"
+                    : "workspaces.removeWorktreeBranch",
+                  { branch: removeTarget.root.branch }
+                ),
+                removeTarget.sessions?.length
+                  ? t("workspaces.removeWorktreeSessions", {
+                      count: removeTarget.sessions.length,
+                      names: removeTarget.sessions.map((s) => s.name).join(", ")
+                    })
+                  : null
+              ].filter(Boolean).join("\n")
+        ) : ""}
       />
 
       {isDesktop && (

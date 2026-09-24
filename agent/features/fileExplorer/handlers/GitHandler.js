@@ -501,13 +501,31 @@ export function setupGitHandlers(socket) {
     if (!worktreePath) return callback({ success: false, error: "worktreePath required" });
     if (isSensitivePath(worktreePath)) return callback({ success: false, error: "Access denied" });
     try {
+      let mainRepo = repoPath;
+      if (worktreePath && (repoPath === worktreePath || !fs.existsSync(repoPath))) {
+        const gitFile = path.join(worktreePath, ".git");
+        if (fs.existsSync(gitFile) && fs.statSync(gitFile).isFile()) {
+          try {
+            const content = fs.readFileSync(gitFile, "utf8");
+            const match = content.match(/gitdir:\s*(.*)/i);
+            if (match) {
+              const gitDir = path.resolve(worktreePath, match[1].trim());
+              const mainGitDir = gitDir.replace(/[/\\]worktrees[/\\][^/\\]+$/, "");
+              const candidate = path.dirname(mainGitDir);
+              if (fs.existsSync(candidate)) mainRepo = candidate;
+            }
+          } catch {}
+        }
+      }
+      if (!fs.existsSync(mainRepo)) mainRepo = repoPath;
+
       const busy = terminalsInWorktree(worktreePath, listSessionRoots());
       // Probe answers "what would removal take with it" — nothing is touched.
       if (probe) {
         const branch = typeof deleteBranch === "string" && !deleteBranch.startsWith("-") && !/\s/.test(deleteBranch) ? deleteBranch : null;
         let branchMerged = null;
         if (branch) {
-          const m = await runGit(["branch", "--merged"], repoPath);
+          const m = await runGit(["branch", "--merged"], mainRepo);
           if (m.code === 0) branchMerged = m.stdout.split("\n").map((l) => l.replace(/^\*?\s+/, "").trim()).includes(branch);
         }
         return callback({
@@ -523,11 +541,16 @@ export function setupGitHandlers(socket) {
       // Close the rooted sessions first — on Windows a live cwd inside blocks the
       // removal, and the standard destroy path also tears down a chat CLI if any.
       for (const s of busy) await destroySessionById(s.id);
-      const args = ["worktree", "remove", worktreePath];
-      if (force) args.splice(2, 0, "--force");
-      const r = await runGit(args, repoPath);
-      if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
-      invalidateRepoScan(repoPath);
+      if (!fs.existsSync(worktreePath)) {
+        await runGit(["worktree", "prune"], mainRepo);
+      } else {
+        const args = ["worktree", "remove", worktreePath];
+        if (force) args.splice(2, 0, "--force");
+        const r = await runGit(args, mainRepo);
+        if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
+      }
+      invalidateRepoScan(mainRepo);
+      if (repoPath !== mainRepo) invalidateRepoScan(repoPath);
       // Optional branch cleanup: safe delete only — git refuses unmerged or checked-out
       // branches, and a refusal keeps the branch rather than failing the removal.
       if (deleteBranch) {
@@ -535,7 +558,7 @@ export function setupGitHandlers(socket) {
         if (branch.startsWith("-") || /\s/.test(branch)) {
           return callback({ success: true, branchKept: true, branchNote: "invalid branch name" });
         }
-        const bd = await runGit(["branch", "-d", branch], repoPath);
+        const bd = await runGit(["branch", "-d", branch], mainRepo);
         if (bd.code !== 0) return callback({ success: true, branchKept: true, branchNote: bd.stderr.trim() });
       }
       callback({ success: true });
