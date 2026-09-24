@@ -402,6 +402,7 @@ function TerminalHeader({
                     <img
                       src={tabIcon}
                       alt=""
+                      draggable={false}
                       className={`w-3.5 h-3.5 object-contain ${AGENT_ICON_CLS} ${onDeleteSession ? "sm:group-hover:hidden" : ""}`}
                     />
                   ) : (

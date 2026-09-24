@@ -966,9 +966,30 @@ html.light .term-tab-active,
   border-radius: 3px;
 }
 
-/* Disable text selection on buttons */
-button {
+/* Ensure all interactive buttons, tabs, and menu items react immediately to taps without delay or ghost drag */
+button,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"] {
   -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-user-drag: none;
+}
+
+/* Prevent iOS Safari image preview / callout and drag on tabs, buttons and interactive rows */
+button svg,
+button img,
+[role="button"] svg,
+[role="button"] img,
+[role="tab"] svg,
+[role="tab"] img,
+.term-tab img,
+img.pointer-events-none {
+  pointer-events: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
   user-select: none;
 }
 

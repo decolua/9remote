@@ -231,7 +231,7 @@ function TerminalSidebar({
             </button>
           ) : (
             <>
-              <img src="/icon-192.png" alt="9Remote" className="w-4 h-4 rounded-[4px] object-contain flex-shrink-0" />
+              <img src="/icon-192.png" alt="9Remote" draggable={false} className="w-4 h-4 rounded-[4px] object-contain flex-shrink-0 pointer-events-none select-none" />
               <span className="text-[13px] font-semibold text-text truncate">9Remote</span>
             </>
           )}

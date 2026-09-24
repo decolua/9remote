@@ -154,7 +154,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
                           <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
                         )}
                         {AGENT_ICONS[it.tool] && !isIdle ? (
-                          <img src={AGENT_ICONS[it.tool]} alt={it.tool} className={`w-5 h-5 flex-shrink-0 ${AGENT_ICON_CLS}`} />
+                          <img src={AGENT_ICONS[it.tool]} alt={it.tool} draggable={false} className={`w-5 h-5 flex-shrink-0 ${AGENT_ICON_CLS}`} />
                         ) : (
                           <Terminal size={18} className="text-text-muted flex-shrink-0" />
                         )}

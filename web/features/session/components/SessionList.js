@@ -48,13 +48,14 @@ function AgentGlyph({ agentId, tool }) {
       <img
         src={agentIconUrl(agentId)}
         alt=""
+        draggable={false}
         onError={() => setBroken(true)}
         className={`w-3.5 h-3.5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`}
       />
     );
   }
   if (AGENT_ICONS[tool]) {
-    return <img src={AGENT_ICONS[tool]} alt={tool} className={`w-3.5 h-3.5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`} />;
+    return <img src={AGENT_ICONS[tool]} alt={tool} draggable={false} className={`w-3.5 h-3.5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`} />;
   }
   return <Terminal size={14} className="text-text-muted flex-shrink-0" />;
 }

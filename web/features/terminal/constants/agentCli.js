@@ -6,7 +6,7 @@ export const AGENT_ICON_BASE = "/agent-icons";
 
 // Bundled icons are square bitmaps, so the corner rounding lives at the render
 // site instead of being baked into each file.
-export const AGENT_ICON_CLS = "rounded-[3px]";
+export const AGENT_ICON_CLS = "rounded-[3px] pointer-events-none select-none";
 
 export function agentIconUrl(agentId) {
   if (!agentId || agentId === "null" || agentId === "undefined") return null;
