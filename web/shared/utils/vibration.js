@@ -12,6 +12,12 @@ export function vibrate(duration = 10) {
 
   // iOS Safari fallback: toggle hidden switch input for haptic feedback
   if (typeof document !== "undefined") {
+    const isIOS = typeof navigator !== "undefined" && (
+      /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
+    );
+    if (!isIOS) return;
+
     const el = document.createElement("div");
     const id = Math.random().toString(36).slice(2);
     el.innerHTML = `<input type="checkbox" id="${id}" switch /><label for="${id}"></label>`;
