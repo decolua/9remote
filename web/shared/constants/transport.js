@@ -144,6 +144,11 @@ export const PENDING_SAVE_KEY = "9remote_pending_save";
 // happens after acceptance — so the intent is recorded here and acted on then.
 export const WANTS_SAVE_KEY = "9remote_wants_save";
 
+// Same-page storage events never fire — dispatched after EVERY saved-key list
+// write (useApiKeyStorage, deviceTrust's enrollment save/upgrade) so mounted
+// readers (the workspace layout's fleet sync) stay honest without callbacks.
+export const KEYS_CHANGED_EVENT = "9remote:keys-changed";
+
 // Handoff for a rejection that only becomes known after login: the Worker
 // clears a key by its HEAD, but the TAIL is proven later, to the agent. The
 // login page reads this on mount and shows it like any bad-key error.

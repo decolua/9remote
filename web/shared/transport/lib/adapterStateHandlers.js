@@ -69,7 +69,6 @@ export function handleRtcStateChange(pm, state) {
       pm._wsCallbacks.onConnect?.(pm._bus, pm._connectionMode);
     }
     // Successful RTC open → reset zombie recovery attempts + probe cadence
-    termLog("switch", `RESET attempts (was ${pm._rtcRestartAttempts}) reason=rtc-open`); // TEMP DIAGNOSTIC
     pm._rtcRestartAttempts = 0;
     pm._probeAttempts = 0;
     pm._rtcGivenUp = false;

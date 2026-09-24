@@ -1,6 +1,12 @@
 import { useCallback } from "react";
+import { KEYS_CHANGED_EVENT } from "@/shared/constants/transport";
 
 const STORAGE_KEY = "9remote_api_keys";
+// Re-exported for existing importers (the workspace layout listens on it).
+export { KEYS_CHANGED_EVENT };
+const notifyKeysChanged = () => {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(KEYS_CHANGED_EVENT));
+};
 
 // Simple base64 encoding for basic obfuscation (not cryptographic security)
 function encode(str) {
@@ -67,6 +73,7 @@ export function useApiKeyStorage() {
       };
       const updated = [...existing.map((item) => ({ ...item, key: encode(item.key) })), newKey];
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      notifyKeysChanged();
     } catch (err) {
       console.error("Failed to save API key:", err);
     }
@@ -81,6 +88,7 @@ export function useApiKeyStorage() {
         .filter((item) => item.id !== id)
         .map((item) => ({ ...item, key: encode(item.key) }));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      notifyKeysChanged();
     } catch (err) {
       console.error("Failed to remove API key:", err);
     }
@@ -120,6 +128,7 @@ export function useApiKeyStorage() {
         label: item.id === id ? label : (item.label || "")
       }));
       localStorage.setItem(STORAGE_KEY, JSON.stringify(updated));
+      notifyKeysChanged();
     } catch (err) {
       console.error("Failed to rename API key:", err);
     }

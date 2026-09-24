@@ -21,10 +21,11 @@ import { useGithub } from "@/features/codespace/hooks/useGithub";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
 import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
-import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
+import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY } from "@/shared/constants/transport";
 import { headOf, tailOf, isLegacyApiKey } from "@/shared/utils/apiKey";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { parsePairingInput } from "@/features/hosts/lib/parsePairingInput";
+import { finishPairingLogin } from "@/features/hosts/lib/switchHost";
 import { AGENT_PORT } from "@/shared/constants/API";
 
 
@@ -163,13 +164,11 @@ function LoginContent() {
     const result = await authenticateWithToken(parsed?.tempKey || stashed, true, parsed?.tail);
     try { sessionStorage.removeItem("9remote_url_pairing"); } catch {}
     if (result.success) {
-      if (parsed?.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
-      if (typeof window !== "undefined" && localStorage.getItem("9remote_remember_key_preference") !== "false") {
-        sessionStorage.setItem(WANTS_SAVE_KEY, "1");
-      }
-      router.push("/workspace/");
+      finishPairingLogin(parsed, {
+        remember: typeof window === "undefined" || localStorage.getItem("9remote_remember_key_preference") !== "false"
+      });
     }
-  }, [authenticateWithToken, router]);
+  }, [authenticateWithToken]);
 
   // Guard against duplicate authentication in React StrictMode.
   const tokenAuthStarted = useRef(false);
@@ -203,15 +202,16 @@ function LoginContent() {
       : await authenticateWithApiKey(trimmedKey);
     if (!result.success) return;
 
-    const head = isOneTime ? result.apiKey : routingKey;
-    const tailOwner = isOneTime ? parsed.tempKey : head;
-    if (tail && tailOwner) setTrust(tailOwner, { tail });
-
-    // Park key until agent accepts TAIL; pairing codes defer save until agent issues key.
-    if (rememberKey && head) {
-      if (isOneTime) sessionStorage.setItem(WANTS_SAVE_KEY, "1");
-      else sessionStorage.setItem(PENDING_SAVE_KEY, trimmedKey);
+    if (isOneTime) {
+      // Pairing codes defer save until the agent issues the key — one door,
+      // shared with the add-host modal (see finishPairingLogin).
+      finishPairingLogin(parsed, { remember: rememberKey });
+      return;
     }
+
+    if (tail) setTrust(routingKey, { tail });
+    // Park key until agent accepts TAIL.
+    if (rememberKey) sessionStorage.setItem(PENDING_SAVE_KEY, trimmedKey);
     router.push("/workspace/");
   };
 
@@ -265,11 +265,9 @@ function LoginContent() {
     if (!parsed?.tempKey) return false;
     const result = await authenticateWithToken(parsed.tempKey, true, parsed.tail);
     if (!result.success) return false;
-    if (parsed.tail) setTrust(parsed.tempKey, { tail: parsed.tail });
-    if (typeof window !== "undefined" && localStorage.getItem("9remote_remember_key_preference") !== "false") {
-      sessionStorage.setItem(WANTS_SAVE_KEY, "1");
-    }
-    router.push("/workspace/");
+    finishPairingLogin(parsed, {
+      remember: typeof window === "undefined" || localStorage.getItem("9remote_remember_key_preference") !== "false"
+    });
     return true;
   };
 

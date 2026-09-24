@@ -61,7 +61,7 @@ export function useAuth() {
   const router = useRouter();
   const { setAuth } = useSessionStorage();
 
-  const authenticate = useCallback(async (credentials) => {
+  const authenticate = useCallback(async (credentials, { persistSession = true } = {}) => {
     setLoading(true);
     setError("");
 
@@ -77,13 +77,15 @@ export function useAuth() {
             const rawKey = credentials.apiKey || tempKey || "";
             const apiKey = headOf(rawKey) || "direct";
             if (tail) setTrust(apiKey, { tail });
-            setAuth({
-              apiKey,
-              tunnelUrl: agentOrigin,
-              mode: "local",
-              tempKey: tempKey ? tempKey.toUpperCase() : null,
-              localIp: null
-            });
+            if (persistSession) {
+              setAuth({
+                apiKey,
+                tunnelUrl: agentOrigin,
+                mode: "local",
+                tempKey: tempKey ? tempKey.toUpperCase() : null,
+                localIp: null
+              });
+            }
             return { success: true, shouldAskToSave: true, apiKey };
           } else if (directCheck === false) {
             setError(WRONG_KEY_MESSAGE);
@@ -136,13 +138,15 @@ export function useAuth() {
         }
       }
 
-      setAuth({
-        apiKey,
-        tunnelUrl: data.tunnelUrl || null,
-        mode: "remote",
-        tempKey: credentials.tempKey ? credentials.tempKey.toUpperCase() : null,
-        localIp: data.localIp || null
-      });
+      if (persistSession) {
+        setAuth({
+          apiKey,
+          tunnelUrl: data.tunnelUrl || null,
+          mode: "remote",
+          tempKey: credentials.tempKey ? credentials.tempKey.toUpperCase() : null,
+          localIp: data.localIp || null
+        });
+      }
 
       return {
         success: true,
@@ -157,15 +161,15 @@ export function useAuth() {
     }
   }, [router, setAuth]);
 
-  const authenticateWithToken = useCallback(async (token, isTempKey = false, tail = null) => {
+  const authenticateWithToken = useCallback(async (token, isTempKey = false, tail = null, opts) => {
     if (isTempKey) {
-      return authenticate({ token, tempKey: token, tail });
+      return authenticate({ token, tempKey: token, tail }, opts);
     }
-    return authenticate({ token });
+    return authenticate({ token }, opts);
   }, [authenticate]);
 
-  const authenticateWithApiKey = useCallback(async (apiKey) => {
-    return authenticate({ apiKey });
+  const authenticateWithApiKey = useCallback((apiKey, opts) => {
+    return authenticate({ apiKey }, opts);
   }, [authenticate]);
 
   return {

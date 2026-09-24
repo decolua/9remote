@@ -1,6 +1,6 @@
 // Device trust: pins agent host key and stores key tail per HEAD for E2E security.
 
-import { CHANNELS, TAIL_REJECT_REASON, PENDING_SAVE_KEY, WANTS_SAVE_KEY } from "@/shared/constants/transport";
+import { CHANNELS, TAIL_REJECT_REASON, PENDING_SAVE_KEY, WANTS_SAVE_KEY, KEYS_CHANGED_EVENT } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { hostFp2Of } from "./tailSeal";
 
@@ -107,6 +107,12 @@ export function getPendingFp2() {
 // Upgrades a saved key from HEAD to HEAD-TAIL after enrollment.
 const SAVED_KEYS_STORAGE = "9remote_api_keys";
 
+// Saved-key writes here bypass useApiKeyStorage — same announcement, or the
+// workspace layout's fleet sync never hears about them.
+const notifyKeysChanged = () => {
+  try { window.dispatchEvent(new Event(KEYS_CHANGED_EVENT)); } catch {}
+};
+
 function upgradeSavedKey(headKey, fullKey) {
   if (typeof window === "undefined") return;
   try {
@@ -119,7 +125,10 @@ function upgradeSavedKey(headKey, fullKey) {
       changed = true;
       return { ...item, key: btoa(fullKey) };
     });
-    if (changed) localStorage.setItem(SAVED_KEYS_STORAGE, JSON.stringify(next));
+    if (changed) {
+      localStorage.setItem(SAVED_KEYS_STORAGE, JSON.stringify(next));
+      notifyKeysChanged();
+    }
   } catch {}
 }
 
@@ -141,6 +150,7 @@ export function commitPendingKey() {
       lastLoginDate: new Date().toISOString()
     });
     localStorage.setItem(SAVED_KEYS_STORAGE, JSON.stringify(list));
+    notifyKeysChanged();
   } catch {}
 }
 
@@ -182,6 +192,13 @@ export function handleDeviceAuthEvent(pm, event, data) {
   const apiKey = pm._auth?.apiKey;
   if (!apiKey) return false;
   if (event === "device:keyIssued") {
+    // Pairing complete: every later proof (WS reconnect, RTC re-offer) must
+    // present the KEY tail WITHOUT the one-time key — while tempKey is still
+    // attached the agent validates against the RANDOM pairing tail instead,
+    // and the mismatch kills the code and drops the socket. Clear it from
+    // this PM's auth, handshake included.
+    pm._auth.tempKey = null;
+    if (pm._auth.socketOptions?.auth) pm._auth.socketOptions.auth.tempKey = null;
     // Store issued TAIL to establish persistent device authentication.
     const tail = data?.tail;
     if (!tail) return true;

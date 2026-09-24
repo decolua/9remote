@@ -8,11 +8,15 @@ import { useAuth } from "@/shared/hooks/useAuth";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { headOf, tailOf, isLegacyApiKey } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { finishPairingLogin } from "../lib/switchHost";
 import { parsePairingInput } from "../lib/parsePairingInput";
 
 // Add another machine: a pasted access key, or a pairing code read off the host's
-// screen. Both paths end in a real authentication, so a wrong key is caught here
-// rather than at the next workspace load.
+// screen. An access key carries its own TAIL, so it joins the fleet as a sibling
+// bus with no reload. A one-time key does NOT — the agent only issues the key
+// (tail included) over an enrollment connection carrying the tempKey, so that
+// path logs into the host once, exactly like the login page.
 export default function AddHostModal({ onClose }) {
   const { t } = useI18n();
   const { authenticateWithApiKey, authenticateWithToken } = useAuth();
@@ -52,23 +56,36 @@ export default function AddHostModal({ onClose }) {
     // The same two shapes the login page accepts: a pairing code routes through the
     // agent's temp key, anything else is an access key.
     const parsed = parsePairingInput(raw);
+    const isOneTime = !!parsed?.tempKey;
     try {
-      const result = parsed?.tempKey
+      // Access keys carry their own TAIL: verify without touching the live
+      // session, then join the fleet as a sibling bus (no reload). One-time
+      // keys need an enrollment session — handled below via finishPairingLogin.
+      const result = isOneTime
         ? await authenticateWithToken(parsed.tempKey, true, parsed.tail)
-        : await authenticateWithApiKey(raw);
+        : await authenticateWithApiKey(raw, { persistSession: false });
       if (!result?.success) {
         setError(result?.error && result.error !== "wrong-key-tail"
           ? result.error
           : t("login.invalidKeyTail"));
         return;
       }
-      const head = parsed?.tempKey ? result.apiKey : headOf(raw);
-      const tail = parsed?.tempKey ? parsed.tail : tailOf(raw);
-      if (tail && head) setTrust(parsed?.tempKey || head, { tail });
-      if (remember && head) saveKey(parsed?.tempKey ? result.apiKey : raw, "");
-      // Authentication wrote the new auth to session storage — a reload is what
-      // actually rebinds the bus to the new host.
-      window.location.href = "/workspace/";
+      if (isOneTime) {
+        finishPairingLogin(parsed, { remember, leavingHead: useFleetStore.getState().currentKey });
+        return;
+      }
+      const head = headOf(raw);
+      const tail = tailOf(raw);
+      // Trust the tail under the HEAD — the fleet bus authenticates by head
+      // (device proof per connect).
+      if (tail && head) setTrust(head, { tail });
+      if (remember && head) {
+        saveKey(raw, "");
+        // Auto-connect: sync() (fired by the saveKey change event) opens the
+        // new host's bus right away, so its row comes up live in the tree.
+        useFleetStore.getState().setAutoConnect(head, true);
+      }
+      onClose?.();
     } catch (err) {
       setError(err?.message || t("login.invalidKeyTail"));
     } finally {
