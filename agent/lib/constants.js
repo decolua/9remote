@@ -38,10 +38,27 @@ dns.lookup = (hostname, options, cb) => {
   if (hostname === "localhost" || IP_REGEX.test(hostname)) {
     return _originalLookup(hostname, options, cb);
   }
-  publicResolver.resolve4(hostname).then((addrs) => {
-    if (!addrs?.length) return _originalLookup(hostname, options, cb);
-    if (options.all) cb(null, addrs.map((a) => ({ address: a, family: 4 })));
-    else cb(null, addrs[0], 4);
+  const resolve = async () => {
+    if (options.family === 6) {
+      const addrs = await publicResolver.resolve6(hostname);
+      return { addrs, family: 6 };
+    }
+    if (options.family === 4) {
+      const addrs = await publicResolver.resolve4(hostname);
+      return { addrs, family: 4 };
+    }
+    const [res4, res6] = await Promise.allSettled([
+      publicResolver.resolve4(hostname),
+      publicResolver.resolve6(hostname),
+    ]);
+    if (res4.status === "fulfilled" && res4.value?.length) return { addrs: res4.value, family: 4 };
+    if (res6.status === "fulfilled" && res6.value?.length) return { addrs: res6.value, family: 6 };
+    return null;
+  };
+  resolve().then((res) => {
+    if (!res?.addrs?.length) return _originalLookup(hostname, options, cb);
+    if (options.all) cb(null, res.addrs.map((a) => ({ address: a, family: res.family })));
+    else cb(null, res.addrs[0], res.family);
   }).catch(() => _originalLookup(hostname, options, cb));
 };
 

@@ -17,8 +17,18 @@ export function flushWinDns() {
 export async function resolveTunnelDns(hostname, timeoutMs = PROBE_DNS_TIMEOUT_MS) {
   const t0 = Date.now();
   try {
+    const queryDual = async () => {
+      const [res4, res6] = await Promise.allSettled([
+        dnsResolver.resolve4(hostname),
+        dnsResolver.resolve6(hostname),
+      ]);
+      if (res4.status === "fulfilled" && res4.value?.length) return res4.value;
+      if (res6.status === "fulfilled" && res6.value?.length) return res6.value;
+      throw res4.reason || res6.reason || Object.assign(new Error("DNS query failed"), { code: "ENOTFOUND" });
+    };
+
     const addrs = await Promise.race([
-      dnsResolver.resolve4(hostname),
+      queryDual(),
       new Promise((_, reject) =>
         setTimeout(() => reject(Object.assign(new Error("DNS timeout"), { code: "ETIMEOUT" })), timeoutMs)
       ),
