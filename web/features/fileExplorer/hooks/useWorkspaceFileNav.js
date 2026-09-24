@@ -7,9 +7,8 @@ import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath } fr
 // workspace selection (recent workspaces), folder browsing, the mobile editor overlay,
 // and per-workspace last-folder persistence. Verbatim moves from the workspace layout.
 export function useWorkspaceFileNav({
-  pushView, viewStack, setViewStack, currentView, cwdBySession, sessions = [], isDesktop, fileBus
-
-  pushView, viewStack, setViewStack, currentView, cwdBySession, sessions = [], isDesktop, fileBus, scope = "" }) {
+  pushView, viewStack, setViewStack, currentView, cwdBySession, sessions = [], isDesktop, fileBus, scope = ""
+}) {
   const [systemInfo, setSystemInfo] = useState(null);
   // Mobile-only: file opened as an overlay above the files view (no viewStack entry), so the
   // explorer stays mounted and Back (X) returns to the same folder without a reload.

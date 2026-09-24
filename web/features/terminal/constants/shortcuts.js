@@ -51,11 +51,15 @@ let macCache = null;
 
 export const isMac = () => {
   if (macCache !== null) return macCache;
-  if (typeof navigator === "undefined") return false; // SSR: don't cache a guess
+  if (typeof window === "undefined" || typeof navigator === "undefined") return false; // SSR: don't cache a guess
   const modern = navigator.userAgentData?.platform;
-  macCache = modern
-    ? modern === "macOS"
-    : /Mac/.test(navigator.platform || "") && navigator.maxTouchPoints <= 1;
+  if (modern) {
+    macCache = modern === "macOS";
+    return macCache;
+  }
+  const ua = navigator.userAgent || "";
+  const plat = navigator.platform || "";
+  macCache = /Macintosh|Mac OS X|MacIntel/i.test(ua + " " + plat) && !/iPhone|iPod/.test(ua);
   return macCache;
 };
 

@@ -323,7 +323,7 @@ export default function NewTerminalModal({
                   <>
                     <span className="hidden sm:inline-flex items-center gap-0.5 shrink-0 select-none">
                       {quickKeys.map((k) => (
-                        <kbd key={k} className="inline-flex items-center justify-center px-1 py-0.5 text-[13px] font-medium leading-none rounded bg-surface-2 border border-border-subtle text-text">
+                        <kbd key={k} className="inline-flex items-center justify-center px-1 py-0.5 text-[10px] font-mono leading-none rounded bg-surface-2 border border-border-subtle text-text-muted">
                           {k}
                         </kbd>
                       ))}

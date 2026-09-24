@@ -31,20 +31,20 @@ export default function WorkspaceHeader({
   return (
     <div
       onClick={onSelect}
-      className={`relative pr-2 py-1.5 flex items-center gap-1 group group/grp transition-colors ${
+      className={`relative pr-2 py-1.5 flex items-center gap-1.5 group group/grp transition-colors ${
         onSelect ? "cursor-pointer hover:bg-text/[0.06]" : ""
       }`}
     >
       <button
         onClick={(e) => { e.stopPropagation(); vibrate(); onToggleCollapse?.(); }}
-        className="p-1 text-text-subtle hover:text-text flex-shrink-0"
+        className="text-text-subtle hover:text-text flex-shrink-0"
         tabIndex={-1}
       >
-        <ChevronRight size={12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
+        <ChevronRight size={mobile ? 18 : 12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
       </button>
-      <Folder size={13.5} className="text-text-muted flex-shrink-0" />
+      <Folder size={mobile ? 14 : 13.5} className="text-text-muted flex-shrink-0" />
       <span className="flex-1 min-w-0 flex flex-col">
-        <span className={`text-[12px] font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`} data-tip={workspace.name}>
+        <span className={`${mobile ? "text-sm" : "text-[12px]"} font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`} data-tip={workspace.name}>
           {workspace.name}
         </span>
         {/* Path is dropped and a default branch stays hidden — only an off-default
@@ -57,7 +57,7 @@ export default function WorkspaceHeader({
       </span>
       {/* New terminal (+) and "..." — the ExplorerRow door: name runs full width,
           hover floats the cluster over its end with a surface backdrop. */}
-      <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1.5 px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 transition-opacity">
+      <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1.5 ${mobile ? "opacity-100" : "px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"} transition-opacity`}>
         {onNewTerminal && (
           <button
             type="button"
