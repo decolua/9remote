@@ -59,9 +59,13 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
     afterChange();
   };
 
-  const removeWorktree = async (wtPath, confirmed) => {
-    const res = await fileBus.gitWorktreeRemove(workspacePath, wtPath, { confirmed });
+  const removeWorktree = async (wtPath, confirmed, force = false) => {
+    const res = await fileBus.gitWorktreeRemove(workspacePath, wtPath, { confirmed, force });
     if (res?.busy) return setRemoveTarget({ path: wtPath, busy: res.busy });
+    if (!res?.success && /use --force/i.test(res?.error || "")) {
+      // Git refuses to drop uncommitted work — ask once more before forcing.
+      return setRemoveTarget({ path: wtPath, dirty: true });
+    }
     setRemoveTarget(null);
     if (!res?.success) return setError(res?.error || null);
     afterChange();
@@ -212,7 +216,7 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
       <ConfirmDialog
         isOpen={!!removeTarget}
         onClose={() => setRemoveTarget(null)}
-        onConfirm={() => removeWorktree(removeTarget.path, true)}
+        onConfirm={() => removeWorktree(removeTarget.path, true, !!removeTarget.dirty)}
         title={t("workspaces.removeWorktree")}
         message={
           removeTarget?.busy?.length
@@ -220,7 +224,9 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
                 count: removeTarget.busy.length,
                 names: removeTarget.busy.map((s) => s.name).join(", ")
               })
-            : t("workspaces.removeWorktreeMessage", { path: removeTarget?.path || "" })
+            : removeTarget?.dirty
+              ? t("workspaces.worktreeDirty")
+              : t("workspaces.removeWorktreeMessage", { path: removeTarget?.path || "" })
         }
       />
     </div>

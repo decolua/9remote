@@ -271,6 +271,7 @@ export default {
     removeWorktreeBranch: "Branch \"{branch}\" cũng bị xóa (nếu đã merge).",
     worktreeBranchKept: "Branch \"{branch}\" được giữ lại: chưa merge.",
     worktreeBusy: "Còn {count} terminal đang chạy trong worktree này: {names}",
+    worktreeDirty: "This worktree has modified or untracked files — forcing the removal deletes them for good. Continue?",
     checkedOut: "đang checkout",
     newBranch: "Branch mới",
     checkout: "Checkout",

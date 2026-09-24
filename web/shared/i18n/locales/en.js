@@ -353,6 +353,7 @@ export default {
     removeWorktreeBranch: "Branch \"{branch}\" is deleted too (when fully merged).",
     worktreeBranchKept: "Branch \"{branch}\" kept: not fully merged.",
     worktreeBusy: "{count} terminal(s) still run in this worktree: {names}",
+    worktreeDirty: "This worktree has modified or untracked files — forcing the removal deletes them for good. Continue?",
     checkedOut: "checked out",
     newBranch: "New branch",
     checkout: "Checkout",
