@@ -65,13 +65,13 @@ export default function HostTreeRow({
             aria-expanded={!collapsed}
             aria-label={displayLabel}
           >
-            <ChevronRight size={12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
+            <ChevronRight size={mobile ? 18 : 12} className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
           </button>
         ) : (
           // Same box, invisible — every host row's glyph stays at the same x even
           // when a row cannot expand (an offline host).
           <span className="p-1 flex-shrink-0 invisible" aria-hidden="true">
-            <ChevronRight size={12} />
+            <ChevronRight size={mobile ? 18 : 12} />
           </span>
         )}
         {/* Every host row carries the machine glyph + connection dot — the identity
