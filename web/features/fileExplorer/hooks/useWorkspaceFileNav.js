@@ -8,7 +8,8 @@ import { addRecentWorkspace, getRecentWorkspaces, updateRecentWorkspacePath } fr
 // and per-workspace last-folder persistence. Verbatim moves from the workspace layout.
 export function useWorkspaceFileNav({
   pushView, viewStack, setViewStack, currentView, cwdBySession, sessions = [], isDesktop, fileBus
-}) {
+
+  pushView, viewStack, setViewStack, currentView, cwdBySession, sessions = [], isDesktop, fileBus, scope = "" }) {
   const [systemInfo, setSystemInfo] = useState(null);
   // Mobile-only: file opened as an overlay above the files view (no viewStack entry), so the
   // explorer stays mounted and Back (X) returns to the same folder without a reload.
@@ -29,7 +30,7 @@ export function useWorkspaceFileNav({
   const handleOpenFiles = useCallback(async (prefWorkspace) => {
     // Explicit workspace (side panel's "open full") wins over the terminal's cwd
     if (prefWorkspace) {
-      addRecentWorkspace(prefWorkspace);
+      addRecentWorkspace(prefWorkspace, scope);
       pushView({ type: "files", workspace: prefWorkspace, currentPath: prefWorkspace });
       return;
     }
@@ -40,23 +41,23 @@ export function useWorkspaceFileNav({
         ? cwdBySession[currentView.sessionId] || sessions.find((s) => s.id === currentView.sessionId)?.cwd || null
         : null;
       if (cwd) {
-        addRecentWorkspace(cwd);
+        addRecentWorkspace(cwd, scope);
         pushView({ type: "files", workspace: cwd, currentPath: cwd });
         return;
       }
     }
     // Fallback: auto-open the most recent workspace (restore last folder); else show the list
-    const recent = getRecentWorkspaces();
+    const recent = getRecentWorkspaces(scope);
     if (recent.length > 0) {
       const last = recent[0];
       pushView({ type: "files", workspace: last.path, currentPath: last.lastPath || last.path });
       return;
     }
     handleOpenWorkspaceList();
-  }, [pushView, handleOpenWorkspaceList, currentView, cwdBySession, sessions]);
+  }, [pushView, handleOpenWorkspaceList, currentView, cwdBySession, sessions, scope]);
 
   const handleSelectWorkspace = useCallback((workspacePath) => {
-    addRecentWorkspace(workspacePath);
+    addRecentWorkspace(workspacePath, scope);
     // Replace existing workspaces/files views so Back doesn't revisit the old workspace/selector
     const cleaned = viewStack.filter(v => v.type !== "workspaces" && v.type !== "files");
     setViewStack([...cleaned, { type: "files", workspace: workspacePath }]);
@@ -70,7 +71,7 @@ export function useWorkspaceFileNav({
     // Persist the last visited folder per workspace so the next open restores it.
     // Do NOT patch viewStack here — FileExplorer's onPathChange fires on every currentPath
     // change (incl. agent-normalized paths) and writing it back triggers a re-mount loop.
-    updateRecentWorkspacePath(workspacePath, currentPath);
+    updateRecentWorkspacePath(workspacePath, currentPath, scope);
   }, []);
 
   const handleOpenFile = useCallback((filePath, folderPath, opts = {}) => {
@@ -90,7 +91,7 @@ export function useWorkspaceFileNav({
 
   const handleSetWorkspace = useCallback((workspacePath) => {
     // Replace browse/workspaces/files views so Back doesn't revisit the browse selector
-    addRecentWorkspace(workspacePath);
+    addRecentWorkspace(workspacePath, scope);
     const cleaned = viewStack.filter(v => v.type !== "browse" && v.type !== "workspaces" && v.type !== "files");
     setViewStack([...cleaned, { type: "files", workspace: workspacePath }]);
   }, [viewStack, setViewStack]);

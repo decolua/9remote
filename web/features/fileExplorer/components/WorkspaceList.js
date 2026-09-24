@@ -81,10 +81,10 @@ export function togglePinWorkspace(workspacePath) {
   localStorage.setItem(storageKey(), JSON.stringify([...pinned, ...unpinned]));
 }
 
-export function updateOpenedFiles(workspacePath, openedFiles, activeFile) {
+export function updateOpenedFiles(workspacePath, openedFiles, activeFile, scope = "") {
   if (typeof window === "undefined") return;
   const norm = toPosixPath(workspacePath);
-  const recent = getRecentWorkspaces();
+  const recent = getRecentWorkspaces(scope);
   const idx = recent.findIndex(w => w.path === norm);
   // Normalize stored paths so tabs round-trip cleanly on Windows.
   const files = Array.isArray(openedFiles)
@@ -94,21 +94,21 @@ export function updateOpenedFiles(workspacePath, openedFiles, activeFile) {
   // Auto-create entry so tabs persist even if workspace not yet in recent list
   if (idx === -1) {
     recent.unshift({ path: norm, lastOpened: Date.now(), openedFiles: files, activeFile: active });
-    localStorage.setItem(storageKey(), JSON.stringify(recent));
+    localStorage.setItem(storageKey(scope), JSON.stringify(recent));
     return;
   }
   recent[idx] = { ...recent[idx], openedFiles: files, activeFile: active ?? null };
-  localStorage.setItem(storageKey(), JSON.stringify(recent));
+  localStorage.setItem(storageKey(scope), JSON.stringify(recent));
 }
 
-export function updateRecentWorkspacePath(workspacePath, lastPath) {
+export function updateRecentWorkspacePath(workspacePath, lastPath, scope = "") {
   if (typeof window === "undefined") return;
   const norm = toPosixPath(workspacePath);
-  const recent = getRecentWorkspaces();
+  const recent = getRecentWorkspaces(scope);
   const idx = recent.findIndex(w => w.path === norm);
   if (idx === -1) return;
   recent[idx] = { ...recent[idx], lastPath: toPosixPath(lastPath) };
-  localStorage.setItem(storageKey(), JSON.stringify(recent));
+  localStorage.setItem(storageKey(scope), JSON.stringify(recent));
 }
 
 export function removeRecentWorkspace(workspacePath, scope = "") {

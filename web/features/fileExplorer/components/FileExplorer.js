@@ -25,7 +25,8 @@ export default function FileExplorer({
   onSwitchWorkspace,
   onPathChange,
   isBrowsing = false,
-  hideSwitchWorkspace = false
+  hideSwitchWorkspace = false,
+  scope = ""
 }) {
   const { t } = useI18n();
   const [currentPath, setCurrentPath] = useState(initialPath || workspace);
@@ -178,7 +179,7 @@ export default function FileExplorer({
   };
 
   const handleSetAsWorkspace = () => {
-    addRecentWorkspace(currentPath);
+    addRecentWorkspace(currentPath, scope);
     onSetWorkspace(currentPath);
   };
 
