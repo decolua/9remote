@@ -11,7 +11,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import {
-  Folder, Monitor, Smartphone, Plus, Settings, Pencil, Trash2, ChevronRight, Zap, ArrowRight, Image, Terminal, KeyRound
+  Folder, Monitor, Smartphone, Plus, Settings, Pencil, Trash2, ChevronRight, Zap, ArrowRight, Image, KeyRound
 } from "@/shared/components/ui/Icon";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { vibrate } from "@/shared/utils/vibration";
@@ -29,6 +29,7 @@ import { otherHostsOf } from "@/features/hosts/lib/fleetTree";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
+import { PlainShellGlyph } from "@/features/terminal/components/SessionAgentIcon";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { shortenHomePath, workspaceGitPath, groupSessionsByWorkspace } from "@/features/terminal/lib/workspaceGrouping";
 import BranchBadge from "@/features/terminal/components/BranchBadge";
@@ -42,7 +43,7 @@ const UNGROUPED_KEY = "ungrouped";
 // hook-reported tools fall back to the label's icon, and a plain shell gets a prompt.
 function AgentGlyph({ agentId, tool }) {
   const [broken, setBroken] = useState(false);
-  if (broken) return <Terminal size={14} className="text-text-muted flex-shrink-0" />;
+  if (broken) return <PlainShellGlyph size={14} />;
   if (agentId?.endsWith("-ui")) {
     return (
       <img
@@ -57,7 +58,7 @@ function AgentGlyph({ agentId, tool }) {
   if (AGENT_ICONS[tool]) {
     return <img src={AGENT_ICONS[tool]} alt={tool} draggable={false} className={`w-3.5 h-3.5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`} />;
   }
-  return <Terminal size={14} className="text-text-muted flex-shrink-0" />;
+  return <PlainShellGlyph size={14} />;
 }
 
 // Touch drag: the grip handle carries `touch-none`, so a drag from it never scrolls;
