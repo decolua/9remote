@@ -36,9 +36,28 @@ async function changedCountCached(repoPath) {
   try { return await pending; } catch { return { success: false }; }
 }
 
+// Agents launched from launchers/services inherit a minimal PATH where git is
+// invisible (spawn ENOENT) — resolve the binary once, then reuse everywhere.
+const GIT_BIN_NOT_FOUND = "git not found on this machine";
+const gitBinProbe = (bin) => {
+  try {
+    const r = spawnSync(bin, ["--version"], { encoding: "utf-8", windowsHide: true, timeout: 5000 });
+    return !r.error;
+  } catch { return false; }
+};
+function resolveGitBin() {
+  if (gitBinProbe("git")) return "git";
+  const candidates = process.platform === "win32"
+    ? ["C:\\Program Files\\Git\\cmd\\git.exe", "C:\\Program Files (x86)\\Git\\cmd\\git.exe"]
+    : ["/usr/bin/git", "/usr/local/bin/git", "/opt/homebrew/bin/git"];
+  return candidates.find(gitBinProbe) || null;
+}
+const GIT_BIN = resolveGitBin();
+
 export function runGit(args, cwd) {
   return new Promise((resolve) => {
-    const child = spawn("git", args, { cwd, windowsHide: true });
+    if (!GIT_BIN) return resolve({ code: -1, stdout: "", stderr: GIT_BIN_NOT_FOUND });
+    const child = spawn(GIT_BIN, args, { cwd, windowsHide: true });
     let stdout = "", stderr = "";
     child.stdout.on("data", (d) => { stdout += d.toString(); });
     child.stderr.on("data", (d) => { stderr += d.toString(); });
@@ -50,7 +69,8 @@ export function runGit(args, cwd) {
 // Sync no-shell git for legacy sync handlers. args is an argv array (never a template
 // string) so socket-controlled paths cannot inject shell metacharacters.
 export function runGitSync(args, cwd) {
-  const r = spawnSync("git", args, {
+  if (!GIT_BIN) throw new Error(GIT_BIN_NOT_FOUND);
+  const r = spawnSync(GIT_BIN, args, {
     cwd, encoding: "utf-8", windowsHide: true, maxBuffer: MAX_GIT_OUTPUT_SIZE
   });
   // ENOBUFS means the output was cut mid-diff — returning it would look like a smaller
@@ -256,7 +276,7 @@ export function setupGitHandlers(socket) {
       const fullPath = path.join(repoPath, file);
       if (isSensitivePath(fullPath)) return callback({ success: false, error: "Access denied" });
 
-      const r = spawnSync("git", ["show", `${ref}:${file}`], {
+      const r = spawnSync(GIT_BIN, ["show", `${ref}:${file}`], {
         cwd: repoPath,
         maxBuffer: MAX_IMAGE_RAW_SIZE,
         windowsHide: true
