@@ -4,9 +4,9 @@ import { THEME } from "../constants/landingConfig";
 
 const SUPERPOWERS = [
   {
-    title: "Remote Vibe Coding",
+    title: "Every Harness, One UI",
     tag: "AI-Ready",
-    desc: "Run Claude Code, Cursor & 30+ AI agents on the go with live artifact previews.",
+    desc: "Run Claude Code, Codex, Gemini CLI, Cursor & 30+ AI agents in one UI with live artifact previews.",
     path: "M13 10V3L4 14h7v7l9-11h-7z"
   },
   {
@@ -56,7 +56,7 @@ const SUPERPOWERS = [
 const COMPARISON_FEATURES = [
   { name: "Zero Config", nine: true, claude: true, teamviewer: true, chrome: true, termius: false },
   { name: "Remote IDE", nine: true, claude: false, teamviewer: false, chrome: false, termius: false },
-  { name: "30+ AI Agents & Vibe Coding", nine: true, claude: true, teamviewer: false, chrome: false, termius: false },
+  { name: "Every Harness in One UI", nine: true, claude: false, teamviewer: false, chrome: false, termius: false },
   { name: "Terminal Access", nine: true, claude: true, teamviewer: false, chrome: false, termius: true },
   { name: "Persistent Daemon", nine: true, claude: true, teamviewer: false, chrome: false, termius: true },
   { name: "Remote Localhost Preview", nine: true, claude: false, teamviewer: false, chrome: false, termius: false },

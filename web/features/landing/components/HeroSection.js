@@ -4,6 +4,10 @@ import { THEME } from "../constants/landingConfig";
 
 const SUPERPOWERS = [
   {
+    name: "Every Harness · One UI",
+    path: "M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"
+  },
+  {
     name: "Remote IDE",
     path: "M8 9l3 3-3 3m5 0h3M5 20h14a2 2 0 002-2V6a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"
   },
@@ -78,11 +82,15 @@ export default function HeroSection() {
               ))}
             </div>
 
+            <p className="font-mono text-xs sm:text-sm mb-3 max-w-xl mx-auto lg:mx-0" style={{ color: THEME.accent }}>
+              Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them. Same agents, one UI you'll actually love.
+            </p>
+
             <p
               className="hero-gloss text-sm sm:text-base mb-8 max-w-xl mx-auto lg:mx-0"
-              data-text="Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and remote vibe coding with 30+ AI agents on PC, Web, iPad, or phone."
+              data-text="Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and every AI harness in one UI: Claude Code, Codex, Cursor & 30+ agents on PC, Web, iPad, or phone."
             >
-              Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and remote vibe coding with 30+ AI agents on PC, Web, iPad, or phone.
+              Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and every AI harness in one UI: Claude Code, Codex, Cursor & 30+ agents on PC, Web, iPad, or phone.
             </p>
 
             {/* Stats */}

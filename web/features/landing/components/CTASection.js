@@ -25,6 +25,10 @@ export default function CTASection() {
               On any screen, <span style={{ color: THEME.text }}>everywhere</span>.
             </h2>
 
+            <p className="font-mono text-xs sm:text-sm mb-3" style={{ color: THEME.accent }}>
+              Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them. Same agents, one UI you'll actually love.
+            </p>
+
             <p className="text-base sm:text-lg mb-8 max-w-2xl mx-auto" style={{ color: THEME.textDim }}>
               IDE, 60fps desktop, files, emulator & 30+ AI vibe coding agents on PC, Web, iPad, and mobile. Ready in 30 seconds.
             </p>
