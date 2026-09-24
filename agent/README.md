@@ -1,16 +1,18 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/desktop-ide.webp" alt="9Remote desktop workspace: terminal, editor and AI agent panes side by side" width="900"/>
+  <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/desktop-ide.webp" alt="9Remote desktop workspace: terminal, editor and AI agent panes side by side" width="900"/>
 
   <p align="center">
-    <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/mobile-1.webp" width="32%" alt="Claude Code on Phone"/>
-    <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/mobile-2.webp" width="32%" alt="File Explorer on Phone"/>
-    <img src="https://raw.githubusercontent.com/decolua/9remote_public/main/images/mobile-3.webp" width="32%" alt="System Dashboard on Phone"/>
+    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-1.webp" width="32%" alt="Claude Code on Phone"/>
+    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-2.webp" width="32%" alt="File Explorer on Phone"/>
+    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-3.webp" width="32%" alt="System Dashboard on Phone"/>
   </p>
 
   # 9Remote — Remote Everything, Vibecode Everywhere
 
   **Your entire dev workstation in your pocket.**<br/>
-  **Remote IDE, 60fps Desktop, Visual File Explorer, Live Mobile Emulator, Zero-Config Localhost, and Remote Vibe Coding with 30+ AI agents on PC, Web, iPad, or phone.**
+  **Remote IDE, 60fps Desktop, Visual File Explorer, Live Mobile Emulator, Zero-Config Localhost, and Every AI Harness in One UI — Claude Code, Codex, Gemini CLI & 30+ agents on PC, Web, iPad, or phone.**
+
+> **Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them.** Same agents, one UI you'll actually love.
 
   [![npm version](https://img.shields.io/npm/v/9remote.svg)](https://www.npmjs.com/package/9remote)
   [![Downloads](https://img.shields.io/npm/dm/9remote.svg)](https://www.npmjs.com/package/9remote)
@@ -59,8 +61,8 @@ npm install -g 9remote
 
 ## ✨ 8 Remote Superpowers
 
-### 🤖 1. Remote Vibe Coding (AI-Ready)
-- Run **Claude Code**, Cursor CLI, Aider, Codex & 30+ AI agents on the go.
+### 🤖 1. Every Harness, One UI (AI-Ready)
+- Every AI harness in one UI — run **Claude Code**, Codex, Gemini CLI, Cursor CLI, Aider & 30+ AI agents on the go.
 - Built-in artifact inspector with live rendering for HTML, Markdown, and Mermaid diagrams.
 - Dedicated AI shortcut triggers and multi-turn workflow tracking.
 
@@ -132,7 +134,7 @@ sequenceDiagram
 |---------|:-----------:|:-------------:|:----------:|:-------------:|:-------:|
 | **Zero Config** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **Remote IDE** | ✅ | ❌ | ❌ | ❌ | ❌ |
-| **30+ AI Agents & Vibe Coding** | ✅ | ✅ | ❌ | ❌ | ❌ |
+| **Every Harness in One UI** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Terminal Access** | ✅ | ✅ | ❌ | ❌ | ✅ |
 | **Persistent Daemon** | ✅ | ✅ | ❌ | ❌ | ✅ |
 | **Remote Localhost Preview** | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -149,7 +151,7 @@ sequenceDiagram
 | **No Port Forwarding** | ✅ | ✅ | ✅ | ✅ | ❌ |
 | **No Account Required** | ✅ | ❌ | ❌ | ❌ | ❌ |
 | **Free & Self-Hostable** | ✅ | ❌ | ❌ | ✅ | ❌ |
-| **TOTAL** | **19 / 19** | 10 / 19 | 6 / 19 | 5 / 19 | 5 / 19 |
+| **TOTAL** | **19 / 19** | 9 / 19 | 6 / 19 | 5 / 19 | 5 / 19 |
 
 > **🏆 9Remote: Complete 19/19 capabilities · 100% self-hosted & private.**
 
@@ -191,7 +193,7 @@ sequenceDiagram
 <details>
 <summary><b>🤖 Which AI agents are supported?</b></summary>
 
-Works with any CLI AI tool: **Claude Code**, Cursor CLI, Aider, Codex, OpenClaw, and more. 9Remote provides dedicated multi-pane terminals and live artifact rendering for HTML and diagrams.
+Works with any CLI AI tool: **Claude Code**, Codex, Gemini CLI, Cursor CLI, Aider, OpenClaw, and more — every harness, one UI. 9Remote provides dedicated multi-pane terminals and live artifact rendering for HTML and diagrams.
 </details>
 
 ---

@@ -1,6 +1,8 @@
 # 9Remote — Remote Everything, Vibecode Everywhere
 
-Your entire dev workstation in your pocket. A remote IDE, 60fps desktop stream, visual file explorer, live mobile emulator, zero-config localhost preview, and remote vibe coding with 30+ AI agents on PC, Web, iPad, or phone.
+Your entire dev workstation in your pocket. A remote IDE, 60fps desktop stream, visual file explorer, live mobile emulator, zero-config localhost preview, and every AI harness in one UI — Claude Code, Codex, Gemini CLI & 30+ agents — on PC, Web, iPad, or phone.
+
+> **Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them.** Same agents, one UI you'll actually love.
 
 <div align="center">
   <img src="./images/screen.png" alt="9Remote Workspace" width="900"/>
@@ -53,7 +55,7 @@ Scan the QR code from a phone (or open the URL) and you're on your machine's she
 
 ## ✨ 8 Superpowers
 
-1. **Remote Vibe Coding (AI-Ready):** Run Claude Code, Cursor CLI, Aider, Codex & 30+ AI agents with live artifact inspector (HTML, Markdown, Mermaid).
+1. **Every Harness, One UI:** Run Claude Code, Codex, Gemini CLI, Cursor CLI, Aider & 30+ AI agents in a single UI, with live artifact inspector (HTML, Markdown, Mermaid).
 2. **Every Screen, Everywhere:** Seamless across PC, Web, iPad keyboard shortcuts, and mobile touch dev keys (`Esc`, `Tab`, `Ctrl`, `Alt`, arrows).
 3. **60fps Remote Desktop:** Ultra-smooth screen streaming with hardware acceleration and <20ms latency over direct WebRTC.
 4. **Full Remote IDE:** Multi-pane terminals, integrated code editor with syntax highlighting, visual Git status & diff viewer.
