@@ -25,6 +25,9 @@ const CONNECT_TIMEOUT_MS = 15000;
 
 // apiKey HEAD -> ProtocolManager (module-level: transport objects, not render state)
 const buses = new Map();
+// Deferred mutations: pressed while the bus is still opening, fired on connect.
+// Cleared on disconnect — a command never replays against a later session.
+const pendingByHost = new Map();
 let persistTimer = null;
 
 function readDeviceId() {
@@ -32,22 +35,28 @@ function readDeviceId() {
   try { return localStorage.getItem(DEVICE_ID_KEY); } catch { return null; }
 }
 
-// Which host's bus a session belongs to — null for the main host (its bus lives in
-// useConnectionStore) or an unknown id. Panes resolve their bus through this. The
-// registry holds ProtocolManagers; the pane needs the PM's client-bus facade.
-export function busForSession(sessionId) {
-  if (!sessionId) return null;
-  const { hosts } = useFleetStore.getState();
-  for (const h of Object.values(hosts)) {
-    if (h.sessions?.some((s) => s.id === sessionId)) return buses.get(h.key)?.busRef?.current || null;
-  }
-  return null;
-}
+// Which host's bus a session belongs to lives in hostConn (connForSession) — one
+// resolver for panes, panels and trees. This module owns the buses themselves.
 
 // A host's client-bus facade, for callers that hold the HEAD (trees, actions).
 export function fleetBusOf(head) {
   if (!head) return null;
   return buses.get(head)?.busRef?.current || null;
+}
+
+// Run fn with the host's live bus facade now, or defer it until the bus connects
+// (opening the bus if needed). The single door for fleet mutations — defer, never
+// drop a user intent that landed in the lazy-connect window.
+export function emitWhenReady(head, fn) {
+  if (!head) return;
+  const st = useFleetStore.getState();
+  if (!st.hosts[head]) return; // unknown host — nothing to defer to
+  const bus = buses.get(head)?.busRef?.current;
+  if (bus && st.hosts[head].status === "online") { fn(bus); return; }
+  st.ensureHost(head);
+  const q = pendingByHost.get(head) || [];
+  q.push(fn);
+  pendingByHost.set(head, q);
 }
 
 function readCache() {
@@ -82,7 +91,7 @@ function schedulePersist(get) {
 }
 
 const emptyHost = (key) => ({
-  key, full: null, label: "", status: "offline",
+  key, full: null, label: "", status: "offline", carrier: "ws",
   sessions: [], workspaces: [], statusMap: {},
   platform: null, version: null, lastSeenAt: null
 });
@@ -147,7 +156,9 @@ export const useFleetStore = create((set, get) => ({
             const info = data?.hosts?.[head];
             if (!info) continue;
             const st = get().hosts[head];
-            if (!st || st.status === "connecting" || st.status === "full") continue; // live bus wins
+            // A live bus (online/full/connecting) always outranks the heartbeat
+            // probe — a stale D1 row must never flip a working host to offline.
+            if (!st || st.status !== "offline") continue;
             get()._patchHost(head, { status: info.online ? "online" : "offline" });
           }
         })
@@ -190,6 +201,9 @@ export const useFleetStore = create((set, get) => ({
         onConnect: (bus) => {
           clearTimeout(connectTimer);
           patch({ status: "online", lastSeenAt: Date.now() });
+          // Deferred mutations fire in press order, then the fresh lists land.
+          const q = pendingByHost.get(head);
+          if (q) { pendingByHost.delete(head); for (const fn of q) { try { fn(bus); } catch {} } }
           if (bound) { refetch(bus); return; }
           bound = true;
           // Carrier switch = a new socket server-side: re-announce, then refetch.
@@ -217,9 +231,13 @@ export const useFleetStore = create((set, get) => ({
           bus.emit("device:clientReady");
           refetch(bus);
         },
-        onDisconnect: () => get()._patchHost(head, { status: "offline", lastSeenAt: Date.now() })
+        onDisconnect: () => { pendingByHost.delete(head); get()._patchHost(head, { status: "offline", lastSeenAt: Date.now() }); }
       },
-      { enableWebRTC: REMOTE_CONFIG.enableWebRTC, enableTurn: REMOTE_CONFIG.enableTurn, apiKey: head }
+      {
+        enableWebRTC: REMOTE_CONFIG.enableWebRTC, enableTurn: REMOTE_CONFIG.enableTurn, apiKey: head,
+        // The status bar describes the focused pane's host — track its carrier too.
+        onTransportChange: (type) => get()._patchHost(head, { carrier: type || "ws" })
+      }
     );
     buses.set(head, pm);
     patch({ status: "connecting" });
@@ -241,6 +259,7 @@ export const useFleetStore = create((set, get) => ({
   _closeHost(key) {
     const pm = buses.get(key);
     if (pm) { pm.disconnect(); buses.delete(key); }
+    pendingByHost.delete(key);
     get()._patchHost(key, { status: "offline", lastSeenAt: Date.now() });
   },
 
@@ -280,6 +299,7 @@ export const useFleetStore = create((set, get) => ({
   closeAll() {
     for (const pm of buses.values()) pm.disconnect();
     buses.clear();
+    pendingByHost.clear();
     set({ overlayOpen: false });
   },
 

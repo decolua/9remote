@@ -4,7 +4,8 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { busForSession, fleetBusOf, useFleetStore } from "@/shared/stores/fleetStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { connOf, connForSession } from "@/shared/transport/hostConn";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
@@ -91,6 +92,7 @@ function TerminalWorkspace({
   rightPanel, editorPanel, mobilePanel, onOpenArtifact, fileBus,
   onCreateAnyHost, onQuickCreateHostAware,
   codespaceInfo, tunnelUrl, apiKey, connectionMode,
+  onResumeAgentSessionForeign = null,
   subscribeToPush, unsubscribeFromPush, updateAvailable, canSelfUpdate
 }) {
   const { t } = useI18n();
@@ -105,16 +107,12 @@ function TerminalWorkspace({
   // sidebar keeps the main host's own tree and draws the other hosts itself.
   const mainSessions = useMemo(() => sessions.filter((s) => !s.hostKey), [sessions]);
   const mainWorkspaces = useMemo(() => workspaces.filter((w) => !w.hostKey), [workspaces]);
-  // A pane's bus follows its session's host: foreign sessions ride their fleet bus,
-  // main-host ones the workspace singleton.
+  // A pane's bus follows its session's host — one resolver (hostConn), no branches:
+  // a fleet session rides its own bus or waits (null), a main session the singleton.
   const busFor = useCallback((sessionId) => {
-    const fb = busForSession(sessionId);
-    if (fb) return fb;
-    // Main sessions ride the workspace bus; another host's cached session with
-    // no bus yet waits (null) — never join it on the wrong machine. The bus
-    // opening flips host status, re-renders, and the pane comes alive.
-    return sessions.find((s) => s.id === sessionId)?.hostKey ? null : activeBus;
-  }, [activeBus, sessions]);
+    const c = connForSession(sessionId);
+    return c.head ? c.bus : activeBus;
+  }, [activeBus]);
   const isConnected = connected ?? storeConnected;
   const activeCarrier = carrier || storeCarrier;
   const activeFileBus = fileBus || useFileBusStore.getState();
@@ -180,16 +178,16 @@ function TerminalWorkspace({
   // host-aware doors come from layout (one implementation for every entry point)
   // — and its modal reads THAT host's agent list and shells.
   const activeWsHostKey = activeWorkspace?.hostKey || null;
-  const headerModalBusRef = useMemo(
-    () => (activeWsHostKey ? { current: fleetBusOf(activeWsHostKey) } : activeBusRef),
-    [activeWsHostKey, activeBusRef]
-  );
+  // Stable identity, always-fresh current — the modal reads the live bus per call.
+  const headerModalBusRef = connOf(activeWsHostKey).busRef;
   const [foreignShells, setForeignShells] = useState([]);
   const activeHostStatus = useFleetStore((s) => (activeWsHostKey ? s.hosts[activeWsHostKey]?.status || null : null));
   useEffect(() => {
     if (!activeWsHostKey) return;
-    fleetBusOf(activeWsHostKey)?.emit("getShells", (res) => setForeignShells(res?.shells || []));
+    connOf(activeWsHostKey).bus?.emit("getShells", (res) => setForeignShells(res?.shells || []));
   }, [activeWsHostKey, activeHostStatus]);
+  // The bottom status bar describes the FOCUSED pane's host — it resolves carrier,
+  // platform, version, bus and file API itself through hostConn.
   // The chat pane's "+" opens a fresh chat of the same engine and closes the one it
   // replaced — the tab strip must not grow an entry per chat.
   const handleNewChat = useCallback((aiUi, sessionId) => {
@@ -551,7 +549,7 @@ function TerminalWorkspace({
               onSelectSession={nav.handleSelectSession}
               onSelectWorkspace={nav.handleSelectWorkspace}
               onCreateNamedSession={nav.handleCreateSession}
-              onResumeAgentSession={activeSessionForeign ? null : nav.handleResumeAgentSession}
+              onResumeAgentSession={activeSessionForeign ? onResumeAgentSessionForeign : nav.handleResumeAgentSession}
               shells={shells}
               onRenameSession={nav.handleRenameSession}
               onDeleteSession={nav.handleDeleteSession}
@@ -844,10 +842,7 @@ function TerminalWorkspace({
         <TerminalStatusBar
           cwd={activeSessionId ? (cwdBySession[activeSessionId] || activeSession?.cwd || activeWorkspace?.path || "") : ""}
           sessionId={activeSessionId}
-          busRef={activeBusRef}
-          fileBus={activeFileBus}
-          connected={isConnected}
-          carrier={activeCarrier}
+          hostKey={activeSession?.hostKey || null}
           sessionName={activeSession ? activeSession?.name : ""}
           agentVersion={agentVersion}
           platform={platform}

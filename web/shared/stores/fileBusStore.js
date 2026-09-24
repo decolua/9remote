@@ -9,14 +9,13 @@ const normResolve = (resolve) => (res) => {
   resolve(normalizePathsResponse(res));
 };
 
-const getBus = () => {
-  const state = useConnectionStore.getState();
-  if (!state.connected) return null;
-  return state.busRef?.current || state.bus;
-};
-const getProtocol = () => useConnectionStore.getState().protocolRef;
-
-export const useFileBusStore = create(() => ({
+// One file API, any bus: the main singleton and every fleet host's facade are the
+// same object built over a different bus getter — the only per-host difference.
+// `getLiveBus` is the subscription door: unlike one-shot requests it must attach
+// the moment the bus object exists (socket.io allows `on` before connect), so a
+// watcher registering pre-connect never misses the first events.
+export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBus) {
+  return {
   getSystemInfo: () => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
@@ -146,8 +145,7 @@ export const useFileBusStore = create(() => ({
   }),
 
   onFileChange: (handler) => {
-    const state = useConnectionStore.getState();
-    const bus = state.busRef?.current || state.bus;
+    const bus = getLiveBus();
     if (!bus) return () => {};
     bus.on("fileChange", handler);
     return () => bus.off("fileChange", handler);
@@ -314,4 +312,19 @@ export const useFileBusStore = create(() => ({
     if (!bus) return resolve({ success: false });
     bus.emit("preview:end", { sessionId }, resolve);
   })
-}));
+  };
+}
+
+const getMainBus = () => {
+  const state = useConnectionStore.getState();
+  if (!state.connected) return null;
+  return state.busRef?.current || state.bus;
+};
+const getMainProtocol = () => useConnectionStore.getState().protocolRef;
+// Ungated: the bus object existing is enough to subscribe.
+const getMainLiveBus = () => {
+  const state = useConnectionStore.getState();
+  return state.busRef?.current || state.bus;
+};
+
+export const useFileBusStore = create(() => makeFileBus(getMainBus, getMainProtocol, getMainLiveBus));

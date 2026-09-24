@@ -6,7 +6,7 @@ import SelectionActionButton from "@/features/terminal/components/SelectionActio
 import { useGitChangedCount } from "@/features/terminal/hooks/useGitChangedCount";
 import { useXTerm } from "@/features/terminal/hooks/useXTerm";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
-import { ChevronDown, Folder, RefreshCw, ListChecks, Sparkles } from "@/shared/components/ui/Icon";
+import { ChevronDown, Folder, Loader2, RefreshCw, ListChecks, Sparkles } from "@/shared/components/ui/Icon";
 import NotePanel from "@/features/terminal/components/NotePanel";
 import PaneStripButtons from "@/features/terminal/components/PaneStripButtons";
 import { vibrate } from "@/shared/utils/vibration";
@@ -67,7 +67,10 @@ function TerminalPane({
   const openRightPanel = useTerminalStore((s) => s.openRightPanel);
   const setRightPanelRoot = useTerminalStore((s) => s.setRightPanelRoot);
   const storeBus = useConnectionStore((s) => s.bus);
-  const activeBus = bus || storeBus;
+  // null = a foreign session whose lazy bus hasn't opened — wait, never fall back to
+  // the main host's bus (that joins this sessionId on the wrong machine). undefined
+  // keeps the legacy "use the workspace singleton" default.
+  const activeBus = bus === undefined ? storeBus : bus;
   const paneCwd = useTerminalStore((s) => s.cwdBySession[sessionId]);
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
@@ -267,6 +270,17 @@ function TerminalPane({
 
   const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
   const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
+
+  // Foreign session before its bus opens — hold the pane open; the status flip
+  // re-renders it with the real bus (busFor in TerminalWorkspace).
+  if (!activeBus) {
+    return (
+      <div className="h-full w-full flex items-center justify-center gap-2 text-text-muted text-xs">
+        <Loader2 size={13} className="animate-spin" />
+        <span>{t("hosts.connecting")}</span>
+      </div>
+    );
+  }
 
   return (
     <div
