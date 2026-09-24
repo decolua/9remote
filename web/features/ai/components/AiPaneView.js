@@ -27,7 +27,6 @@ import { AiAgentStrip } from "./AiAgentStrip";
 import { AiPaneScope } from "./PaneScope";
 import { getEngineConfig } from "../registry";
 import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, AI_DOT_GRID, ENGINE_INFO } from "../constants";
-import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
@@ -156,12 +155,11 @@ export const AiPaneView = memo(function AiPaneView({
     sendPrompt(`/${skillName}`);
   }, [sendPrompt]);
 
-  // Session options (model / effort / resume / flags) all travel over the bus. The
-  // prop is not always supplied, so fall back to the connection store the same way
-  // useAiSession does — otherwise the modal opens but picking an entry does nothing.
+  // Session options (model / effort / resume / flags) all travel over the bus. No
+  // store fallback: null means the owning host's bus is not up — emitting on the
+  // main connection would set options on a session of the WRONG machine.
   const emitOptions = useCallback((options) => {
-    const b = bus?.emit ? bus : useConnectionStore.getState().bus;
-    b?.emit?.("ai:options", { sessionId, options });
+    bus?.emit?.("ai:options", { sessionId, options });
   }, [bus, sessionId]);
 
   // Model is a session option, not a chat message: it must go through ai:options so
@@ -276,7 +274,7 @@ export const AiPaneView = memo(function AiPaneView({
       {/* Same floating cluster, same order, as a terminal pane's — a chat is the other
           way to sit in a workspace, so the two panes must not drift apart. */}
       {isFocused && (
-        <div className="absolute right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none top-9 sm:top-2">
+        <div className="absolute right-2 z-[2] flex flex-col items-end gap-2 pointer-events-auto touch-none top-9 sm:top-2">
           <div className="flex flex-row gap-2">
             {showNoteButton && (
               <button
@@ -349,6 +347,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {/* Scrollable Message List */}
       <AiMessagesList
+      bus={bus}
         sessionId={sessionId}
         engine={engine}
         workspacePath={workspacePath}
@@ -406,6 +405,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {/* Composer Input Box with integrated Model and Mode pickers */}
       <Composer
+          bus={bus}
         sessionId={sessionId}
         engine={engine}
         onSend={sendPrompt}
@@ -428,6 +428,7 @@ export const AiPaneView = memo(function AiPaneView({
       {/* Status Bar with Session Name, Context window & Actions */}
       <AiStatusBar
         sessionId={sessionId}
+        fileBus={fileBus}
         sessionName={sessionName}
         engine={engine}
         workspacePath={workspacePath}
@@ -467,6 +468,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {activeModal === "sessions" && (
         <SessionsModal
+          bus={bus}
           engine={engine}
           workspacePath={workspacePath}
           onClose={() => setActiveModal(null)}
@@ -494,6 +496,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {activeModal === "doctor" && (
         <DoctorModal
+          bus={bus}
           engine={engine}
           workspacePath={workspacePath}
           onClose={() => setActiveModal(null)}

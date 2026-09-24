@@ -5,7 +5,7 @@ import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFleetStore } from "@/shared/stores/fleetStore";
-import { connOf, connForSession } from "@/shared/transport/hostConn";
+import { connOf, connForSession, useSessionStatus } from "@/shared/transport/hostConn";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { PANE_WIDTH, PANE_GAP_PX, PANE_ROW_PADDING_PX, BG_LIST_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { derivePaneLayout, mountDelayFor, sessionWorkspaceId, autoFitPaneWidth, UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
@@ -25,6 +25,7 @@ import TerminalEditorPanel from "@/features/terminal/components/TerminalEditorPa
 import OverflowTip from "@/shared/components/ui/OverflowTip";
 import TerminalBeam from "@/shared/components/ui/TerminalBeam";
 import TerminalEmptyState from "@/features/terminal/components/TerminalEmptyState";
+import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 import AiPaneView from "@/features/ai/components/AiPaneView";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
@@ -42,8 +43,7 @@ const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
 
 // Isolated per-pane bottom status bar: shows constant-speed light sweep when working, static when done/blocked, hides when idle
 const PaneStatusBar = memo(function PaneStatusBar({ sessionId }) {
-  const sessionStatus = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId] : null);
-  const state = sessionStatus?.state || "idle";
+  const state = useSessionStatus(sessionId);
 
   if (state === "idle") return null;
 
@@ -116,6 +116,12 @@ function TerminalWorkspace({
   const isConnected = connected ?? storeConnected;
   const activeCarrier = carrier || storeCarrier;
   const activeFileBus = fileBus || useFileBusStore.getState();
+  // The side panels (Files/Git/worktrees) follow the FOCUSED pane's host: a foreign
+  // terminal must list ITS machine's disk, not the main connection's.
+  const panelsFileBus = useMemo(
+    () => (activeSession?.hostKey ? connOf(activeSession.hostKey).fileBus : activeFileBus),
+    [activeSession?.hostKey, activeFileBus]
+  );
 
   const {
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
@@ -224,6 +230,11 @@ function TerminalWorkspace({
     setRightPanelRoot(baseRoot, null);
   }, [activeSessionId, baseRoot, setRightPanelRoot]);
   const showEmptyState = !sessions.length;
+  // No workspace AND a single host — the machine is as fresh as the moment it first
+  // connected, so show that wait instead of the two-half picker (remote is one tap
+  // away in the header; a second host keeps the picker to choose whose folder).
+  const fleetHostCount = useFleetStore((s) => Object.keys(s.hosts).length);
+  const showBareWait = showEmptyState && !workspaces.length && fleetHostCount === 1;
 
   // The collapsed panel stays mounted so its width can animate, but only after a first
   // open — otherwise a user who never opens it still pays for the tree and git scan.
@@ -450,6 +461,8 @@ function TerminalWorkspace({
 
   const renderPane = (sessionId, isVisible, isFocused, bgIndex = 0) => {
     const session = sessions.find((s) => s.id === sessionId);
+    // This pane's own machine — every pane on screen, not only the focused one.
+    const paneFileBus = session?.hostKey ? connOf(session.hostKey).fileBus : activeFileBus;
     const sessionAgent = agentBySession[sessionId];
     // Resolved from the engine registry, not a hardcoded id list: adding an engine
     // must not need a second edit here (antigravity-ui rendered as a terminal).
@@ -462,8 +475,8 @@ function TerminalWorkspace({
             engine={aiUi.aiEngine}
             workspacePath={session?.cwd || session?.workspacePath || activeWorkspace?.path}
             sessionName={session?.name}
-            bus={activeBus}
-            fileBus={activeFileBus}
+            bus={busFor(sessionId)}
+            fileBus={paneFileBus}
             isVisible={isVisible}
             isFocused={isFocused}
             isDesktop={isDesktop}
@@ -484,6 +497,7 @@ function TerminalWorkspace({
       workspacePath={session?.workspacePath}
       sessionName={session?.name}
       bus={busFor(sessionId)}
+      fileBus={paneFileBus}
       connected={isConnected}
       sessionId={sessionId}
       isVisible={isVisible}
@@ -591,7 +605,7 @@ function TerminalWorkspace({
             modalBusRef={headerModalBusRef}
             modalHostKey={activeWsHostKey || "main"}
             modalShells={activeWsHostKey ? foreignShells : null}
-            onResumeAgentSession={activeSessionForeign ? null : nav.handleResumeAgentSession}
+            onResumeAgentSession={activeSessionForeign ? onResumeAgentSessionForeign : nav.handleResumeAgentSession}
             onBack={!isDesktop && !atStackBottom ? onBack : null}
             workspaces={workspaces}
             activeWorkspaceId={activeWorkspaceId}
@@ -628,7 +642,11 @@ function TerminalWorkspace({
           )}
 
           {/* Panes container: desktop = horizontal scroll split, mobile = overlay active pane */}
-          {showEmptyState ? (
+          {showBareWait ? (
+            <div className="relative flex-1 min-h-0">
+              <ReconnectScreen inline label={t("workspace.loading")} />
+            </div>
+          ) : showEmptyState ? (
             <div className="flex-1 min-h-0">
               <TerminalEmptyState
                 onAddWorkspace={onAddWorkspace}
@@ -756,7 +774,7 @@ function TerminalWorkspace({
               artifactTitle={editorOpen ? editorPanel.artifactTitle : lastEditor?.artifactTitle}
               previewSeq={editorOpen ? editorPanel.previewSeq : lastEditor?.previewSeq}
               workspace={filesRoot}
-              fileBus={activeFileBus}
+              fileBus={panelsFileBus}
               width={editorPanel.width}
               onResize={editorPanel.onResize}
               onClose={editorPanel.onClose}
@@ -815,7 +833,7 @@ function TerminalWorkspace({
               filesRoot={filesRoot}
               cwdHint={activeCwd}
               activeFile={editorPanel?.filePath}
-              fileBus={activeFileBus}
+              fileBus={panelsFileBus}
               tab={rightPanel.tabs?.[baseRoot ?? ""] || "files"}
               onTabChange={handleRightPanelTabChange}
               width={rightPanel.width}

@@ -22,6 +22,7 @@ function relativeAge(ms) {
 export const SessionsModal = memo(function SessionsModal({
   engine = "claude",
   workspacePath = "",
+  bus = null,
   onClose,
   onResume
 }) {
@@ -30,7 +31,6 @@ export const SessionsModal = memo(function SessionsModal({
   const [query, setQuery] = useState("");
 
   const load = useCallback(() => {
-    const bus = useConnectionStore.getState().bus;
     if (!bus?.emit || !workspacePath) {
       setSessions([]);
       setLoading(false);

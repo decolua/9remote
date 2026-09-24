@@ -213,7 +213,7 @@ function relativeAge(ms) {
 }
 
 // Mounted only for empty chats so git/session polls do not run during active turns.
-const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspacePath, fileBus, onSendPrompt, onOpenResume }) {
+const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspacePath, bus = null, fileBus, onSendPrompt, onOpenResume }) {
   const { t } = useI18n();
   const [recent, setRecent] = useState([]);
   const [homedir, setHomedir] = useState(null);
@@ -229,7 +229,6 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
   useEffect(() => {
     if (!workspacePath) return;
     let live = true;
-    const bus = useConnectionStore.getState().bus;
     if (!bus?.emit) return;
     bus.emit("getAgentSessions", { cwd: workspacePath }, (res) => {
       if (!live) return;
@@ -331,6 +330,7 @@ export const AiMessagesList = memo(function AiMessagesList({
   sessionId,
   engine = "claude",
   workspacePath = "",
+  bus = null,
   fileBus = null,
   onSendPrompt,
   onResolvePermission,
@@ -577,6 +577,7 @@ export const AiMessagesList = memo(function AiMessagesList({
               engine={engine}
               engineMeta={engineMeta}
               workspacePath={workspacePath}
+              bus={bus}
               fileBus={fileBus}
               onSendPrompt={onSendPrompt}
               onOpenResume={onOpenResume}

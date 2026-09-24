@@ -1130,7 +1130,7 @@ export function useAiSession({
   const sendPrompt = useCallback(
     (text, { attachments = null } = {}) => {
       if (!text && !attachments?.length) return;
-      const b = busRef.current || useConnectionStore.getState().bus;
+      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       // Sending is what marks the previous turn read (the terminal side clears on typing) —
       // focusing the composer is not. The store emits clearStatus down to the host itself.
       useNotificationStore.getState().clearNotification(sessionId);
@@ -1156,7 +1156,7 @@ export function useAiSession({
     (id) => {
       const curr = useAiStore.getState().bySession[sessionId]?.queue || [];
       useAiStore.getState().setQueue(sessionId, curr.filter((item) => item.id !== id));
-      const b = busRef.current || useConnectionStore.getState().bus;
+      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       b?.emit("ai:queueRemove", { sessionId, id });
     },
     [sessionId]
@@ -1165,7 +1165,7 @@ export function useAiSession({
   const clearQueue = useCallback(
     () => {
       useAiStore.getState().setQueue(sessionId, []);
-      const b = busRef.current || useConnectionStore.getState().bus;
+      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       b?.emit("ai:queueClear", { sessionId });
     },
     [sessionId]
@@ -1173,7 +1173,7 @@ export function useAiSession({
 
   const resolvePermission = useCallback(
     (requestId, behavior, message = "", answers = null) => {
-      const b = busRef.current || useConnectionStore.getState().bus;
+      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       if (!b) return;
       // Cleared only on the host's ok. Dropping the card first meant an emit that fell
       // into a dead carrier (an F5 mid-answer) left the user with no card and no answer
@@ -1205,7 +1205,7 @@ export function useAiSession({
   );
 
   const stop = useCallback(() => {
-    const b = busRef.current || useConnectionStore.getState().bus;
+    const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
     b?.emit("ai:stop", { sessionId });
     // Deliberately NOT clearing isTurnRunning here. The host ends the turn and broadcasts
     // `stopped` with the span it measured (`turnMs`) — lowering the flag locally first made
@@ -1220,7 +1220,7 @@ export function useAiSession({
   const stopTask = useCallback(
     (taskId) => {
       if (!taskId) return;
-      const b = busRef.current || useConnectionStore.getState().bus;
+      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       b?.emit("ai:stopTask", { sessionId, taskId });
     },
     [sessionId]
@@ -1241,7 +1241,7 @@ export function useAiSession({
   // a host that did not answer (retry). A plain null would collapse the middle two into
   // "unsupported", which is how the control went missing for good on a fresh chat.
   const listRewindPoints = useCallback(async () => {
-    const b = busRef.current || useConnectionStore.getState().bus;
+    const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
     if (!b) return null;
     const res = await new Promise((resolve) => {
       let settled = false;
@@ -1268,7 +1268,7 @@ export function useAiSession({
    */
   const rewindToMessage = useCallback(
     async (messageId, newText, { files = true, preview = false, index = null } = {}) => {
-      const b = busRef.current || useConnectionStore.getState().bus;
+      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       if (!b) return { ok: false, error: "Not connected to the host." };
       const res = await new Promise((resolve) => {
         let settled = false;
@@ -1308,7 +1308,7 @@ export function useAiSession({
       if (!mode) return;
       useAiStore.getState().setPermissionMode(sessionId, mode);
       useAiStore.getState().clearBlocked(sessionId);
-      const b = busRef.current || useConnectionStore.getState().bus;
+      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       b?.emit("ai:options", { sessionId, options: { mode } });
     },
     [sessionId]
@@ -1323,7 +1323,7 @@ export function useAiSession({
   // stay unique as React keys.
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current) return false;
-    const b = busRef.current || useConnectionStore.getState().bus;
+    const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
     if (!b) return false;
     loadingOlderRef.current = true;
     // The log may be replaced while this is in flight (/resume, /clear). The chunk is

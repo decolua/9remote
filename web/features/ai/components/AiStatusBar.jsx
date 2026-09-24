@@ -23,6 +23,7 @@ export const AiStatusBar = memo(function AiStatusBar({
   sessionName = "",
   engine = "claude",
   workspacePath = "",
+  fileBus = null,
   isTurnRunning: propTurnRunning = false,
   isDesktop = true,
   onModeChange,
@@ -39,7 +40,7 @@ export const AiStatusBar = memo(function AiStatusBar({
 
   const isTurnRunning = storeTurnRunning !== undefined ? storeTurnRunning : propTurnRunning;
   // Non-default branch only — "main" is the norm, not information (same rule as the sidebar).
-  const { branch, dirty } = useWorkspaceGit(workspacePath, undefined, { enabled: !!workspacePath });
+  const { branch, dirty } = useWorkspaceGit(workspacePath, fileBus, { enabled: !!fileBus && !!workspacePath });
 
   const [modeMenuOpen, setModeMenuOpen] = useState(false);
   const modeMenuRef = useRef(null);

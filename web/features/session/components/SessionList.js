@@ -36,6 +36,7 @@ import BranchBadge from "@/features/terminal/components/BranchBadge";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
+import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 
 const UNGROUPED_KEY = "ungrouped";
 
@@ -194,6 +195,10 @@ export default function SessionList({
     updateAvailable
   );
 
+  // Exactly one host and nothing on it yet — the same wait a fresh connection opens
+  // on, covering the host row/tree entirely (remote stays reachable in the header).
+  const showBareWait = !sessions.length && !workspaces.length && fleetHosts.length === 1;
+
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
       {/* Translucent bar like the old design; safe-area padding for notched phones, where
@@ -242,7 +247,9 @@ export default function SessionList({
         className="relative z-10 flex-1 overflow-auto modal-scrollable pt-2 pb-12"
         style={{ overflowAnchor: "none" }}
       >
-        {showBanner && (
+        {showBareWait && <ReconnectScreen inline label={t("workspace.loading")} />}
+
+        {!showBareWait && showBanner && (
           <AgentOutdatedBanner
             agentVersion={agentVersion}
             webVersion={process.env.NEXT_PUBLIC_SERVER_VERSION}
@@ -253,7 +260,7 @@ export default function SessionList({
           />
         )}
 
-        {currentHost && (
+        {!showBareWait && currentHost && (
           <div className="pl-1 pr-3">
           <HostTreeRow
             className="flex-shrink-0"
@@ -273,7 +280,7 @@ export default function SessionList({
         )}
 
         {/* The host row collapses the tree under it, same as the desktop sidebar. */}
-        {!hostCollapsed && (
+        {!showBareWait && !hostCollapsed && (
           !sessions.length && !workspaces.length ? (
           <div className="px-4 pt-2">
             <WelcomeCards
@@ -319,11 +326,11 @@ export default function SessionList({
             })}
 
             {/* New workspace — the same dashed button the desktop tree uses, sized
-                to its label instead of the full row. */}
+                to its label, left-aligned with the tree instead of centered. */}
             <button
               onClick={() => { vibrate(); onAddWorkspace(); }}
               disabled={!connected}
-              className="mx-auto mt-3 flex items-center gap-1.5 py-1.5 px-4 text-sm text-text-subtle active:text-text border border-dashed border-border-subtle active:border-text-muted/40 rounded-brand active:bg-surface-2 transition-colors disabled:opacity-40"
+              className="mt-3 flex items-center gap-1.5 py-1.5 px-4 text-sm text-text-subtle active:text-text border border-dashed border-border-subtle active:border-text-muted/40 rounded-brand active:bg-surface-2 transition-colors disabled:opacity-40"
             >
               <Plus size={12} className="flex-shrink-0" />
               <span>{t("workspaces.newWorkspace")}</span>
@@ -334,7 +341,7 @@ export default function SessionList({
         {/* Other saved keys — sibling roots under this host's tree, mirroring the
             desktop sidebar. Online roots carry live status; offline ones draw
             from the fleet cache. */}
-        {otherHosts.length > 0 && (
+        {otherHosts.length > 0 && !showBareWait && (
           <div className="mt-3 border-t border-border-subtle pt-2 pl-1 pr-3">
             {otherHosts.map((h) => (
               <HostTree
@@ -531,10 +538,10 @@ function WorkspaceSection({
           <button
             onClick={() => { vibrate(); onNewTerminal(); }}
             disabled={!connected}
-            className="w-full flex items-center gap-1.5 pl-8 py-1.5 text-left text-sm text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
+            className="w-full flex items-center gap-1 pl-[38px] py-1.5 text-left text-sm text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
             title={t("workspaces.addTerminal")}
           >
-            <Plus size={18} className="flex-shrink-0" />
+            <Plus size={14} className="flex-shrink-0" />
             <span>{t("terminal.newTerminal")}</span>
           </button>
         </div>

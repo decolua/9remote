@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { ProtocolManager } from "@/shared/transport/ProtocolManager";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
@@ -223,7 +224,12 @@ export const useFleetStore = create((set, get) => ({
           bus.on("sessionsChanged", () => refetch(bus));
           bus.on("workspacesChanged", () => refetch(bus));
           bus.on("session-renamed", () => refetch(bus));
-          bus.on("sessionClosed", () => refetch(bus));
+          // Same cleanup the main host's useAgentBus runs: a session closed on
+          // that machine must drop its pane/tab/draft state here too.
+          bus.on("sessionClosed", (sessionId) => {
+            if (sessionId) useTerminalStore.getState().closeSession(sessionId);
+            refetch(bus);
+          });
           bus.on("device:rejected", () => get()._closeHost(head));
           // ponytail: tailRejected with sealUnreadable just drops the host here;
           // upgrade path = mirror useAgentBus's drop-pin-and-retry when it bites.

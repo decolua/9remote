@@ -5,6 +5,8 @@ import { useI18n } from "@/shared/i18n";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { agentLaunchCommand, applySkipPermissions } from "@/features/terminal/constants/agentCli";
 import { OPEN_SESSION_EVENT } from "@/features/terminal/constants/terminalConfig";
 
@@ -173,8 +175,10 @@ export function useSessionNavigation({
     // the id it was rebindable to on the host, not a CLI flag typed into a shell.
     const asUi = row.mode === "ui";
     // Resuming keeps the CLI's skip-permission mode: dropping back to per-action
-    // approval is not where the conversation left off.
-    const agent = useTerminalStore.getState().agentClis?.find((a) => a.id === row.agent) || null;
+    // approval is not where the conversation left off. The main host's CLI list
+    // lives under its real head (see useAgentClis' slot normalization).
+    const mainKey = useFleetStore.getState().currentKey || "main";
+    const agent = useTerminalStore.getState().agentClisBy[mainKey]?.list?.find((a) => a.id === row.agent) || null;
     const resumeLine = asUi ? null : applySkipPermissions(agent, row.resume);
     // Created unnamed on purpose: the agent names an auto-named terminal after
     // the conversation it runs, so the tab keeps following that chat's title.
@@ -265,12 +269,16 @@ export function useSessionNavigation({
     if (first) replaceTopWithSession(first.id);
   }, [sessions, setActiveWorkspaceId, addOpenedSession, touchLivePane, replaceTopWithSession]);
 
+  // Deleting closes the tab whatever machine owns it: a fleet session deletes over
+  // its own bus (optimistic in the fleet store), a main one keeps the acked flow.
+  // The after-delete focus handoff is shared by both branches.
   const handleDeleteSession = useCallback((sessionId) => {
     const deleted = sessions.find((s) => s.id === sessionId);
     const workspaceId = sessionWorkspaceId(deleted);
     const isDeletingActive = currentView?.type === "terminal" && currentView.sessionId === sessionId;
-    deleteSession(sessionId, () => {
+    const afterDelete = () => {
       removeOpenedSession(sessionId);
+      useTerminalStore.getState().closeSession(sessionId);
       if (!isDeletingActive) return;
       // Focus the next session (same workspace first, then any) or fall back to the list
       const remaining = sessions.filter((s) => s.id !== sessionId);
@@ -282,14 +290,27 @@ export function useSessionNavigation({
       } else {
         storePopView();
       }
-    });
+    };
+    const host = deleted?.hostKey ? useFleetStore.getState().hosts[deleted.hostKey] : null;
+    if (host) {
+      makeFleetActions(host).deleteSession(sessionId);
+      afterDelete();
+      return;
+    }
+    deleteSession(sessionId, afterDelete);
   }, [sessions, currentView, deleteSession, removeOpenedSession, touchLivePane, storePopView, replaceTopWithSession]);
 
   const handleRenameSession = useCallback((sessionId, newName) => {
+    const hostKey = sessions.find((s) => s.id === sessionId)?.hostKey;
+    if (hostKey) {
+      const host = useFleetStore.getState().hosts[hostKey];
+      if (host) makeFleetActions(host).renameSession(sessionId, newName);
+      return;
+    }
     renameSession(sessionId, newName, (result) => {
       if (!result.success) alert(t("workspace.failedRenameSession", { error: result.error }));
     });
-  }, [renameSession, t]);
+  }, [sessions, renameSession, t]);
 
   // Passed down as a single `nav` prop — a fresh object per render would re-render every
   // memoized consumer even though all ten handlers are stable.

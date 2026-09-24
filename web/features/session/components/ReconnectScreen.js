@@ -6,10 +6,12 @@ import { useI18n } from "@/shared/i18n";
 // Cinematic full-screen wait state — same backdrop language as the login page. Covers
 // the workspace UI while no transport is alive, so empty workspace lists / welcome
 // cards never flash during a PWA resume or reconnect.
-export default function ReconnectScreen({ label }) {
+// `inline` — fill the parent container instead of the viewport (empty state in the
+// panes area, where the sidebar still shows around it).
+export default function ReconnectScreen({ label, inline = false }) {
   const { t } = useI18n();
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center animate-in fade-in duration-300">
+    <div className={`${inline ? "absolute inset-0 z-10" : "fixed inset-0 z-40"} flex items-center justify-center animate-in fade-in duration-300`}>
       <div className="cine-bg" aria-hidden>
         <div className="cine-grid" />
       </div>

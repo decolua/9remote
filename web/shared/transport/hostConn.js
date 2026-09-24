@@ -10,13 +10,21 @@
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
 import { useFileBusStore, makeFileBus } from "@/shared/stores/fileBusStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { scopeOf } from "@/features/hosts/lib/fleetTree";
 
 class HostConn {
   constructor(head) {
     this.head = head || null; // null = the main host
-    this.scope = scopeOf(this.head);
     this._busRef = { current: null };
+  }
+
+  // The main connection is not always the same machine: switchHost makes another
+  // key the live connection, and its caches must follow that key (not stay on the
+  // legacy "" bucket that predates multi-host). Read live, like `bus`.
+  get scope() {
+    if (!this.head) return scopeOf(useFleetStore.getState().currentKey || null);
+    return scopeOf(this.head);
   }
 
   // Live bus facade or null (a fleet bus not open yet — callers wait, never fall
@@ -102,4 +110,16 @@ export function useHostConn(head) {
   }
   const status = fleetHost?.status || "offline";
   return { head, connected: status === "online", status, carrier: fleetHost?.carrier || "ws", platform: fleetHost?.platform || null, version: fleetHost?.version || null };
+}
+
+// A session's live state, whichever machine owns it: main sessions report through
+// the notification store, fleet sessions through their host's statusMap. Without
+// this split, a foreign pane's status reads "idle" forever — the working/done
+// beam and the status-bar dot would never fire.
+export function useSessionStatus(sessionId) {
+  const head = sessionId ? connForSession(sessionId).head : null;
+  // Both hooks run unconditionally; the owning host's value is the one used.
+  const mainState = useNotificationStore((s) => (head || !sessionId ? null : s.sessionStatus[sessionId]?.state));
+  const fleetState = useFleetStore((s) => (head ? s.hosts[head]?.statusMap?.[sessionId]?.state : null));
+  return (head ? fleetState : mainState) || "idle";
 }

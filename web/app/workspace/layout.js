@@ -23,7 +23,7 @@ import { useTerminalPageViewport } from "@/features/terminal/hooks/useTerminalPa
 import { useWorkspaceFileNav } from "@/features/fileExplorer/hooks/useWorkspaceFileNav";
 import { usePaneRegistry } from "@/features/terminal/hooks/usePaneRegistry";
 import { useSessionNavigation } from "@/features/terminal/hooks/useSessionNavigation";
-import { scopedFleetLists, rawWsIdOf } from "@/features/hosts/lib/fleetTree";
+import { scopedFleetLists, rawWsIdOf, scopeOf } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { useAgentUpdate } from "@/features/session/hooks/useAgentUpdate";
 import { useGlobalShortcuts } from "@/shared/hooks/useGlobalShortcuts";
@@ -229,6 +229,9 @@ export default function WorkspaceLayout({ children }) {
     setSavedKeys(loadKeys());
   }, [hydrated, loadKeys]);
   const currentFleetKey = auth?.apiKey ? headOf(auth.apiKey) : "";
+  // Cache scope of the HOST this connection serves: switchHost makes another key this
+  // connection, so the legacy "" bucket must not leak one machine's recents into it.
+  const connScope = scopeOf(currentFleetKey || null);
   const fleetMode = savedKeys.length >= 2;
   const fleetFocus = useFleetStore((s) => s.focus);
   const fleetOverlayOpen = useFleetStore((s) => s.overlayOpen);
@@ -372,13 +375,16 @@ export default function WorkspaceLayout({ children }) {
     systemInfo, mobileEditor, setMobileEditor, openFileRef,
     handleOpenWorkspaceList, handleOpenFiles, handleSelectWorkspace, handleBrowseFolder,
     handlePathChange, handleOpenFile, handleOpenGit, handleSetWorkspace
-  } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, sessions, isDesktop, fileBus });
+  } = useWorkspaceFileNav({ pushView, viewStack, setViewStack, currentView, cwdBySession, sessions, isDesktop, fileBus, scope: connScope });
 
   // Folder picker → create a workspace rooted there, then offer its first terminal.
   const [folderPicker, setFolderPicker] = useState(null); // { initialPath } | null
   const openSlideMenu = useSlideMenuStore((st) => st.open);
   // Re-read after each workspace change; localStorage is client-only so it stays lazy.
-  const recentWorkspaces = useMemo(() => (hydrated ? getRecentWorkspaces() : []), [hydrated, workspaces]);
+  const recentWorkspaces = useMemo(
+    () => (hydrated ? getRecentWorkspaces(connScope) : []),
+    [hydrated, workspaces, connScope]
+  );
 
   const createWorkspaceAt = useCallback((folderPath) => {
     setFolderPicker(null);
@@ -387,7 +393,7 @@ export default function WorkspaceLayout({ children }) {
     createWorkspace(name, folderPath, (result) => {
       const ws = result?.workspace || result?.group;
       if (!result?.success || !ws?.id) return;
-      addRecentWorkspace(folderPath);
+      addRecentWorkspace(folderPath, connScope);
       setActiveWorkspaceId(ws.id);
       nav.handleCreateSession(null, ws.id, null, folderPath);
     });
@@ -421,7 +427,11 @@ export default function WorkspaceLayout({ children }) {
   // sidebar's history panel follows the focused pane across machines. Mirrors
   // nav.handleResumeAgentSession's post-flow (startup line, agent pin, claim).
   const resumeAgentSessionOnHost = useCallback((row) => {
-    const hostKey = allSessions.find((s) => s.id === activeSessionId)?.hostKey;
+    // The host is the ACTIVE pane's, not necessarily the active workspace's — the
+    // New-terminal modal can sit on one host's workspace while another's terminal
+    // is focused. The active workspace is the fallback (no session focused yet).
+    const hostKey = allSessions.find((s) => s.id === activeSessionId)?.hostKey
+      || allWorkspaces.find((w) => w.id === activeWorkspaceId)?.hostKey;
     if (!hostKey || !row?.resume) return;
     const host = useFleetStore.getState().hosts[hostKey];
     if (!host) return;
@@ -429,6 +439,8 @@ export default function WorkspaceLayout({ children }) {
     const agent = useTerminalStore.getState().agentClisBy[hostKey]?.list?.find((a) => a.id === row.agent) || null;
     const resumeLine = asUi ? null : applySkipPermissions(agent, row.resume);
     const agentId = asUi ? `${row.agent}-ui` : row.agent;
+    // row.cwd is where the conversation lived on THAT machine — the workspace id
+    // only supplies grouping, never the directory to run in.
     const rawWs = rawWsIdOf(activeWorkspaceId, hostKey);
     makeFleetActions(host, { onSelectSession: nav.handleSelectSession })
       .createSession(null, rawWs && rawWs !== "_" ? rawWs : null, null, row.cwd || null, null, false, false, (result) => {
@@ -439,7 +451,7 @@ export default function WorkspaceLayout({ children }) {
           { sessionId: result.sessionId, agent: agentId, conversationId: row.sessionId },
           () => useTerminalStore.getState().invalidateAgentHistory()));
       });
-  }, [allSessions, activeSessionId, activeWorkspaceId, nav]);
+  }, [allSessions, allWorkspaces, activeSessionId, activeWorkspaceId, nav]);
 
   // "New terminal here" from the file tree / worktree list — cwd is the clicked folder.
   const createTerminalAt = useCallback((folderPath) => {
@@ -937,6 +949,7 @@ export default function WorkspaceLayout({ children }) {
         {folderPicker && (
           <FolderPickerModal
             fileBus={fileBus}
+            scope={connScope}
             initialPath={folderPicker.initialPath}
             onSelect={createWorkspaceAt}
             onClose={() => setFolderPicker(null)}
@@ -987,6 +1000,7 @@ export default function WorkspaceLayout({ children }) {
         {currentView.type === "browse" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <FileExplorer
+              scope={connScope}
               workspace={currentView.path}
               fileBus={fileBus}
               onBack={popView}
@@ -1004,7 +1018,7 @@ export default function WorkspaceLayout({ children }) {
             ? currentView
             : [...viewStack].reverse().find(v => v.type === "files");
           const ws = filesView?.workspace || currentView.workspace;
-          const recent = getRecentWorkspaces().find(w => w.path === ws);
+          const recent = getRecentWorkspaces(connScope).find(w => w.path === ws);
           // An editor view carrying its own path (side panel's "open full") opens that
           // file outright; otherwise restore the workspace's last open tabs.
           const routeFile = currentView.type === "editor" ? currentView.path : null;
@@ -1018,7 +1032,7 @@ export default function WorkspaceLayout({ children }) {
                 onSwitchWorkspace={handleOpenWorkspaceList}
                 initialOpenedFiles={routeFile ? [routeFile] : recent?.openedFiles || []}
                 initialActiveFile={routeFile || recent?.activeFile || null}
-                onOpenedFilesChange={(files, activeFile) => updateOpenedFiles(ws, files, activeFile)}
+                onOpenedFilesChange={(files, activeFile) => updateOpenedFiles(ws, files, activeFile, connScope)}
                 bus={bus}
                 connected={connected}
                 sessions={sessions}
@@ -1036,6 +1050,7 @@ export default function WorkspaceLayout({ children }) {
         {!isDesktop && currentView.type === "files" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <FileExplorer
+              scope={connScope}
               workspace={currentView.workspace}
               initialPath={currentView.currentPath}
               fileBus={fileBus}

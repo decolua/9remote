@@ -51,9 +51,11 @@ export default function NewTerminalModal({
 }) {
   const { t } = useI18n();
   // One door: file API + cache scope resolve from the host this modal creates on —
-  // callers stop hand-picking buses (hostKey "main" = the main connection).
+  // callers stop hand-picking buses (hostKey "main" = the main connection). Conn
+  // wins over any fileBus prop: a main-scoped prop on a foreign workspace would
+  // browse the wrong machine.
   const modalConn = connOf(hostKey !== "main" ? hostKey : null);
-  const modalFileBus = fileBus || modalConn.fileBus;
+  const modalFileBus = modalConn.head ? modalConn.fileBus : (fileBus || modalConn.fileBus);
   const modalScope = modalConn.scope;
   const agentClis = useAgentClis(busRef, hostKey);
   // "" = plain terminal. Held as an id (not the object) so the last-used agent

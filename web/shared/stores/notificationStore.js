@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
 import { sameEntry, sameMap } from "@/shared/utils/shallowEqual";
 
 const omit = (obj, key) => {
@@ -84,7 +85,15 @@ export const useNotificationStore = create((set, get) => ({
       return { notifications: nextNotifs, sessionStatus: nextStatus };
     });
 
-    const bus = useConnectionStore.getState().busRef?.current || useConnectionStore.getState().bus;
+    // The clear goes to the machine OWNING the session — typing in a fleet pane must
+    // clear that host's dot, not poke an unknown id on the main agent. (Resolved
+    // via fleetStore directly: hostConn imports this store, the reverse would cycle.)
+    let bus = null;
+    const { hosts } = useFleetStore.getState();
+    for (const h of Object.values(hosts)) {
+      if (h.sessions?.some((s) => s.id === sessionId)) { bus = fleetBusOf(h.key); break; }
+    }
+    bus = bus || useConnectionStore.getState().busRef?.current || useConnectionStore.getState().bus;
     // One event, not two: the agent's clearStatus broadcasts BOTH statusCleared and
     // notificationCleared, and this client refetches on each — two emits meant two
     // round-trips for one clear.

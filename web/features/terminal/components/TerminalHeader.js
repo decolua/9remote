@@ -10,6 +10,7 @@ import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { connForSession } from "@/shared/transport/hostConn";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "@/features/terminal/constants/shortcuts";
@@ -741,10 +742,13 @@ function TerminalHeader({
               onClick={() => {
                 vibrate();
                 const id = tabMenu.sessionId;
+                // The bus follows the tab's host — a foreign session restarts on
+                // its own machine, never the main connection.
+                const bus = connForSession(id).bus;
                 if (agentBySession[id]?.endsWith("-ui")) {
-                  busRef?.current?.emit("ai:restart", { sessionId: id });
+                  bus?.emit("ai:restart", { sessionId: id });
                 } else {
-                  busRef?.current?.emit("session-resume", { sessionId: id });
+                  bus?.emit("session-resume", { sessionId: id });
                 }
                 setTabMenu({ sessionId: null, x: 0, y: 0 });
               }}
@@ -762,7 +766,7 @@ function TerminalHeader({
               onClick={() => {
                 vibrate();
                 const id = tabMenu.sessionId;
-                busRef?.current?.emit(
+                connForSession(id).bus?.emit(
                   "setSessionMode",
                   { sessionId: id, mode: tabAsUi ? "terminal" : "ui" },
                   (res) => { if (!res?.success) alert(res?.error || t("sessions.modeSwitchFailed")); }

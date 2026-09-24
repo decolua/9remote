@@ -1,6 +1,8 @@
 "use client";
 
 import { useFleetStore, fleetBusOf, emitWhenReady } from "@/shared/stores/fleetStore";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { agentLaunchCommand } from "@/features/terminal/constants/agentCli";
 import { scopedWsId } from "./fleetTree";
 
 /**
@@ -31,12 +33,18 @@ export function makeFleetActions(host, { onSelectSession = null, onSelectWorkspa
     selectWorkspace: (rawId) => onSelectWorkspace?.(scopedWsId(host.key, rawId ?? "_")),
     createSession: (name, workspaceId, shellId, cwd, agent, yolo, nameIsAuto, callback) => {
       // The modal hands the picked OPTION object; the wire and the tree want its id.
+      const agentOpt = typeof agent === "string" ? null : agent;
       const agentId = typeof agent === "string" ? agent : (agent?.id || null);
+      // The agent stores the id but never launches the CLI — the client types the
+      // startup line on join, exactly like the main host's create flows do.
+      const startupCmd = agentLaunchCommand(agentOpt, yolo);
       // Deferred when the lazy bus is still opening — fires on connect, never dropped.
       emitWhenReady(host.key, (b) => b.emit("createSession",
         { name, shellId, workspaceId, cwd, nameIsAuto, agent: agentId },
         (res) => {
           if (res?.success && res.sessionId) {
+            if (startupCmd) useTerminalStore.getState().queueStartup(res.sessionId, startupCmd);
+            if (agentId) useTerminalStore.getState().setSessionAgent(res.sessionId, agentId);
             patchSessions((prev) => prev.some((s) => s.id === res.sessionId) ? prev : [...prev, {
               id: res.sessionId, name: res.name || name || "", createdAt: Date.now(),
               cwd: res.cwd || cwd || null, workspaceId: workspaceId || null,

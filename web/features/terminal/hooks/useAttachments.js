@@ -43,7 +43,9 @@ export function useAttachments({ bus, sessionId }) {
   const sendOneAttachment = useCallback((att) => new Promise((resolve) => {
     let done = false;
     const finish = () => { if (!done) { done = true; resolve(); } };
-    bus.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content }, finish);
+    // No bus (foreign pane still connecting) — drop the attachment rather than
+    // throwing; the timeout resolves the batch either way.
+    bus?.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content }, finish);
     setTimeout(finish, CLIPBOARD_ATTACH_TIMEOUT);
   }), [bus, sessionId]);
 

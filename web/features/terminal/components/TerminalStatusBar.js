@@ -18,7 +18,7 @@ import {
 import StatusBar from "@/shared/components/ui/StatusBar";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { connOf, useHostConn } from "@/shared/transport/hostConn";
+import { connOf, useHostConn, useSessionStatus } from "@/shared/transport/hostConn";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
@@ -177,7 +177,7 @@ function TerminalStatusBar({
   // a fleet host, whose carrier is always tunnel-or-RTC.
   const storeMode = useConnectionStore((s) => (hostKey ? null : s.connectionMode));
   const storeEndpoint = useConnectionStore((s) => (hostKey ? "" : s.endpoint));
-  const storeState = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId]?.state : "idle");
+  const storeState = useSessionStatus(sessionId);
   const connected = conn.connected;
   const carrier = conn.carrier;
   const busRef = connBusRef;

@@ -27,6 +27,7 @@ const MODEL_MENU_SEARCH_MIN = 20;
 export const Composer = memo(function Composer({
   sessionId = "",
   engine = "claude",
+  bus = null,
   isTurnRunning: propTurnRunning = false,
   isFocused = false,
   onSend,
@@ -98,7 +99,7 @@ export const Composer = memo(function Composer({
   const {
     attachments, setAttachments,
     removeAttachment, handleFileUpload, handleAttachPaste
-  } = useAttachments({ bus: useConnectionStore((s) => s.bus), sessionId });
+  } = useAttachments({ bus, sessionId });
 
   const [voiceLang] = useVoiceLang(locale);
   const voice = useVoiceInput({
@@ -245,7 +246,7 @@ export const Composer = memo(function Composer({
       setMenuItems(filtered);
       setMenuOpen(filtered.length > 0);
     } else if (trigger === "@") {
-      const b = useConnectionStore.getState().bus;
+      const b = bus;
       if (b?.emit) {
         b.emit("ai:files", { workspace: workspacePath, query: filter }, (res) => {
           if (res?.ok && Array.isArray(res.files)) {

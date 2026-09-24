@@ -13,6 +13,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { useSessionStatus } from "@/shared/transport/hostConn";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
@@ -52,7 +53,7 @@ function TerminalPane({
 }) {
   const { t } = useI18n();
   const { theme } = useTheme();
-  const storeState = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId]?.state : "idle");
+  const storeState = useSessionStatus(sessionId);
   const sessionState = propSessionState || storeState || "idle";
   const containerRef = useRef(null);
   const scrollRef = useRef(null);
@@ -366,14 +367,14 @@ function TerminalPane({
             e.stopPropagation();
             handleScrollToBottom();
           }}
-          className="absolute bottom-3 right-5 z-10 p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
+          className="absolute bottom-3 right-5 z-[2] p-2 bg-surface-2 hover:bg-surface-3 text-text rounded-full shadow-md transition-all duration-150 ease-out active:scale-[0.94] touch-none"
           title={t("terminalPane.scrollToBottom")}
         >
           <ChevronDown size={20} />
         </button>
       )}
       {isFocused && (
-        <div className={`absolute right-2 z-10 flex flex-col items-end gap-2 pointer-events-auto touch-none ${showPinnedNote ? "top-9" : "top-9 sm:top-2"}`}>
+        <div className={`absolute right-2 z-[2] flex flex-col items-end gap-2 pointer-events-auto touch-none ${showPinnedNote ? "top-9" : "top-9 sm:top-2"}`}>
           <div className="flex flex-row gap-2">
             {showNoteButton && (
               <button

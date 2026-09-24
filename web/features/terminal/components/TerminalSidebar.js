@@ -559,10 +559,12 @@ function TerminalSidebar({
               onClick={() => {
                 vibrate();
                 const id = ctxMenu.sessionId;
+                // Bus follows the row's host — same door as the tab menu.
+                const ctxBus = connForSession(id).bus;
                 if (agentBySession[id]?.endsWith("-ui")) {
-                  busRef?.current?.emit("ai:restart", { sessionId: id });
+                  ctxBus?.emit("ai:restart", { sessionId: id });
                 } else {
-                  busRef?.current?.emit("session-resume", { sessionId: id });
+                  ctxBus?.emit("session-resume", { sessionId: id });
                 }
                 setCtxMenu(null);
               }}
@@ -579,7 +581,7 @@ function TerminalSidebar({
               onClick={() => {
                 vibrate();
                 const id = ctxMenu.sessionId;
-                busRef?.current?.emit(
+                connForSession(id).bus?.emit(
                   "setSessionMode",
                   { sessionId: id, mode: ctxAsUi ? "terminal" : "ui" },
                   (res) => { if (!res?.success) alert(res?.error || t("sessions.modeSwitchFailed")); }

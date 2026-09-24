@@ -8,12 +8,11 @@ import { ModalShell } from "./ModalShell";
 // Runs the engine's own health command on the host (claude doctor / codex doctor
 // / opencode debug) and shows the raw report. The host owns the CLI, so this is
 // a bus request rather than anything the browser can run itself.
-export const DoctorModal = memo(function DoctorModal({ engine = "claude", workspacePath = "", onClose }) {
+export const DoctorModal = memo(function DoctorModal({ engine = "claude", workspacePath = "", bus = null, onClose }) {
   const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
 
   const run = useCallback(() => {
-    const bus = useConnectionStore.getState().bus;
     if (!bus?.emit) {
       setReport({ error: "Not connected to the host agent." });
       setLoading(false);
