@@ -146,7 +146,7 @@ function TerminalHeader({
     axis: "x",
     // Higher than the sidebar's: that has a grip to grab, a tab is its own handle, so a
     // twitch while clicking must still read as "switch to this tab".
-    threshold: 6,
+    threshold: 12,
     onCommit: onReorderSession
   });
 
@@ -366,7 +366,6 @@ function TerminalHeader({
                   registerEl(session.id)(el);
                   if (isActiveTab) activeTabRef.current = el;
                 }}
-                onMouseDown={(e) => e.preventDefault()}
                 onPointerDown={(e) => {
                   // Mouse only: on touch this strip is a horizontal scroller, and
                   // swallowing the gesture would trap it. Touch reorders in the sidebar.
@@ -391,7 +390,7 @@ function TerminalHeader({
                 onTouchStart={(e) => handleTabTouchStart(e, session)}
                 onTouchMove={clearTabLongPress}
                 onTouchEnd={clearTabLongPress}
-                className={`term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none ${
+                className={`term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
                   isActiveTab ? "term-tab-active" : ""
                 } ${isHidden ? "opacity-75 hover:opacity-100" : ""} ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
               >

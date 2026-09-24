@@ -602,7 +602,7 @@ function SessionRow({
       onPointerUp={clearHold}
       onPointerCancel={clearHold}
       onPointerLeave={clearHold}
-      className={`group relative flex items-center gap-1.5 pl-6 py-1.5 rounded-[3px] cursor-pointer select-none ${
+      className={`group relative flex items-center gap-1.5 pl-6 py-1.5 rounded-[3px] cursor-pointer select-none touch-manipulation touch-pan-y ${
         connected ? "active:bg-text/5" : "opacity-60"
       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500 bg-surface" : "transition-colors"}`}
     >

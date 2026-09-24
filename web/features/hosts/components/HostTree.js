@@ -152,7 +152,7 @@ export default function HostTree({
                       key={s.id}
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      className={`group flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer ${
+                      className={`group flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer touch-manipulation touch-pan-y ${
                         isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
                       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
                       onClick={(e) => { if (consumeClick()) return; vibrate(); actions.selectSession?.(s.id); }}

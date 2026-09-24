@@ -15,7 +15,7 @@ const AXIS = {
   x: { pos: "clientX", start: "left", size: "width" }
 };
 
-export function useDragReorder({ axis = "y", threshold = 3, onCommit }) {
+export function useDragReorder({ axis = "y", threshold = 12, onCommit }) {
   const [dragId, setDragId] = useState(null);
   const elsRef = useRef(new Map()); // item id -> element
   const movedRef = useRef(false);

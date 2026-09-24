@@ -127,7 +127,7 @@ export default function AgentHistoryPanel({
                   <button
                     onClick={() => { vibrate(); if (openId) onSelectSession?.(openId); else onResume?.(row); }}
                     disabled={!connected}
-                    className={`flex items-center gap-1.5 flex-1 min-w-0 text-left transition-colors disabled:opacity-40 hover:text-text ${
+                    className={`flex items-center gap-1.5 flex-1 min-w-0 text-left transition-colors disabled:opacity-40 hover:text-text touch-manipulation touch-pan-y ${
                       asList ? "gap-2.5" : ""
                     } ${openId ? "text-text font-medium" : "text-text-muted"}`}
                     title={`${title} · ${row.agent}${openId ? ` · ${t("agentHistory.openNow")}` : ""}`}
