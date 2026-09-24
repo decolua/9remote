@@ -1,11 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { EyeOff, GripVertical, Loader2, MoreHorizontal, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { connOf } from "@/shared/transport/hostConn";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { workspaceGitPath } from "@/features/terminal/lib/workspaceGrouping";
@@ -16,6 +17,8 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import IconMenu from "@/shared/components/ui/IconMenu";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
+import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
+import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import HostTreeRow from "./HostTreeRow";
 import { hostTree } from "../lib/fleetTree";
 
@@ -59,18 +62,26 @@ export default function HostTree({
   const [wsDelete, setWsDelete] = useState(null);         // {id, name}
   const [sessRename, setSessRename] = useState(null);     // {id, value}
   const [sessDelete, setSessDelete] = useState(null);     // {id, name}
-  const [wsPrompt, setWsPrompt] = useState(null);         // add-workspace name prompt (fleet)
+  const [wsPicker, setWsPicker] = useState(false);        // fleet add-workspace folder picker
   const [shells, setShells] = useState([]);
 
   const status = host.status || "full";
   const connecting = status === "connecting";
-  const online = status !== "offline";
-  // Any saved host can be expanded — opening its tree is what opens its bus
-  // (lazy connect); "online" from the batched liveness read is only a hint.
-  const expandable = status !== "connecting";
-  // Fleet hosts resolve their own stable bus ref; the main host passes its own.
-  const fleetRef = useMemo(() => ({ current: fleetBusOf(host.key) }), [host.key]);
-  const busTag = busRef || fleetRef;
+  // Honest readiness: "connecting" is NOT online — affordances stay disabled until
+  // the bus actually answers, and queued commands cover the transition.
+  const online = status === "full" || status === "online";
+  // Each host answers for itself: the main host's bus state must never gate a
+  // fleet host's actions (and vice versa).
+  const actionable = status === "full" ? connected : online;
+  // Only a host with a live signal expands: a dead host's cached sessions render
+  // as if usable while every tap just blinks. "online" from the batched liveness
+  // read still opens the bus lazily on expand; a bus that then fails flips the
+  // host offline and the tree collapses on its own.
+  const expandable = online;
+  // Fleet hosts resolve their own bus/file API through hostConn (stable identity,
+  // always-fresh current); the main host passes its own ref.
+  const fleetConn = status !== "full" ? connOf(host.key) : null;
+  const busTag = busRef || fleetConn?.busRef || null;
 
   // Shells for the new-terminal modal, fetched from THIS host's bus on demand.
   useEffect(() => {
@@ -108,7 +119,9 @@ export default function HostTree({
         } : null}
         onRetry={status === "offline" ? () => useFleetStore.getState().retryHost(host.key) : null}
         onDisconnect={host.onDisconnect}
-        onAddWorkspace={menuAddWorkspace}
+        // The add-workspace door only exists on a host that can answer (its picker
+        // browses that machine's disks); offline/connecting rows hide it.
+        onAddWorkspace={actionable ? (menuAddWorkspace ?? (status !== "full" ? () => setWsPicker(true) : null)) : null}
         onRename={actions.renameHost}
         onDelete={actions.deleteHost}
         showAdd={false}
@@ -131,7 +144,7 @@ export default function HostTree({
                   mobile={mobile}
                   workspace={{ id: rawId, name: workspace?.name || t("workspaces.ungrouped"), path: workspace?.path || null, items: sessions }}
                   isActive={isActiveWs}
-                  connected={connected && online}
+                  connected={actionable}
                   fileBus={fileBus}
                   collapsed={isCollapsed(wsKey)}
                   onToggleCollapse={() => toggleNode(wsKey)}
@@ -161,7 +174,7 @@ export default function HostTree({
                       onTouchMove={onRowTouch?.move}
                       onTouchEnd={onRowTouch?.end}
                     >
-                      {connected && online && (
+                      {actionable && (
                         <button
                           data-gid={wsKey === "ungrouped" ? "" : rawId}
                           data-sid={s.id}
@@ -240,7 +253,7 @@ export default function HostTree({
                 {!isCollapsed(wsKey) && sessions.length === 0 && (
                   <button
                     onClick={() => { vibrate(); setTermModalWs(wsKey); }}
-                    disabled={!connected || !online}
+                    disabled={!actionable}
                     className="pl-3.5 pr-2 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 italic transition-colors disabled:opacity-40"
                   >
                     {t("workspaces.emptyWorkspace")}
@@ -252,8 +265,8 @@ export default function HostTree({
 
           <div className="px-2 pt-3 pb-1">
             <button
-              onClick={() => { vibrate(); if (onAddWorkspace) onAddWorkspace(); else setWsPrompt(""); }}
-              disabled={!connected || !online}
+              onClick={() => { vibrate(); if (onAddWorkspace) onAddWorkspace(); else setWsPicker(true); }}
+              disabled={!actionable}
               className="mx-auto flex items-center gap-1.5 py-1.5 px-4 text-xs text-text-subtle hover:text-text border border-dashed border-border-subtle hover:border-text-muted/40 rounded-brand hover:bg-surface-2 transition-colors disabled:opacity-40"
             >
               <Plus size={12} className="flex-shrink-0" />
@@ -271,27 +284,32 @@ export default function HostTree({
           busRef={busTag}
           hostKey={host.key}
           liveSessionIds={null}
-          connected={connected && online}
+          connected={actionable}
           workspacePath={host.workspaces?.find((w) => w.id === (termModalWs === "ungrouped" ? null : termModalWs))?.path || null}
           workspaceName={termModalWs === "ungrouped" ? t("workspaces.ungrouped") : host.workspaces?.find((w) => w.id === termModalWs)?.name || ""}
           suggestName={`${t("terminal.defaultName")} ${(host.sessions?.length || 0) + 1}`}
         />
       )}
 
-      {wsPrompt !== null && (
-        <PromptDialog
-          title={t("workspaces.newWorkspace")}
-          placeholder={t("workspaces.workspaceNamePlaceholder")}
-          value={wsPrompt}
-          onChange={setWsPrompt}
-          onSubmit={() => {
-            const name = wsPrompt.trim();
-            // Fleet workspaces are name-only for now — a path picker needs a
-            // per-host file browser.
-            if (name) fleetBusOf(host.key)?.emit("createWorkspace", { name, path: null }, () => {});
-            setWsPrompt(null);
+      {wsPicker && fleetConn && (
+        <FolderPickerModal
+          fileBus={fleetConn.fileBus}
+          scope={fleetConn.scope}
+          onSelect={(folderPath) => {
+            setWsPicker(false);
+            if (!folderPath) return;
+            // Main-flow parity (layout.js createWorkspaceAt): name from the folder,
+            // recents on this host's scope, then the workspace's first terminal
+            // opens — and auto-switches.
+            const name = folderPath.split("/").filter(Boolean).pop() || folderPath;
+            addRecentWorkspace(folderPath, fleetConn.scope);
+            actions.createWorkspace?.(name, folderPath, (result) => {
+              const ws = result?.workspace || result?.group;
+              if (!result?.success || !ws?.id) return;
+              actions.createSession?.(null, ws.id, null, folderPath);
+            });
           }}
-          onClose={() => setWsPrompt(null)}
+          onClose={() => setWsPicker(false)}
         />
       )}
 

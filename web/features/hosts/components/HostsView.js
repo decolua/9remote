@@ -13,7 +13,6 @@ import { switchHost } from "../lib/switchHost";
 import PlatformGlyph from "./PlatformGlyph";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 
-const HOST_RANK = { full: 0, online: 1, connecting: 2, offline: 3 };
 const HOST_DOT = {
   full: "bg-green-500",
   online: "bg-green-500",
@@ -50,8 +49,8 @@ export default function HostsView({
     .map((h) => (h.key === currentKey
       ? { ...h, ...fullHost, statusMap: liveStatus, status: "full" }
       : h))
-    .sort((a, b) => (HOST_RANK[a.status] ?? 9) - (HOST_RANK[b.status] ?? 9)
-      || (b.lastSeenAt || 0) - (a.lastSeenAt || 0)),
+    // Local on top, the rest in add order (stable sort keeps insertion order).
+    .sort((a, b) => (b.key === currentKey) - (a.key === currentKey)),
   [hostsMap, currentKey, fullHost, liveStatus]);
 
   const currentFullKey = hosts.find((h) => h.key === currentKey)?.full || currentKey;

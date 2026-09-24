@@ -39,13 +39,15 @@ export function useSessionNavigation({
 
   // Entering terminal view: open sessions of the selected session's workspace, set it active.
   // Selecting a pane does NOT mark its done badge read — only typing/sending into it does.
-  const handleSelectSession = useCallback((sessionId) => {
+  const handleSelectSession = useCallback((sessionId, pendingWorkspaceId) => {
     const selected = sessions.find(s => s.id === sessionId);
     // A caller can hold an id that has since closed (a history row, a stale
     // notification): pushing a view for it renders an empty terminal that no
-    // longer has anything behind it.
-    if (!selected) return;
-    const workspaceId = sessionWorkspaceId(selected);
+    // longer has anything behind it. `pendingWorkspaceId` exempts an id the list
+    // has not absorbed yet — a session created this same tick (fleet create), whose
+    // workspace the caller hands over in scoped form.
+    if (!selected && pendingWorkspaceId === undefined) return;
+    const workspaceId = selected ? sessionWorkspaceId(selected) : pendingWorkspaceId;
     setActiveWorkspaceId(workspaceId);
     const ids = workspaceSessionIds(workspaceId);
     ids.forEach(id => addOpenedSession(id));
@@ -54,9 +56,10 @@ export function useSessionNavigation({
 
     if (currentView.type === "terminal") replaceTopWithSession(sessionId);
     else pushView({ type: "terminal", sessionId });
+    if (!selected) requestFocus?.(sessionId); // a just-created pane takes focus, like the main-host flows
   }, [
     sessions, workspaceSessionIds, addOpenedSession, touchLivePane, setActiveWorkspaceId,
-    currentView, pushView, replaceTopWithSession
+    currentView, pushView, replaceTopWithSession, requestFocus
   ]);
 
   // Deep-link from a push notification tap (SW postMessage) or OS Dock icon click

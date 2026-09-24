@@ -8,9 +8,11 @@ import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, AGENT_ICON_CLS, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { isMac } from "@/features/terminal/constants/shortcuts";
 import LocationPicker from "@/features/terminal/components/LocationPicker";
+import { PlainShellGlyph } from "@/features/terminal/components/SessionAgentIcon";
 import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
+import { connOf } from "@/shared/transport/hostConn";
 
 const QUICK_KEYS_MAC = ["⌥", "⇧", "↵"];
 const QUICK_KEYS_PC = ["Ctrl", "⇧", "↵"];
@@ -27,7 +29,7 @@ const TAB_DEFS = [
 // Agent logo, falling back to a neutral glyph when an agent ships no bundled icon
 function AgentAvatar({ agent }) {
   const [broken, setBroken] = useState(false);
-  if (!agent) return <Terminal size={16} className="text-text-muted" />;
+  if (!agent) return <PlainShellGlyph size={16} />;
   if (broken) return <Bot size={16} className="text-text-muted" />;
   return (
     <img
@@ -48,6 +50,11 @@ export default function NewTerminalModal({
   onSelectSession = null, connected = true, hostKey = "main"
 }) {
   const { t } = useI18n();
+  // One door: file API + cache scope resolve from the host this modal creates on —
+  // callers stop hand-picking buses (hostKey "main" = the main connection).
+  const modalConn = connOf(hostKey !== "main" ? hostKey : null);
+  const modalFileBus = fileBus || modalConn.fileBus;
+  const modalScope = modalConn.scope;
   const agentClis = useAgentClis(busRef, hostKey);
   // "" = plain terminal. Held as an id (not the object) so the last-used agent
   // restores from localStorage before detection lands, with no effect/setState race.
@@ -257,7 +264,7 @@ export default function NewTerminalModal({
             <LocationPicker
               workspacePath={workspacePath}
               workspaceName={workspaceName}
-              fileBus={fileBus}
+              fileBus={modalFileBus}
               homeDir={homeDir}
               value={cwd}
               onChange={setCwd}
@@ -270,6 +277,7 @@ export default function NewTerminalModal({
           <AgentHistoryPanel
             variant="list"
             busRef={busRef}
+            scope={modalScope}
             cwd={historyCwd}
             onResume={(row) => { onResumeAgentSession?.(row); onClose?.(); }}
             onSelectSession={(id) => { onSelectSession?.(id); onClose?.(); }}
@@ -404,7 +412,8 @@ export default function NewTerminalModal({
       {/* Sibling, not child: its backdrop click must not bubble into this modal's close */}
       {browsing && (
         <FolderPickerModal
-          fileBus={fileBus}
+          fileBus={modalFileBus}
+          scope={modalScope}
           initialPath={cwd || workspacePath}
           onSelect={(p) => { setBrowsing(false); if (p) setCwd(p); }}
           onClose={() => setBrowsing(false)}

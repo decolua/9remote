@@ -1,6 +1,7 @@
 "use client";
 
-import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
+import { useFleetStore, fleetBusOf, emitWhenReady } from "@/shared/stores/fleetStore";
+import { scopedWsId } from "./fleetTree";
 
 /**
  * The same action set the main host gets from nav/useAgentBus, implemented over a
@@ -9,7 +10,7 @@ import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
  * own); optimistic patches keep the tree responsive until the agent's
  * sessionsChanged broadcast refetch lands.
  */
-export function makeFleetActions(host, { onSelectSession = null } = {}) {
+export function makeFleetActions(host, { onSelectSession = null, onSelectWorkspace = null } = {}) {
   const bus = () => fleetBusOf(host.key);
 
   const patchSessions = (fn) => {
@@ -25,13 +26,14 @@ export function makeFleetActions(host, { onSelectSession = null } = {}) {
       useFleetStore.getState().ensureHost(host.key);
       onSelectSession?.(sessionId);
     },
+    // Scope the raw id for the workspace model (ungrouped rides "head:_"), the
+    // same shape scopedFleetLists hands the main-host nav.
+    selectWorkspace: (rawId) => onSelectWorkspace?.(scopedWsId(host.key, rawId ?? "_")),
     createSession: (name, workspaceId, shellId, cwd, agent, yolo, nameIsAuto, callback) => {
       // The modal hands the picked OPTION object; the wire and the tree want its id.
       const agentId = typeof agent === "string" ? agent : (agent?.id || null);
-      const b = bus();
-      // Bus not up yet (lazy): open it and give up silently — the next press lands.
-      if (!b) { useFleetStore.getState().ensureHost(host.key); return; }
-      b.emit("createSession",
+      // Deferred when the lazy bus is still opening — fires on connect, never dropped.
+      emitWhenReady(host.key, (b) => b.emit("createSession",
         { name, shellId, workspaceId, cwd, nameIsAuto, agent: agentId },
         (res) => {
           if (res?.success && res.sessionId) {
@@ -40,10 +42,16 @@ export function makeFleetActions(host, { onSelectSession = null } = {}) {
               cwd: res.cwd || cwd || null, workspaceId: workspaceId || null,
               shellId: res.shellId || shellId || null, agent: agentId
             }]);
-            onSelectSession?.(res.sessionId);
+            // Scoped workspace rides along: nav's session list has not absorbed the
+            // optimistic patch yet (same tick), so selection by id alone would no-op.
+            onSelectSession?.(res.sessionId, scopedWsId(host.key, workspaceId ?? "_"));
           }
           callback?.(res);
-        });
+        }));
+    },
+    createWorkspace: (name, path = null, callback = null) => {
+      // Same wire + ack as the main host's createWorkspace — the caller owns the post-flow.
+      emitWhenReady(host.key, (b) => b.emit("createWorkspace", { name, path }, (res) => callback?.(res)));
     },
     renameSession: (sessionId, name) => {
       bus()?.emit("renameSession", { sessionId, name }, () => {});

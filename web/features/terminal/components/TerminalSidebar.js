@@ -7,6 +7,7 @@ import {
 } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useFleetStore } from "@/shared/stores/fleetStore";
+import { connForSession } from "@/shared/transport/hostConn";
 import { useI18n } from "@/shared/i18n";
 import { usePwaInstallStore } from "@/shared/stores/pwaInstallStore";
 import { vibrate } from "@/shared/utils/vibration";
@@ -104,6 +105,8 @@ function TerminalSidebar({
   const activeCwd = activeSessionId
     ? (cwdBySession[activeSessionId] ?? allSessions.find((s) => s.id === activeSessionId)?.cwd ?? allSessions.find((s) => s.id === activeSessionId)?.workspacePath ?? null)
     : null;
+  // History follows the focused pane's host (bus + cache scope), via the one door.
+  const historyConn = connForSession(activeSessionId);
 
   // PWA install — desktop only, so the row shows solely when the browser can
   // actually install (Chromium beforeinstallprompt). Manual guides live in Settings.
@@ -216,7 +219,7 @@ function TerminalSidebar({
     >
       <div
         style={{ height: PANEL_HEADER_HEIGHT }}
-        className="px-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle relative z-10"
+        className="px-1 flex items-center justify-between flex-shrink-0 border-b border-border-subtle relative z-10"
       >
         <div className="flex items-center gap-2 min-w-0">
           {SHOW_PAIR_DEVICE ? (
@@ -313,7 +316,7 @@ function TerminalSidebar({
                 key={h.key}
                 host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
                 actions={{
-                  ...makeFleetActions(h, { onSelectSession }),
+                  ...makeFleetActions(h, { onSelectSession, onSelectWorkspace }),
                   renameHost: onRenameHost,
                   deleteHost: onDeleteHost
                 }}
@@ -330,10 +333,13 @@ function TerminalSidebar({
       </div>
 
       {/* Past agent-CLI conversations for wherever the active terminal is standing —
-          pinned above the footer so it keeps its place as the session list scrolls. */}
+          pinned above the footer so it keeps its place as the session list scrolls.
+          The bus follows the focused pane's host: a foreign terminal asks its own
+          machine for the directory's history, never the main host's. */}
       {onResumeAgentSession && (
         <AgentHistoryPanel
-          busRef={busRef}
+          busRef={historyConn.busRef}
+          scope={historyConn.scope}
           cwd={activeCwd}
           onResume={onResumeAgentSession}
           onSelectSession={onSelectSession}

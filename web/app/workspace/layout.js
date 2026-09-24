@@ -30,7 +30,7 @@ import { useGlobalShortcuts } from "@/shared/hooks/useGlobalShortcuts";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { useMobileDeviceWatch } from "@/features/mobile/hooks/useMobileDeviceWatch";
-import { loadTerminalPrefs } from "@/features/terminal/constants/agentCli";
+import { loadTerminalPrefs, applySkipPermissions } from "@/features/terminal/constants/agentCli";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
@@ -43,7 +43,8 @@ import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 
 import SessionList from "@/features/session/components/SessionList";
 import HostsView from "@/features/hosts/components/HostsView";
-import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
+import { useFleetStore, emitWhenReady } from "@/shared/stores/fleetStore";
+import { connOf } from "@/shared/transport/hostConn";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
@@ -416,6 +417,30 @@ export default function WorkspaceLayout({ children }) {
     nav.handleCreateSession(name, wsId, shellId, cwd, agent, yolo, nameIsAuto);
   }, [allWorkspaces, fleetHostsMap, nav]);
 
+  // Resume a past conversation on whichever host owns the active terminal — the
+  // sidebar's history panel follows the focused pane across machines. Mirrors
+  // nav.handleResumeAgentSession's post-flow (startup line, agent pin, claim).
+  const resumeAgentSessionOnHost = useCallback((row) => {
+    const hostKey = allSessions.find((s) => s.id === activeSessionId)?.hostKey;
+    if (!hostKey || !row?.resume) return;
+    const host = useFleetStore.getState().hosts[hostKey];
+    if (!host) return;
+    const asUi = row.mode === "ui";
+    const agent = useTerminalStore.getState().agentClisBy[hostKey]?.list?.find((a) => a.id === row.agent) || null;
+    const resumeLine = asUi ? null : applySkipPermissions(agent, row.resume);
+    const agentId = asUi ? `${row.agent}-ui` : row.agent;
+    const rawWs = rawWsIdOf(activeWorkspaceId, hostKey);
+    makeFleetActions(host, { onSelectSession: nav.handleSelectSession })
+      .createSession(null, rawWs && rawWs !== "_" ? rawWs : null, null, row.cwd || null, null, false, false, (result) => {
+        if (!result?.success || !result.sessionId) return;
+        if (resumeLine) useTerminalStore.getState().queueStartup(result.sessionId, resumeLine);
+        if (agentId) useTerminalStore.getState().setSessionAgent(result.sessionId, agentId);
+        emitWhenReady(hostKey, (b) => b.emit("claimAgentSession",
+          { sessionId: result.sessionId, agent: agentId, conversationId: row.sessionId },
+          () => useTerminalStore.getState().invalidateAgentHistory()));
+      });
+  }, [allSessions, activeSessionId, activeWorkspaceId, nav]);
+
   // "New terminal here" from the file tree / worktree list — cwd is the clicked folder.
   const createTerminalAt = useCallback((folderPath) => {
     createSessionOnHost(null, activeWorkspaceId, null, folderPath);
@@ -429,9 +454,7 @@ export default function WorkspaceLayout({ children }) {
   const activeHostKey = activeWsHostKey || currentFleetKey || "main";
   // Keeps the ACTIVE host's agent-CLI cache warm so the Mod+T chord replays prefs
   // against that host even if its modal was never opened this session.
-  const activeHostBusRef = useMemo(() => ({
-    get current() { return activeWsHostKey ? fleetBusOf(activeWsHostKey) : busRef.current; }
-  }), [activeWsHostKey, busRef]);
+  const activeHostBusRef = connOf(activeWsHostKey).busRef;
   const activeAgentClis = useAgentClis(activeHostBusRef, activeHostKey);
   const openShortcutsModal = useShortcutsModalStore((st) => st.open);
   const shortcutsOpen = useShortcutsModalStore((st) => st.isOpen);
@@ -563,7 +586,8 @@ export default function WorkspaceLayout({ children }) {
   }, [isTerminalView, activeWorkspaceId, markWorkspaceMounted]);
 
   // Reflect unseen finished-terminal count (or the active session name when idle) in the tab title
-  const activeSession = activeSessionId ? sessions.find((s) => s.id === activeSessionId) : null;
+  // allSessions: the active pane may belong to any host in the fleet.
+  const activeSession = activeSessionId ? allSessions.find((s) => s.id === activeSessionId) : null;
   const activeSessionName = activeSession ? (activeSession.name || t("terminal.defaultName")) : null;
   useEffect(() => { updateTitle(Object.keys(notifications).length, activeSessionName); return () => updateTitle(0); }, [notifications, activeSessionName]);
 
@@ -854,6 +878,7 @@ export default function WorkspaceLayout({ children }) {
             workspaces={allWorkspaces}
             onCreateAnyHost={createSessionOnHost}
             onQuickCreateHostAware={createTerminalFromPrefs}
+            onResumeAgentSessionForeign={resumeAgentSessionOnHost}
             activeSessionId={activeSessionId}
             activeSession={activeSession}
             activeWorkspaceId={activeWorkspaceId}

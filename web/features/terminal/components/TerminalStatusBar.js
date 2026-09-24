@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState, memo } from "react";
-import { Folder, GitBranch, Terminal } from "@/shared/components/ui/Icon";
+import { Folder, GitBranch } from "@/shared/components/ui/Icon";
+import { PlainShellGlyph } from "@/features/terminal/components/SessionAgentIcon";
 import { useQuota } from "@/features/quota/hooks/useQuota";
 import QuotaSegments from "@/features/quota/components/QuotaSegments";
 import { quotaBarColor } from "@/features/quota/constants/quotaConfig";
@@ -17,6 +18,7 @@ import {
 import StatusBar from "@/shared/components/ui/StatusBar";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { connOf, useHostConn } from "@/shared/transport/hostConn";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
@@ -158,26 +160,28 @@ export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fi
 function TerminalStatusBar({
   cwd,
   sessionId,
-  fileBus,
-  busRef: propBusRef,
-  connected: propConnected,
+  hostKey = null,
   sessionState: propState,
-  carrier: propCarrier,
   sessionName = "",
   agentVersion = "",
   platform = "",
   homeDir = null,
 }) {
   const { t } = useI18n();
-  const storeConnected = useConnectionStore((s) => s.connected);
-  const storeCarrier = useConnectionStore((s) => s.carrier);
-  const storeMode = useConnectionStore((s) => s.connectionMode);
-  const storeEndpoint = useConnectionStore((s) => s.endpoint);
-  const storeBusRef = useConnectionStore((s) => s.busRef);
+  // The bar describes the focused pane's host: carrier/platform/version/bus/file
+  // API all resolve through hostConn — no per-host branches here.
+  const conn = useHostConn(hostKey);
+  const connBusRef = connOf(hostKey).busRef;
+  const connFileBus = connOf(hostKey).fileBus;
+  // Mode/endpoint tags are main-connection facts (LAN/loopback) — meaningless for
+  // a fleet host, whose carrier is always tunnel-or-RTC.
+  const storeMode = useConnectionStore((s) => (hostKey ? null : s.connectionMode));
+  const storeEndpoint = useConnectionStore((s) => (hostKey ? "" : s.endpoint));
   const storeState = useNotificationStore((s) => sessionId ? s.sessionStatus[sessionId]?.state : "idle");
-  const connected = propConnected ?? storeConnected;
-  const carrier = propCarrier || storeCarrier;
-  const busRef = propBusRef || storeBusRef;
+  const connected = conn.connected;
+  const carrier = conn.carrier;
+  const busRef = connBusRef;
+  const fileBus = connFileBus;
   const sessionState = propState || storeState || "idle";
   const quota = useQuota(busRef);
 
@@ -209,7 +213,7 @@ function TerminalStatusBar({
         {agentIcon ? (
           <img src={agentIcon} alt="" draggable={false} className={`w-3.5 h-3.5 object-contain flex-shrink-0 ${AGENT_ICON_CLS}`} />
         ) : (
-          <Terminal size={12} className="opacity-60 flex-shrink-0" />
+          <PlainShellGlyph size={14} />
         )}
         <span className="truncate font-medium text-text" title={displayTitle}>{displayTitle}</span>
       </span>
@@ -234,11 +238,11 @@ function TerminalStatusBar({
       </>}
       right={<>
         <QuotaSegments quota={quota} />
-        {platform && (
-          <span className="uppercase tracking-wide">{PLATFORM_LABEL[platform] || platform}</span>
+        {(conn.platform || platform) && (
+          <span className="uppercase tracking-wide">{PLATFORM_LABEL[conn.platform || platform] || conn.platform || platform}</span>
         )}
-        {agentVersion && (
-          <span className="text-text-subtle">v{agentVersion}</span>
+        {(conn.version || agentVersion) && (
+          <span className="text-text-subtle">v{conn.version || agentVersion}</span>
         )}
         {/* Connection: WS / WS·LOCAL / STUN — carrier is "ws" or an RTC detail
             ("dc-stun"/"dc-turn"); anything non-ws is the RTC carrier. Endpoint on hover. */}
