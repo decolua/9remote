@@ -5,6 +5,7 @@ import assert from "node:assert/strict";
 import { useConnectionStore } from "../shared/stores/connectionStore.js";
 import { useFileBusStore } from "../shared/stores/fileBusStore.js";
 import { useNotificationStore } from "../shared/stores/notificationStore.js";
+import { useFleetStore } from "../shared/stores/fleetStore.js";
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
@@ -19,6 +20,15 @@ const test = async (name, fn) => {
 };
 
 console.log("\n--- Integrated E2E: Stores & Lifecycle ---");
+
+// The main host's fleet entry — status lives there (single lane), badges in
+// notificationStore. The paired writes mirror useNotification's handlers.
+const HEAD = "e2ehead";
+useFleetStore.setState({
+  currentKey: HEAD,
+  hosts: { [HEAD]: { key: HEAD, full: null, label: "", status: "full", carrier: "ws", sessions: [], workspaces: [], statusMap: {}, platform: null, version: null, lastSeenAt: null } }
+});
+const statusOf = (id) => useFleetStore.getState().hosts[HEAD]?.statusMap?.[id];
 
 await test("Full cycle: connect -> notifications -> files -> carrier drop -> reconnect -> clean up", async () => {
   const busEmits = [];
@@ -47,8 +57,14 @@ await test("Full cycle: connect -> notifications -> files -> carrier drop -> rec
     tool: "bash",
     since: 1700000000
   });
+  useFleetStore.getState().applyStatusChange(HEAD, {
+    sessionId: "session-1",
+    state: "done",
+    tool: "bash",
+    since: 1700000000
+  });
   assert.equal(useNotificationStore.getState().notifications["session-1"]?.type, "done");
-  assert.equal(useNotificationStore.getState().sessionStatus["session-1"]?.state, "done");
+  assert.equal(statusOf("session-1")?.state, "done");
 
   // 3. User browses file tree
   const fileRes = await useFileBusStore.getState().getFiles("/app");
@@ -88,11 +104,13 @@ await test("Full cycle: connect -> notifications -> files -> carrier drop -> rec
   assert.equal(newFiles.success, true);
   assert.equal(newFiles.files[0].name, "reconnected.js");
 
-  // 6. User types in session 1 -> notification is cleared
+  // 6. User types in session 1 -> notification is cleared, the agent's
+  // statusCleared broadcast flips the state to idle (tool icon stays)
   useNotificationStore.getState().clearNotification("session-1");
+  useFleetStore.getState().applyStatusCleared(HEAD, "session-1");
   assert.equal(useNotificationStore.getState().notifications["session-1"], undefined);
-  assert.equal(useNotificationStore.getState().sessionStatus["session-1"]?.state, "idle");
-  assert.equal(useNotificationStore.getState().sessionStatus["session-1"]?.tool, "bash"); // icon stays
+  assert.equal(statusOf("session-1")?.state, "idle");
+  assert.equal(statusOf("session-1")?.tool, "bash"); // icon stays
   assert.equal(reconnectBusEmits.some((e) => e.event === "clearStatus" && e.payload === "session-1"), true);
 });
 

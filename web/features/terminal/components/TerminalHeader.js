@@ -10,7 +10,7 @@ import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { connForSession } from "@/shared/transport/hostConn";
+import { connForSession, useAllSessionStatus } from "@/shared/transport/hostConn";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "@/features/terminal/constants/shortcuts";
@@ -97,7 +97,7 @@ function TerminalHeader({
   const fullMode = fullModes[activeWorkspaceId ?? UNGROUPED_KEY] ?? false;
   const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
   const storeNotifications = useNotificationStore((s) => s.notifications);
-  const storeSessionStatus = useNotificationStore((s) => s.sessionStatus);
+  const storeSessionStatus = useAllSessionStatus();
   const notifications = propNotifications || storeNotifications;
   const sessionStatus = propStatus || storeSessionStatus;
 

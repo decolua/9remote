@@ -7,7 +7,7 @@ import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
 import { AGENT_ICON_CLS } from "../constants/agentCli";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { statusItems, attentionSummary } from "../lib/sessionStatusSummary";
-import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { useAllSessionStatus } from "@/shared/transport/hostConn";
 
 // Compact relative time (e.g. "now", "3m", "2h", "1d")
 const timeAgo = (ts) => {
@@ -25,7 +25,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   const wrapRef = useRef(null);
-  const storeStatus = useNotificationStore((s) => s.sessionStatus);
+  const storeStatus = useAllSessionStatus();
   const sessionStatus = propStatus || storeStatus;
 
   // All sessions surface; state from sessionStatus (idle if none). Non-idle first (by since), idle last.

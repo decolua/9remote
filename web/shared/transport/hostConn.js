@@ -1,16 +1,18 @@
 "use client";
 
+import { useMemo } from "react";
+
 // HostConn — the one door every consumer reads a host through. Hosts differ ONLY
 // in how they connect: the main host rides the workspace connection
 // (useConnectionStore, login flow in useBus); a fleet host rides its lazy
 // background bus (fleetStore). Everything downstream of connect — bus, file API,
-// carrier, metadata, cache scope — is identical and comes from here, so no
-// consumer ever branches on which kind of host it is looking at.
+// carrier, metadata, cache scope — is identical and comes from here, and host
+// data (lists, statusMap, platform) lives in the fleet store for every host,
+// so no consumer ever branches on which kind of host it is looking at.
 
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
 import { useFileBusStore, makeFileBus } from "@/shared/stores/fileBusStore";
-import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { scopeOf } from "@/features/hosts/lib/fleetTree";
 
 class HostConn {
@@ -61,12 +63,16 @@ class HostConn {
     return useFleetStore.getState().hosts[this.head]?.carrier || "ws";
   }
 
+  // serverInfo lands in the fleet entry for every host (write-through on main,
+  // bus listener on fleet) — one lane, no main branch.
   get platform() {
-    return this.head ? (useFleetStore.getState().hosts[this.head]?.platform || null) : null;
+    const st = useFleetStore.getState();
+    return st.hosts[this.head || st.currentKey]?.platform || null;
   }
 
   get version() {
-    return this.head ? (useFleetStore.getState().hosts[this.head]?.version || null) : null;
+    const st = useFleetStore.getState();
+    return st.hosts[this.head || st.currentKey]?.version || null;
   }
 }
 
@@ -98,28 +104,38 @@ export function connForSession(sessionId) {
 }
 
 // Reactive snapshot for components: one subscription per store, re-renders on
-// status/carrier change. Main's platform/version stay null — the caller's props
-// own those (they come from useAgentBus's serverInfo).
+// status/carrier change. Main's connection state still comes from the
+// connection store (the singleton owns it); its data reads like any fleet host.
 export function useHostConn(head) {
-  if (head && head === useFleetStore.getState().currentKey) head = null;
-  const mainConnected = useConnectionStore((s) => (head ? null : s.connected));
-  const mainCarrier = useConnectionStore((s) => (head ? "ws" : s.carrier));
-  const fleetHost = useFleetStore((s) => (head ? s.hosts[head] : null));
-  if (!head) {
-    return { head: null, connected: !!mainConnected, status: mainConnected ? "full" : "offline", carrier: mainCarrier || "ws", platform: null, version: null };
+  const key = head && head === useFleetStore.getState().currentKey ? null : head;
+  const mainConnected = useConnectionStore((s) => (key ? null : s.connected));
+  const mainCarrier = useConnectionStore((s) => (key ? "ws" : s.carrier));
+  const fleetHost = useFleetStore((s) => s.hosts[key || s.currentKey]);
+  if (!key) {
+    return { head: null, connected: !!mainConnected, status: mainConnected ? "full" : "offline", carrier: mainCarrier || "ws", platform: fleetHost?.platform || null, version: fleetHost?.version || null };
   }
   const status = fleetHost?.status || "offline";
-  return { head, connected: status === "online", status, carrier: fleetHost?.carrier || "ws", platform: fleetHost?.platform || null, version: fleetHost?.version || null };
+  return { head: key, connected: status === "online", status, carrier: fleetHost?.carrier || "ws", platform: fleetHost?.platform || null, version: fleetHost?.version || null };
 }
 
-// A session's live state, whichever machine owns it: main sessions report through
-// the notification store, fleet sessions through their host's statusMap. Without
-// this split, a foreign pane's status reads "idle" forever — the working/done
-// beam and the status-bar dot would never fire.
+// A session's live state, whichever machine owns it — every host's status lives
+// in its fleet entry's statusMap (main write-through, fleet bus listener).
+// connForSession normalizes the main host's instance to head=null, so the read
+// falls back to currentKey; an unknown id also reads main (pre-fleet behavior).
 export function useSessionStatus(sessionId) {
   const head = sessionId ? connForSession(sessionId).head : null;
-  // Both hooks run unconditionally; the owning host's value is the one used.
-  const mainState = useNotificationStore((s) => (head || !sessionId ? null : s.sessionStatus[sessionId]?.state));
-  const fleetState = useFleetStore((s) => (head ? s.hosts[head]?.statusMap?.[sessionId]?.state : null));
-  return (head ? fleetState : mainState) || "idle";
+  const state = useFleetStore((s) => (sessionId ? s.hosts[head || s.currentKey]?.statusMap?.[sessionId]?.state : null));
+  return state || "idle";
+}
+
+// Flat status map across every host, keyed by raw session id — the shape the
+// bell, badge and sidebar lists read. Memoized on the hosts object (each patch
+// makes a new one) so identity is stable between unrelated store changes.
+export function useAllSessionStatus() {
+  const hosts = useFleetStore((s) => s.hosts);
+  return useMemo(() => {
+    const out = {};
+    for (const h of Object.values(hosts)) Object.assign(out, h.statusMap || {});
+    return out;
+  }, [hosts]);
 }

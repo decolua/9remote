@@ -6,6 +6,7 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
+import { sameEntry, sameMap } from "@/shared/utils/shallowEqual";
 
 // Fleet: one full host (the workspace's own connection) plus one background bus
 // per other saved key. A background bus is a regular ProtocolManager connection
@@ -16,6 +17,7 @@ import { setTrust } from "@/shared/transport/lib/deviceTrust";
 const DEVICE_ID_KEY = "9remote_deviceId";
 const CACHE_KEY = "9remote_fleet_cache";
 const FOCUS_KEY = "9remote_fleet_focus";
+const CONNECTED_KEY = "9remote_fleet_connected";
 // Safari's per-origin WebSocket ceiling is the tightest budget the page lives under.
 export const MAX_FLEET_HOSTS = 8;
 const PERSIST_DEBOUNCE_MS = 1000;
@@ -23,6 +25,32 @@ const PERSIST_DEBOUNCE_MS = 1000;
 // onConnect nor onDisconnect — without a deadline the row would read "connecting"
 // forever. Past it the host shows offline from its cache.
 const CONNECT_TIMEOUT_MS = 15000;
+// How often host liveness is re-read for hosts with no bus. The D1 heartbeat
+// beats every 2 min with a server-side grace window, so a hard kill lags —
+// polling is what makes a dead host's row go grey (and a revived one go green)
+// without the user expanding it.
+const PROBE_INTERVAL_MS = 60000;
+let probeTimer = null;
+let probeVisibleHandler = null;
+
+function armProbeLoop() {
+  if (typeof window === "undefined" || probeTimer) return;
+  probeTimer = setInterval(() => {
+    if (!document.hidden) useFleetStore.getState()._probeUnconnected();
+  }, PROBE_INTERVAL_MS);
+  probeVisibleHandler = () => {
+    if (document.visibilityState === "visible") useFleetStore.getState()._probeUnconnected();
+  };
+  document.addEventListener("visibilitychange", probeVisibleHandler);
+}
+
+function disarmProbeLoop() {
+  if (!probeTimer) return;
+  clearInterval(probeTimer);
+  probeTimer = null;
+  document.removeEventListener("visibilitychange", probeVisibleHandler);
+  probeVisibleHandler = null;
+}
 
 // apiKey HEAD -> ProtocolManager (module-level: transport objects, not render state)
 const buses = new Map();
@@ -72,6 +100,22 @@ function readFocus() {
     // "" (explicit fleet view) must survive — only absence reads as null.
     return v === null ? null : v;
   } catch { return null; }
+}
+
+function readConnected() {
+  if (typeof window === "undefined") return [];
+  try { return JSON.parse(localStorage.getItem(CONNECTED_KEY) || "[]"); } catch { return []; }
+}
+
+function setHostConnected(head, connected) {
+  if (typeof window === "undefined" || !head) return;
+  try {
+    const list = readConnected();
+    const set = new Set(list);
+    if (connected) set.add(head);
+    else set.delete(head);
+    localStorage.setItem(CONNECTED_KEY, JSON.stringify([...set]));
+  } catch {}
 }
 
 // Last-known snapshots so an offline host still renders (Tailscale-style last seen).
@@ -127,6 +171,7 @@ export const useFleetStore = create((set, get) => ({
     }
 
     const cached = readCache();
+    const connectedSet = new Set(readConnected());
     set((prev) => {
       const hosts = {};
       for (const [head, info] of infoByHead) {
@@ -143,28 +188,50 @@ export const useFleetStore = create((set, get) => ({
       }
       return { hosts, currentKey: current };
     });
-    // One batched liveness read replaces opening a bus to every saved key on
-    // load. A bus opens lazily when a host is expanded (ensureHost) or retried.
-    if (wantedHeads.length) {
-      fetch("/api/host-status", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ heads: wantedHeads })
-      })
-        .then((r) => (r.ok ? r.json() : null))
-        .then((data) => {
-          for (const head of wantedHeads) {
-            const info = data?.hosts?.[head];
-            if (!info) continue;
-            const st = get().hosts[head];
-            // A live bus (online/full/connecting) always outranks the heartbeat
-            // probe — a stale D1 row must never flip a working host to offline.
-            if (!st || st.status !== "offline") continue;
-            get()._patchHost(head, { status: info.online ? "online" : "offline" });
-          }
-        })
-        .catch(() => {}); // Status stays "offline" — the retry button is the fallback
+
+    // Auto-connect hosts that were previously connected by the user
+    for (const head of wantedHeads) {
+      if (connectedSet.has(head)) {
+        get()._openHost(head);
+      }
     }
+
+    // Liveness for hosts without a bus is periodic (see _probeUnconnected) — a
+    // one-shot read here would freeze each row at whatever the heartbeat said
+    // at load, dead or alive.
+    get()._probeUnconnected();
+    armProbeLoop();
+  },
+
+  // One batched liveness read for hosts NO bus owns — the main host rides the
+  // live connection, hosts with a bus read onConnect/onDisconnect. For busless
+  // hosts the heartbeat verdict is authoritative in BOTH directions; a bus that
+  // opened while the fetch was out (ensureHost) is skipped so it is never
+  // stamped over. Runs once per sync() and then every PROBE_INTERVAL_MS.
+  _probeUnconnected() {
+    const st = get();
+    const heads = Object.values(st.hosts)
+      .filter((h) => h.key !== st.currentKey && !buses.has(h.key))
+      .map((h) => h.key);
+    if (!heads.length) return;
+    fetch("/api/host-status", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ heads })
+    })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        const now = get();
+        for (const head of heads) {
+          const info = data?.hosts?.[head];
+          if (!info) continue;
+          const h = now.hosts[head];
+          if (!h || head === now.currentKey || buses.has(head)) continue;
+          const next = info.online ? "online" : "offline";
+          if (h.status !== next) get()._patchHost(head, { status: next });
+        }
+      })
+      .catch(() => {}); // Keep whatever the row already says — the next tick retries
   },
 
   _openHost(head) {
@@ -210,17 +277,9 @@ export const useFleetStore = create((set, get) => ({
           // Carrier switch = a new socket server-side: re-announce, then refetch.
           bus.on("connect", () => { bus.emit("device:clientReady"); refetch(bus); });
           bus.on("serverInfo", (info) => patch({ platform: info?.platform || null, version: info?.version || null }));
-          bus.on("statusState", (state) => patch({ statusMap: state || {} }));
-          bus.on("statusChange", ({ sessionId, state, tool, since } = {}) => {
-            if (!sessionId) return;
-            const cur = get().hosts[head]?.statusMap || {};
-            patch({ statusMap: { ...cur, [sessionId]: { state, tool, since } } });
-          });
-          bus.on("statusCleared", (sessionId) => {
-            const cur = get().hosts[head]?.statusMap;
-            if (!cur?.[sessionId]) return;
-            patch({ statusMap: { ...cur, [sessionId]: { ...cur[sessionId], state: "idle" } } });
-          });
+          bus.on("statusState", (state) => get().applyStatusState(head, state));
+          bus.on("statusChange", (p) => get().applyStatusChange(head, p));
+          bus.on("statusCleared", (id) => get().applyStatusCleared(head, id));
           bus.on("sessionsChanged", () => refetch(bus));
           bus.on("workspacesChanged", () => refetch(bus));
           bus.on("session-renamed", () => refetch(bus));
@@ -262,6 +321,46 @@ export const useFleetStore = create((set, get) => ({
     schedulePersist(get);
   },
 
+  // Status events, one implementation for every host bus (main singleton + fleet).
+  applyStatusState(key, state) {
+    const incoming = state || {};
+    set((prev) => {
+      const h = prev.hosts[key];
+      if (!h || sameMap(h.statusMap, incoming)) return prev;
+      return { hosts: { ...prev.hosts, [key]: { ...h, statusMap: incoming } } };
+    });
+    schedulePersist(get);
+  },
+
+  applyStatusChange(key, { sessionId, state, tool, since, conversationId } = {}) {
+    if (!sessionId) return;
+    set((prev) => {
+      const h = prev.hosts[key];
+      if (!h) return prev;
+      const cur = h.statusMap[sessionId];
+      const next = {
+        state,
+        tool: tool !== undefined ? tool : cur?.tool,
+        since,
+        ...(conversationId || cur?.conversationId ? { conversationId: conversationId || cur?.conversationId } : {})
+      };
+      if (sameEntry(cur, next)) return prev;
+      return { hosts: { ...prev.hosts, [key]: { ...h, statusMap: { ...h.statusMap, [sessionId]: next } } } };
+    });
+    schedulePersist(get);
+  },
+
+  applyStatusCleared(key, sessionId) {
+    if (!sessionId) return;
+    set((prev) => {
+      const h = prev.hosts[key];
+      const cur = h?.statusMap?.[sessionId];
+      if (!cur) return prev;
+      return { hosts: { ...prev.hosts, [key]: { ...h, statusMap: { ...h.statusMap, [sessionId]: { ...cur, state: "idle" } } } } };
+    });
+    schedulePersist(get);
+  },
+
   _closeHost(key) {
     const pm = buses.get(key);
     if (pm) { pm.disconnect(); buses.delete(key); }
@@ -281,6 +380,19 @@ export const useFleetStore = create((set, get) => ({
     get()._openHost(key);
   },
 
+  // Connect a host and persist that state so subsequent reloads auto-connect.
+  connectHost(key) {
+    setHostConnected(key, true);
+    get().retryHost(key);
+  },
+
+  // Persist auto-connect without touching any bus now — for a key just added
+  // (sync() opens it as part of the same settle) or the host a switchHost is
+  // leaving (it was live a second ago; it must not land offline after reload).
+  setAutoConnect(key, on) {
+    setHostConnected(key, on);
+  },
+
   // Manual reconnect for an offline root: drop its (dead) bus and open a fresh
   // one. No lastSeen bump — the machine has not actually been seen.
   retryHost(key) {
@@ -292,6 +404,7 @@ export const useFleetStore = create((set, get) => ({
   // The row's "Disconnect": drop the background bus (the host stays saved and
   // shows offline). Seeing it just now makes the lastSeen bump correct here.
   disconnectHost(key) {
+    setHostConnected(key, false);
     get()._closeHost(key);
   },
 
@@ -306,6 +419,7 @@ export const useFleetStore = create((set, get) => ({
     for (const pm of buses.values()) pm.disconnect();
     buses.clear();
     pendingByHost.clear();
+    disarmProbeLoop();
     set({ overlayOpen: false });
   },
 

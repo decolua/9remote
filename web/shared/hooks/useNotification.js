@@ -3,6 +3,8 @@
 import { useEffect, useCallback, useMemo, useRef } from "react";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import { attentionSummary } from "@/features/terminal/lib/sessionStatusSummary";
 
 /**
@@ -150,12 +152,15 @@ export function useNotification(busRef, connected) {
       currentSocket.emit("getNotificationState");
     };
 
-    // Receive full 4-state map from server (idle/working/blocked/done).
+    // Status events land in the main host's fleet entry — the single status lane
+    // (fleet buses bind the same store actions in fleetStore._openHost).
     // Preserve last-known tool for sessions the agent cleared (no longer in map)
     // so the agent icon persists when idle.
-    const handleStatusState = (state) => useNotificationStore.getState().handleStatusState(state);
+    const mainHead = () => useFleetStore.getState().currentKey;
+    const handleStatusState = (state) => useFleetStore.getState().applyStatusState(mainHead(), state);
     const handleStatusChange = (payload) => {
       useNotificationStore.getState().handleStatusChange(payload);
+      useFleetStore.getState().applyStatusChange(mainHead(), payload);
       if (payload && (payload.state === "done" || payload.state === "blocked")) {
         const isDone = payload.state === "done";
         const label = payload.tool ? payload.tool.charAt(0).toUpperCase() + payload.tool.slice(1) : "Terminal";
@@ -166,7 +171,7 @@ export function useNotification(busRef, connected) {
         }
       }
     };
-    const handleStatusCleared = (sessionId) => useNotificationStore.getState().handleStatusCleared(sessionId);
+    const handleStatusCleared = (sessionId) => useFleetStore.getState().applyStatusCleared(mainHead(), sessionId);
     const handleNotificationState = (state) => useNotificationStore.getState().handleNotificationState(state);
 
     // Another client cleared a badge → re-fetch to stay in sync
@@ -203,9 +208,10 @@ export function useNotification(busRef, connected) {
   }, [busRef, connected]);
 
   // Sync in-app attention count → PWA icon badge + desktop Dock badge.
-  // Counted off sessionStatus (the same reading the bell and the mobile badge use) rather
-  // than the notifications map, so every surface shows one number.
-  const sessionStatus = useNotificationStore((s) => s.sessionStatus);
+  // Counted off the flat status map (the same reading the bell and the mobile
+  // badge use) rather than the notifications map, so every surface shows one
+  // number — and every host's attention counts, main and fleet alike.
+  const sessionStatus = useAllSessionStatus();
   const count = useMemo(() => attentionSummary(sessionStatus).total, [sessionStatus]);
   useEffect(() => {
     if (typeof window !== "undefined" && window.__9R_DESKTOP__?.setBadge) {

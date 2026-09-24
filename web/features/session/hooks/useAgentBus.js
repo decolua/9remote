@@ -4,6 +4,7 @@ import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { commitPendingKey, forgetRejectedTail } from "@/shared/transport/lib/deviceTrust";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useVoiceStore } from "@/shared/stores/voiceStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
 import { WORKER_API } from "@/shared/constants/API";
 import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
 import { sameList } from "@/shared/utils/shallowEqual";
@@ -14,6 +15,13 @@ import { debugLog } from "@/shared/utils/debugLog";
 const FETCH_COALESCE_MS = 120;
 // Drop duplicate list fetches across carriers (RTC then WS) within freshness window.
 const FETCH_FRESH_MS = 1000;
+
+// The main host is a fleet host like any other: its data lands in the SAME store
+// entry (single lane for readers). No-op until sync() has settled currentKey.
+const patchMainHost = (p) => {
+  const st = useFleetStore.getState();
+  st._patchHost(st.currentKey, p);
+};
 
 export function useAgentBus() {
   const [sessions, setSessions] = useState([]);
@@ -94,12 +102,16 @@ export function useAgentBus() {
     }
     // Keep previous array reference if unchanged to avoid unnecessary re-renders.
     setSessions((prev) => (sameList(prev, list) ? prev : list));
+    const st = useFleetStore.getState();
+    if (!sameList(st.hosts[st.currentKey]?.sessions, list)) patchMainHost({ sessions: list });
   }, []);
 
   const applyWorkspaces = useCallback((list) => {
     if (!Array.isArray(list)) return;
     markLoaded("workspaces");
     setWorkspaces((prev) => (sameList(prev, list) ? prev : list));
+    const st = useFleetStore.getState();
+    if (!sameList(st.hosts[st.currentKey]?.workspaces, list)) patchMainHost({ workspaces: list });
   }, []);
 
   // Sequence counters per list to discard out-of-order responses from multiple triggers.
@@ -208,6 +220,7 @@ export function useAgentBus() {
     });
 
     bus.on("serverInfo", (info) => {
+      patchMainHost({ platform: info.platform || null, version: info.version || null });
       setRemoteAvailable(info.remoteAvailable);
       setMobileAvailable(!!info.mobileAvailable);
       setPlatform(info.platform);
@@ -231,6 +244,9 @@ export function useAgentBus() {
 
     bus.on("sessionClosed", (sessionId) => {
       setSessions(prev => prev.filter(s => s.id !== sessionId));
+      const st = useFleetStore.getState();
+      const cur = st.hosts[st.currentKey]?.sessions;
+      if (cur?.some((s) => s.id === sessionId)) patchMainHost({ sessions: cur.filter((s) => s.id !== sessionId) });
       // Clean up terminal store state for closed session.
       useTerminalStore.getState().closeSession(sessionId);
     });
@@ -239,6 +255,9 @@ export function useAgentBus() {
     bus.on("session-renamed", ({ sessionId, name } = {}) => {
       if (!sessionId) return;
       setSessions(prev => prev.map(s => (s.id === sessionId ? { ...s, name } : s)));
+      const st = useFleetStore.getState();
+      const cur = st.hosts[st.currentKey]?.sessions;
+      if (cur?.some((s) => s.id === sessionId)) patchMainHost({ sessions: cur.map((s) => (s.id === sessionId ? { ...s, name } : s)) });
     });
 
     // Update session agent surface and invalidate history cache when mode changes.
@@ -291,7 +310,6 @@ export function useAgentBus() {
     if (!connected) return;
     const timer = setInterval(() => {
       if (bothLoaded()) return;
-      termLog("diag", `list-retry tick: connected but not loaded (sessions=${loadedRef.current.sessions} workspaces=${loadedRef.current.workspaces}) — refetching`); // TEMP DIAGNOSTIC
       loadSessions();
     }, 2000);
     return () => clearInterval(timer);
@@ -323,22 +341,27 @@ export function useAgentBus() {
         if (result.sessionId) {
           if (agentId) useTerminalStore.getState().setSessionAgent(result.sessionId, agentId);
           const wsPath = workspaces.find((w) => w.id === workspaceId)?.path || null;
-          setSessions((prev) => [
+          const entry = {
+            id: result.sessionId,
+            name: result.name || name || "Terminal",
+            createdAt: Date.now(),
+            cwd: result.cwd || cwd || null,
+            workspaceId: workspaceId || null,
+            groupId: workspaceId || null,
+            workspacePath: wsPath,
+            shellId: result.shellId || shellId || null,
+            shellLabel: result.shellLabel || null,
+            agent: agentId || null
+          };
+          const merge = (prev) => [
             // The terminal this one replaced goes in the same update to avoid holding both.
             ...prev.filter((s) => s.id !== result.sessionId && s.id !== result.replaced),
-            {
-              id: result.sessionId,
-              name: result.name || name || "Terminal",
-              createdAt: Date.now(),
-              cwd: result.cwd || cwd || null,
-              workspaceId: workspaceId || null,
-              groupId: workspaceId || null,
-              workspacePath: wsPath,
-              shellId: result.shellId || shellId || null,
-              shellLabel: result.shellLabel || null,
-              agent: agentId || null
-            }
-          ]);
+            entry
+          ];
+          setSessions(merge);
+          const st = useFleetStore.getState();
+          const cur = st.hosts[st.currentKey]?.sessions;
+          if (cur) patchMainHost({ sessions: merge(cur) });
         }
         refreshLists();
       }
@@ -430,6 +453,7 @@ export function useAgentBus() {
     bus,
     busRef,
     protocolRef,
+    disconnect,
     connected,
     connectionMode,
     carrier,

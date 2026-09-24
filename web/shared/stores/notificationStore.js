@@ -10,53 +10,36 @@ const omit = (obj, key) => {
   return rest;
 };
 
+// A session's status entry, whichever host owns it — the fleet store is the
+// single status lane now. Resolved via fleetStore directly: hostConn imports
+// this store, the reverse would cycle.
+const hostStatusOf = (sessionId) => {
+  const { hosts } = useFleetStore.getState();
+  for (const h of Object.values(hosts)) {
+    const st = h.statusMap?.[sessionId];
+    if (st) return st;
+  }
+  return null;
+};
+
 export const useNotificationStore = create((set, get) => ({
   notifications: {},
-  sessionStatus: {},
 
-  handleStatusState: (state) => set((prev) => {
-    const incoming = state || {};
-    return sameMap(prev.sessionStatus, incoming) ? prev : { sessionStatus: incoming };
-  }),
-
-  handleStatusChange: ({ sessionId, state, tool, since, conversationId }) => {
+  // Badges only — the status map itself lives in each host's fleet entry.
+  handleStatusChange: ({ sessionId, state, tool, since } = {}) => {
     if (!sessionId) return;
     set((prev) => {
-      const prevStatus = prev.sessionStatus[sessionId];
-      const nextStatus = {
-        state,
-        tool: tool !== undefined ? tool : prevStatus?.tool,
-        since,
-        ...(conversationId || prevStatus?.conversationId ? { conversationId: conversationId || prevStatus?.conversationId } : {})
-      };
-      const sessionStatus = { ...prev.sessionStatus, [sessionId]: nextStatus };
-
       const badge = state === "done" || state === "blocked";
       let notifications = prev.notifications;
       if (!badge) {
         if (sessionId in prev.notifications) notifications = omit(prev.notifications, sessionId);
       } else {
-        const nextBadge = { sessionId, type: state, tool, timestamp: since };
+        const nextBadge = { sessionId, type: state, tool: tool !== undefined ? tool : hostStatusOf(sessionId)?.tool, timestamp: since };
         if (!sameEntry(prev.notifications[sessionId], nextBadge)) {
           notifications = { ...prev.notifications, [sessionId]: nextBadge };
         }
       }
-
-      return { sessionStatus, notifications };
-    });
-  },
-
-  handleStatusCleared: (sessionId) => {
-    if (!sessionId) return;
-    set((prev) => {
-      const existing = prev.sessionStatus[sessionId];
-      if (!existing) return prev;
-      return {
-        sessionStatus: {
-          ...prev.sessionStatus,
-          [sessionId]: { state: "idle", tool: existing.tool, since: existing.since }
-        }
-      };
+      return { notifications };
     });
   },
 
@@ -67,23 +50,17 @@ export const useNotificationStore = create((set, get) => ({
 
   clearNotification: (sessionId) => {
     if (!sessionId) return;
-    const { notifications, sessionStatus } = get();
-    const state = sessionStatus[sessionId]?.state;
+    const state = hostStatusOf(sessionId)?.state;
     // A blocked session is still waiting on the user: the agent refuses to clear it, so
-    // neither do we — badge, status and wire all stay put rather than half-clearing.
+    // neither do we — badge and wire both stay put rather than half-clearing.
     if (state === "blocked") return;
-    if (!notifications[sessionId] && state !== "done") return;
+    if (!get().notifications[sessionId] && state !== "done") return;
 
-    set((prev) => {
-      const existing = prev.sessionStatus[sessionId];
-      const nextNotifs = sessionId in prev.notifications
+    set((prev) => ({
+      notifications: sessionId in prev.notifications
         ? omit(prev.notifications, sessionId)
-        : prev.notifications;
-      const nextStatus = existing?.state === "done"
-        ? { ...prev.sessionStatus, [sessionId]: { state: "idle", tool: existing.tool, since: existing.since } }
-        : prev.sessionStatus;
-      return { notifications: nextNotifs, sessionStatus: nextStatus };
-    });
+        : prev.notifications
+    }));
 
     // The clear goes to the machine OWNING the session — typing in a fleet pane must
     // clear that host's dot, not poke an unknown id on the main agent. (Resolved
@@ -100,5 +77,5 @@ export const useNotificationStore = create((set, get) => ({
     bus?.emit("clearStatus", sessionId);
   },
 
-  reset: () => set({ notifications: {}, sessionStatus: {} })
+  reset: () => set({ notifications: {} })
 }));

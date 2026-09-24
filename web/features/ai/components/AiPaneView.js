@@ -27,7 +27,7 @@ import { AiAgentStrip } from "./AiAgentStrip";
 import { AiPaneScope } from "./PaneScope";
 import { getEngineConfig } from "../registry";
 import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, AI_DOT_GRID, ENGINE_INFO } from "../constants";
-import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { useSessionStatus } from "@/shared/transport/hostConn";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 import { makePanePointerHandlers } from "@/shared/utils/paneActivation";
@@ -101,7 +101,7 @@ export const AiPaneView = memo(function AiPaneView({
   const tasks = useAiStore((s) => s.bySession[sessionId]?.tasks) || EMPTY_TASKS;
   const setPermissionMode = useAiStore((s) => s.setPermissionMode);
 
-  const sessionState = useNotificationStore((s) => (sessionId ? s.sessionStatus[sessionId]?.state : null)) || "idle";
+  const sessionState = useSessionStatus(sessionId);
 
   const terminalBackgroundOpacity = useTerminalStore((s) => s.terminalBackgroundOpacity);
   const customBackgrounds = useTerminalStore((s) => s.customBackgrounds);
