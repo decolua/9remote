@@ -27,6 +27,7 @@ function relativeAge(ms, t) {
 // CLI's own resume command, so the transcript comes back rather than restarting.
 export default function AgentHistoryPanel({
   busRef,
+  scope = "",
   cwd,
   onResume,
   onSelectSession,
@@ -39,7 +40,10 @@ export default function AgentHistoryPanel({
   const [collapsed, setCollapsed] = useState(false);
   const [modalOpen, setModalOpen] = useState(false);
   const [deletingSession, setDeletingSession] = useState(null);
-  const sessions = useAgentSessions(busRef, cwd);
+  const sessions = useAgentSessions(busRef, cwd, scope);
+  // Same path on two machines is two histories — every store/poller key carries
+  // the host scope.
+  const historyKey = scope ? `${scope}|${cwd}` : cwd;
 
   // A modal tab owns its whole panel: it is already a titled, scrolling surface, so
   // it drops the collapsible section header and the height share meant for a sidebar.
@@ -64,12 +68,12 @@ export default function AgentHistoryPanel({
     vibrate();
 
     const nextSessions = (sessions || []).filter((s) => !(s.agent === agent && s.sessionId === sessionId));
-    useTerminalStore.getState().setAgentHistory(cwd, nextSessions);
+    useTerminalStore.getState().setAgentHistory(historyKey, nextSessions);
 
     busRef?.current?.emit("deleteAgentSession", { agent, sessionId, cwd }, (res) => {
       if (!res?.success) {
         busRef?.current?.emit("getAgentSessions", { cwd }, (r) => {
-          if (Array.isArray(r?.sessions)) useTerminalStore.getState().setAgentHistory(cwd, r.sessions);
+          if (Array.isArray(r?.sessions)) useTerminalStore.getState().setAgentHistory(historyKey, r.sessions);
         });
       }
     });
@@ -191,6 +195,7 @@ export default function AgentHistoryPanel({
           onClose={() => setModalOpen(false)}
           busRef={busRef}
           cwd={cwd}
+          scope={scope}
           onResume={onResume}
           onSelectSession={onSelectSession}
           liveSessionIds={liveSessionIds}

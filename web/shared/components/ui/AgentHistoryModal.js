@@ -28,6 +28,7 @@ export default function AgentHistoryModal({
   onClose,
   busRef,
   cwd,
+  scope = "",
   onResume,
   onSelectSession,
   liveSessionIds,
@@ -38,8 +39,10 @@ export default function AgentHistoryModal({
   const [query, setQuery] = useState("");
   const [selectedAgent, setSelectedAgent] = useState("all");
   const [deletingSession, setDeletingSession] = useState(null);
+  // Same path on two machines is two histories — key through the host scope.
+  const historyKey = scope ? `${scope}|${cwd}` : cwd;
 
-  const rawSessions = useTerminalStore((s) => (cwd ? s.agentHistory[cwd]?.sessions : null));
+  const rawSessions = useTerminalStore((s) => (cwd ? s.agentHistory[historyKey]?.sessions : null));
   const sessions = useMemo(() => rawSessions || [], [rawSessions]);
 
   useEffect(() => {
@@ -88,13 +91,13 @@ export default function AgentHistoryModal({
 
     // Optimistically remove from store
     const nextSessions = sessions.filter((s) => !(s.agent === agent && s.sessionId === sessionId));
-    useTerminalStore.getState().setAgentHistory(cwd, nextSessions);
+    useTerminalStore.getState().setAgentHistory(historyKey, nextSessions);
 
     busRef?.current?.emit("deleteAgentSession", { agent, sessionId, cwd }, (res) => {
       if (!res?.success) {
         // Re-fetch on error
         busRef?.current?.emit("getAgentSessions", { cwd }, (r) => {
-          if (Array.isArray(r?.sessions)) useTerminalStore.getState().setAgentHistory(cwd, r.sessions);
+          if (Array.isArray(r?.sessions)) useTerminalStore.getState().setAgentHistory(historyKey, r.sessions);
         });
       }
     });

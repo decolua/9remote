@@ -8,7 +8,9 @@ import { useI18n } from "@/shared/i18n";
 
 import { MAX_RECENT_WORKSPACES, toPosixPath } from "../constants/fileExplorer.js";
 
-const STORAGE_KEY = "recentWorkspaces";
+// Per-host namespace: "" = the main host (legacy key, untouched), "@head" = a
+// fleet host — one machine's recents never seed another's picker.
+const storageKey = (scope = "") => `recentWorkspaces${scope}`;
 const MAX_RECENT = MAX_RECENT_WORKSPACES;
 
 // Normalize path-like fields on a persisted entry (migrates old \\ data + guards writes).
@@ -26,19 +28,19 @@ const normEntry = (w) => {
   return next;
 };
 
-export function getRecentWorkspaces() {
+export function getRecentWorkspaces(scope = "") {
   if (typeof window === "undefined") return [];
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]").map(normEntry);
+    return JSON.parse(localStorage.getItem(storageKey(scope)) || "[]").map(normEntry);
   } catch {
     return [];
   }
 }
 
-export function addRecentWorkspace(workspacePath) {
+export function addRecentWorkspace(workspacePath, scope = "") {
   if (typeof window === "undefined") return;
   const norm = toPosixPath(workspacePath);
-  const all = getRecentWorkspaces();
+  const all = getRecentWorkspaces(scope);
   const existing = all.find(w => w.path === norm);
   const rest = all.filter(w => w.path !== norm);
   // Preserve lastPath/name/pinned when re-adding existing workspace
@@ -53,7 +55,7 @@ export function addRecentWorkspace(workspacePath) {
   // Pinned items always kept at top
   const pinned = rest.filter(w => w.pinned);
   const unpinned = rest.filter(w => !w.pinned).slice(0, MAX_RECENT);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify([...pinned, ...unpinned]));
+  localStorage.setItem(storageKey(scope), JSON.stringify([...pinned, ...unpinned]));
 }
 
 export function renameRecentWorkspace(workspacePath, name) {
@@ -63,7 +65,7 @@ export function renameRecentWorkspace(workspacePath, name) {
   const idx = recent.findIndex(w => w.path === norm);
   if (idx === -1) return;
   recent[idx] = { ...recent[idx], name: name?.trim() || undefined };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+  localStorage.setItem(storageKey(), JSON.stringify(recent));
 }
 
 export function togglePinWorkspace(workspacePath) {
@@ -76,7 +78,7 @@ export function togglePinWorkspace(workspacePath) {
   // Re-sort: pinned first
   const pinned = recent.filter(w => w.pinned);
   const unpinned = recent.filter(w => !w.pinned);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify([...pinned, ...unpinned]));
+  localStorage.setItem(storageKey(), JSON.stringify([...pinned, ...unpinned]));
 }
 
 export function updateOpenedFiles(workspacePath, openedFiles, activeFile) {
@@ -92,11 +94,11 @@ export function updateOpenedFiles(workspacePath, openedFiles, activeFile) {
   // Auto-create entry so tabs persist even if workspace not yet in recent list
   if (idx === -1) {
     recent.unshift({ path: norm, lastOpened: Date.now(), openedFiles: files, activeFile: active });
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+    localStorage.setItem(storageKey(), JSON.stringify(recent));
     return;
   }
   recent[idx] = { ...recent[idx], openedFiles: files, activeFile: active ?? null };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+  localStorage.setItem(storageKey(), JSON.stringify(recent));
 }
 
 export function updateRecentWorkspacePath(workspacePath, lastPath) {
@@ -106,14 +108,14 @@ export function updateRecentWorkspacePath(workspacePath, lastPath) {
   const idx = recent.findIndex(w => w.path === norm);
   if (idx === -1) return;
   recent[idx] = { ...recent[idx], lastPath: toPosixPath(lastPath) };
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+  localStorage.setItem(storageKey(), JSON.stringify(recent));
 }
 
-export function removeRecentWorkspace(workspacePath) {
+export function removeRecentWorkspace(workspacePath, scope = "") {
   if (typeof window === "undefined") return;
   const norm = toPosixPath(workspacePath);
-  const recent = getRecentWorkspaces().filter(w => w.path !== norm);
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(recent));
+  const recent = getRecentWorkspaces(scope).filter(w => w.path !== norm);
+  localStorage.setItem(storageKey(scope), JSON.stringify(recent));
 }
 
 export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces, systemInfo }) {

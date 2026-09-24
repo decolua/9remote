@@ -8,12 +8,12 @@ import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer";
 import { getRecentWorkspaces } from "@/features/fileExplorer/components/WorkspaceList";
 import { shortenHomePath as shortHome } from "../lib/workspaceGrouping";
 
-// Remember the last browsed directory across opens — subsequent opens resume where the
-// user left off instead of always starting at home (Windows dialog guideline).
-// Mutated only through this setter so component code never reassigns a module global.
-let lastBrowsedDir = null;
-const rememberBrowsedDir = (p) => { lastBrowsedDir = p == null ? null : toPosixPath(p); };
-const readBrowsedDir = () => lastBrowsedDir;
+// Remember the last browsed directory per HOST — subsequent opens resume where the
+// user left off on that machine (Windows dialog guideline). Keyed by cache scope
+// ("" = main, "@head" = fleet) so one host's dirs never seed another host's picker.
+const lastBrowsedDirs = new Map();
+const rememberBrowsedDir = (scope, p) => { lastBrowsedDirs.set(scope, p == null ? null : toPosixPath(p)); };
+const readBrowsedDir = (scope) => lastBrowsedDirs.get(scope) || null;
 
 const RECENTS_SHOWN = 8;
 const PATH_DEBOUNCE_MS = 300;
@@ -127,11 +127,11 @@ function resolveSegmentStep(segment, baseEntries) {
 // Desktop folder picker: browse the host filesystem and pick one directory
 // (breadcrumb, dual-mode input, cached listings).
 // Keeps the terminal visible behind it — the mobile flow uses the full-screen WorkspaceList instead.
-export default function FolderPickerModal({ fileBus, initialPath, onSelect, onClose }) {
+export default function FolderPickerModal({ fileBus, initialPath, scope = "", onSelect, onClose }) {
   const { t } = useI18n();
   // Frozen at mount: lastBrowsedDir mutates on every navigate, so recomputing this
   // per render would re-fire the boot effects and yank the user back to the start dir.
-  const [startPath] = useState(() => initialPath || readBrowsedDir() || null);
+  const [startPath] = useState(() => initialPath || readBrowsedDir(scope) || null);
   const [dirPath, setDirPath] = useState(startPath);
   const [entries, setEntries] = useState([]);
   const [loading, setLoading] = useState(!!startPath);
@@ -142,7 +142,7 @@ export default function FolderPickerModal({ fileBus, initialPath, onSelect, onCl
   const [preview, setPreview] = useState(null);
   const [systemInfo, setSystemInfo] = useState(null);
   // localStorage is only readable on the client, so seed lazily rather than in an effect.
-  const [recent] = useState(() => (typeof window === "undefined" ? [] : getRecentWorkspaces()));
+  const [recent] = useState(() => (typeof window === "undefined" ? [] : getRecentWorkspaces(scope)));
   const searchRef = useRef(null);
   const isDesktopRef = useRef(false);
   const genRef = useRef(0);
@@ -226,7 +226,7 @@ export default function FolderPickerModal({ fileBus, initialPath, onSelect, onCl
   // Central navigation: drops filter/preview and bumps the preview gen so a stale resolve can't clobber.
   const navigate = useCallback((target) => {
     vibrate();
-    rememberBrowsedDir(target);
+    rememberBrowsedDir(scope, target);
     setFilter("");
     setPreview(null);
     setHiIdx(0);
@@ -234,7 +234,7 @@ export default function FolderPickerModal({ fileBus, initialPath, onSelect, onCl
     lastCommittedPrefixRef.current = "";
     if (debounceTimerRef.current) { clearTimeout(debounceTimerRef.current); debounceTimerRef.current = null; }
     void loadDir(target);
-  }, [loadDir]);
+  }, [loadDir, scope]);
 
   const navigateUp = useCallback(() => {
     if (!dirPath) return;
@@ -423,7 +423,7 @@ export default function FolderPickerModal({ fileBus, initialPath, onSelect, onCl
 
   const confirm = () => {
     if (!dirPath) return;
-    rememberBrowsedDir(dirPath);
+    rememberBrowsedDir(scope, dirPath);
     vibrate();
     onSelect(dirPath);
   };
@@ -442,7 +442,7 @@ export default function FolderPickerModal({ fileBus, initialPath, onSelect, onCl
   const rowPick = (entry) => {
     if (preview?.loading) return;
     if (clickTimerRef.current) { clearTimeout(clickTimerRef.current); clickTimerRef.current = null; }
-    rememberBrowsedDir(entry.path);
+    rememberBrowsedDir(scope, entry.path);
     onSelect(entry.path);
   };
 
@@ -587,7 +587,7 @@ export default function FolderPickerModal({ fileBus, initialPath, onSelect, onCl
                   return (
                     <button
                       key={w.path}
-                      onClick={() => { vibrate(); rememberBrowsedDir(wp); onSelect(wp); }}
+                      onClick={() => { vibrate(); rememberBrowsedDir(scope, wp); onSelect(wp); }}
                       className="flex items-center gap-1.5 px-2 py-1.5 bg-surface-2 hover:bg-surface-3 rounded-[4px] border border-border-subtle text-left transition-colors w-[150px] shrink-0"
                       title={wp}
                     >

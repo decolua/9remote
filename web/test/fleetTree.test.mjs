@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { hostTree, hostSummary, relTime, otherHostsOf, scopedFleetLists, scopedWsId, rawWsIdOf, activeWsForHost } from "../features/hosts/lib/fleetTree.js";
+import { hostTree, hostSummary, relTime, otherHostsOf, scopedFleetLists, scopedWsId, rawWsIdOf, activeWsForHost, scopeOf } from "../features/hosts/lib/fleetTree.js";
 
 const ws = [
   { id: "w1", name: "9remote", path: "/w/9remote" },
@@ -18,6 +18,10 @@ assert.deepEqual(tree[0].sessions.map((s) => s.id), ["a"]);
 assert.deepEqual(tree[2].sessions.map((s) => s.id), ["c", "d"]);
 assert.equal(hostTree([], []).length, 0);
 assert.equal(hostTree([{ id: "x" }], []).length, 1);
+// A workspace with no sessions still shows (its empty row is the create-terminal door)
+const emptyTree = hostTree([], [{ id: "w9", name: "fresh" }]);
+assert.equal(emptyTree.length, 1);
+assert.deepEqual(emptyTree[0].sessions, []);
 
 const sum = hostSummary(ss, { a: { state: "working" }, b: { state: "blocked" }, c: { state: "done" } });
 assert.deepEqual(sum, { sessions: 4, working: 1, attention: 2 });
@@ -35,15 +39,18 @@ assert.match(relTime(Date.now() - 30 * 86400000, t), /20\d\d/); // beyond a week
 assert.equal(relTime(null, t), "");
 assert.equal(relTime(0, t), "");
 
-// otherHostsOf: drop the current host, online before offline, label order within a tier
+// otherHostsOf: drop the current host, keep add order (store insertion order)
 const mk = (key, label, status) => ({ key, label, status });
 const all = [mk("off", "Zeta", "offline"), mk("cur", "Current", "full"), mk("b", "Bravo", "online"), mk("a", "Alpha", "online"), mk("off2", "Alpha", "offline")];
-assert.deepEqual(otherHostsOf(all, "cur").map((h) => h.key), ["a", "b", "off2", "off"]);
+assert.deepEqual(otherHostsOf(all, "cur").map((h) => h.key), ["off", "b", "a", "off2"]);
 assert.deepEqual(otherHostsOf(all, null), []); // fleet not settled yet → render nothing
 assert.deepEqual(otherHostsOf([], "cur"), []);
 
 // workspace-id scoping round trip
 assert.equal(scopedWsId("h2", "w1"), "h2:w1");
+// cache scopes: main keeps the legacy (empty) key, a fleet head namespaces its own
+assert.equal(scopeOf(null), "");
+assert.equal(scopeOf("h2"), "@h2");
 assert.equal(rawWsIdOf("h2:w1", "h2"), "w1");
 assert.equal(rawWsIdOf("main:w1", "h2"), null);
 assert.equal(activeWsForHost("h2:w1", "h2"), "w1");

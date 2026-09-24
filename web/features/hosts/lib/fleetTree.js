@@ -11,7 +11,9 @@ export function hostTree(sessions = [], workspaces = []) {
     buckets.get(id).push(s);
   }
   return [
-    ...workspaces.filter((w) => buckets.has(w.id)).map((w) => ({ workspace: w, sessions: buckets.get(w.id) })),
+    // An empty workspace still renders — it is the affordance that carries the
+    // "create terminal here" row; hiding it made a fresh workspace invisible.
+    ...workspaces.map((w) => ({ workspace: w, sessions: buckets.get(w.id) || [] })),
     ...(buckets.has(null) ? [{ workspace: null, sessions: buckets.get(null) }] : [])
   ];
 }
@@ -31,6 +33,10 @@ export function hostSummary(sessions = [], statusMap = {}) {
 // Workspace ids cross the host boundary as "head:rawId" (scopedFleetLists). These
 // are the two directions a tree or nav needs.
 export const scopedWsId = (head, rawId) => `${head}:${rawId}`;
+// Cache namespace per host: "" = the main host (legacy keys stay untouched),
+// "@head" = a fleet host. Every localStorage cache that holds host-owned data
+// (recents, browsed dir, agent history) keys through this.
+export const scopeOf = (head) => (head ? `@${head}` : "");
 export const rawWsIdOf = (scopedId, head) => (
   typeof scopedId === "string" && scopedId.startsWith(`${head}:`)
     ? scopedId.slice(head.length + 1)
@@ -61,13 +67,11 @@ export function relTime(ts, t) {
 }
 
 // The sibling roots a sidebar renders below the current host's tree: other saved
-// keys, online ones first, label order within a tier. No current host yet (fleet
-// not settled) renders nothing — every key would look like "another" host.
+// keys in the order they were added (the store's insertion order — sync() builds
+// it from the saved-key list). No current host yet (fleet not settled) renders
+// nothing — every key would look like "another" host.
 export function otherHostsOf(hosts, currentKey) {
-  return hosts
-    .filter((h) => currentKey && h.key !== currentKey)
-    .sort((a, b) => (a.status === "offline") - (b.status === "offline")
-      || (a.label || "").localeCompare(b.label || ""));
+  return hosts.filter((h) => currentKey && h.key !== currentKey);
 }
 
 // Other hosts' sessions/workspaces re-keyed under "head:" so they flow through the
