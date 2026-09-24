@@ -48,7 +48,7 @@ function LoginContent() {
 
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { loading, error, authenticateWithToken, authenticateWithApiKey } = useAuth();
+  const { loading, error, setError, authenticateWithToken, authenticateWithApiKey } = useAuth();
   const [tailRejected, setTailRejected] = useState(false);
   const { loadKeys, saveKey, removeKey, renameKey, hasStoredKeys, updateLastLogin } = useApiKeyStorage();
   const hasLegacySavedKey = useMemo(() => savedKeys.some((item) => isLegacyApiKey(item.key)), [savedKeys]);

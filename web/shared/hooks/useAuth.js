@@ -171,6 +171,7 @@ export function useAuth() {
   return {
     loading,
     error,
+    setError,
     authenticateWithToken,
     authenticateWithApiKey
   };
