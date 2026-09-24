@@ -37,6 +37,9 @@ export default function HostTreeRow({
   onRetry = null,
   // The desktop sidebar keeps its add-key button up in the brand row instead.
   showAdd = true,
+  // Mobile draws this row bigger (fonts on the standard scale, touch-sized
+  // buttons); desktop keeps its compact sizes.
+  mobile = false,
   className = ""
 }) {
   const { t } = useI18n();
@@ -46,12 +49,12 @@ export default function HostTreeRow({
   const [addOpen, setAddOpen] = useState(false);
   const [menuAt, setMenuAt] = useState(null); // screen pos a right-click opened the menu at
 
-  const displayLabel = label || t("sessions.headerTitle");
+  const displayLabel = label || "Local";
 
   return (
     <>
       <div
-        className={`relative pr-2 py-1.5 flex items-center gap-1 group group/host ${className}`}
+        className={`relative pr-2 ${mobile ? "py-1.5" : "py-1"} flex items-center gap-1 group group/host ${className}`}
         onContextMenu={(e) => { e.preventDefault(); vibrate(); setMenuAt({ left: e.clientX, top: e.clientY }); }}
       >
         {onToggleCollapse ? (
@@ -74,7 +77,7 @@ export default function HostTreeRow({
         {/* Every host row carries the machine glyph + connection dot — the identity
             of a row, not a button. */}
         <span className="relative flex-shrink-0">
-          <Monitor size={15} className="text-text-muted" />
+          <Monitor size={mobile ? 16 : 15} className="text-text-muted" />
           <span className={`absolute -bottom-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ring-1 ring-surface ${connecting ? "bg-amber-400 animate-pulse" : connected ? "bg-green-500" : mutedOffline ? "bg-text-subtle" : "bg-red-500 animate-pulse"}`} />
         </span>
         <button
@@ -82,7 +85,7 @@ export default function HostTreeRow({
           onClick={() => { if (onToggleCollapse) { vibrate(); onToggleCollapse(); } }}
           className="flex-1 min-w-0 py-0.5 pr-1 text-left"
         >
-          <span className={`block text-[12px] font-medium uppercase truncate ${connected ? "text-text" : "text-text-muted"}`} data-tip={displayLabel}>
+          <span className={`block ${mobile ? "text-sm" : "text-[12px]"} font-medium uppercase truncate ${connected ? "text-text" : "text-text-muted"}`} data-tip={displayLabel}>
             {displayLabel}
           </span>
         </button>
@@ -90,7 +93,7 @@ export default function HostTreeRow({
 
         {/* Actions pinned absolute right — the ExplorerRow door: text runs full
             width, hover floats the cluster over its end with a surface backdrop. */}
-        <div className="absolute right-1 top-1/2 -translate-y-1/2 flex items-center gap-1 sm:gap-1.5 px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:bg-transparent [@media(hover:none)]:px-0 transition-opacity">
+        <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center ${mobile ? "gap-1.5" : "gap-1 sm:gap-1.5"} px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100 [@media(hover:none)]:bg-transparent [@media(hover:none)]:px-0 transition-opacity`}>
           {showAdd && (
             <button
               onClick={(e) => { e.stopPropagation(); vibrate(); setAddOpen(true); }}
@@ -104,27 +107,27 @@ export default function HostTreeRow({
           {onRetry && !connected && !connecting && (
             <button
               onClick={(e) => { e.stopPropagation(); vibrate(); onRetry(); }}
-              className="p-0.5 text-text-subtle hover:text-text rounded-[2px] transition-colors"
+              className={`${mobile ? "p-1.5" : "p-0.5"} text-text-subtle hover:text-text rounded-[2px] transition-colors`}
               title={t("common.retry")}
             >
-              <RotateCw size={13} />
+              <RotateCw size={mobile ? 16 : 13} />
             </button>
           )}
           {/* New workspace — its own folder button, one tap shallower than the menu. */}
           {onAddWorkspace && (
             <button
               onClick={(e) => { e.stopPropagation(); vibrate(); onAddWorkspace(); }}
-              className="p-0.5 text-text-subtle hover:text-text rounded-[2px] transition-colors"
+              className={`${mobile ? "p-1.5" : "p-0.5"} text-text-subtle hover:text-text rounded-[2px] transition-colors`}
               title={t("workspaces.newWorkspace")}
             >
-              <Folder size={13.5} />
+              <Folder size={mobile ? 18 : 13.5} />
             </button>
           )}
           {/* Rename / delete / disconnect folded into one "..." — the key icon stays
               out front because adding a machine is the frequent action. Right-clicking
               the row opens the same menu. */}
           <IconMenu
-            size={13.5}
+            size={mobile ? 18 : 13.5}
             label={t("sessions.sessionActions")}
             revealCls=""
             anchor={menuAt}

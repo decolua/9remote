@@ -42,7 +42,7 @@ const UNGROUPED_KEY = "ungrouped";
 // hook-reported tools fall back to the label's icon, and a plain shell gets a prompt.
 function AgentGlyph({ agentId, tool }) {
   const [broken, setBroken] = useState(false);
-  if (broken) return <Terminal size={13.5} className="text-text-muted flex-shrink-0" />;
+  if (broken) return <Terminal size={14} className="text-text-muted flex-shrink-0" />;
   if (agentId?.endsWith("-ui")) {
     return (
       <img
@@ -56,7 +56,7 @@ function AgentGlyph({ agentId, tool }) {
   if (AGENT_ICONS[tool]) {
     return <img src={AGENT_ICONS[tool]} alt={tool} className={`w-3.5 h-3.5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`} />;
   }
-  return <Terminal size={13.5} className="text-text-muted flex-shrink-0" />;
+  return <Terminal size={14} className="text-text-muted flex-shrink-0" />;
 }
 
 // Touch drag: the grip handle carries `touch-none`, so a drag from it never scrolls;
@@ -255,6 +255,7 @@ export default function SessionList({
           <div className="pl-1 pr-3">
           <HostTreeRow
             className="flex-shrink-0"
+            mobile
             hostKey={currentHost.key}
             label={currentHost.label || ""}
             connected={connected}
@@ -320,7 +321,7 @@ export default function SessionList({
             <button
               onClick={() => { vibrate(); onAddWorkspace(); }}
               disabled={!connected}
-              className="mx-auto flex items-center gap-1.5 py-1.5 px-4 text-xs text-text-subtle active:text-text border border-dashed border-border-subtle active:border-text-muted/40 rounded-brand active:bg-surface-2 transition-colors disabled:opacity-40"
+              className="mx-auto mt-3 flex items-center gap-1.5 py-1.5 px-4 text-sm text-text-subtle active:text-text border border-dashed border-border-subtle active:border-text-muted/40 rounded-brand active:bg-surface-2 transition-colors disabled:opacity-40"
             >
               <Plus size={12} className="flex-shrink-0" />
               <span>{t("workspaces.newWorkspace")}</span>
@@ -336,6 +337,7 @@ export default function SessionList({
             {otherHosts.map((h) => (
               <HostTree
                 key={h.key}
+                mobile
                 host={{ ...h, onDisconnect: () => useFleetStore.getState().disconnectHost(h.key) }}
                 actions={{
                   ...makeFleetActions(h, { onSelectSession: onSelect }),
@@ -446,17 +448,17 @@ function WorkspaceSection({
         >
           <span className="p-1 text-text-subtle flex-shrink-0">
             <ChevronRight
-              size={12}
+              size={18}
               className={`transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`}
             />
           </span>
-          <Folder size={13.5} className="text-text-muted flex-shrink-0" />
+          <Folder size={14} className="text-text-muted flex-shrink-0" />
           <span className="flex-1 min-w-0 flex flex-col">
-            <span className="text-[12px] font-medium uppercase text-text-muted truncate" data-tip={section.name}>
+            <span className="text-sm font-medium uppercase text-text-muted truncate" data-tip={section.name}>
               {section.name}
             </span>
             {branch && !isDefaultBranch(branch) && branch !== section.name && (
-              <span className="text-[10px] text-text-subtle leading-tight flex items-center gap-1 min-w-0">
+              <span className="text-xs text-text-subtle leading-tight flex items-center gap-1 min-w-0">
                 <BranchBadge branch={branch} dirty={dirty} className="truncate flex-shrink-0 max-w-[7rem]" />
               </span>
             )}
@@ -472,10 +474,11 @@ function WorkspaceSection({
             className="p-0.5 text-text-subtle hover:text-text rounded-[2px] hover:bg-surface-2 transition-colors disabled:opacity-40"
             title={t("terminal.newTerminal")}
           >
-            <Plus size={12} />
+            <Plus size={18} />
           </button>
         )}
         <IconMenu
+          size={18}
           label={t("sessions.sessionActions")}
           items={[
             onWorkspaceMenu && {
@@ -526,10 +529,10 @@ function WorkspaceSection({
           <button
             onClick={() => { vibrate(); onNewTerminal(); }}
             disabled={!connected}
-            className="w-full flex items-center gap-1.5 pl-8 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
+            className="w-full flex items-center gap-1.5 pl-8 py-1.5 text-left text-sm text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
             title={t("workspaces.addTerminal")}
           >
-            <Plus size={13} className="flex-shrink-0" />
+            <Plus size={18} className="flex-shrink-0" />
             <span>{t("terminal.newTerminal")}</span>
           </button>
         </div>
@@ -606,11 +609,12 @@ function SessionRow({
       <span className="flex-1 min-w-0 flex flex-col">
         <span className="flex items-center gap-1 min-w-0">
           <AgentGlyph agentId={session.agent} tool={tool} />
-          <span className="text-[11px] text-text truncate" data-tip={session.name || t("terminal.defaultName")}>
+          <span className="text-base text-text truncate" data-tip={session.name || t("terminal.defaultName")}>
             {session.name || t("terminal.defaultName")}
           </span>
         </span>
         <SessionMeta
+          mobile
           fileBus={fileBus}
           cwd={cwd}
           basePath={basePath}
@@ -620,6 +624,7 @@ function SessionRow({
       {/* One "..." per row — the same centered menu the key and workspace rows open. */}
       {menuItems && (
         <IconMenu
+          size={18}
           label={session.name || t("terminal.defaultName")}
           anchor={menuAt}
           onClose={() => setMenuAt(null)}

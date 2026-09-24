@@ -13,7 +13,7 @@ const tailOf = (p) => (p.split("/").length > 2 ? `…/${p.split("/").slice(-2).j
 // list so the two read as one app. The agent's name is not repeated — the row's icon
 // already says which one it is. A default branch (main/master) is the norm, not
 // information, so it stays hidden.
-export function SessionMeta({ fileBus, cwd, basePath, homeDir }) {
+export function SessionMeta({ fileBus, cwd, basePath, homeDir, mobile = false }) {
   const { branch, dirty } = useWorkspaceGit(cwd, fileBus);
   const showBranch = !!branch && !isDefaultBranch(branch);
   // Priority order: off-default branch (a worktree) → live folder relative to the
@@ -25,7 +25,7 @@ export function SessionMeta({ fileBus, cwd, basePath, homeDir }) {
     : null;
   if (!showBranch && !meta) return null;
   return (
-    <span className="text-[10px] text-text-subtle truncate leading-tight flex items-center gap-1.5">
+    <span className={`${mobile ? "text-xs" : "text-[10px]"} text-text-subtle truncate leading-tight flex items-center gap-1.5`}>
       {showBranch && <BranchBadge branch={branch} dirty={dirty} className="truncate italic" />}
       {meta && <span className="truncate opacity-70" data-tip={meta}>{meta}</span>}
     </span>

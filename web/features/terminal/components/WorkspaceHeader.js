@@ -19,7 +19,8 @@ export const REVEAL_CLS = "opacity-0 group-hover:opacity-100 focus-visible:opaci
 // hide their action, so a read-only tree (another host's) renders the same shape.
 export default function WorkspaceHeader({
   workspace, isActive, connected, collapsed, fileBus,
-  onToggleCollapse, onSelect, onNewTerminal, onDelete, onRename
+  onToggleCollapse, onSelect, onNewTerminal, onDelete, onRename,
+  mobile = false
 }) {
   const { t } = useI18n();
   const gitPath = workspaceGitPath(workspace);
@@ -62,14 +63,14 @@ export default function WorkspaceHeader({
             type="button"
             onClick={(e) => { e.stopPropagation(); vibrate(); onNewTerminal(); }}
             disabled={!connected}
-            className="p-0.5 text-text-subtle hover:text-text rounded-[2px] transition-colors disabled:opacity-40"
+            className={`${mobile ? "p-1.5" : "p-0.5"} text-text-subtle hover:text-text rounded-[2px] transition-colors disabled:opacity-40`}
             title={t("terminal.newTerminal")}
           >
-            <Plus size={13.5} />
+            <Plus size={mobile ? 18 : 13.5} />
           </button>
         )}
         <IconMenu
-          size={13.5}
+          size={mobile ? 18 : 13.5}
           label={t("sessions.sessionActions")}
           revealCls=""
           items={[

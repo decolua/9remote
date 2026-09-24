@@ -48,6 +48,7 @@ export default function HostTree({
   agentBySession = null,
   cwdBySession = null,
   treeCls = "pl-3.5",
+  mobile = false,             // bigger fonts + touch-sized buttons (mobile session list)
   rowCls = "hover:bg-text/5 hover:text-text"
 }) {
   const { t } = useI18n();
@@ -92,6 +93,7 @@ export default function HostTree({
   return (
     <div>
       <HostTreeRow
+        mobile={mobile}
         hostKey={host.key}
         label={host.label}
         connected={online}
@@ -126,6 +128,7 @@ export default function HostTree({
             return (
               <div key={wsKey} className="flex flex-col mt-2 first:mt-0">
                 <WorkspaceHeader
+                  mobile={mobile}
                   workspace={{ id: rawId, name: workspace?.name || t("workspaces.ungrouped"), path: workspace?.path || null, items: sessions }}
                   isActive={isActiveWs}
                   connected={connected && online}
@@ -174,7 +177,7 @@ export default function HostTree({
                       <span className="flex-1 min-w-0 flex flex-col">
                         <span className={`flex items-center gap-1 min-w-0 ${isActive ? "font-medium" : ""}`}>
                           <SessionAgentIcon agent={agentBySession?.[s.id] ?? s.agent} tool={host.statusMap?.[s.id]?.tool} />
-                          <span className="text-[11px] truncate" data-tip={title}>{title}</span>
+                          <span className={`${mobile ? "text-base" : "text-[11px]"} truncate`} data-tip={title}>{title}</span>
                           {hidden && onUnhidePane && (
                             <button
                               type="button"
@@ -190,6 +193,7 @@ export default function HostTree({
                           )}
                         </span>
                         <SessionMeta
+                          mobile={mobile}
                           fileBus={fileBus}
                           cwd={cwdBySession?.[s.id] ?? s.cwd ?? s.workspacePath}
                           basePath={workspaceGitPath({ path: workspace?.path || null, items: sessions })}
@@ -233,7 +237,7 @@ export default function HostTree({
                     </div>
                   );
                 })}
-                {!collapsed[wsKey] && sessions.length === 0 && (
+                {!isCollapsed(wsKey) && sessions.length === 0 && (
                   <button
                     onClick={() => { vibrate(); setTermModalWs(wsKey); }}
                     disabled={!connected || !online}
