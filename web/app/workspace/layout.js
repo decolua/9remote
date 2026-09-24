@@ -220,7 +220,7 @@ export default function WorkspaceLayout({ children }) {
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, sessions, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, workspaces, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   // Fleet: one background bus per saved host other than the current one; the
   // mobile home shows the fleet overview until the user enters a host (focus).
-  const { loadKeys, renameKey, removeKey } = useApiKeyStorage();
+  const { loadKeys, saveKey, renameKey, removeKey } = useApiKeyStorage();
   const [savedKeys, setSavedKeys] = useState([]);
   useEffect(() => {
     if (!hydrated) return;
@@ -261,10 +261,14 @@ export default function WorkspaceLayout({ children }) {
   // Rename a saved host: the storage entry is keyed by id, the fleet row by key HEAD.
   const handleRenameHost = useCallback((key, label) => {
     const item = loadKeys().find((k) => headOf(k.key) === key);
-    if (!item) return;
+    if (!item) {
+      saveKey(key, label);
+      setSavedKeys(loadKeys());
+      return;
+    }
     renameKey(item.id, label);
     setSavedKeys(loadKeys());
-  }, [loadKeys, renameKey]);
+  }, [loadKeys, renameKey, saveKey]);
 
   const handleDeleteHost = useCallback((key) => {
     const item = loadKeys().find((k) => headOf(k.key) === key);
