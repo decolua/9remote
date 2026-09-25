@@ -21,14 +21,16 @@ const test = async (name, fn) => {
 console.log("\n--- HostRegistry (pure) ---");
 
 const HEAD = "reghead";
-const makeRegistry = (row) => {
+const makeRegistry = (row, servedBy = () => false, servedBus = () => null) => {
   const calls = { patch: [], opened: [] };
   const reg = new HostRegistry({
     hostOf: (head) => (head === HEAD ? row : undefined),
     patch: (head, p) => calls.patch.push({ head, p }),
     bindBus: () => {},
     ready: () => {},
-    probeTargets: () => []
+    probeTargets: () => [],
+    servedBy,
+    servedBus
   });
   return { reg, calls };
 };
@@ -62,17 +64,52 @@ await test("whenReady with a host not yet online defers the intent", () => {
   assert.equal(reg.pending.get(HEAD).length, 1);
 });
 
-await test("the ACTIVE host (status full) never gets a fleet bus", () => {
-  const { reg } = makeRegistry({ status: "full", full: "k" });
+await test("a host another owner serves never gets a second wire", () => {
+  // One wire per host: while the workspace connection serves this head, the
+  // registry must neither open it nor queue an intent it can never fire.
+  const { reg } = makeRegistry({ status: "full", full: "k" }, (h) => h === HEAD);
   let opened = false;
   reg.open = () => { opened = true; };
   reg.whenReady(HEAD, () => {});
-  assert.equal(opened, false, "whenReady must not open a bus for the active host");
+  assert.equal(opened, false, "whenReady must not open a bus for a served host");
   assert.equal(reg.pending.size, 0, "and must not queue an intent it can never fire");
-  // Even a direct open() call is refused — the workspace connection owns it.
+  // Even a direct open() call is refused.
   reg.open = HostRegistry.prototype.open;
   reg.open(HEAD, { status: "full", full: "k" });
   assert.equal(reg.has(HEAD), false);
+});
+
+await test("an intent for a served host rides the serving bus", () => {
+  // One door for every host: the host another owner serves still takes its
+  // intents — through that owner's bus, never a second wire.
+  const owner = { emit: () => {} };
+  const { reg } = makeRegistry({ status: "full", full: "k" }, (h) => h === HEAD, () => owner);
+  const openReal = reg.open;
+  reg.open = () => { throw new Error("must not open a second wire"); };
+  let got = null;
+  reg.whenReady(HEAD, (b) => { got = b; });
+  assert.equal(got, owner);
+  assert.equal(reg.pending.size, 0, "a served host's intent is served, not queued");
+  reg.open = openReal;
+});
+
+await test("a served host with no live bus drops the intent quietly", () => {
+  // Nothing to defer onto: the wire is not this registry's, and queueing would
+  // promise a delivery it can never make.
+  const { reg } = makeRegistry({ status: "connecting", full: "k" }, (h) => h === HEAD, () => null);
+  let ran = false;
+  reg.whenReady(HEAD, () => { ran = true; });
+  assert.equal(ran, false);
+  assert.equal(reg.pending.size, 0);
+});
+
+await test("the same host is openable once the workspace looks elsewhere", () => {
+  // Ownership is not a rank: it follows whoever the workspace is viewing, so a
+  // host stops being served (and the registry may open it) the moment focus moves.
+  const { reg } = makeRegistry({ status: "offline", full: "k" }, () => false);
+  reg.open = () => {};
+  reg.whenReady(HEAD, () => {});
+  assert.equal(reg.pending.get(HEAD)?.length, 1, "an unserved host's intent must wait for its bus");
 });
 
 await test("drop removes the bus and any pending intents", () => {

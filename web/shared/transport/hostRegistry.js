@@ -51,12 +51,16 @@ export class HostRegistry {
   //   bindBus(bus, head)  -> register the store's event listeners, once per bus
   //   ready(bus, head)    -> clientReady announce + metadata refetch (each connect)
   //   probeTargets()      -> heads with no bus, for the liveness loop
-  constructor({ hostOf, patch, bindBus, ready, probeTargets }) {
+  //   servedBy(head)      -> true when another owner already holds this host's wire
+  //   servedBus(head)     -> that owner's live bus, so intents still land
+  constructor({ hostOf, patch, bindBus, ready, probeTargets, servedBy = null, servedBus = null }) {
     this._hostOf = hostOf;
     this._patch = patch;
     this._bindBus = bindBus;
     this._ready = ready;
     this._probeTargets = probeTargets;
+    this._servedBy = servedBy || (() => false);
+    this._servedBus = servedBus || (() => null);
     // head -> ProtocolManager (transport objects, deliberately not store state)
     this.buses = new Map();
     // Deferred intents: pressed while a bus is still opening, fired on connect.
@@ -80,15 +84,24 @@ export class HostRegistry {
   }
 
   // Run fn with the host's live bus now, or defer until the bus connects
-  // (opening it if needed). The single door for fleet mutations — defer, never
-  // drop a user intent that landed in the lazy-connect window. The ACTIVE host
-  // ("full") owns no fleet bus — its wire is the workspace connection, so an
-  // intent aimed at it is not this registry's to serve.
+  // (opening it if needed). The single door for mutations — defer, never drop a
+  // user intent that landed in the lazy-connect window.
+  //
+  // One wire per host, but ONE door for every host: a host another owner serves
+  // (the workspace connection) still takes intents — through that owner's bus.
+  // Only while it is up: nothing here may open a second wire to it, and a
+  // deferred intent cannot ride a bus this registry does not own.
   whenReady(head, fn) {
     const row = this._hostOf(head);
-    if (!head || !row || row.status === "full") return;
+    if (!head || !row) return;
+    if (this._servedBy(head)) {
+      const bus = this._servedBus(head);
+      if (bus) fn(bus);
+      return;
+    }
     const bus = this.busOf(head);
     if (bus && row.status === "online") { fn(bus); return; }
+    if (!this._canOpen(row, head)) return;
     this.open(head, row);
     const q = this.pending.get(head) || [];
     q.push(fn);
@@ -101,13 +114,20 @@ export class HostRegistry {
     writeConnected(head, on);
   }
 
+  _canOpen(row, head) {
+    if (!row) return false;
+    // One wire per host: a host another owner serves is not this registry's to
+    // open, and a host with no key of its own has no wire at all.
+    if (this._servedBy(head)) return false;
+    return !!row.full;
+  }
+
   // Lazy open — every path (expand, connect button, retry, deferred intent)
-  // lands here. `row` is the store's host entry (needs .full). The ACTIVE host
-  // ("full") never gets one: its wire is the workspace connection.
+  // lands here. `row` is the store's host entry; it needs a key of its own.
   open(head, row) {
     if (this.has(head)) return;
     const deviceId = readDeviceId();
-    if (!row || row.status === "full" || !deviceId) return;
+    if (!this._canOpen(row, head) || !deviceId) return;
     this.persistIntent(head, true);
     // The tail rides device trust (idempotent — a previous login usually set it).
     const tail = tailOf(row.full);
@@ -216,9 +236,8 @@ export class HostRegistry {
       .then((r) => (r.ok ? r.json() : null))
       .then((data) => {
         for (const head of heads) {
-          // A bus that opened, or a re-key that made this host active, while the
-          // fetch was out is never stamped over.
-          if (this.has(head) || this._hostOf(head)?.status === "full") continue;
+          // A bus that opened while the fetch was out is never stamped over.
+          if (this.has(head)) continue;
           const info = data?.hosts?.[head];
           if (!info) continue;
           this._patch(head, { status: info.online ? "online" : "offline" });

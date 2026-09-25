@@ -2,13 +2,11 @@
 
 import { useMemo } from "react";
 
-// HostConn — the one door every consumer reads a host through. Hosts differ ONLY
-// in how they connect: the main host rides the workspace connection
-// (useConnectionStore, login flow in useBus); a fleet host rides its lazy
-// background bus (fleetStore). Everything downstream of connect — bus, file API,
-// carrier, metadata, cache scope — is identical and comes from here, and host
-// data (lists, statusMap, platform) lives in the fleet store for every host,
-// so no consumer ever branches on which kind of host it is looking at.
+// HostConn — the one door every consumer reads a host through. Every host owns
+// its own bus in the registry, so nothing here branches on which host it is
+// looking at; host data (lists, statusMap, platform) lives in the fleet store
+// for every host. What is left of the two-kinds split is only about *reading*:
+// HostConn is a live view, useHostConn the reactive one.
 
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFleetStore, fleetBusOf, fleetPmOf } from "@/shared/stores/fleetStore";
@@ -17,21 +15,18 @@ import { scopeOf } from "@/features/hosts/lib/fleetTree";
 
 class HostConn {
   constructor(head) {
-    this.head = head || null; // null = the main host
+    this.head = head || null; // null = whichever host the workspace is viewing
     this._busRef = { current: null };
     this._pmRef = { current: null };
   }
 
-  // The main connection is not always the same machine: switchHost makes another
-  // key the live connection, and its caches must follow that key (not stay on the
-  // legacy "" bucket that predates multi-host). Read live, like `bus`.
   get scope() {
-    if (!this.head) return scopeOf(useFleetStore.getState().currentKey || null);
-    return scopeOf(this.head);
+    return scopeOf(this.head || useFleetStore.getState().currentKey || null);
   }
 
-  // Live bus facade or null (a fleet bus not open yet — callers wait, never fall
-  // back to another host's bus). Read fresh on every access; no cached transport.
+  // Live bus facade or null (a bus not open yet — callers wait, never fall back
+  // to another host's bus). Read fresh on every access; no cached transport:
+  // the viewed host's rides the connection store, every other host's the registry.
   get bus() {
     if (!this.head) {
       const st = useConnectionStore.getState();
@@ -95,9 +90,9 @@ class HostConn {
 const conns = new Map();
 
 export function connOf(head) {
-  // The current host's OWN head names the main connection (callers pass real
-  // heads, not the "main" sentinel) — normalize it so every consumer gets the
-  // workspace singleton, not a fleet facade over a bus that never exists.
+  // The viewed host's OWN head maps to the live view (callers pass real heads,
+  // not the "main" sentinel) — one instance per host key either way, but reading
+  // it live is what lets a host switch leave stale buses behind.
   if (head && head === useFleetStore.getState().currentKey) return connOf(null);
   const key = head || "";
   let c = conns.get(key);

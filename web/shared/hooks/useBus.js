@@ -48,6 +48,10 @@ export function useBus(config = {}) {
   // Re-key in place: switching hosts bumps authKey (setAuthData), this effect
   // tears the old ProtocolManager down and builds a fresh one for the new auth.
   const authKey = useConnectionStore((s) => s.authKey);
+  // True once a connection has existed: a host switch must not blink the page
+  // back to its loading gate while the new connection comes up (the old bus is
+  // torn down first, so a reset here would leave nothing to show).
+  const hadConnectionRef = useRef(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -90,6 +94,9 @@ export function useBus(config = {}) {
 
       if (cancelled) return;
       if (!auth?.apiKey) {
+        // Nothing to connect with — the mirror must not keep a bus from a
+        // session that no longer exists (cleanup no longer resets on re-key).
+        useConnectionStore.getState().reset();
         router.push(redirectOnNoAuth);
         return;
       }
@@ -109,6 +116,7 @@ export function useBus(config = {}) {
         tempKey: auth.tempKey ?? null,
         onConnect: (bus, mode) => {
           if (cancelled) return;
+          hadConnectionRef.current = true;
           busRef.current = bus;
           const cMode = mode || protocolRef.current?.connectionMode || "tunnel";
           setConnected(true);
@@ -165,11 +173,18 @@ export function useBus(config = {}) {
       protocol = new ProtocolManager(wsConfig, rtcConfig);
       protocolRef.current = protocol;
       busRef.current = protocol.busRef.current;
+      // First connect: nothing to show yet, so the gate is honest. A re-key is
+      // not that — the new bus replaces the old one immediately (emits buffer
+      // until it opens), so the connection's live verdicts carry over rather
+      // than flipping the page to a loading screen. The standing approval
+      // verdict is cleared where the new bus binds its listeners (useAgentBus),
+      // not here: this runs before them, so an answer that arrives first would
+      // be wiped by the clear.
       useConnectionStore.getState().setConnection({
         bus: busRef.current,
         busRef,
         protocolRef,
-        connected: false,
+        ...(hadConnectionRef.current ? {} : { connected: false, admitted: false }),
         connectionMode: "tunnel",
         carrier: "ws"
       });
@@ -183,7 +198,10 @@ export function useBus(config = {}) {
       protocol?.disconnect();
       protocolRef.current = null;
       busRef.current = null;
-      useConnectionStore.getState().reset();
+      // Deliberately no reset(): on a re-key the next effect has already replaced
+      // the mirror, and resetting here would null the bus the page is rendering
+      // from. A real teardown (logout, leaving the workspace) goes through
+      // disconnect(), which does reset.
     };
   // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per authKey: a host switch re-keys from scratch
   }, [authKey]);

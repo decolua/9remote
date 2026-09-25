@@ -267,6 +267,11 @@ export function useAgentBus() {
     // Announce capabilities on first bind in addition to carrier reconnects.
     announceCaps(bus);
 
+    // This bus IS the connection from here on, so a verdict left by the previous
+    // one is stale — cleared AFTER the listeners are on, so an answer that
+    // arrived while the bus was being built is not wiped by this.
+    useConnectionStore.getState().setConnection({ approvalStatus: null });
+
     bus.emit("device:clientReady");
   }, [removeTempKey, fetchLists, applyApproval, getAuth, resetLoaded]);
 

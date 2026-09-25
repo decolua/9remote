@@ -317,6 +317,16 @@ registry = new HostRegistry({
     return Object.values(st.hosts)
       .filter((h) => h.key !== st.currentKey && wanted.has(h.key))
       .map((h) => h.key);
+  },
+  // The workspace connection owns exactly one host's wire — whichever it is
+  // viewing. Not a rank: the same host stops being served the moment the
+  // workspace switches away, and the registry may open it like any other.
+  servedBy: (head) => !!head && head === useFleetStore.getState().currentKey,
+  // That owner's live bus, so an intent aimed at the host being viewed lands on
+  // the wire that already exists instead of a second one.
+  servedBus: () => {
+    const cs = useConnectionStore.getState();
+    return cs.connected ? (cs.busRef?.current || cs.bus) : null;
   }
 });
 
