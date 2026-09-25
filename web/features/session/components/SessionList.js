@@ -39,7 +39,12 @@ export default function SessionList({
   // Callers may pass no bus; the store is the single live connection anyway
   const activeFileBus = fileBus || useFileBusStore.getState();
   const fleetHosts = Object.values(useFleetStore((s) => s.hosts));
-  const currentHost = fleetHosts.find((h) => h.status === "full");
+  // The viewed host is a POINTER, not a status: it keeps its rich branch (label,
+  // sessions, its own disconnect/reconnect doors) online, offline and connecting
+  // alike — picking it by status made a deliberately disconnected host fall
+  // into the generic fleet branch and lose all of that.
+  const currentKey = useFleetStore((s) => s.currentKey);
+  const currentHost = fleetHosts.find((h) => h.key === currentKey);
   const storeConnected = useConnectionStore((s) => s.connected);
   const storeCarrier = useConnectionStore((s) => s.carrier);
   const storeBusRef = useConnectionStore((s) => s.busRef);

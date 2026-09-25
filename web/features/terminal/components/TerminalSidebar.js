@@ -84,7 +84,9 @@ function TerminalSidebar({
   const { t } = useI18n();
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
   const fleetHosts = Object.values(useFleetStore((s) => s.hosts));
-  const currentHost = fleetHosts.find((h) => h.status === "full");
+  // Same as the session list: the viewed host is a pointer, never a status.
+  const currentKey = useFleetStore((s) => s.currentKey);
+  const currentHost = fleetHosts.find((h) => h.key === currentKey);
   const [addHostOpen, setAddHostOpen] = useState(false);
   // Remote-SSH style: every other saved key is a tree root below the current
   // host's tree, fed by its fleet background bus; tapping a session opens a
