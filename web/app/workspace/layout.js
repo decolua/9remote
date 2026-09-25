@@ -690,6 +690,8 @@ export default function WorkspaceLayout({ children }) {
   const mobileConn = connOf(mobileHead || currentFleetKey || null);
   const remoteHostRow = fleetHostsMap[remoteHead || currentFleetKey];
   const mobileHostRow = fleetHostsMap[mobileHead || currentFleetKey];
+  // "full" is the viewed host's status — same live wire as "online", seen from the front seat.
+  const rowLive = (row) => row?.status === "online" || row?.status === "full";
 
   const handleOpenRemote = useCallback((head = null) => {
     setRemoteHead(head);
@@ -814,7 +816,7 @@ export default function WorkspaceLayout({ children }) {
     width: mobilePanelWidth,
     busRef: mobileConn.busRef,
     protocolRef: mobileConn.pmRef,
-    connected: mobileHead ? mobileHostRow?.status === "online" : connected,
+    connected: mobileHead ? rowLive(mobileHostRow) : connected,
     onResizeStart: handleMobileResizeStart
   }), [mobileOpen, mobileMode, mobilePanelWidth, mobileConn, mobileHead, mobileHostRow, connected, handleMobileResizeStart]);
 
@@ -859,9 +861,7 @@ export default function WorkspaceLayout({ children }) {
             onResumeAgentSession={nav.handleResumeAgentSession}
             onLogout={handleLogoutWithConfirm}
             onOpenRemote={remoteEntry}
-            onOpenMobile={mobileEntry}
             onOpenRemoteHost={handleOpenRemote}
-            onOpenMobileHost={handleOpenMobile}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
             connectionMode={connectionMode}
@@ -970,7 +970,7 @@ export default function WorkspaceLayout({ children }) {
               onClose={() => { setRemoteHead(null); popView(); }}
               busRef={remoteConn.busRef}
               protocolRef={remoteConn.pmRef}
-              connected={remoteHead ? remoteHostRow?.status === "online" : connected}
+              connected={remoteHead ? rowLive(remoteHostRow) : connected}
               carrier={remoteHead ? (remoteHostRow?.carrier || "ws") : carrier}
               hostPlatform={remoteHostRow?.platform || platform}
             />
@@ -984,7 +984,7 @@ export default function WorkspaceLayout({ children }) {
               onClose={() => { setMobileHead(null); popView(); }}
               busRef={mobileConn.busRef}
               protocolRef={mobileConn.pmRef}
-              connected={mobileHead ? mobileHostRow?.status === "online" : connected}
+              connected={mobileHead ? rowLive(mobileHostRow) : connected}
             />
           </div>
         )}
@@ -995,7 +995,7 @@ export default function WorkspaceLayout({ children }) {
         {currentView.type === "site" && (
           <BrowserView
             busRef={currentView.hostKey ? connOf(currentView.hostKey).busRef : busRef}
-            connected={currentView.hostKey ? fleetHostsMap[currentView.hostKey]?.status === "online" : connected}
+            connected={currentView.hostKey ? rowLive(fleetHostsMap[currentView.hostKey]) : connected}
             initialPort={currentView.port}
             initialPath={currentView.path}
             onBack={storePopView}
