@@ -48,7 +48,6 @@ export default function HostTree({
   // Per-host feature doors: open remote desktop / the Android mirror ON THIS
   // host's conn. Callers gate by the capability flags; a null prop hides it.
   onOpenRemoteHost = null,
-  onOpenMobileHost = null,
   // Main-host extras. When present they take over: the rich context menu replaces
   // the built-in ⋯, per-session agent map outranks the session's own field, and
   // live cwd map feeds SessionMeta.
@@ -154,9 +153,7 @@ export default function HostTree({
         collapsed={!open}
         meta={connecting ? <Loader2 size={12} className="animate-spin text-text-subtle" /> : null}
         hostUpdating={!!host.updating}
-        onUpdateHost={online && !host.approval ? (mode) => useFleetStore.getState().requestHostUpdate(host.key, mode) : null}
         onOpenRemote={online && host.remoteAvailable && onOpenRemoteHost ? () => onOpenRemoteHost(host.key) : null}
-        onOpenMobile={online && host.mobileAvailable && onOpenMobileHost ? () => onOpenMobileHost(host.key) : null}
         onToggleCollapse={expandable ? () => {
           vibrate();
           if (!open) useFleetStore.getState().ensureHost(host.key); // expanding opens the bus

@@ -232,7 +232,6 @@ export default function SessionList({
                   onAddWorkspace={onAddWorkspace}
                   menuAddWorkspace={onAddWorkspace}
                   onOpenRemoteHost={onOpenRemoteHost}
-                  onOpenMobileHost={onOpenMobileHost}
                   treeCls="pl-5 pr-4"
                   rowCls="active:bg-surface-2 active:text-text"
                 />
@@ -247,7 +246,6 @@ export default function SessionList({
                   }}
                   connected={connected}
                   onOpenRemoteHost={onOpenRemoteHost}
-                  onOpenMobileHost={onOpenMobileHost}
                   treeCls="pl-5 pr-4"
                   rowCls="active:bg-surface-2 active:text-text"
                 />

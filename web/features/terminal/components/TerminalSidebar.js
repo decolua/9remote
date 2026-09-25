@@ -68,7 +68,6 @@ function TerminalSidebar({
   onRenameWorkspace = null,
   onOpenSettings,
   onOpenRemoteHost = null,
-  onOpenMobileHost = null,
   onRenameHost = null,
   onDeleteHost = null,
   onMainDisconnect = null, onMainReconnect = null,
@@ -308,7 +307,6 @@ function TerminalSidebar({
               onAddWorkspace={onAddWorkspace}
               menuAddWorkspace={onAddWorkspace}
               onOpenRemoteHost={onOpenRemoteHost}
-              onOpenMobileHost={onOpenMobileHost}
               onRowContextMenu={openContext}
               onRowTouch={{ start: handleTouchStart, move: clearLongPress, end: clearLongPress }}
               onRowMenu={(sessionId, name, rect) => setCtxMenu({ sessionId, left: rect.left, top: rect.bottom + 2, name })}
@@ -327,7 +325,6 @@ function TerminalSidebar({
               connected={connected}
               hiddenPaneSessionIds={hiddenPaneSessionIds}
               onOpenRemoteHost={onOpenRemoteHost}
-              onOpenMobileHost={onOpenMobileHost}
               onUnhidePane={unhidePane}
               treeCls="pl-3.5"
             />

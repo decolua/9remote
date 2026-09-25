@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Folder, KeyRound, Loader2, Monitor, Pencil, Plug, Power, RotateCw, Smartphone, Trash2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, Folder, KeyRound, Loader2, Monitor, Pencil, Plug, Power, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
@@ -38,12 +38,10 @@ export default function HostTreeRow({
   onRetry = null,
   // The desktop sidebar keeps its add-key button up in the brand row instead.
   showAdd = true,
-  // Per-host update state: badge while an update waits, spinner while one runs.
+  // Per-host update state: spinner while one runs.
   hostUpdating = false,
-  onUpdateHost = null,
   // Per-host feature doors — rendered only when the host reports the capability.
   onOpenRemote = null,
-  onOpenMobile = null,
   // Mobile draws this row bigger (fonts on the standard scale, touch-sized
   // buttons); desktop keeps its compact sizes.
   mobile = false,
@@ -54,7 +52,6 @@ export default function HostTreeRow({
   const [removeOpen, setRemoveOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
-  const [updateMode, setUpdateMode] = useState(null); // "update" | "restart" pending confirm
   const [menuAt, setMenuAt] = useState(null); // screen pos a right-click opened the menu at
 
   const displayLabel = label || "Local";
@@ -144,6 +141,10 @@ export default function HostTreeRow({
             anchor={menuAt}
             onClose={() => setMenuAt(null)}
             items={[
+              onRename && hostKey && {
+                icon: Pencil, label: t("sessions.editName"),
+                onClick: () => setRename(displayLabel)
+              },
               onAddWorkspace && !hostUpdating && {
                 icon: Folder, label: t("workspaces.newWorkspace"),
                 onClick: () => onAddWorkspace()
@@ -155,18 +156,6 @@ export default function HostTreeRow({
               onOpenRemote && !hostUpdating && {
                 icon: Monitor, label: t("menu.remoteDesktop"),
                 onClick: () => { setMenuAt(null); vibrate(); onOpenRemote(); }
-              },
-              onOpenMobile && !hostUpdating && {
-                icon: Smartphone, label: t("mobile.androidDevice"),
-                onClick: () => { setMenuAt(null); vibrate(); onOpenMobile(); }
-              },
-              onUpdateHost && connected && !hostUpdating && {
-                icon: RotateCw, label: t("menu.restartHost"),
-                onClick: () => setUpdateMode("restart")
-              },
-              onRename && hostKey && {
-                icon: Pencil, label: t("sessions.editName"),
-                onClick: () => setRename(displayLabel)
               },
               onDelete && hostKey && {
                 icon: Trash2, label: t("hosts.removeHost"), danger: true,
@@ -219,13 +208,6 @@ export default function HostTreeRow({
         confirmText={t("common.disconnect")}
       />
 
-      <ConfirmDialog
-        isOpen={updateMode !== null}
-        onClose={() => setUpdateMode(null)}
-        onConfirm={() => { onUpdateHost?.(updateMode); setUpdateMode(null); }}
-        title={updateMode === "restart" ? t("menu.restartConfirmTitle") : t("menu.updateConfirmTitle")}
-        message={updateMode === "restart" ? t("menu.restartConfirmMessage") : t("menu.updateConfirmMessage")}
-      />
     </>
   );
 }
