@@ -29,11 +29,14 @@ export default function WorkspaceHeader({
   // that would scan this workspace's path on the wrong machine.
   const { branch, dirty } = useWorkspaceGit(gitPath, fileBus, { enabled: !!fileBus });
 
+  // No select door (mobile session list): the row itself toggles the group, not just the chevron.
+  const rowClick = onSelect || (onToggleCollapse ? () => { vibrate(); onToggleCollapse(); } : null);
+
   return (
     <div
-      onClick={onSelect}
+      onClick={rowClick}
       className={`relative pr-2 py-1.5 flex items-center gap-1.5 group group/grp transition-colors ${
-        onSelect ? "cursor-pointer hover:bg-text/[0.06]" : ""
+        rowClick ? "cursor-pointer hover:bg-text/[0.06]" : ""
       }`}
     >
       <button
