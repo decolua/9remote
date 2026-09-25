@@ -17,7 +17,7 @@ const TEMP_KEY_EXPIRY_MINUTES = 10;
  * @returns {Promise<{tempKey: string, oneTimeKey: string, expiresAt: number} | null>}
  */
 export async function createTempKey(apiKey, workerUrl) {
-  try {
+  const mint = async () => {
     const response = await browserFetch(`${workerUrl}/api/temp-key/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -31,8 +31,19 @@ export async function createTempKey(apiKey, workerUrl) {
       const error = await response.json().catch(() => null);
       throw new Error(error?.error || `HTTP ${response.status}`);
     }
-
-    const data = await response.json();
+    return response.json();
+  };
+  try {
+    let data;
+    try {
+      data = await mint();
+    } catch (err) {
+      // A missing/dead session row kills every mint — re-register it once and
+      // retry, else refreshing the code stays broken until the key is regenerated.
+      logger.warn(`Temp key creation failed (${err.message}) — re-registering session`);
+      if (!(await registerSession(apiKey, workerUrl))) throw err;
+      data = await mint();
+    }
     // The TAIL is minted here, with the code, and never leaves this machine
     // except on the user's screen — the Worker is handed the tempKey alone.
     // Same secret an API key carries, with the code's own lifetime.

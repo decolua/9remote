@@ -1,7 +1,7 @@
 import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { initSignalingGlobal, setOfferFallback, sendSignaling, dropPending, pendingPeersOf, onSignalingReady, hasPendingOffer, retrySignalingNow } from "../lib/signalingGlobal.js";
+import { initSignalingGlobal, stopSignalingGlobal, setOfferFallback, sendSignaling, dropPending, pendingPeersOf, onSignalingReady, hasPendingOffer, retrySignalingNow } from "../lib/signalingGlobal.js";
 import { AgentBus } from "./AgentBus.js";
 import { PATHS, LOCAL_UI_ORIGINS, LOCAL_UI_DEVICE_ID } from "../lib/constants.js";
 import { verifyLocalToken } from "../lib/localToken.js";
@@ -10,6 +10,7 @@ import { ProtocolManager } from "./ProtocolManager.js";
 import { SIGNALING_ERRORS } from "../lib/transportConstants.js";
 import { registerProtocol, unregisterProtocol, activeProtocols, disableAllRtc, notifyRtcEnabled, setRtcSessionKiller, disposeProtocol } from "./broadcast.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
+import { loadSettings } from "../cli/utils/state.js";
 import { setupTerminalSocket, setupTerminalHandlers } from "../features/terminal/terminalSocket.js";
 import { checkRemoteAvailable } from "../features/remote/remoteSocket.js";
 import { setupFileExplorerHandlers } from "../features/fileExplorer/fileExplorerSocket.js";
@@ -96,7 +97,7 @@ function askGate(socket, deviceId) {
   const pairing = !!authOf(socket)?.tempKey;
   const carriedByTail = verdict.step === "authz" && !pairing;
   if (socket && presented !== undefined && (carriedByTail || verdict.step === "auth")) {
-    submitTailProof(deviceId, presented, { pairing }); // records proven or rejected, once
+    submitTailProof(deviceId, presented, { pairing, tempKey: authOf(socket)?.tempKey || null }); // records proven or rejected, once
   }
   if (socket && verdict.decision === ADMISSION.reject && verdict.step === "auth") {
     // penaltyMs comes from the shared counter, so a guess stays expensive.
@@ -332,6 +333,12 @@ function armClientReady(socket) {
 /** Route a DO-signaling offer through the shared gate — same admit/hold/reject as the socket.io path. */
 function handleRtcOffer(peerId) {
   if (!peerId) return;
+  // Remote is off — RTC is a remote carrier too, so the offer dies here. The
+  // relay itself is already stopped; this covers an offer already in flight.
+  if (!isRemoteEnabled()) {
+    sendSignalingTo(peerId, { type: "error", message: "remote-disabled" });
+    return;
+  }
   if (rtcTestDisabled) {
     sendSignalingTo(peerId, { type: "error", message: "rtc-disabled" });
     return;
@@ -669,14 +676,79 @@ export function rejectSocketDevice(socketId) {
   return true;
 }
 
+/** Remote access switch — persisted in settings.json, default ON (fresh install). */
+export function isRemoteEnabled() {
+  return loadSettings().remoteEnabled !== false;
+}
+
+function isLoopbackSocket(socket) {
+  const addr = socket.handshake?.address || "";
+  return addr === "127.0.0.1" || addr === "::1" || addr === "::ffff:127.0.0.1";
+}
+
+/** A request from this machine is not remote access — the workspace on localhost
+ *  is the user's own session and must outlive the switch. Address alone cannot
+ *  tell them apart: cloudflared runs on this machine, so tunnel traffic lands on
+ *  loopback too. The cf-connecting-ip header is what gives the outside away. */
+function isLocalSocket(socket) {
+  if (socket.handshake?.headers?.["cf-connecting-ip"]) return false;
+  return isLoopbackSocket(socket);
+}
+
+/** Runtime side of the switch: off drops every remote client and the DO relay
+ *  (local UI sockets stay); on re-arms the relay. Persisting is the caller's job. */
+export function setRemoteEnabled(enabled) {
+  if (enabled) {
+    initSignalingGlobal(headOf(loadApiKey()));
+    // PMs that outlived the switch kept a dead handler registration — re-arm
+    // them (same as the rtc test toggle), or the next offer finds no PM and
+    // spawns a duplicate RTC-only session.
+    notifyRtcEnabled();
+    return;
+  }
+  stopSignalingGlobal();
+  // stopSignalingGlobal drops the handler map, but a PM still holds the cleanup
+  // and its setupSignaling guard would refuse to re-register — release it here.
+  for (const pm of activeProtocols()) {
+    if (pm._closed) continue;
+    try { pm._offGlobalSig?.(); } catch {}
+    pm._offGlobalSig = null;
+  }
+  const io = ioInstance;
+  const localPms = new Set();
+  if (io) {
+    for (const socket of io.sockets.sockets.values()) {
+      // Local UI and the loopback workspace are not remote — keep both.
+      if (socket.data.localUi || isLocalSocket(socket)) {
+        if (socket.data.protocol) localPms.add(socket.data.protocol);
+        continue;
+      }
+      socket.disconnect(true);
+    }
+  }
+  // A PM may outlive its socket's disconnect (remote grace) — close it now.
+  for (const pm of activeProtocols()) {
+    if (pm._closed || localPms.has(pm)) continue;
+    disposeProtocol(pm);
+  }
+  // RTC-only sessions have no socket.io entry — kill them by peerId.
+  for (const [peerId, vs] of rtcSessions) {
+    try { vs.data.protocol?.close(); } catch {}
+    unregisterProtocol(vs.data.protocol);
+    dropPending(peerId);
+    vs.disconnect();
+  }
+}
+
 export async function startTransportServer(server) {
   loadApprovedDevices();
   loadAutoApprove();
 
   // Join the signaling room at boot so RTC can establish before the tunnel is up.
-  initSignalingGlobal(headOf(loadApiKey()));
+  if (isRemoteEnabled()) initSignalingGlobal(headOf(loadApiKey()));
   // The TUI regenerates the key in a separate process; re-reading keeps the room in sync.
   setInterval(() => {
+    if (!isRemoteEnabled()) return;
     const key = headOf(loadApiKey());
     if (key) initSignalingGlobal(key);
   }, KEY_WATCH_INTERVAL_MS);
@@ -729,8 +801,7 @@ export async function startTransportServer(server) {
     });
 
     // Local UI trust = token + loopback + origin; resists CSWSH token theft.
-    const rawAddr = socket.handshake.address || "";
-    const isLoopback = rawAddr === "127.0.0.1" || rawAddr === "::1" || rawAddr === "::ffff:127.0.0.1";
+    const isLoopback = isLoopbackSocket(socket);
     const isTunnel = !!socket.handshake.headers["cf-connecting-ip"];
     const origin = socket.handshake.headers.origin;
     const originOk = !origin || LOCAL_UI_ORIGINS.includes(origin);
@@ -745,6 +816,16 @@ export async function startTransportServer(server) {
     // Reserved local-ui deviceId that failed trust check → spoof attempt, reject.
     if (deviceId === LOCAL_UI_DEVICE_ID) {
       pushUiLog(`Rejected untrusted local-ui socket from ${ip}`);
+      socket.disconnect(true);
+      return;
+    }
+
+    // Remote is switched off: rejecting here (not only disconnecting existing
+    // sockets) is what actually keeps new clients out — a reconnect would
+    // otherwise sail straight past the switch. The local workspace is not remote
+    // and must keep working, so only requests from outside are turned away.
+    if (!isRemoteEnabled() && !isLocalSocket(socket)) {
+      pushUiLogDebug(`Rejected ${deviceId?.slice(0, 8) || "unknown"} from ${ip} — remote access is off`);
       socket.disconnect(true);
       return;
     }

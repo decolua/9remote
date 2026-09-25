@@ -70,9 +70,6 @@ export default function SettingsMenu({
   onClearLogs,
   autoStart,
   onAutoStartToggle,
-  sleepInhibitMode,
-  sleepInhibitPresets = [],
-  onSleepInhibitChange,
   unlockStatus,
   onRequestUnlockInstall,
   onRequestUnlockUninstall,
@@ -106,15 +103,6 @@ export default function SettingsMenu({
   const triggerStyle = variant === "glass" ? undefined : { background: "var(--surface-2)", color: "var(--text-main)" };
 
   const curLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
-
-  const sleepLabels = {
-    "30m": t("remote.sleepModes.30m"),
-    "1h": t("remote.sleepModes.1h"),
-    "2h": t("remote.sleepModes.2h"),
-    "4h": t("remote.sleepModes.4h"),
-    "24h": t("remote.sleepModes.24h"),
-    never: t("remote.sleepModes.never"),
-  };
 
   const navItems = [
     { id: "general", label: t("menu.general") || "General", icon: "tune" },
@@ -261,29 +249,6 @@ export default function SettingsMenu({
                   desc={t("remote.launchDesc")}
                 >
                   <Toggle on={!!autoStart} onClick={onAutoStartToggle} />
-                </SettingRow>
-
-                {/* Prevent Sleep */}
-                <SettingRow
-                  icon="coffee"
-                  title={t("remote.preventSleep")}
-                  desc={t("remote.blockSleep")}
-                >
-                  <select
-                    value={sleepInhibitMode || "never"}
-                    onChange={(e) => onSleepInhibitChange?.(e.target.value)}
-                    className="text-xs px-3 py-1.5 rounded-lg"
-                    style={{
-                      background: "var(--row-bg)",
-                      color: "var(--text-main)",
-                      border: "1px solid var(--border-subtle)",
-                      cursor: "pointer",
-                    }}
-                  >
-                    {(sleepInhibitPresets || []).map((m) => (
-                      <option key={m} value={m}>{sleepLabels[m] || m}</option>
-                    ))}
-                  </select>
                 </SettingRow>
 
                 {/* Remote unlock (Windows SYSTEM worker) */}

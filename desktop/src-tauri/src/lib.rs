@@ -1444,9 +1444,16 @@ pub fn run() {
         })
         .build(tauri::generate_context!())
         .expect("error while running tauri application")
-        .run(|app_handle, event| {
+        .run(|app_handle, event| match event {
+            // Every exit path that Tauri sees lands here: Cmd+Q, dock quit, logout.
+            // The tray menu's own handler kills the agent, but its CmdOrCtrl+Q
+            // accelerator only works while that menu is open — so Cmd+Q used to
+            // exit the shell and leave the agent and cloudflared running, with the
+            // machine still reachable after the user believed they had quit.
+            // kill_agent_tree() takes the stored pid, so a second call is a no-op.
+            tauri::RunEvent::ExitRequested { .. } => kill_agent_tree(),
             #[cfg(target_os = "macos")]
-            if let tauri::RunEvent::Reopen { .. } = event {
+            tauri::RunEvent::Reopen { .. } => {
                 if let Some(win) = app_handle.get_webview_window("main") {
                     let _ = win.show();
                     let _ = win.unminimize();
@@ -1454,5 +1461,6 @@ pub fn run() {
                     let _ = win.eval("window.dispatchEvent(new CustomEvent('9remote:dock-click'))");
                 }
             }
+            _ => {}
         });
 }

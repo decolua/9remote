@@ -3,7 +3,7 @@ import { getHostPublicKeyB64, getHostX25519PublicKeyB64 } from "../../lib/hostKe
 import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("cmd");
-import { readAndClearCmd, loadKey, saveKey, loadState } from "../utils/state.js";
+import { readAndClearCmd, loadKey, saveKey, loadState, loadSettings } from "../utils/state.js";
 import { stopTunnelHealthWatchdog, updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { ensureCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTrayTooltip } from "../utils/tray.js";
@@ -13,7 +13,7 @@ import { registerSession } from "../utils/token.js";
 import { apiGet, apiPost, pushUiState, setStep, onBinaryProgress } from "./localApi.js";
 import { makeTunnelRestartHandler, startBackgroundTunnelReconnect, cancelActiveBgTunnel } from "../tunnel/manager.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
-import { updateTunnelUrl } from "../tunnel/urlSync.js";
+import { updateTunnelUrl, markRemoteOffline, startSessionHeartbeat } from "../tunnel/urlSync.js";
 import { showConnectionInfo } from "../session/display.js";
 import { shutdownAll } from "./lifecycle.js";
 import { runWebUpdate } from "../utils/updateChecker.js";
@@ -28,9 +28,9 @@ export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey, getServ
     if (!cmd) return;
     busy = true;
     try {
-      if (cmd === "stop-tunnel") await handleStop(getActiveTunnel, setActiveTunnel);
+      if (cmd === "stop-tunnel") await handleStop(getActiveTunnel, setActiveTunnel, apiKey);
       else if (cmd === "restart-tunnel") {
-        await handleStop(getActiveTunnel, setActiveTunnel);
+        await handleStop(getActiveTunnel, setActiveTunnel, apiKey);
         await handleStart(getActiveTunnel, setActiveTunnel, apiKey);
       }
       else if (cmd === "start-tunnel") {
@@ -50,7 +50,7 @@ export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey, getServ
   }, POLL.cmdMs);
 }
 
-async function handleStop(getActiveTunnel, setActiveTunnel) {
+async function handleStop(getActiveTunnel, setActiveTunnel, apiKey) {
   cancelActiveBgTunnel();
   stopTunnelHealthWatchdog();
   const tunnel = getActiveTunnel();
@@ -59,11 +59,19 @@ async function handleStop(getActiveTunnel, setActiveTunnel) {
     setActiveTunnel(null);
     logger.info("Tunnel stopped");
   }
+  // Nothing remote can reach us now — the Worker must stop handing out this key,
+  // including the 300s grace window it would otherwise keep it alive for.
+  if (apiKey) await markRemoteOffline(apiKey);
   await setStep(STEP.STOPPED, { tunnelUrl: "", oneTimeKey: "", oneTimeKeyExpiresAt: null, qrUrl: "" });
   updateTrayTooltip({ tunnelUrl: "", running: true });
 }
 
 async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
+  // The remote switch is off — a stray start cmd (stale chip tap) must not bring the tunnel back
+  if (loadSettings().remoteEnabled === false) {
+    logger.info("Start skipped — remote is disabled");
+    return;
+  }
   const existing = getActiveTunnel();
   if (existing) {
     if (existing.killed || existing.exitCode != null) {
@@ -90,6 +98,9 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     if (!sessionResponse.ok) throw new Error(`Session create failed: ${sessionResponse.status}`);
     // The row the DO gate needs now exists — revive a relay that gave up before it did.
     await apiPost("/api/signaling/retry", {});
+    // Undo the goodbye handleStop sent: login must read this agent as online
+    // again, and that must not wait on a tunnel URL (RTC-only is a valid state).
+    startSessionHeartbeat(apiKey);
 
     // Spawn tunnel after a successful session. Fail/health-timeout is non-fatal:
     // show QR (RTC-only) and let the background reconnect loop retry.
@@ -147,6 +158,11 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
 }
 
 async function handleRegenerate() {
+  // Regenerating registers the new key with the Worker — local-only has no use for it
+  if (loadSettings().remoteEnabled === false) {
+    logger.info("Key regeneration skipped — remote is disabled");
+    return;
+  }
   const machineId = await getConsistentMachineId();
   const key = generateApiKeyV2(machineId);
   const existing = loadKey();

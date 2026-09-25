@@ -5,7 +5,7 @@ import { browserFetch, SERVER_PORT, STEP, LOG_TAIL_LINES } from "../../lib/const
 import { LOG_FILE_PATH, readRecentLogs, createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("mode");
-import { saveState, saveKey } from "../utils/state.js";
+import { saveState, saveKey, loadSettings } from "../utils/state.js";
 import { ensureCloudflared, killCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
 import { selectMenu, confirm as tuiConfirm, subscribeSSE, openPermissionPane, showDeviceApproval, resetProgress } from "../utils/tui.js";
@@ -21,7 +21,7 @@ import { startServerWithRestart, setupExitHandler, shutdownAll } from "../core/l
 import { setupCmdPoller } from "../core/cmdPoller.js";
 import { makeTunnelRestartHandler, startBackgroundTunnelReconnect, cancelActiveBgTunnel } from "../tunnel/manager.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
-import { updateTunnelUrl } from "../tunnel/urlSync.js";
+import { updateTunnelUrl, markRemoteOffline, startSessionHeartbeat } from "../tunnel/urlSync.js";
 import { ensureKeyData } from "../session/key.js";
 import { buildMenuHeader } from "../session/display.js";
 import { WORKER_URL, DELAYS, TUI, POLL } from "../config.js";
@@ -58,11 +58,19 @@ export async function tuiMode() {
 
   try { killCloudflared(); await new Promise((r) => setTimeout(r, DELAYS.killCloudflaredTuiMs)); } catch {}
 
-  await ensureCloudflared(onBinaryProgress);
+  // Offline is not fatal: local UI still serves, Web UI Start re-runs the whole boot.
+  try { await ensureCloudflared(onBinaryProgress); }
+  catch (err) { logger.error(`cloudflared setup failed: ${err?.message || err} — retry from Web UI`); }
 
   await setStep(STEP.CONNECTING);
 
-  try {
+  // User-switched off → local-only boot, no Worker attempt at all. Tell the
+  // Worker first: a crash while remote was on leaves agentOnline=1, and login
+  // would keep handing out this key through the whole grace window.
+  const remoteDisabled = loadSettings().remoteEnabled === false;
+  let remoteOnline = !remoteDisabled;
+  if (remoteDisabled) await markRemoteOffline(keyData.key);
+  if (remoteOnline) try {
     const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -71,16 +79,18 @@ export async function tuiMode() {
     if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
     // The row the DO gate needs now exists — revive a relay that gave up before it did.
     await apiPost("/api/signaling/retry", {});
+    // Beat now, not at first tunnel URL: RTC-only is a valid online state.
+    startSessionHeartbeat(keyData.key);
   } catch (err) {
     logger.error(`Failed to connect: ${err.message}`);
-    process.exit(1);
+    remoteOnline = false;
   }
 
   await setStep(STEP.TUNNELING);
 
   // tempKey first — connect URL is Worker-based, doesn't depend on the tunnel.
   // RTC signaling goes via the DO; the tunnel is a fallback transport.
-  const tempKeyData = await createTempKey(keyData.key, WORKER_URL);
+  const tempKeyData = remoteOnline ? await createTempKey(keyData.key, WORKER_URL) : null;
   const connectUrl = connectUrlOf(WORKER_URL, tempKeyData);
 
   let currentOneTimeKey = tempKeyData?.oneTimeKey || "";
@@ -102,14 +112,16 @@ export async function tuiMode() {
   // Foreground: one spawn attempt. Fail or health-timeout → show QR (RTC-only)
   // + background reconnect. RTC signaling is already live (server child).
   let result = null;
-  try {
-    result = await spawnQuickTunnel(
-      SERVER_PORT,
-      onTunnelUrl,
-      makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
-    );
-  } catch (err) {
-    logger.error(`Tunnel spawn failed: ${err?.message || err} — QR RTC-only, bg retry`);
+  if (remoteOnline) {
+    try {
+      result = await spawnQuickTunnel(
+        SERVER_PORT,
+        onTunnelUrl,
+        makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
+      );
+    } catch (err) {
+      logger.error(`Tunnel spawn failed: ${err?.message || err} — QR RTC-only, bg retry`);
+    }
   }
   if (result) {
     tunnelRef.current = result.child;
@@ -125,7 +137,7 @@ export async function tuiMode() {
       await onTunnelUrl(result.tunnelUrl);
     }
   }
-  if (!result) {
+  if (!result && remoteOnline) {
     startBackgroundTunnelReconnect(SERVER_PORT, {
       onUrlUpdate: onTunnelUrl,
       onRestart: makeTunnelRestartHandler({ onUrlUpdate: onTunnelUrl, setTunnel: (c) => { tunnelRef.current = c; } }),
@@ -137,14 +149,26 @@ export async function tuiMode() {
     });
   }
 
-  await setStep(STEP.READY, {
-    tunnelUrl: currentTunnelUrl,
-    oneTimeKey: tempKeyData?.oneTimeKey || "",
-    oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
-    permanentKey: keyData.key,
-    qrUrl: connectUrl,
-    workerUrl: WORKER_URL,
-  });
+  if (remoteOnline) {
+    await setStep(STEP.READY, {
+      tunnelUrl: currentTunnelUrl,
+      oneTimeKey: tempKeyData?.oneTimeKey || "",
+      oneTimeKeyExpiresAt: tempKeyData?.expiresAt || null,
+      permanentKey: keyData.key,
+      qrUrl: connectUrl,
+      workerUrl: WORKER_URL,
+    });
+  } else {
+    await setStep(STEP.STOPPED, {
+      tunnelUrl: "",
+      oneTimeKey: "",
+      oneTimeKeyExpiresAt: null,
+      permanentKey: keyData.key,
+      qrUrl: "",
+      workerUrl: WORKER_URL,
+    });
+    console.log(chalk.red(`\n⚠ ${remoteDisabled ? "Remote is disabled — enable it in Web UI settings" : "Remote not connected — tap \"remote · offline\" in the Web UI to retry"}. Local mode.\n`));
+  }
   await new Promise((r) => setTimeout(r, DELAYS.trayReadyMs));
 
   menuHeader = await buildMenuHeader(currentOneTimeKey, keyData.key, currentConnectUrl, currentTunnelUrl);
@@ -246,8 +270,10 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader, setHeader, onRedrawReg
 
     const items = [
       { label: "Open Web UI", action: "webui" },
-      { label: "Keys  \u25b6", action: "keys" },
     ];
+    // Keys are Worker-minted (pairing codes, key registration) — nothing to do
+    // here while the agent runs local-only.
+    if (loadSettings().remoteEnabled !== false) items.push({ label: "Keys  \u25b6", action: "keys" });
     if (remoteAvailable) {
       items.push({ label: `Remote Desktop: ${desktopOn ? chalk.green("ON") : chalk.gray("OFF")}  ▶`, action: "desktop" });
     }
@@ -288,11 +314,14 @@ async function tuiMenuLoop(keyData, tunnelUrl, getHeader, setHeader, onRedrawReg
 }
 
 async function tuiKeysMenu(keyData, tunnelUrl, setHeader, getHeader) {
-  const items = [
-    { label: "New One-Time Key", action: "otk" },
-    { label: "Regenerate Permanent Key", action: "regen" },
-    { label: chalk.gray("← Back"), action: "back" },
-  ];
+  // Every key action is a Worker call — with remote off there is nothing to ask.
+  const items = loadSettings().remoteEnabled === false
+    ? [{ label: chalk.gray("Remote access is off — enable it in the Web UI"), action: "back" }]
+    : [
+        { label: "New One-Time Key", action: "otk" },
+        { label: "Regenerate Permanent Key", action: "regen" },
+        { label: chalk.gray("← Back"), action: "back" },
+      ];
   const ki = await selectMenu("Keys", items, 0, getHeader);
   const action = ki >= 0 ? items[ki].action : "back";
 
@@ -325,6 +354,7 @@ async function tuiKeysMenu(keyData, tunnelUrl, setHeader, getHeader) {
 }
 
 const SLEEP_MODE_LABELS = {
+  "none":  "Off",
   "30m":   "Off after 30 min idle",
   "1h":    "Off after 1 hour idle",
   "2h":    "Off after 2 hours idle",
@@ -350,7 +380,8 @@ async function tuiSettingsMenu() {
 
     const buildItems = () => [
       { label: `Launch on system startup: ${autoStart ? chalk.green("ON") : chalk.gray("OFF")}`, action: "autostart" },
-      { label: `Prevent sleep:            ${chalk.green(SLEEP_MODE_LABELS[sleepMode] || sleepMode)}  ▶`, action: "sleep" },
+      // "none" is the only mode that is off — the rest all block sleep
+      { label: `Prevent sleep:            ${sleepMode === "none" ? chalk.gray(SLEEP_MODE_LABELS.none) : chalk.green(SLEEP_MODE_LABELS[sleepMode] || sleepMode)}  ▶`, action: "sleep" },
       { label: chalk.gray("← Back"), action: "back" },
     ];
 

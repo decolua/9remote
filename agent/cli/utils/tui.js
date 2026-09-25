@@ -159,7 +159,8 @@ export function renderProgress(activeIdx, redraw = false, desc = null) {
   if (!redraw) _progressLines = 0;
   _fullRedraw();
 
-  if (activeIdx < STEPS.length - 1) {
+  // activeIdx < 0 (STOPPED) must not start a spinner — nothing is running
+  if (activeIdx >= 0 && activeIdx < STEPS.length - 1) {
     _hideCursor();
     _spinnerInterval = setInterval(() => {
       _spinnerFrame++;

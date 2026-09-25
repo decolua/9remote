@@ -132,13 +132,15 @@ export const REMOTE_CONFIG = {
   // Sleep inhibitor configuration for system and display sleep.
   sleepInhibit: {
     defaultMode: "never",
+    // Order is the dropdown order — the off state leads, then increasing block time.
     presets: {
+      "none":  null,   // do not block sleep at all
       "30m": 30 * 60 * 1000,
       "1h":  60 * 60 * 1000,
       "2h":  2 * 60 * 60 * 1000,
       "4h":  4 * 60 * 60 * 1000,
       "24h": 24 * 60 * 60 * 1000,
-      "never": null
+      "never": null    // never auto-stop — block sleep the whole time
     }
   },
 

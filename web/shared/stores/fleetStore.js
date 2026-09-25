@@ -239,6 +239,10 @@ export const useFleetStore = create((set, get) => ({
     const entry = get().hosts[head];
     const deviceId = readDeviceId();
     if (!entry || !deviceId) return;
+    // Every open path (connect button, tree expand, retry, deferred action)
+    // persists the intent — F5 reconnects without the user re-pressing, even
+    // when the host was unreachable. Disconnect is the off switch.
+    setHostConnected(head, true);
     // The tail rides device trust (idempotent — a previous login usually set it).
     const tail = tailOf(entry.full);
     if (tail) setTrust(head, { tail });
@@ -380,9 +384,9 @@ export const useFleetStore = create((set, get) => ({
     get()._openHost(key);
   },
 
-  // Connect a host and persist that state so subsequent reloads auto-connect.
+  // Connect a host: retry drops any dead bus and opens a fresh one — the open
+  // itself persists the auto-connect intent (see _openHost).
   connectHost(key) {
-    setHostConnected(key, true);
     get().retryHost(key);
   },
 

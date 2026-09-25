@@ -14,6 +14,7 @@ export function vibrate(duration = 10) {
   if (typeof document !== "undefined") {
     const isIOS = typeof navigator !== "undefined" && (
       /iPad|iPhone|iPod/.test(navigator.userAgent) ||
+      window.DEVICE_INFO?.platform === "ios" || // expo shell replaces the whole UA
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1)
     );
     if (!isIOS) return;

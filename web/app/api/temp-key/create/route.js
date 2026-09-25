@@ -51,6 +51,13 @@ export async function POST(request) {
     const auth = await checkMutationAuth({ storedPublicKey: session.hostPublicKey, body });
     if (!auth.ok) return jsonError(`Unauthorized: ${auth.reason}`, 403);
 
+    // A host-key-signed mint is proof the agent is up — carry the heartbeat
+    // columns so /api/connect's offline gate reflects it immediately instead
+    // of waiting out the next heartbeat tick.
+    await withD1Retry(() => env.DB.prepare(
+      "UPDATE sessions SET agentOnline = 1, agentSeenAt = datetime('now') WHERE apiKey = ?"
+    ).bind(normalizeApiKey(apiKey)).run());
+
     await withD1Retry(() => env.DB.prepare(`DELETE FROM temp_keys WHERE api_key = ?`).bind(apiKey).run());
 
     const now = Date.now();

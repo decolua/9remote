@@ -42,6 +42,7 @@ import { handleApprove, handleReject, handlePending, handleApproved, handleRemov
 import { handleNotifyPost, handleNotifyGet } from "./api/notify.js";
 import { handleMcpPost } from "./api/mcp.js";
 import { handleSleepInhibitGet, handleSleepInhibitPost } from "./api/sleepInhibit.js";
+import { handleRemoteEnabledGet, handleRemoteEnabledPost } from "./api/remote.js";
 import { handleDesktopUnlockGet, handleDesktopUnlockInstall, handleDesktopUnlockType, handleDesktopUnlockUninstall } from "./api/desktopUnlock.js";
 import { handleSessionsList, handleSessionDelete } from "./api/sessions.js";
 import { handleSystemStats } from "./api/system.js";
@@ -208,12 +209,17 @@ async function handleVerifyKey(req, res) {
   // after the attempt, while the logger line persists (file + /logs + SSE).
   const ip = req.headers["x-forwarded-for"] || req.socket?.remoteAddress || "unknown";
   if (data.tempKey && data.tail) {
-    // One strike, same as a carrier proof: a wrong TAIL burned the code above,
-    // so the UI must stop showing a key that can never work again. pairingUsed
-    // blocks the auto-mint — a fresh code is a deliberate host action.
-    logger.warn(`wrong one-time code TAIL (${ip}) — code burned, clearing from UI`);
-    const { clearOneTimeKey } = await import("./api/ui.js");
-    clearOneTimeKey();
+    // One strike, same as a carrier proof: a wrong TAIL on the LIVE code burned
+    // it above, so the UI must stop showing a key that can never work again.
+    // pairingUsed blocks the auto-mint — a fresh code is a deliberate host action.
+    if (result.burned) {
+      logger.warn(`wrong one-time code TAIL (${ip}) — code burned, clearing from UI`);
+      const { clearOneTimeKey } = await import("./api/ui.js");
+      clearOneTimeKey();
+    } else {
+      // Stale code rejected without burning — the live code on screen still works.
+      logger.warn(`stale one-time code TAIL (${ip}) — code still live`);
+    }
   } else if (data.tempKey) {
     logger.warn(`wrong one-time code TAIL (${ip}) — no TAIL presented, code still live`);
   } else {
@@ -332,6 +338,8 @@ const ROUTES = [
   { path: "/api/autostart",        method: "POST", handler: handleAutoStartPost },
   { path: "/api/sleep-inhibit",    method: "GET",  handler: handleSleepInhibitGet },
   { path: "/api/sleep-inhibit",    method: "POST", handler: handleSleepInhibitPost },
+  { path: "/api/remote/enabled",   method: "GET",  handler: handleRemoteEnabledGet },
+  { path: "/api/remote/enabled",   method: "POST", handler: handleRemoteEnabledPost },
   { path: "/api/desktop-unlock",   method: "GET",  handler: handleDesktopUnlockGet },
   { path: "/api/desktop-unlock/install", method: "POST", handler: handleDesktopUnlockInstall },
   { path: "/api/desktop-unlock/uninstall", method: "POST", handler: handleDesktopUnlockUninstall },
@@ -390,7 +398,7 @@ export async function startServer() {
   const settings = loadSettings();
   let mode = settings.sleepInhibitMode;
   if (!mode) {
-    if (settings.sleepInhibit === false) mode = "never"; // legacy off → treat as default
+    if (settings.sleepInhibit === false) mode = "none"; // legacy off → do not block sleep
     else mode = REMOTE_CONFIG.sleepInhibit?.defaultMode || "never";
   }
   sleepInhibitor.setMode(mode);

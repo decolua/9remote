@@ -3,7 +3,7 @@ import { getHostPublicKeyB64, getHostX25519PublicKeyB64 } from "../../lib/hostKe
 import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("mode");
-import { saveState } from "../utils/state.js";
+import { saveState, loadSettings } from "../utils/state.js";
 import { headOf } from "../utils/apiKey.js";
 import { killCloudflared, spawnQuickTunnel } from "../utils/cloudflared.js";
 import { updateTunnelHealthUrl } from "../utils/tunnelHealth.js";
@@ -13,7 +13,7 @@ import {
 import { startServerWithRestart, setupExitHandler } from "../core/lifecycle.js";
 import { setupCmdPoller } from "../core/cmdPoller.js";
 import { makeTunnelRestartHandler, startBackgroundTunnelReconnect } from "../tunnel/manager.js";
-import { updateTunnelUrl } from "../tunnel/urlSync.js";
+import { updateTunnelUrl, markRemoteOffline, startSessionHeartbeat } from "../tunnel/urlSync.js";
 import { waitForTunnelReady } from "../tunnel/readiness.js";
 import { ensureKeyData, getVersion } from "../session/key.js";
 import { showConnectionInfo } from "../session/display.js";
@@ -27,15 +27,24 @@ async function startServerAndTunnel(selectedKey) {
 
   try { killCloudflared(); await new Promise((r) => setTimeout(r, DELAYS.killCloudflaredMs)); } catch {}
 
-  try {
+  // User-switched off → local-only boot, no Worker attempt at all. Tell the
+  // Worker first: a crash while remote was on leaves agentOnline=1, and login
+  // would keep handing out this key through the whole grace window.
+  const remoteDisabled = loadSettings().remoteEnabled === false;
+  let remoteOnline = !remoteDisabled;
+  if (remoteDisabled) await markRemoteOffline(selectedKey);
+  if (remoteOnline) try {
     const res = await browserFetch(`${WORKER_URL}/api/session/create`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: headOf(selectedKey), hostPublicKey: getHostPublicKeyB64(), hostX25519Key: getHostX25519PublicKeyB64() }),
     });
-    if (!res.ok) { logger.error(`Session create failed: ${res.status}`); return null; }
+    if (!res.ok) throw new Error(`Session create failed: ${res.status}`);
+    // Beat now, not at first tunnel URL: RTC-only is a valid online state.
+    startSessionHeartbeat(selectedKey);
   } catch (e) {
-    logger.error(`Session create failed: ${e.message}`); return null;
+    logger.error(`Session create failed: ${e.message} — local-only, retry from Web UI`);
+    remoteOnline = false;
   }
 
   const alreadyRunning = await isServerRunning();
@@ -58,14 +67,16 @@ async function startServerAndTunnel(selectedKey) {
   };
   // Foreground: one spawn attempt. Fail/health-timeout → RTC-only + background reconnect.
   let result = null;
-  try {
-    result = await spawnQuickTunnel(
-      SERVER_PORT,
-      onUrlUpdate,
-      makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => { tunnelRef.current = c; } }),
-    );
-  } catch (error) {
-    logger.error(`Tunnel spawn failed: ${error.message} — RTC-only, bg retry`);
+  if (remoteOnline) {
+    try {
+      result = await spawnQuickTunnel(
+        SERVER_PORT,
+        onUrlUpdate,
+        makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => { tunnelRef.current = c; } }),
+      );
+    } catch (error) {
+      logger.error(`Tunnel spawn failed: ${error.message} — RTC-only, bg retry`);
+    }
   }
   if (result) {
     tunnelRef.current = result.child;
@@ -77,7 +88,7 @@ async function startServerAndTunnel(selectedKey) {
       result = null;
     }
   }
-  if (!result) {
+  if (!result && remoteOnline) {
     startBackgroundTunnelReconnect(SERVER_PORT, {
       onUrlUpdate,
       onRestart: makeTunnelRestartHandler({ onUrlUpdate, setTunnel: (c) => { tunnelRef.current = c; } }),
@@ -90,7 +101,8 @@ async function startServerAndTunnel(selectedKey) {
 
   // The foreground path must reach READY too — only bg-reconnect set it before,
   // leaving getTunnelPayload() reporting "down" forever on a healthy tunnel.
-  await setStep(STEP.READY, { tunnelUrl });
+  if (remoteOnline) await setStep(STEP.READY, { tunnelUrl });
+  else await setStep(STEP.STOPPED, { tunnelUrl: "" });
 
   saveState({
     apiKey: selectedKey,
@@ -99,7 +111,7 @@ async function startServerAndTunnel(selectedKey) {
     tunnelPid: tunnelRef.current?.pid,
   });
 
-  return { serverManager, tunnelRef, tunnelUrl };
+  return { serverManager, tunnelRef, tunnelUrl, remoteOnline };
 }
 
 export async function autoStartDev() {
@@ -107,12 +119,12 @@ export async function autoStartDev() {
   const keyData = await ensureKeyData();
   logger.info(`Using key: ${maskApiKey(keyData.key)} (${keyData.name})`);
 
-  const result = await startServerAndTunnel(keyData.key);
-  if (!result) process.exit(1);
+  const { serverManager, tunnelRef, tunnelUrl, remoteOnline } = await startServerAndTunnel(keyData.key);
 
-  const { serverManager, tunnelRef, tunnelUrl } = result;
-
-  await showConnectionInfo(keyData.key, tunnelUrl);
+  // Offline: showConnectionInfo would mint a temp key that cannot succeed and
+  // its READY fallback would mask the STOPPED state the retry button keys off.
+  if (remoteOnline) await showConnectionInfo(keyData.key, tunnelUrl);
+  else console.log(`⚠ ${loadSettings().remoteEnabled === false ? "Remote is disabled — enable it in Web UI settings" : "Remote not connected — tap \"remote · offline\" in the Web UI to retry"}. Local mode.`);
   setupExitHandler(serverManager, tunnelRef.current);
   setupCmdPoller(() => tunnelRef.current, (t) => { tunnelRef.current = t; }, keyData.key);
 

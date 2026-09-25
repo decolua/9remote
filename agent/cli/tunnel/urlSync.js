@@ -2,6 +2,7 @@ import { browserFetch, SERVER_PORT, RETRY_CONFIG } from "../../lib/constants.js"
 import { createLogger } from "../../lib/logger.js";
 import { retryForever } from "../utils/backoff.js";
 import { headOf } from "../utils/apiKey.js";
+import { loadSettings } from "../utils/state.js";
 import { sessionMutationAuth } from "../../lib/hostKey.js";
 import {
   startTunnelHealthWatchdog,
@@ -9,7 +10,7 @@ import {
 } from "../utils/tunnelHealth.js";
 import { getLanIp } from "../core/localApi.js";
 import { waitForTunnelReady } from "./readiness.js";
-import { WORKER_URL, URL_SYNC_DEBOUNCE_MS, FAST_PROBE_TIMEOUT_MS, SESSION_HEARTBEAT_INTERVAL_MS } from "../config.js";
+import { WORKER_URL, URL_SYNC_DEBOUNCE_MS, FAST_PROBE_TIMEOUT_MS, SESSION_HEARTBEAT_INTERVAL_MS, HEARTBEAT_GOODBYE_MAX_MS } from "../config.js";
 
 const logger = createLogger("tunnel");
 
@@ -19,6 +20,9 @@ let lastSyncedAt = 0;
 
 export async function updateTunnelUrl(selectedKey, tunnelUrl) {
   logger.debug(`updateTunnelUrl: key=${selectedKey?.slice(0,8)} url=${tunnelUrl}`);
+  // Remote off means local-only: no Worker contact at all. A restart handler can
+  // still call this after the switch flipped, so the gate lives here too.
+  if (loadSettings().remoteEnabled === false) return;
   startSessionHeartbeat(selectedKey);
   if (tunnelUrl && tunnelUrl === lastSyncedUrl && Date.now() - lastSyncedAt < URL_SYNC_DEBOUNCE_MS) {
     logger.debug(`updateTunnelUrl: skipped (debounce, same URL)`);
@@ -99,6 +103,10 @@ async function beat() {
 export function startSessionHeartbeat(selectedKey) {
   const apiKey = headOf(selectedKey);
   if (!apiKey) return;
+  // One gate for every caller. updateTunnelUrl() beats unconditionally and a
+  // tunnel restart handler can still fire after remote is switched off — without
+  // this the agent would quietly start claiming to be online again.
+  if (loadSettings().remoteEnabled === false) return;
   if (heartbeatTimer && heartbeatKey === apiKey) {
     if (Date.now() - lastBeatAt >= SESSION_HEARTBEAT_INTERVAL_MS) beat();
     return;
@@ -120,6 +128,22 @@ export function stopSessionHeartbeat({ offline = false } = {}) {
   lastBeatAt = 0;
   if (!offline || !key) return null;
   return postHeartbeat(key, false).catch((e) => logger.debug(`goodbye failed: ${e?.message || e}`));
+}
+
+/** Remote switched off while the agent keeps running locally. From the Worker's
+ *  side that is the same thing as being gone — it only brokers remote access —
+ *  so say goodbye and start beating again only when remote comes back.
+ *  Bounded here, not at each caller: fetch has no timeout, and a dead network
+ *  would otherwise hang the boot path and the cmd poller that awaits this. */
+export function markRemoteOffline(selectedKey) {
+  const key = headOf(selectedKey);
+  if (!key) return Promise.resolve(false);
+  stopSessionHeartbeat();
+  const goodbye = postHeartbeat(key, false).catch((e) => {
+    logger.debug(`offline mark failed: ${e?.message || e}`);
+    return false;
+  });
+  return Promise.race([goodbye, new Promise((r) => setTimeout(() => r(false), HEARTBEAT_GOODBYE_MAX_MS))]);
 }
 
 let fastProbeCtx = null;

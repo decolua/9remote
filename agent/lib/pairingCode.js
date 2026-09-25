@@ -72,15 +72,19 @@ export function matchesPairingTail(tail) {
   return a.length === b.length && crypto.timingSafeEqual(a, b);
 }
 
-/** Check pairing tail and burn code on mismatch. */
-export function consumePairingTail(tail) {
-  if (matchesPairingTail(tail)) return true;
-
+/** Check pairing tail; burn on mismatch only when the presenter named THIS code —
+ *  a stale code's wrong tail must not kill the live pairing window. */
+export function consumePairingTail(tail, presentedTempKey = null) {
   const s = readState();
-  if (!s || !tail) return false;
+  if (!s || !tail) return { match: false, burned: false };
+  if (matchesPairingTail(tail)) return { match: true, burned: false };
+
+  const namedThisCode = !presentedTempKey
+    || String(presentedTempKey).trim().toUpperCase() === String(s.tempKey).trim().toUpperCase();
+  if (!namedThisCode) return { match: false, burned: false };
 
   clearActivePairing();
   logger.warn("pairing tail mismatch — code killed here and at the Worker");
   revokeAtWorker(s.tempKey, s.workerUrl);
-  return false;
+  return { match: false, burned: true };
 }

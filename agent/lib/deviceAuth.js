@@ -48,11 +48,11 @@ function setVerdict(deviceId, keyHead, state, reason = null) {
 }
 
 // Submit tail proof from any carrier (handshake or data channel).
-export function submitTailProof(deviceId, tail, { pairing = false } = {}) {
+export function submitTailProof(deviceId, tail, { pairing = false, tempKey = null } = {}) {
   const keyHead = headOf(loadKey()?.key || "");
   if (!deviceId || (!isTailProofEnabled() && !pairing)) return false;
-  const matches = pairing ? consumePairingTail(tail) : verifyKeyTail(tail);
-  if (matches) {
+  const proof = pairing ? consumePairingTail(tail, tempKey) : { match: verifyKeyTail(tail) };
+  if (proof.match) {
     setVerdict(deviceId, keyHead, TAIL_VERDICT.proven);
     markTailProven(deviceId, keyHead);
     logger.info(`[seal] proof accepted: device=${deviceId.slice(0, 8)}`);
@@ -118,11 +118,12 @@ export function verifyPresentedTail({ tail, tempKey } = {}) {
   if (!pairing && !isTailProofEnabled()) return { ok: true };
   if (!tail) return { ok: false, reason: TAIL_REJECT_REASON.mismatch, penaltyMs: 0 };
 
-  const matches = pairing ? consumePairingTail(tail) : verifyKeyTail(tail);
-  if (matches) return { ok: true };
+  const proof = pairing ? consumePairingTail(tail, tempKey) : { match: verifyKeyTail(tail) };
+  if (proof.match) return { ok: true };
   return {
     ok: false,
     reason: TAIL_REJECT_REASON.mismatch,
+    burned: !!proof.burned,
     penaltyMs: noteTailFailure(headOf(loadKey()?.key || ""))
   };
 }
@@ -198,7 +199,7 @@ export function handleTailProof(socket, data) {
   if (!deviceId || (!isTailProofEnabled() && !pairing)) return true;
   const tail = presentedTailOf(data, openSealedTail);
   if (tail === undefined) return true;
-  if (submitTailProof(deviceId, tail, { pairing })) return true;
+  if (submitTailProof(deviceId, tail, { pairing, tempKey: presentedTemp })) return true;
   socket.data.tailReject = {
     reason: tail === null ? TAIL_REJECT_REASON.sealUnreadable : TAIL_REJECT_REASON.mismatch,
     penaltyMs: noteTailFailure(headOf(loadKey()?.key || ""))

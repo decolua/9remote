@@ -1,5 +1,6 @@
 // Block system sleep + display sleep — keeps agent reachable and screen capturable.
-// Mode-based: "never" = always on; "30m/1h/..." = auto-off after N idle (no active connections).
+// Mode-based: "never" = block the whole time; "30m/1h/..." = auto-off after N idle
+// (no active connections); "none" = do not block sleep at all.
 import { spawn, execSync } from "child_process";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { createLogger } from "./logger.js";
@@ -83,6 +84,11 @@ function isValidMode(m) {
 function reconcile() {
   reapOrphans();
   clearIdleTimer();
+  // "none" = user does not want sleep blocked at all
+  if (mode === "none") {
+    killProc();
+    return;
+  }
   if (mode === "never") {
     spawnProc();
     return;

@@ -3,7 +3,7 @@
  */
 
 import { jsonOk, jsonErr } from "../lib/router.js";
-import { loadKey, saveKey } from "../cli/utils/state.js";
+import { loadKey, saveKey, loadSettings } from "../cli/utils/state.js";
 import { generateApiKeyV2 } from "../cli/utils/apiKey.js";
 import { getConsistentMachineId } from "../cli/utils/machineId.js";
 import { getUiState, updateUiState } from "./ui.js";
@@ -12,7 +12,16 @@ import { initSignalingGlobal, retrySignalingNow, getSignalingState } from "../li
 import { headOf } from "../cli/utils/apiKey.js";
 import { WORKER_URL } from "../cli/config.js";
 
+/** Remote off = local-only: pairing codes and key registration all live on the
+ *  Worker, so these handlers must not reach it. One gate for the whole file. */
+function remoteDisabled(res) {
+  if (loadSettings().remoteEnabled !== false) return false;
+  jsonErr(res, 409, "Remote access is off");
+  return true;
+}
+
 export async function handleOneTimeKey(req, res) {
+  if (remoteDisabled(res)) return;
   const state = getUiState();
   const workerUrl = state.workerUrl || WORKER_URL;
   if (!state.permanentKey) { jsonErr(res, 400, "No permanent key set"); return; }
@@ -27,11 +36,13 @@ export async function handleOneTimeKey(req, res) {
 // permanently; registering the session later must revive it or RTC-only
 // clients spin forever in a room the agent never listens to.
 export async function handleSignalingRetry(req, res) {
+  if (remoteDisabled(res)) return;
   retrySignalingNow("session-registered");
   jsonOk(res, getSignalingState());
 }
 
 export async function handleRegenerate(req, res) {
+  if (remoteDisabled(res)) return;
   try {
     const state = getUiState();
     const workerUrl = state.workerUrl || WORKER_URL;
