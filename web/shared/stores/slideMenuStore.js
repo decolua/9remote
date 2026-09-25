@@ -21,7 +21,6 @@ export const useSlideMenuStore = create((set, get) => ({
   context: {
     connected: false,
     remoteAvailable: false,
-    codespaceInfo: null,
     showTheme: false,
     theme: "default",
     busRef: null,
@@ -36,10 +35,8 @@ export const useSlideMenuStore = create((set, get) => ({
   callbacks: {
     onRemote: null,
     onFiles: null,
-    onCodespace: null,
     onLogout: null,
     onThemeChange: null,
-    onStopCodespace: null,
     onUpdate: null,
     onRestart: null,
   },
@@ -84,6 +81,5 @@ export const useSlideMenuStore = create((set, get) => ({
   setLoadingSites: (loading) => set({ loadingSites: loading }),
 
   openPwa: () => set({ isOpen: true, activePanel: "pwa" }),
-  openCodespace: () => set({ isOpen: true, activePanel: "codespace" }),
   openMenu: () => set({ isOpen: true, activePanel: "menu" }),
 }));

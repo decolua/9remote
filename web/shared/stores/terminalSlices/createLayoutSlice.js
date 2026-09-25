@@ -137,10 +137,6 @@ export const createLayoutSlice = (set, get) => ({
   // Mobile / AVD controls
   mobileLowPower: false,
   setMobileLowPower: (on) => set({ mobileLowPower: !!on }),
-  mobileDeviceCount: 0,
-  setMobileDeviceCount: (n) => set({ mobileDeviceCount: Number(n) || 0 }),
-  mobileAvailable: false,
-  setMobileAvailable: (v) => set({ mobileAvailable: !!v }),
   mobileOpen: false,
   mobileMode: "float",
   mobilePanelWidth: MOBILE_PANEL_WIDTH.default,
