@@ -5,7 +5,7 @@ import { readFileSync, existsSync, mkdirSync } from "fs";
 import { writeJsonAtomic } from "./atomicFile.js";
 import { join } from "path";
 import { PATHS } from "./constants.js";
-import { unsealTail, hostFp2Of } from "./tailSeal.js";
+import { unsealTail } from "./tailSeal.js";
 
 const HOST_KEY_FILE = join(PATHS.CONFIG, "hostKey.json");
 
@@ -83,16 +83,6 @@ export function getHostX25519PublicKeyB64() {
 /** Open a tail sealed to this agent; null when it was not meant for us. */
 export function openSealedTail(sealed) {
   return unsealTail(sealed, load().x25519PrivateKey);
-}
-
-// 2-char fingerprint over BOTH host keys — rides the one-time pairing code, so
-// reading two characters vouches for the signing key and the sealing key at once.
-export function getHostFp2() {
-  const k = load();
-  const fp2 = hostFp2Of(k.publicKeyB64, k.x25519PublicKeyB64);
-  // TEMP DIAGNOSTIC — sealing rollout; remove once verified end to end
-  console.log(`[seal] agent fp2=${fp2} ed=${k.publicKeyB64.slice(0, 12)}... x=${k.x25519PublicKeyB64.slice(0, 12)}...`);
-  return fp2;
 }
 
 export function signSdp(sdp) {
