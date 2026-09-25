@@ -8,6 +8,11 @@ export const useConnectionStore = create((set) => ({
   busRef: { current: null },
   protocolRef: { current: null },
   connected: false,
+  // True once any connection has come up in this page's life. Establishing
+  // the FIRST connection is "connecting", not "connection lost" — the loading
+  // screen owns that phase, and the retry modal with its buttons must not
+  // flash over it on a slow first attempt.
+  everConnected: false,
   // The user dropped this connection on purpose ( Disconnect): the workspace
   // must not cover itself with the loading gate or the retry screen — the
   // host's row shows offline and its connect button is the way back.
@@ -50,6 +55,7 @@ export const useConnectionStore = create((set) => ({
     bus: null,
     connected: false,
     deliberate: false,
+    everConnected: false,
     connectionMode: "tunnel",
     carrier: "ws",
     endpoint: null,

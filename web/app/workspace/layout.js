@@ -297,6 +297,7 @@ export default function WorkspaceLayout({ children }) {
   // A deliberate disconnect owns the page's state: no loading gate, no retry
   // screen — the host's row is offline and its connect button is the way back.
   const deliberatelyOff = useConnectionStore((s) => s.deliberate);
+  const everConnected = useConnectionStore((s) => s.everConnected);
   const mainHostUpdating = !!mainHost?.updating;
   // Self-update aftermath for the ACTIVE host: reconnect with a new version
   // reloads once (loopback serves the web from the agent — fresh agent means a
@@ -1122,7 +1123,7 @@ export default function WorkspaceLayout({ children }) {
             carries the progress instead. */}
         {(!connected || !admitted) && !mainHostUpdating && !deliberatelyOff && <ReconnectScreen />}
 
-        {!mainHostUpdating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
+        {!mainHostUpdating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} firstConnect={!everConnected} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Global Slide Menu — single instance at page level */}
         <SlideMenu />

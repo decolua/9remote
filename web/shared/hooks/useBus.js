@@ -130,7 +130,7 @@ export function useBus(config = {}) {
           if (cancelled) return;
           hadConnectionRef.current = true;
           busRef.current = bus;
-          useConnectionStore.getState().setConnection({ deliberate: false });
+          useConnectionStore.getState().setConnection({ deliberate: false, everConnected: true });
           const cMode = mode || protocolRef.current?.connectionMode || "tunnel";
           setConnected(true);
           setConnectionMode(cMode);

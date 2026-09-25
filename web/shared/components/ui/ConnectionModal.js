@@ -12,8 +12,10 @@ import { APPROVAL_STATUS } from "@/shared/constants/transport";
  * @param {boolean} connected - true when any transport (RTC or WS) is alive → suppress retry/failed modal
  * @param {Function} onLogout - Callback to clear session and redirect
  * @param {Function} onRetryNow - Force an immediate reconnect attempt
+ * @param {boolean} firstConnect - true until the page has connected once: retry
+ *        attempts then are the connect itself, not a lost connection
  */
-export default function ConnectionModal({ retryStatus, approvalStatus, connected, onLogout, onRetryNow, suppress = false }) {
+export default function ConnectionModal({ retryStatus, approvalStatus, connected, onLogout, onRetryNow, suppress = false, firstConnect = false }) {
   const { t } = useI18n();
 
   // PWA resume grace — tab just became visible; WS/RTC are re-establishing.
@@ -99,6 +101,10 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   if (connected || (!retryStatus?.isRetrying && !retryStatus?.failed)) {
     return null;
   }
+  // Establishing vs re-establishing: before the page's first connect, a retry
+  // attempt is just the connect being slow (the loading screen owns that
+  // phase). Only a hard failure needs the buttons here.
+  if (firstConnect && !retryStatus?.failed) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
