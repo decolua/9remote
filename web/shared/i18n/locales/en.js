@@ -68,6 +68,7 @@ export default {
     attention: "need you",
     noSessions: "No sessions",
     addHost: "Add host",
+    setActive: "Set as active host",
     removeHost: "Remove host",
     removeHostMessage: "Remove \"{name}\" from your saved hosts? The machine itself is not affected.",
     disconnectMessage: "Disconnect from \"{name}\"? Its terminals keep running; the key stays saved."

@@ -71,8 +71,19 @@ export function useAuth() {
       if (agentOrigin) {
         const tail = credentials.tail || tailOf(credentials.apiKey || "");
         const tempKey = credentials.tempKey || (credentials.token?.length <= 8 ? credentials.token : null);
+        // A local agent can only speak for ITS OWN credentials: another machine's
+        // key or pairing code must not be judged by this agent, or every remote
+        // one fails as "wrong tail" before the server is ever asked.
+        const state = await fetchAgentState();
+        const localHead = headOf(state?.permanentKey || "");
+        const keyHead = headOf(credentials.apiKey || credentials.token || "");
+        // A pairing code belongs to this agent only when its live code IS that code.
+        const localCode = String(state?.oneTimeKey || "").slice(0, 6).toUpperCase();
+        const speaksForThisKey = tempKey
+          ? !!localCode && localCode === tempKey.toUpperCase()
+          : (!!localHead && !!keyHead && headOf(localHead) === keyHead);
         try {
-          const directCheck = await verifyKeyWithAgent(agentOrigin, { tail, tempKey });
+          const directCheck = speaksForThisKey ? await verifyKeyWithAgent(agentOrigin, { tail, tempKey }) : null;
           if (directCheck === true) {
             const rawKey = credentials.apiKey || tempKey || "";
             const apiKey = headOf(rawKey) || "direct";

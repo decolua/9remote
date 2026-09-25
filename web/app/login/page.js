@@ -25,7 +25,7 @@ import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY } from "@/share
 import { headOf, tailOf, isLegacyApiKey } from "@/shared/utils/apiKey";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { parsePairingInput } from "@/features/hosts/lib/parsePairingInput";
-import { finishPairingLogin } from "@/features/hosts/lib/switchHost";
+import { finishPairingLogin, armPairingSave } from "@/features/hosts/lib/switchHost";
 import { AGENT_PORT } from "@/shared/constants/API";
 
 
@@ -161,6 +161,7 @@ function LoginContent() {
 
   const authenticateWithTempKey = useCallback(async (stashed) => {
     const parsed = parsePairingInput(stashed);
+    armPairingSave(localStorage.getItem("9remote_remember_key_preference") !== "false");
     const result = await authenticateWithToken(parsed?.tempKey || stashed, true, parsed?.tail);
     try { sessionStorage.removeItem("9remote_url_pairing"); } catch {}
     if (result.success) {
@@ -197,6 +198,7 @@ function LoginContent() {
 
     const routingKey = isOneTime ? parsed.tempKey : headOf(trimmedKey);
     const tail = isOneTime ? parsed.tail : tailOf(trimmedKey);
+    if (isOneTime) armPairingSave(rememberKey);
     const result = isOneTime
       ? await authenticateWithToken(parsed.tempKey, true, parsed.tail)
       : await authenticateWithApiKey(trimmedKey);
@@ -263,6 +265,7 @@ function LoginContent() {
   const handleQRScan = async (scanned) => {
     const parsed = parsePairingInput(scanned);
     if (!parsed?.tempKey) return false;
+    armPairingSave(localStorage.getItem("9remote_remember_key_preference") !== "false");
     const result = await authenticateWithToken(parsed.tempKey, true, parsed.tail);
     if (!result.success) return false;
     finishPairingLogin(parsed, {
