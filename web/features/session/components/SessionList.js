@@ -8,7 +8,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
-import { Monitor, Smartphone, Zap, ArrowRight, KeyRound, Settings } from "@/shared/components/ui/Icon";
+import { Monitor, Zap, ArrowRight, KeyRound, Settings } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -24,14 +24,14 @@ import SessionBackgroundModal from "@/features/terminal/components/SessionBackgr
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
 export default function SessionList({
-  sessions, cwdBySession = {}, connected: propConnected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote, onOpenMobile,
+  sessions, cwdBySession = {}, connected: propConnected, onSelect, onCreate, onDelete, onRename, onLogout, onOpenRemote,
   tunnelUrl, apiKey, connectionMode = "tunnel",
   isActive = true, busRef: propBusRef, subscribeToPush, unsubscribeFromPush,
   onResumeAgentSession = null,
   notifications: propNotifications, sessionStatus: propStatus, agentVersion,
   carrier: propCarrier,
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
-  onOpenRemoteHost = null, onOpenMobileHost = null,
+  onOpenRemoteHost = null,
   fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession,
   onRenameHost = null, onDeleteHost = null, onMainDisconnect = null, onMainReconnect = null
 }) {
@@ -60,25 +60,21 @@ export default function SessionList({
   const setContext = useSlideMenuStore((s) => s.setContext);
   const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
-  const mobileDeviceCount = currentHost?.mobileDeviceCount || 0;
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
 
   const [bgTarget, setBgTarget] = useState(null);           // session whose background sheet is open
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
   const [addHostOpen, setAddHostOpen] = useState(false);
-  const [pickerFor, setPickerFor] = useState(null);         // "remote" | "mobile" — host picker sheet
+  const [pickerFor, setPickerFor] = useState(false);        // remote host picker sheet
 
-  // Hosts that can answer each shared feature — the header button picks among
+  // Hosts that can answer the shared feature — the header button picks among
   // them (one host = straight in, no sheet).
   const online = (h) => h.status === "full" || h.status === "online";
   const remoteHosts = fleetHosts.filter((h) => online(h) && h.remoteAvailable);
-  const mobileHosts = fleetHosts.filter((h) => online(h) && h.mobileAvailable);
-  const pickHost = (kind) => {
+  const pickHost = () => {
     vibrate();
-    const list = kind === "remote" ? remoteHosts : mobileHosts;
-    const open = (h) => (kind === "remote" ? onOpenRemoteHost?.(h.key) : onOpenMobileHost?.(h.key));
-    if (list.length === 1) { open(list[0]); return; }
-    setPickerFor(kind);
+    if (remoteHosts.length === 1) { onOpenRemoteHost?.(remoteHosts[0].key); return; }
+    setPickerFor(true);
   };
   // Every host root in add order — the current host's tree renders at its own
   // spot among the siblings (tapping a foreign session opens a parallel tab).
@@ -164,18 +160,7 @@ export default function SessionList({
 
         <div className="flex items-center gap-1 flex-shrink-0">
           {showButton("remote") && remoteHosts.length > 0 && (
-            <HeaderButton icon={Monitor} label={t("menu.remoteDesktop")} onClick={() => pickHost("remote")} disabled={!connected} />
-          )}
-          {showButton("mobile") && mobileHosts.length > 0 && (
-            <HeaderButton
-              icon={Smartphone}
-              label={mobileDeviceCount > 0
-                ? t("mobile.deviceRunning", { count: mobileDeviceCount })
-                : t("mobile.androidDevice")}
-              onClick={() => pickHost("mobile")}
-              disabled={!connected}
-              className={mobileDeviceCount > 0 ? "!text-green-400" : ""}
-            />
+            <HeaderButton icon={Monitor} label={t("menu.remoteDesktop")} onClick={pickHost} disabled={!connected} />
           )}
           <HeaderButton icon={KeyRound} label={t("hosts.addHost")} onClick={() => { vibrate(); setAddHostOpen(true); }} />
           <HeaderButton icon={Settings} label={t("menu.title")} onClick={openMenu} />
@@ -237,7 +222,7 @@ export default function SessionList({
                   onAddWorkspace={onAddWorkspace}
                   menuAddWorkspace={onAddWorkspace}
                   onOpenRemoteHost={onOpenRemoteHost}
-                  treeCls="pl-5 pr-4"
+                  treeCls="pl-5"
                   rowCls="active:bg-surface-2 active:text-text"
                 />
               ) : (
@@ -251,7 +236,7 @@ export default function SessionList({
                   }}
                   connected={connected}
                   onOpenRemoteHost={onOpenRemoteHost}
-                  treeCls="pl-5 pr-4"
+                  treeCls="pl-5"
                   rowCls="active:bg-surface-2 active:text-text"
                 />
               )}
@@ -302,21 +287,18 @@ export default function SessionList({
             className="card-elev w-full sm:max-w-sm max-h-[60%] overflow-auto modal-scrollable rounded-t-2xl sm:rounded-2xl p-2 animate-in slide-in-from-bottom-4 duration-150"
             onClick={(e) => e.stopPropagation()}
           >
-            {(pickerFor === "remote" ? remoteHosts : mobileHosts).map((h) => (
+            {remoteHosts.map((h) => (
               <button
                 key={h.key}
                 onClick={() => {
                   const key = h.key;
-                  setPickerFor(null);
-                  (pickerFor === "remote" ? onOpenRemoteHost : onOpenMobileHost)?.(key);
+                  setPickerFor(false);
+                  onOpenRemoteHost?.(key);
                 }}
                 className="w-full flex items-center gap-2.5 px-3 py-3 text-left rounded-brand hover:bg-surface-2 active:bg-surface-2 transition-colors"
               >
                 <Monitor size={16} className="text-text-muted shrink-0" />
                 <span className="flex-1 min-w-0 truncate text-sm text-text">{h.label || t("agentSwitcher.unnamed")}</span>
-                {(h.mobileDeviceCount || 0) > 0 && pickerFor === "mobile" && (
-                  <span className="text-[10px] text-green-400 shrink-0">{h.mobileDeviceCount}</span>
-                )}
               </button>
             ))}
           </div>
