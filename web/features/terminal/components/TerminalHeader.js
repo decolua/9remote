@@ -15,7 +15,6 @@ import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "@/features/terminal/constants/shortcuts";
 import { statusVisual } from "@/shared/utils/statusVisual";
-import { isAgentOutdated } from "./AgentOutdatedBanner";
 import { isSameMachine } from "@/shared/utils/localOrigin";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
