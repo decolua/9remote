@@ -52,6 +52,9 @@ export function useBus(config = {}) {
   // back to its loading gate while the new connection comes up (the old bus is
   // torn down first, so a reset here would leave nothing to show).
   const hadConnectionRef = useRef(false);
+  // Bumped by reconnect(): re-runs the effect for the SAME auth, which is the
+  // only way back after a deliberate disconnect (authKey did not change).
+  const [reconnectSeq, setReconnectSeq] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -100,6 +103,15 @@ export function useBus(config = {}) {
         router.push(redirectOnNoAuth);
         return;
       }
+      // A deliberate disconnect sticks across reloads: boot into the workspace
+      // with the host offline (its connect button is the way back), not into a
+      // loading gate. reconnect() clears the flag and re-runs this effect.
+      try {
+        if (sessionStorage.getItem("9remote_manual_disconnect") === "1") {
+          useConnectionStore.getState().setConnection({ deliberate: true });
+          return;
+        }
+      } catch {}
 
       const wsConfig = {
         tunnelUrl: auth.tunnelUrl,
@@ -118,6 +130,7 @@ export function useBus(config = {}) {
           if (cancelled) return;
           hadConnectionRef.current = true;
           busRef.current = bus;
+          useConnectionStore.getState().setConnection({ deliberate: false });
           const cMode = mode || protocolRef.current?.connectionMode || "tunnel";
           setConnected(true);
           setConnectionMode(cMode);
@@ -184,6 +197,7 @@ export function useBus(config = {}) {
         bus: busRef.current,
         busRef,
         protocolRef,
+        deliberate: false,
         ...(hadConnectionRef.current ? {} : { connected: false, admitted: false }),
         connectionMode: "tunnel",
         carrier: "ws"
@@ -203,8 +217,8 @@ export function useBus(config = {}) {
       // from. A real teardown (logout, leaving the workspace) goes through
       // disconnect(), which does reset.
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per authKey: a host switch re-keys from scratch
-  }, [authKey]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per authKey/reconnect: a host switch re-keys, a reconnect re-arms
+  }, [authKey, reconnectSeq]);
 
   // Expose manual disconnect (used e.g. on device:rejected to stop auto-reconnect)
   const disconnect = () => {
@@ -213,7 +227,16 @@ export function useBus(config = {}) {
     busRef.current = null;
     setConnected(false);
     useConnectionStore.getState().reset();
+    // reset() clears it — set AFTER, so the page knows this was on purpose.
+    useConnectionStore.getState().setConnection({ deliberate: true });
+    try { sessionStorage.setItem("9remote_manual_disconnect", "1"); } catch {}
   };
 
-  return { bus: busRef.current, busRef, protocolRef, connected, connectionMode, carrier, retryStatus, disconnect };
+  // The way back from a deliberate disconnect: same auth, fresh attempt.
+  const reconnect = () => {
+    try { sessionStorage.removeItem("9remote_manual_disconnect"); } catch {}
+    setReconnectSeq((n) => n + 1);
+  };
+
+  return { bus: busRef.current, busRef, protocolRef, connected, connectionMode, carrier, retryStatus, disconnect, reconnect };
 }

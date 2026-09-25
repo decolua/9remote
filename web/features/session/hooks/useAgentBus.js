@@ -144,6 +144,9 @@ export function useAgentBus() {
 
   const handleBusReady = useCallback((bus, auth) => {
     applyApproval(APPROVAL_STATUS.reconnect);
+    // The row follows the wire: a deliberate disconnect (or a boot into one)
+    // left it offline — the moment the bus answers, it is "full" again.
+    patchMainHost({ status: "full" });
     // Invalidate cached lists on reconnect until refetched.
     resetLoaded("pm-connect");
 
@@ -275,7 +278,7 @@ export function useAgentBus() {
     bus.emit("device:clientReady");
   }, [removeTempKey, fetchLists, applyApproval, getAuth, resetLoaded]);
 
-  const { bus, busRef, protocolRef, connected, connectionMode, carrier, retryStatus, disconnect } = useBus({
+  const { bus, busRef, protocolRef, connected, connectionMode, carrier, retryStatus, disconnect, reconnect } = useBus({
     namespace: "",
     redirectOnNoAuth: "/",
     onConnect: handleBusReady,
@@ -416,6 +419,7 @@ export function useAgentBus() {
     busRef,
     protocolRef,
     disconnect,
+    reconnect,
     connected,
     connectionMode,
     carrier,

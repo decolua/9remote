@@ -222,7 +222,7 @@ export default function WorkspaceLayout({ children }) {
       window.removeEventListener("contextmenu", onContextMenu);
     };
   }, []);
-  const { bus, busRef, protocolRef, disconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, platform, agentVersion, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
+  const { bus, busRef, protocolRef, disconnect, reconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, platform, agentVersion, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   // Fleet: one background bus per saved host other than the current one; the
   // mobile home shows the fleet overview until the user enters a host (focus).
   const { loadKeys, saveKey, renameKey, removeKey } = useApiKeyStorage();
@@ -294,6 +294,9 @@ export default function WorkspaceLayout({ children }) {
   // (the live ref nulls out), so an in-flight self-update must not flip the page
   // back to the full-screen loading gate.
   const stableBus = useConnectionStore((s) => s.bus);
+  // A deliberate disconnect owns the page's state: no loading gate, no retry
+  // screen — the host's row is offline and its connect button is the way back.
+  const deliberatelyOff = useConnectionStore((s) => s.deliberate);
   const mainHostUpdating = !!mainHost?.updating;
   // Self-update aftermath for the ACTIVE host: reconnect with a new version
   // reloads once (loopback serves the web from the agent — fresh agent means a
@@ -759,6 +762,13 @@ export default function WorkspaceLayout({ children }) {
     disconnect();
   }, [currentFleetKey, disconnect]);
 
+  // The way back for the viewed host: same auth, fresh attempt — the row flips
+  // to connecting and lands on "full" when the bus answers (handleBusReady).
+  const onMainReconnect = useCallback(() => {
+    useFleetStore.getState()._patchHost(currentFleetKey, { status: "connecting" });
+    reconnect();
+  }, [currentFleetKey, reconnect]);
+
   const closeConfirmDialog = useCallback(() => {
     setConfirmDialog({ isOpen: false, title: "", message: "", onConfirm: null });
   }, []);
@@ -811,7 +821,7 @@ export default function WorkspaceLayout({ children }) {
   // and the transport reports connected when that opens. The STORE bus stays set
   // across a transient disconnect (an in-flight self-update), so only its first
   // absence counts as initializing.
-  const isInitializing = !hydrated || !stableBus;
+  const isInitializing = !hydrated || (!stableBus && !deliberatelyOff);
 
   if (isInitializing) {
     return <ReconnectScreen label={t("workspace.loading")} />;
@@ -871,6 +881,7 @@ export default function WorkspaceLayout({ children }) {
             onRenameHost={handleRenameHost}
             onDeleteHost={handleDeleteHost}
             onMainDisconnect={onMainDisconnect}
+            onMainReconnect={onMainReconnect}
           />
         </div>
         )}
@@ -924,6 +935,7 @@ export default function WorkspaceLayout({ children }) {
             onRenameHost={handleRenameHost}
             onDeleteHost={handleDeleteHost}
             onMainDisconnect={onMainDisconnect}
+            onMainReconnect={onMainReconnect}
             homeDir={systemInfo?.homedir}
             recentWorkspaces={recentWorkspaces}
             onOpenArtifact={openArtifact}
@@ -1108,7 +1120,7 @@ export default function WorkspaceLayout({ children }) {
             the workspace must not show through that window. An in-flight
             self-update of the active host keeps the page usable — its row
             carries the progress instead. */}
-        {(!connected || !admitted) && !mainHostUpdating && <ReconnectScreen />}
+        {(!connected || !admitted) && !mainHostUpdating && !deliberatelyOff && <ReconnectScreen />}
 
         {!mainHostUpdating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 

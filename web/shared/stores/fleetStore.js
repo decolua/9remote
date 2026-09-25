@@ -146,6 +146,10 @@ export const useFleetStore = create((set, get) => ({
 
     const cached = readCache();
     const connectedSet = new Set(savedConnectedHeads());
+    // A deliberate disconnect of the viewed host sticks across reloads: the row
+    // boots offline (its connect button is the way back), not "full".
+    let manualOff = false;
+    try { manualOff = sessionStorage.getItem("9remote_manual_disconnect") === "1"; } catch {}
     set((prev) => {
       const hosts = {};
       for (const [head, info] of infoByHead) {
@@ -155,7 +159,7 @@ export const useFleetStore = create((set, get) => ({
           key: head,
           full: info.full,
           label: info.label || prior.label,
-          status: head === current ? "full"
+          status: head === current ? (manualOff ? "offline" : "full")
             : wantedSet.has(head) && (prior.status === "online" || prior.status === "connecting") ? prior.status
             : "offline"
         };

@@ -74,5 +74,36 @@ await test("disconnect clears the intent, so the next probe skips it", async () 
   assert.deepEqual(savedConnectedHeads(), []);
 });
 
+
+await test("a connect that never lands turns auto-connect off for next time", () => {
+  store.clear();
+  localStorage.setItem(CONNECTED_KEY, JSON.stringify([HEAD]));
+  const reg = makeRegistry();
+  reg.buses.set(HEAD, { disconnect() {} });          // a bus exists...
+  reg._hostOf = () => ({ status: "connecting" });     // ...and never answered
+  reg._onConnectTimeout(HEAD);
+  assert.deepEqual(savedConnectedHeads(), [], "a silent host must not auto-connect on the next visit");
+});
+
+await test("a timeout while approval is pending keeps the intent", () => {
+  store.clear();
+  localStorage.setItem(CONNECTED_KEY, JSON.stringify([HEAD]));
+  const reg = makeRegistry();
+  reg.buses.set(HEAD, { disconnect() {} });
+  reg._hostOf = () => ({ status: "connecting", approval: "pending" });
+  reg._onConnectTimeout(HEAD);
+  assert.deepEqual(savedConnectedHeads(), [HEAD], "the wait is on the user, not the wire");
+});
+
+await test("a timeout after the bus answered changes nothing", () => {
+  store.clear();
+  localStorage.setItem(CONNECTED_KEY, JSON.stringify([HEAD]));
+  const reg = makeRegistry();
+  reg.buses.set(HEAD, { disconnect() {} });
+  reg._hostOf = () => ({ status: "online" });
+  reg._onConnectTimeout(HEAD);
+  assert.deepEqual(savedConnectedHeads(), [HEAD], "a late timer must not undo a live host");
+});
+
 console.log(fail === 0 ? `\n✅ ${pass} passed, ${fail} failed` : `\n❌ ${pass} passed, ${fail} failed`);
 process.exit(fail === 0 ? 0 : 1);

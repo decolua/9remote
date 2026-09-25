@@ -176,7 +176,9 @@ export default function HostTree({
           if (!open) useFleetStore.getState().ensureHost(host.key); // expanding opens the bus
           toggleNode(TREE_ROOT);
         } : null}
-        onConnect={status === "offline" ? () => useFleetStore.getState().connectHost(host.key) : null}
+        // The viewed host reconnects through the workspace wire (useBus), every
+        // other host through its registry bus — the row never learns which.
+        onConnect={status === "offline" ? (host.onConnect || (() => useFleetStore.getState().connectHost(host.key))) : null}
         onDisconnect={host.onDisconnect}
         // The add-workspace door only exists on a host that can answer (its picker
         // browses that machine's disks); offline/connecting rows hide it.

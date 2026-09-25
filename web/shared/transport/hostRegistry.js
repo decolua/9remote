@@ -171,14 +171,18 @@ export class HostRegistry {
     );
     this.buses.set(head, pm);
     patch({ status: "connecting" });
-    connectTimer = setTimeout(() => {
-      // Only the still-connecting verdict flips: a bus that answered by now has
-      // already patched online, and a carrier reconnect re-patches anyway.
-      if (this.buses.has(head) && this._hostOf(head)?.status === "connecting") {
-        patch({ status: "offline" });
-      }
-    }, CONNECT_TIMEOUT_MS);
+    connectTimer = setTimeout(() => this._onConnectTimeout(head), CONNECT_TIMEOUT_MS);
     pm.connect();
+  }
+
+  // Only the still-connecting verdict flips: a bus that answered by now has
+  // already patched online, and a carrier reconnect re-patches anyway.
+  _onConnectTimeout(head) {
+    if (!this.buses.has(head) || this._hostOf(head)?.status !== "connecting") return;
+    this._patch(head, { status: "offline" });
+    // A host that never answered is not auto-connected next visit either —
+    // unless it is holding for approval, where the wait is on the user.
+    if (this._hostOf(head)?.approval !== "pending") this.persistIntent(head, false);
   }
 
   // Drop a bus WITHOUT a status verdict — callers own the patch semantics

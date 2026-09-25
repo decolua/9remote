@@ -33,7 +33,7 @@ export default function SessionList({
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   onOpenRemoteHost = null, onOpenMobileHost = null,
   fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession,
-  onRenameHost = null, onDeleteHost = null, onMainDisconnect = null
+  onRenameHost = null, onDeleteHost = null, onMainDisconnect = null, onMainReconnect = null
 }) {
   const { t } = useI18n();
   // Callers may pass no bus; the store is the single live connection anyway
@@ -209,7 +209,8 @@ export default function SessionList({
                     workspaces,
                     sessions,
                     statusMap: sessionStatus,
-                    onDisconnect: onMainDisconnect
+                    onDisconnect: onMainDisconnect,
+                    onConnect: onMainReconnect
                   }}
                   busRef={busRef}
                   actions={{

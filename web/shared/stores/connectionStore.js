@@ -8,6 +8,10 @@ export const useConnectionStore = create((set) => ({
   busRef: { current: null },
   protocolRef: { current: null },
   connected: false,
+  // The user dropped this connection on purpose ( Disconnect): the workspace
+  // must not cover itself with the loading gate or the retry screen — the
+  // host's row shows offline and its connect button is the way back.
+  deliberate: false,
   connectionMode: "tunnel",
   carrier: "ws",
   // Device admission for the ACTIVE host's connection — store-owned (not hook
@@ -45,6 +49,7 @@ export const useConnectionStore = create((set) => ({
   reset: () => set({
     bus: null,
     connected: false,
+    deliberate: false,
     connectionMode: "tunnel",
     carrier: "ws",
     endpoint: null,

@@ -71,7 +71,7 @@ function TerminalSidebar({
   onOpenMobileHost = null,
   onRenameHost = null,
   onDeleteHost = null,
-  onMainDisconnect = null,
+  onMainDisconnect = null, onMainReconnect = null,
   busRef = null,
   fileBus,
   homeDir,
@@ -277,11 +277,11 @@ function TerminalSidebar({
                 ...(currentHost || {}),
                 key: currentHost?.key || "main",
                 label: currentHost?.label || "",
-                status: "full",
                 workspaces,
                 sessions: mainHostSessions,
                 statusMap: sessionStatus,
-                onDisconnect: onMainDisconnect
+                onDisconnect: onMainDisconnect,
+                onConnect: onMainReconnect
               }}
               busRef={busRef}
               actions={{

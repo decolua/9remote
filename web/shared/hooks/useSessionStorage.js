@@ -73,6 +73,9 @@ export function setAuthData({ apiKey, tunnelUrl, mode = "remote", tempKey = null
     else sessionStorage.removeItem("localIp");
   } catch {}
   setAuthCookie(apiKey);
+  // Fresh auth is a fresh intent to connect — a previous deliberate
+  // disconnect must not swallow the next login.
+  try { sessionStorage.removeItem("9remote_manual_disconnect"); } catch {}
   // localStorage may be unavailable while sessionStorage is not, so the two are
   // written independently — the session must not die with the persistence.
   try {
