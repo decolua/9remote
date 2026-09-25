@@ -10,8 +10,8 @@ import { getCliEntry, getNodeBin, nodeBinEnvPrefix } from "./autostart.js";
 import { UPDATE } from "../config.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const UPDATE_CHECK_TIMEOUT = 3000;
-const SAFETY_TIMEOUT = 8000;
+const UPDATE_CHECK_TIMEOUT = 8000;
+const SAFETY_TIMEOUT = 15000;
 const SERVER_PORT = 2208;
 // Legacy cloudflared PID path for cleanup during upgrade from older versions
 const LEGACY_CLOUDFLARED_PID_FILE = path.join(os.homedir(), ".9remote", "cloudflared.pid");
@@ -352,11 +352,14 @@ function npmInstallFlags() {
 // Restart in the mode the CLI was launched with — `ui` under the Tauri shell
 // (which owns the tray itself), tray/auto standalone. A bare TUI launch has no
 // mode flag and the detached script has no TTY, so fall back to tray mode.
+// Always append --start so the tunnel and remote connection re-engage automatically after update.
 function restartArgs() {
   const args = process.argv.slice(2).filter((a) => a !== "--skip-update");
   const hasMode = args.includes("ui") || args.includes("start")
     || args.some((a) => ["--tray", "--auto", "--start"].includes(a));
-  return hasMode ? `${args.join(" ")} --skip-update` : "--tray --skip-update --start";
+  const base = hasMode ? args.join(" ") : "--tray";
+  const withStart = base.includes("--start") || base.includes("start") ? base : `${base} --start`;
+  return `${withStart} --skip-update`;
 }
 
 // Fallback to bundled npm and Electron Node if system npm is missing
@@ -488,7 +491,7 @@ if [ "$NEWVER" != "${latest}" ]; then
 fi
 
 rm -f "${lock}"
-${nodeEnv}"${nodeBin}" "${cliEntry}" ${restartArgs()}
+${process.env.NREMOTE_REGISTRY ? `export NREMOTE_REGISTRY="${process.env.NREMOTE_REGISTRY}"\n` : ""}${nodeEnv}"${nodeBin}" "${cliEntry}" ${restartArgs()}
 `;
   const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update.sh`);
   writeFileSync(scriptPath, script, { mode: 0o755 });

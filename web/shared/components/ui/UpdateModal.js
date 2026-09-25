@@ -24,7 +24,7 @@ const RESTART_LABELS = {
 
 // Update progress overlay. Web only observes bus connect/disconnect (the update runs
 // in a detached script), so phases are time-estimated. Agent restart = connected true→false→true.
-export default function UpdateModal({ open, connected, mode = "update" }) {
+export default function UpdateModal({ open, connected, mode = "update", onRestart = null, onCancel = null }) {
   const { t } = useI18n();
   const labels = mode === "restart" ? RESTART_LABELS : UPDATE_LABELS;
   const [seconds, setSeconds] = useState(0);
@@ -71,13 +71,33 @@ export default function UpdateModal({ open, connected, mode = "update" }) {
             <div className="w-14 h-14 mx-auto bg-yellow-500/20 rounded-full flex items-center justify-center text-2xl">⚠️</div>
             <h3 className="text-text text-lg font-semibold mt-4">{label}</h3>
             <p className="text-text-muted text-sm mt-2">{timeoutHint}</p>
-            <button
-              onClick={() => window.location.reload()}
-              className="mt-4 w-full py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-colors"
-              type="button"
-            >
-              {t("menu.reloadWeb")}
-            </button>
+            <div className="mt-4 flex flex-col gap-2">
+              {onRestart && (
+                <button
+                  onClick={onRestart}
+                  className="w-full py-2 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-colors text-sm"
+                  type="button"
+                >
+                  {t("menu.restartHost")}
+                </button>
+              )}
+              <button
+                onClick={() => window.location.reload()}
+                className="w-full py-2 bg-surface-2 hover:bg-surface-3 text-text font-medium rounded-brand transition-colors text-sm"
+                type="button"
+              >
+                {t("menu.reloadWeb")}
+              </button>
+              {onCancel && (
+                <button
+                  onClick={onCancel}
+                  className="w-full py-1.5 text-text-muted hover:text-text text-xs transition-colors"
+                  type="button"
+                >
+                  {t("common.cancel")}
+                </button>
+              )}
+            </div>
           </>
         ) : (
           <>

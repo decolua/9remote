@@ -38,6 +38,7 @@ export default function App() {
   const [desktopEnabled, setDesktopEnabled] = useState(false);
   const [logs, setLogs] = useState([]);
   const [updateVersion, setUpdateVersion] = useState(null);
+  const [isUpdating, setIsUpdating] = useState(false);
   const [connections, setConnections] = useState([]);
   const [pendingDevice, setPendingDevice] = useState(null);
   const [approvedDevices, setApprovedDevices] = useState([]);
@@ -46,6 +47,7 @@ export default function App() {
   const [autoStart, setAutoStartState] = useState(false);
   const [sleepInhibitMode, setSleepInhibitMode] = useState("never");
   const [sleepInhibitPresets, setSleepInhibitPresets] = useState([]);
+  const [remoteEnabled, setRemoteEnabled] = useState(true);
   const [unlockStatus, setUnlockStatus] = useState(null); // {supported, built, running}
   const [version, setVersion] = useState("");
   const versionRef = useRef("");
@@ -174,6 +176,8 @@ export default function App() {
           });
         } else if (data.type === "updateAvailable") {
           setUpdateVersion(data.version);
+        } else if (data.type === "updating") {
+          setIsUpdating(true);
         } else if (data.type === "permissions") {
           setPermissions({ screenRecording: data.screenRecording, accessibility: data.accessibility });
           if (data.desktopEnabled !== undefined) setDesktopEnabled(data.desktopEnabled);
@@ -190,6 +194,8 @@ export default function App() {
         } else if (data.type === "sleepInhibit") {
           if (data.mode) setSleepInhibitMode(data.mode);
           if (Array.isArray(data.presets)) setSleepInhibitPresets(data.presets);
+        } else if (data.type === "remote") {
+          setRemoteEnabled(!!data.enabled);
         }
       } catch { /* ignore parse errors */ }
     };
@@ -217,6 +223,11 @@ export default function App() {
     fetch("/api/sleep-inhibit").then(r => r.json()).then(d => {
       if (d?.mode) setSleepInhibitMode(d.mode);
       if (Array.isArray(d?.presets)) setSleepInhibitPresets(d.presets);
+    }).catch(() => {});
+
+    // Load initial remote on/off state (default on)
+    fetch("/api/remote/enabled").then(r => r.json()).then(d => {
+      if (typeof d?.enabled === "boolean") setRemoteEnabled(d.enabled);
     }).catch(() => {});
 
     // Load desktop-unlock status (Windows-only — empty on other OS)
@@ -276,6 +287,11 @@ export default function App() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ type }),
     }).catch(() => {});
+  };
+
+  // Re-runs the full connect (session create + tunnel) via the agent's cmd poller
+  const handleStartConnection = () => {
+    fetch("/api/ui/start", { method: "POST" }).catch(() => {});
   };
 
   const handleStop = () => {
@@ -368,6 +384,22 @@ export default function App() {
       if (d && typeof d.enabled === "boolean") setAutoStartState(d.enabled);
     } catch {
       setAutoStartState(!next);
+    }
+  };
+
+  const handleRemoteToggle = async () => {
+    const next = !remoteEnabled;
+    setRemoteEnabled(next);
+    try {
+      const r = await fetch("/api/remote/enabled", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ enabled: next }),
+      });
+      const d = await r.json().catch(() => null);
+      if (typeof d?.enabled === "boolean") setRemoteEnabled(d.enabled);
+    } catch {
+      setRemoteEnabled(!next);
     }
   };
 
@@ -467,10 +499,12 @@ export default function App() {
       permissions={permissions}
       desktopEnabled={desktopEnabled}
       updateVersion={updateVersion}
+      isUpdating={isUpdating}
       connections={connections}
       onRequestPermission={handleRequestPermission}
       onDesktopToggle={handleDesktopToggle}
       onStop={handleStop}
+      onStartConnection={handleStartConnection}
       onShutdown={handleShutdown}
       onGenerateOneTimeKey={handleGenerateOneTimeKey}
       onRegenerateKey={handleRegenerateKey}
@@ -497,6 +531,8 @@ export default function App() {
       onAutoStartToggle={handleAutoStartToggle}
       sleepInhibitMode={sleepInhibitMode}
       sleepInhibitPresets={sleepInhibitPresets}
+      remoteEnabled={remoteEnabled}
+      onRemoteToggle={handleRemoteToggle}
       unlockStatus={unlockStatus}
       onRequestUnlockInstall={handleRequestUnlockInstall}
       onRequestUnlockUninstall={handleRequestUnlockUninstall}

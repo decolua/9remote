@@ -47,7 +47,11 @@ export function setupPushHandlers(socket, io) {
   setupSiteRequestHandler(socket);
 
   // Trigger agent self-update via socket (authenticated, no HTTP through tunnel)
-  socket.on("requestUpdate", () => writeCmd("update"));
+  socket.on("requestUpdate", async () => {
+    const { pushUiEvent } = await import("../../../api/ui.js");
+    pushUiEvent("updating", {});
+    writeCmd("update");
+  });
 
   // Restart agent host (no reinstall): kill + relaunch, ptyDaemon survives
   socket.on("requestRestart", () => writeCmd("restart"));

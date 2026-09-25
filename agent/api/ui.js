@@ -345,6 +345,7 @@ export function handleShutdown(req, res) {
 // Web triggers update; CLI process (cmdPoller) does the actual work, not the server
 export function handleUpdate(req, res) {
   jsonOk(res);
+  pushUiEvent("updating", {});
   writeCmd("update");
 }
 

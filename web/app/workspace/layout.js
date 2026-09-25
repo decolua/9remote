@@ -288,7 +288,7 @@ export default function WorkspaceLayout({ children }) {
 
   const [shells, setShells] = useState([]);
 
-  const { updating, updateMode, resumeGrace, doUpdate, doRestart } = useAgentUpdate({
+  const { updating, updateMode, resumeGrace, doUpdate, doRestart, cancelUpdate } = useAgentUpdate({
     connected, triggerUpdate, triggerRestart
   });
 
@@ -847,6 +847,14 @@ export default function WorkspaceLayout({ children }) {
   const isInitializing = !hydrated || !bus;
 
   if (isInitializing) {
+    if (updating) {
+      return (
+        <>
+          <AnimatedBackground />
+          <UpdateModal open={updating} connected={connected} mode={updateMode} onRestart={doRestart} onCancel={cancelUpdate} />
+        </>
+      );
+    }
     return <ReconnectScreen label={t("workspace.loading")} />;
   }
 
@@ -1171,7 +1179,7 @@ export default function WorkspaceLayout({ children }) {
         {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Update Modal — progress overlay during agent self-update */}
-        <UpdateModal open={updating} connected={connected} mode={updateMode} />
+        <UpdateModal open={updating} connected={connected} mode={updateMode} onRestart={doRestart} onCancel={cancelUpdate} />
 
         {/* Global Slide Menu — single instance at page level */}
         <SlideMenu />

@@ -101,6 +101,57 @@ function RemoteDesktopRow({ desktopEnabled, onDesktopToggle, permissions, onRequ
   );
 }
 
+/** Prevent sleep — a Services row, not a settings entry: it keeps this machine
+ *  reachable (remote sessions, long builds) rather than configuring the app. */
+function SleepInhibitRow({ mode, presets = [], onChange, t }) {
+  const sleepLabels = {
+    "30m": t("remote.sleepModes.30m"),
+    "1h": t("remote.sleepModes.1h"),
+    "2h": t("remote.sleepModes.2h"),
+    "4h": t("remote.sleepModes.4h"),
+    "24h": t("remote.sleepModes.24h"),
+    never: t("remote.sleepModes.never"),
+    none: t("remote.sleepModes.none"),
+  };
+  // "never" means block the whole time — it is ON, not off. Only "none" is off.
+  const active = mode !== "none";
+  return (
+    <div className="row-hover flex items-center gap-4 py-3.5 px-3 -mx-3 rounded-xl">
+      <div
+        className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
+        style={{
+          background: active ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
+          border: `1px solid ${active ? "rgba(var(--brand-rgb),0.25)" : "var(--border-subtle)"}`,
+          color: active ? "var(--brand-400)" : "var(--text-muted)",
+        }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>coffee</span>
+      </div>
+      <div className="flex-1 min-w-0">
+        <p className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>{t("remote.preventSleep")}</p>
+        <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+          {t("remote.blockSleep")}
+        </p>
+      </div>
+      <select
+        value={mode || "never"}
+        onChange={(e) => onChange?.(e.target.value)}
+        className="text-xs px-3 py-1.5 rounded-lg flex-shrink-0"
+        style={{
+          background: "var(--row-bg)",
+          color: "var(--text-main)",
+          border: "1px solid var(--border-subtle)",
+          cursor: "pointer",
+        }}
+      >
+        {presets.map((m) => (
+          <option key={m} value={m}>{sleepLabels[m] || m}</option>
+        ))}
+      </select>
+    </div>
+  );
+}
+
 /** Section — mono uppercase label + hairline, content rows below (login parity) */
 function Section({ title, count, first, children }) {
   return (
@@ -129,9 +180,15 @@ const UPDATE_PHASES = {
   timeout:    { icon: "warning", spin: false, text: () => "Taking longer than expected" },
 };
 
-function UpdateBanner({ version }) {
-  const [phase, setPhase] = useState("idle");
+function UpdateBanner({ version, isUpdating = false }) {
+  const [phase, setPhase] = useState(isUpdating ? "updating" : "idle");
   const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (isUpdating && phase !== "restarting" && phase !== "ready") {
+      setPhase("updating");
+    }
+  }, [isUpdating]);
 
   // Drives elapsed counter + polls /api/state to detect agent restart, then reloads.
   // Transition: updating → (fetch fails = agent died) restarting → (fetch ok again) ready → reload
@@ -158,7 +215,7 @@ function UpdateBanner({ version }) {
     return () => { clearInterval(tick); clearInterval(poll); clearTimeout(delay); };
   }, [phase === "updating" || phase === "restarting"]);
 
-  if (!version) return null;
+  if (!version && !isUpdating && phase === "idle") return null;
 
   const handleConfirm = () => {
     setPhase("updating");
@@ -166,7 +223,7 @@ function UpdateBanner({ version }) {
   };
 
   const p = UPDATE_PHASES[phase];
-  const busy = phase !== "idle" && phase !== "timeout";
+  const busy = phase === "updating" || phase === "restarting" || phase === "ready";
   // Time-estimated progress (update runs detached → no real %)
   const progress = phase === "ready" ? 100 : Math.min((seconds * 1000 / UPDATE_UI.timeoutMs) * 100, 95);
 
@@ -176,7 +233,7 @@ function UpdateBanner({ version }) {
     return (
       <div className="fixed inset-0 z-[100] flex items-center justify-center" style={{ background: "var(--bg-main)" }}>
         <div className="text-center mx-4" style={{ maxWidth: 320 }}>
-          <span className={`material-symbols-outlined text-4xl ${p.spin ? "animate-spin" : ""}`} style={{ color: "var(--brand-400)" }}>{p.icon}</span>
+          <span className={`material-symbols-outlined text-4xl inline-block ${p.spin ? "animate-spin" : ""}`} style={{ color: "var(--brand-400)" }}>{p.icon}</span>
           <div className="text-sm font-semibold mt-3" style={{ color: "var(--text-main)" }}>{p.text(version, seconds)}</div>
           <div className="mt-4 h-1.5 w-full rounded-full overflow-hidden" style={{ background: "var(--surface-2)" }}>
             <div className="h-full rounded-full transition-all duration-1000 ease-linear" style={{ width: `${progress}%`, background: "var(--brand-400)" }} />
@@ -321,47 +378,15 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
   );
 }
 
-/** Tunnel status chip — the single spot where tunnel state is visible. */
-function TunnelChip({ step }) {
-  // STEP enum: STOPPED=0, PREPARING=1 … READY=5
-  const isStopped = step === 0;
-  const isReady = step === 5;
-  const dotColor = isReady ? "var(--success)" : isStopped ? "var(--danger)" : "var(--warn)";
-  const label = isReady ? "tunnel · online" : isStopped ? "tunnel · offline" : "tunnel · connecting";
-  // Read-only: it used to fire the restart action, so a tap meant to inspect the state
-  // dropped every connected client. Restart lives in the settings menu behind a confirm.
-  return (
-    <div
-      title={label}
-      className="inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full max-w-full"
-      style={{ border: "1px solid var(--border-subtle)", background: "var(--row-bg)", color: isReady ? "var(--text-main)" : "var(--text-muted)" }}
-    >
-      <span
-        className={`w-[7px] h-[7px] rounded-full flex-shrink-0 ${!isStopped && !isReady ? "chip-blink" : ""}`}
-        style={{ background: dotColor, boxShadow: isReady ? "0 0 10px rgba(var(--success-rgb),0.9)" : undefined }}
-      />
-      <span className="truncate">{label}</span>
-    </div>
-  );
-}
-
-/** RTC/WS peer counts — live transport status beside the tunnel chip */
-function RtcChip({ transport }) {
+/** Live status line for the remote switch — connection state + peer counts.
+ *  STEP enum: STOPPED=0, PREPARING=1 … READY=5. STOPPED means no session row,
+ *  so RTC is as dead as the tunnel: one label covers both carriers. */
+function remoteStatus(step, transport) {
   const rtc = transport?.rtcPeers || 0;
   const ws = transport?.wsPeers || 0;
-  const alive = rtc > 0 || ws > 0;
-  return (
-    <div
-      className="inline-flex items-center gap-2 font-mono text-xs px-3.5 py-[7px] rounded-full"
-      style={{ border: "1px solid var(--border-subtle)", background: "var(--row-bg)", color: alive ? "var(--text-main)" : "var(--text-subtle)" }}
-    >
-      <span
-        className="w-[7px] h-[7px] rounded-full flex-shrink-0"
-        style={{ background: alive ? "var(--success)" : "var(--text-subtle)", boxShadow: alive ? "0 0 10px rgba(var(--success-rgb),0.9)" : undefined }}
-      />
-      <span>{alive ? `rtc ${rtc} · ws ${ws}` : "rtc · idle"}</span>
-    </div>
-  );
+  if (step === 0) return { color: "var(--danger)", blink: false, text: "offline" };
+  if (step >= 5) return { color: "var(--success)", blink: false, text: `online · rtc ${rtc} ws ${ws}` };
+  return { color: "var(--warn)", blink: true, text: "connecting" };
 }
 
 // Setup steps shown as dots while connecting (labels shared with StepProgress)
@@ -403,18 +428,20 @@ function TunnelSteps({ step, stepDesc, t }) {
 export default function MainScreen({
   agentReachable = true,
   step, stepDesc = "", healthCheck, transport, tunnelUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey, qrUrl,
-  permissions, desktopEnabled, updateVersion, connections = [], version = "",
-  onRequestPermission, onDesktopToggle, onStop, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
+  permissions, desktopEnabled, updateVersion, isUpdating = false, connections = [], version = "",
+  onRequestPermission, onDesktopToggle, onStop, onStartConnection, onShutdown, onGenerateOneTimeKey, onRegenerateKey, logs = [], onClearLogs,
   theme, onToggleTheme,
   pendingDevice, onDeviceApprove, onDeviceReject,
   approvedDevices = [], rejectedDevices = [], onDeviceRemove, onFetchDevices, onDeviceApproveRejected, onDeviceLabel,
   autoApprove = false, onAutoApproveToggle,
   autoStart = false, onAutoStartToggle,
   sleepInhibitMode = "never", sleepInhibitPresets = [], onSleepInhibitChange,
+  remoteEnabled = true, onRemoteToggle,
   unlockStatus = null, onRequestUnlockInstall, onRequestUnlockUninstall,
 }) {
   const { t } = useI18n();
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
+  const [showRemoteOffConfirm, setShowRemoteOffConfirm] = useState(false);
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
@@ -461,6 +488,7 @@ export default function MainScreen({
     return () => window.removeEventListener("keydown", onKey);
   }, [pendingDevice, onDeviceReject, onDeviceApprove]);
 
+  const status = remoteStatus(step, transport);
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
   const onlineCount = clients.filter((c) => c.status === "online").length;
 
@@ -490,28 +518,95 @@ export default function MainScreen({
 
           {/* my-auto centers when room, collapses when overflowing (justify-center would clip the top) */}
           <div className="relative z-[1] flex flex-col items-center my-auto">
-            <div className="flex flex-wrap items-center justify-center gap-2 mb-3">
-              <TunnelChip step={step} />
-              <RtcChip transport={transport} />
-            </div>
-            {step > 0 && step < 5 ? (
-              <TunnelSteps step={step} stepDesc={stepDesc} t={t} />
+            {remoteEnabled ? (
+              <>
+                <h1 className="brand-grad-text text-[30px] lg:text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-center mb-5">
+                  {t("connection.pairDevice")}
+                </h1>
+
+                {/* Progress sits under the heading it belongs to, so connecting
+                    does not push the QR block up and down. */}
+                {step > 0 && step < 5 && <TunnelSteps step={step} stepDesc={stepDesc} t={t} />}
+
+                <QRCard
+                  qrUrl={qrUrl}
+                  oneTimeKey={oneTimeKey}
+                  oneTimeKeyExpiresAt={oneTimeKeyExpiresAt}
+                  permanentKey={permanentKey}
+                  onGenerateOneTimeKey={onGenerateOneTimeKey}
+                  onRegenerateKey={onRegenerateKey}
+                />
+              </>
             ) : (
-              <div className="h-2" />
+              /* Off — nothing to pair with, so the block collapses to a note */
+              <div className="glass-card w-full max-w-[380px] flex flex-col items-center gap-2.5 py-10 px-6">
+                <span className="material-symbols-outlined" style={{ fontSize: 40, color: "var(--text-subtle)" }}>cloud_off</span>
+                <p className="text-[13.5px] font-semibold text-center" style={{ color: "var(--text-main)" }}>
+                  {t("remote.remoteOff")}
+                </p>
+                <p className="text-xs leading-relaxed text-center" style={{ color: "var(--text-muted)" }}>
+                  {t("remote.remoteOffDesc")}
+                </p>
+              </div>
             )}
+          </div>
 
-            <h1 className="brand-grad-text text-[30px] lg:text-[34px] font-bold tracking-[-0.03em] leading-[1.05] text-center mb-5">
-              {t("connection.pairDevice")}
-            </h1>
+          {/* Remote master switch — pinned to the bottom so it never competes
+              with the pairing content above it. Not a <button>: the retry icon
+              inside is one too, and nesting buttons is invalid markup. */}
+          <div
+            className="hero-card group relative z-[1] mt-6 w-full p-4 flex items-center gap-3 flex-shrink-0 cursor-pointer"
+            onClick={() => (remoteEnabled ? setShowRemoteOffConfirm(true) : onRemoteToggle?.())}
+          >
+            <div
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 relative z-[1] transition-transform group-hover:scale-105"
+              style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)", color: remoteEnabled ? "var(--success)" : "var(--text-muted)" }}
+            >
+              <span className="material-symbols-outlined" style={{ fontSize: 22 }}>
+                {remoteEnabled ? "cloud_done" : "cloud_off"}
+              </span>
+            </div>
+            <div className="flex-1 min-w-0 relative z-[1]">
+              <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>
+                {remoteEnabled ? t("remote.remoteOn") : t("remote.remoteOff")}
+              </h3>
+              <p className="text-xs mt-0.5 font-normal line-clamp-1 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+                {remoteEnabled ? (
+                  <>
+                    <span
+                      className={`w-[6px] h-[6px] rounded-full flex-shrink-0 ${status.blink ? "chip-blink" : ""}`}
+                      style={{ background: status.color, boxShadow: status.color === "var(--success)" ? "0 0 8px rgba(var(--success-rgb),0.9)" : undefined }}
+                    />
+                    <span className="font-mono truncate">{status.text}</span>
+                  </>
+                ) : (
+                  <span className="truncate">{t("remote.remoteOffDesc")}</span>
+                )}
+              </p>
+            </div>
+            <span
+              className="flex-shrink-0 relative z-[1] px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
+              style={{
+                background: remoteEnabled ? "var(--surface-2)" : "var(--brand-500)",
+                color: remoteEnabled ? "var(--text-main)" : "#fff",
+                border: remoteEnabled ? "1px solid var(--border-subtle)" : "none",
+              }}
+            >
+              {remoteEnabled ? t("remote.turnOff") : t("remote.turnOn")}
+            </span>
 
-            <QRCard
-              qrUrl={qrUrl}
-              oneTimeKey={oneTimeKey}
-              oneTimeKeyExpiresAt={oneTimeKeyExpiresAt}
-              permanentKey={permanentKey}
-              onGenerateOneTimeKey={onGenerateOneTimeKey}
-              onRegenerateKey={onRegenerateKey}
-            />
+            {/* Offline with remote on: the way back is a retry, not a toggle */}
+            {remoteEnabled && step === 0 && (
+              <span
+                role="button"
+                title="Retry remote connection"
+                onClick={(e) => { e.stopPropagation(); onStartConnection?.(); }}
+                className="flex-shrink-0 relative z-[1] w-9 h-9 grid place-items-center rounded-xl card-act"
+                style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)", color: "var(--text-main)" }}
+              >
+                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>
+              </span>
+            )}
           </div>
         </section>
 
@@ -541,9 +636,6 @@ export default function MainScreen({
               onClearLogs={onClearLogs}
               autoStart={autoStart}
               onAutoStartToggle={onAutoStartToggle}
-              sleepInhibitMode={sleepInhibitMode}
-              sleepInhibitPresets={sleepInhibitPresets}
-              onSleepInhibitChange={onSleepInhibitChange}
               unlockStatus={unlockStatus}
               onRequestUnlockInstall={onRequestUnlockInstall}
               onRequestUnlockUninstall={onRequestUnlockUninstall}
@@ -551,7 +643,7 @@ export default function MainScreen({
             />
           </div>
 
-          <UpdateBanner version={updateVersion} />
+          <UpdateBanner version={updateVersion} isUpdating={isUpdating} />
 
           {/* Hero Workspace Cards — primary user actions */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mb-8">
@@ -608,13 +700,19 @@ export default function MainScreen({
             </button>
           </div>
 
-          {/* Services - Remote Desktop */}
+          {/* Services — Remote Desktop + Prevent sleep */}
           <Section title="Services" first>
             <RemoteDesktopRow
               desktopEnabled={desktopEnabled}
               onDesktopToggle={onDesktopToggle}
               permissions={permissions}
               onRequestPermission={onRequestPermission}
+              t={t}
+            />
+            <SleepInhibitRow
+              mode={sleepInhibitMode}
+              presets={sleepInhibitPresets}
+              onChange={onSleepInhibitChange}
               t={t}
             />
           </Section>
@@ -654,6 +752,16 @@ export default function MainScreen({
           confirmLabel="Reset"
           onConfirm={() => { setShowDisconnectConfirm(false); onStop?.(); }}
           onCancel={() => setShowDisconnectConfirm(false)}
+        />
+      )}
+
+      {showRemoteOffConfirm && (
+        <ConfirmPopup
+          message="Turn off remote access? Connected devices will be disconnected immediately."
+          confirmLabel="Turn off"
+          confirmDanger
+          onConfirm={() => { setShowRemoteOffConfirm(false); onRemoteToggle?.(); }}
+          onCancel={() => setShowRemoteOffConfirm(false)}
         />
       )}
 

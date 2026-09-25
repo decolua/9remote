@@ -22,7 +22,7 @@ import VoiceEndpointSettings from "@/shared/components/ui/VoiceEndpointSettings"
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
-import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
+import AgentOutdatedBanner, { isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
@@ -65,7 +65,7 @@ export default function SettingsDialog({
 
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const agentVersion = context.agentVersion;
-  const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
+  const isOutdated = !!context.updateAvailable || isWebOutdated(agentVersion, webVersion);
   const isCodespaces = !!context.codespaceInfo?.isCodespaces;
   const hideActions = useMemo(() => context.hideActions || [], [context.hideActions]);
   const isApp = typeof window !== "undefined" && (
@@ -227,7 +227,7 @@ export default function SettingsDialog({
                   </Group>
                 )}
 
-                {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} webVersion={webVersion} />}
+                {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} webVersion={webVersion} updateAvailable={context.updateAvailable} onUpdate={callbacks.onUpdate} />}
               </div>
             )}
 

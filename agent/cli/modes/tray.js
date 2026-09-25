@@ -1,5 +1,5 @@
 import { STEP } from "../../lib/constants.js";
-import { writeCmd } from "../utils/state.js";
+import { writeCmd, loadSettings } from "../utils/state.js";
 import { writePid, clearPid } from "../utils/pids.js";
 import { initTray, openBrowser, showTrayNotification } from "../utils/tray.js";
 import { isServerRunning, pushUiState } from "../core/localApi.js";
@@ -46,7 +46,9 @@ export async function startTrayMode() {
 
   try { clearPid("cloudflared"); } catch {}
 
-  if (process.argv.includes("--start")) writeCmd("start-tunnel");
+  const shouldStart = (process.argv.includes("--start") || process.argv.includes("--skip-update"))
+    && loadSettings().remoteEnabled !== false;
+  if (shouldStart) writeCmd("start-tunnel");
 
   const tray = await initTray({
     port: SERVER_PORT,

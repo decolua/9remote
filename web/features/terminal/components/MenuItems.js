@@ -13,7 +13,7 @@ import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import { backgroundLabel } from "@/features/terminal/constants/terminalConfig";
-import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
+import AgentOutdatedBanner, { isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { saveLastRoute, getLastRoute } from "@/shared/hooks/useLastRoute";
@@ -57,7 +57,7 @@ export default function MenuItems({
   const inputMode = useInputMode();
   const openShortcuts = useShortcutsModalStore((s) => s.open);
   const closeMenu = useSlideMenuStore((s) => s.close);
-  const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
+  const { connectionMode = "tunnel", agentVersion, updateAvailable } = useSlideMenuStore((s) => s.context);
   const buttonToggles = useButtonToggles();
   const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
@@ -163,7 +163,7 @@ export default function MenuItems({
   // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
-  const isOutdated = isAgentOutdated(agentVersion, webVersion) || isWebOutdated(agentVersion, webVersion);
+  const isOutdated = !!updateAvailable || isWebOutdated(agentVersion, webVersion);
 
   const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
   const artifact = useArtifactToggle(busRef, connected);
@@ -564,7 +564,7 @@ export default function MenuItems({
       )}
 
       {/* Version mismatch warning */}
-      {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} webVersion={webVersion} className="mt-3" />}
+      {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} webVersion={webVersion} updateAvailable={updateAvailable} onUpdate={onUpdate} className="mt-3" />}
 
       {/* Version + connection mode */}
       <div className="flex items-center justify-end gap-2 mt-4 mr-1">

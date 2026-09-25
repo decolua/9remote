@@ -1,6 +1,6 @@
 {
   "name": "9remote-monorepo",
-  "version": "3.0.12",
+  "version": "3.0.21",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -11,18 +11,17 @@
   ],
   "scripts": {
     "agent:dev": "NODE_ENV=development node agent/cli/index.js",
-    "agent:publish": "node scripts/syncVersion.js && node scripts/buildPkg.js && cd agent && npm publish",
-
+    "agent:build": "node scripts/syncVersion.js && node scripts/buildPkg.js",
+    "agent:publish": "npm run agent:build && cd agent && npm publish",
+    "agent:publish:local": "npm run agent:build && cd agent && npm publish --registry http://localhost:4873",
+    "agent:test": "NREMOTE_REGISTRY=http://localhost:4873/9remote/latest 9remote",
     "web:dev": "npm run dev --workspace=web",
     "web:deploy": "npm run deploy --workspace=web",
     "web:deploy:dev": "npm run deploy:dev --workspace=web",
-
     "pc:dev": "run-p _agent:start _pc:tauri",
     "pc:build": "bash desktop/scripts/build-macos-signed.sh --target universal-apple-darwin && bash desktop/scripts/build-windows.sh",
-
     "docs:dev": "npm run dev --workspace=gitbook",
     "docs:deploy": "npm run build --workspace=gitbook && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
-
     "_pc:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop",
     "_agent:start": "npm run dev:ui:start --prefix agent"
   },

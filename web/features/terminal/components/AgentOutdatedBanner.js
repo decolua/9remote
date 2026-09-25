@@ -15,9 +15,9 @@ function isVersionLower(a, b) {
   return false;
 }
 
-// Agent older than web → needs agent update
-export function isAgentOutdated(agentVersion, webVersion) {
-  return !!agentVersion && !!webVersion && isVersionLower(agentVersion, webVersion);
+// Agent update is determined solely by the agent reporting updateAvailable (npm registry check)
+export function isAgentOutdated() {
+  return false;
 }
 // Web older than agent → needs page reload
 export function isWebOutdated(agentVersion, webVersion) {
@@ -47,8 +47,8 @@ export default function AgentOutdatedBanner({ agentVersion, webVersion, updateAv
     setTimeout(() => window.location.reload(), 400);
   }, []);
 
-  // Determine which side is outdated
-  const agentOld = isAgentOutdated(agentVersion, webVersion) || !!updateAvailable;
+  // Determine which side is outdated: update banner only shows when agent confirms via updateAvailable
+  const agentOld = !!updateAvailable;
   const webOld = isWebOutdated(agentVersion, webVersion);
 
   // Old agent has an update but can't self-update → guide manual npm install

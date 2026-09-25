@@ -29,7 +29,7 @@ import AddHostModal from "@/features/hosts/components/AddHostModal";
 import { orderedHostsOf } from "@/features/hosts/lib/fleetTree";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
-import AgentOutdatedBanner, { isAgentOutdated, isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
+import AgentOutdatedBanner, { isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import { PlainShellGlyph } from "@/features/terminal/components/SessionAgentIcon";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { shortenHomePath, workspaceGitPath, groupSessionsByWorkspace } from "@/features/terminal/lib/workspaceGrouping";
@@ -146,6 +146,7 @@ export default function SessionList({
       unsubscribeFromPush,
       notifications,
       agentVersion,
+      updateAvailable,
       carrier
     });
     setCallbacks({
@@ -163,7 +164,7 @@ export default function SessionList({
   }, [
     isActive, connected, onOpenRemote, codespaceInfo, onLogout, onStopCodespace, onUpdate,
     onRestart, setContext, setCallbacks, busRef, connectionMode, subscribeToPush,
-    unsubscribeFromPush, agentVersion, carrier, tunnelUrl, apiKey, notifications
+    unsubscribeFromPush, agentVersion, updateAvailable, carrier, tunnelUrl, apiKey, notifications
   ]);
 
   // Same grouping pipeline as the desktop sidebar — grp carries `items`, which the
@@ -190,9 +191,8 @@ export default function SessionList({
   };
 
   const showBanner = connected && (
-    isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) ||
     isWebOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) ||
-    updateAvailable
+    !!updateAvailable
   );
 
   // Exactly one host and no workspace: show the two-half poster stage (workspace/remote).

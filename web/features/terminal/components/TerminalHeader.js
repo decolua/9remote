@@ -307,6 +307,7 @@ function TerminalHeader({
       subscribeToPush,
       unsubscribeFromPush,
       agentVersion,
+      updateAvailable,
       carrier,
     });
 
@@ -319,7 +320,7 @@ function TerminalHeader({
       onUpdate,
       onRestart,
     });
-  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
+  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, updateAvailable, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
     <div className={`h-9 ${PANEL_HEADER_H_CLASS} px-2 sm:pl-0 sm:pr-2 flex items-stretch gap-0 flex-shrink-0 bg-bg border-b border-border-subtle`}>
@@ -469,7 +470,7 @@ function TerminalHeader({
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0 self-center">
-      {connected && onUpdate && canSelfUpdate && (isAgentOutdated(agentVersion, process.env.NEXT_PUBLIC_SERVER_VERSION) || !!updateAvailable) && (
+      {connected && onUpdate && canSelfUpdate && !!updateAvailable && (
         <button
           onClick={() => { vibrate(); onUpdate(); }}
           className="hidden sm:flex px-2 sm:px-2.5 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-brand items-center gap-1.5 flex-shrink-0 transition duration-150 ease-out active:scale-[0.94]"
