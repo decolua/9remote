@@ -3,11 +3,13 @@ import { useBus } from "@/shared/hooks/useBus";
 import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
 import { commitPendingKey, forgetRejectedTail } from "@/shared/transport/lib/deviceTrust";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { useFleetStore } from "@/shared/stores/fleetStore";
 import { WORKER_API } from "@/shared/constants/API";
 import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
 import { sameList } from "@/shared/utils/shallowEqual";
+import { isNewer } from "@/shared/utils/versionCompare";
 import { termLog } from "@/shared/utils/termLog";
 import { debugLog } from "@/shared/utils/debugLog";
 
@@ -28,25 +30,17 @@ export function useAgentBus() {
   const [workspaces, setWorkspaces] = useState([]);
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [mobileAvailable, setMobileAvailable] = useState(false);
-  const [codespaceInfo, setCodespaceInfo] = useState(null);
-  const [codespaceDisconnected, setCodespaceDisconnected] = useState(false);
   const [platform, setPlatform] = useState(null);
   const [agentVersion, setAgentVersion] = useState(null);
-  const [updateAvailable, setUpdateAvailable] = useState(null);
-  const [canSelfUpdate, setCanSelfUpdate] = useState(false);
-  const [approvalStatus, setApprovalStatus] = useState(null); // null | APPROVAL_STATUS
-  // Sticky admission flag: carrier connection precedes TAIL proof.
-  const [admitted, setAdmitted] = useState(false);
+  // Admission state is store-owned (connectionStore): it belongs to the
+  // connection, and a re-key resets it there — not to the component.
+  const approvalStatus = useConnectionStore((s) => s.approvalStatus);
+  const admitted = useConnectionStore((s) => s.admitted);
   const { getAuth } = useSessionStorage();
 
   // Unified handler for device approval arriving from either socket.io or DO signaling relay.
   const applyApproval = useCallback((next) => {
-    setApprovalStatus((prev) => {
-      // Updater stays pure — the arrival log lives outside (StrictMode double-invokes updaters).
-      if (next === APPROVAL_STATUS.reconnect) return prev === APPROVAL_STATUS.approved ? null : prev;
-      if (prev === APPROVAL_STATUS.approved && next === APPROVAL_STATUS.pending) return prev; // stale late signal
-      return next;
-    });
+    useConnectionStore.getState().applyApproval(next);
   }, []);
 
   // Remove one-time key from worker after device is approved
@@ -65,17 +59,6 @@ export function useAgentBus() {
       }
     }
   }, [getAuth]);
-
-  const handleDisconnect = useCallback((reason) => {
-    if (codespaceInfo?.isCodespaces) {
-      setCodespaceDisconnected(true);
-    }
-  }, [codespaceInfo]);
-
-  const [codespaceStopping, setCodespaceStopping] = useState(false);
-  const handleCodespaceStopping = useCallback(() => {
-    setCodespaceStopping(true);
-  }, []);
 
   // Ref to disconnect function from useBus needed before its definition.
   const disconnectRef = useRef(null);
@@ -179,7 +162,7 @@ export function useAgentBus() {
     bus.on("device:approved", () => {
       termLog("diag", "EVENT device:approved arrived → applying");
       applyApproval(APPROVAL_STATUS.approved);
-      setAdmitted(true);
+      useConnectionStore.getState().setAdmitted(true);
       // Persist key now that agent has verified and accepted it.
       commitPendingKey();
       removeTempKey();
@@ -220,13 +203,24 @@ export function useAgentBus() {
     });
 
     bus.on("serverInfo", (info) => {
-      patchMainHost({ platform: info.platform || null, version: info.version || null });
+      // Mid-update the dying process can still speak — its notice is stale by
+      // construction (the user already acted; the restart tells the truth).
+      const st = useFleetStore.getState();
+      const acted = !!st.hosts[st.currentKey]?.updating;
+      patchMainHost({
+        platform: info.platform || null,
+        version: info.version || null,
+        isCodespaces: !!info.isCodespaces,
+        // Honest notice: only ahead-of-running versions count (see fleetStore).
+        updateAvailable: !acted && isNewer(info.updateAvailable?.version, info.version) ? info.updateAvailable : null,
+        canSelfUpdate: !!info.canSelfUpdate,
+        remoteAvailable: !!info.remoteAvailable,
+        mobileAvailable: !!info.mobileAvailable
+      });
       setRemoteAvailable(info.remoteAvailable);
       setMobileAvailable(!!info.mobileAvailable);
       setPlatform(info.platform);
       setAgentVersion(info.version || null);
-      setUpdateAvailable(info.updateAvailable || null);
-      setCanSelfUpdate(!!info.canSelfUpdate);
       useTerminalStore.getState().setAgentCaps(info.caps || {});
       useTerminalStore.getState().setArtifactEnabled(info.artifactEnabled);
       useTerminalStore.getState().setMcpClients(info.mcpClients);
@@ -236,9 +230,6 @@ export function useAgentBus() {
         const s = useVoiceStore.getState();
         const hasConfig = s.geminiKeys.some((k) => k.trim()) || s.openrouterKey || s.customKey || s.customEndpoint;
         if (hasConfig) s.pushToAgent();
-      }
-      if (info.isCodespaces) {
-        setCodespaceInfo({ isCodespaces: info.isCodespaces, codespaceName: info.codespaceName });
       }
     });
 
@@ -272,19 +263,17 @@ export function useAgentBus() {
 
     bus.on("workspacesChanged", () => fetchLists(bus));
 
-    bus.on("codespace:stopping", handleCodespaceStopping);
 
     // Announce capabilities on first bind in addition to carrier reconnects.
     announceCaps(bus);
 
     bus.emit("device:clientReady");
-  }, [removeTempKey, handleCodespaceStopping, fetchLists, applyApproval, getAuth, resetLoaded]);
+  }, [removeTempKey, fetchLists, applyApproval, getAuth, resetLoaded]);
 
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, retryStatus, disconnect } = useBus({
     namespace: "",
     redirectOnNoAuth: "/",
     onConnect: handleBusReady,
-    onDisconnect: handleDisconnect,
     // Agent refused over signaling — same funnel as the socket.io device:* events
     onApproval: applyApproval
   });
@@ -417,38 +406,6 @@ export function useAgentBus() {
     });
   }, [busRef, refreshLists]);
 
-  const stopCodespace = useCallback(async () => {
-    const auth = getAuth();
-    if (!auth?.tunnelUrl || !codespaceInfo?.isCodespaces) return false;
-
-    try {
-      const response = await fetch(`${auth.tunnelUrl}/api/codespace/stop`, {
-        method: "POST"
-      });
-      return response.ok;
-    } catch {
-      return false;
-    }
-  }, [getAuth, codespaceInfo]);
-
-  // Trigger agent self-update via bus (authenticated, survives tunnel restart)
-  const triggerUpdate = useCallback(() => {
-    const sock = busRef.current;
-    if (!sock?.connected) return false;
-    protocolRef.current?.setUpdating?.(true);
-    sock.emit("requestUpdate");
-    return true;
-  }, [busRef, protocolRef]);
-
-  // Restart agent host (no reinstall): kill + relaunch, ptyDaemon survives
-  const triggerRestart = useCallback(() => {
-    const sock = busRef.current;
-    if (!sock?.connected) return false;
-    protocolRef.current?.setUpdating?.(true);
-    sock.emit("requestRestart");
-    return true;
-  }, [busRef, protocolRef]);
-
   return {
     bus,
     busRef,
@@ -463,15 +420,8 @@ export function useAgentBus() {
     sessions,
     remoteAvailable,
     mobileAvailable,
-    codespaceInfo,
-    codespaceDisconnected,
-    codespaceStopping,
     platform,
     agentVersion,
-    updateAvailable,
-    canSelfUpdate,
-    triggerUpdate,
-    triggerRestart,
     workspaces,
     loadSessions,
     createSession,
@@ -483,7 +433,6 @@ export function useAgentBus() {
     deleteWorkspace,
     setWorkspaceHiddenRepos,
     moveSession,
-    reorderSession,
-    stopCodespace
+    reorderSession
   };
 }

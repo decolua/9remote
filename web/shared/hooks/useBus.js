@@ -45,6 +45,9 @@ export function useBus(config = {}) {
   const [retryStatus, setRetryStatus] = useState({
     isRetrying: false, attempt: 0, maxAttempts: 10, failed: false
   });
+  // Re-key in place: switching hosts bumps authKey (setAuthData), this effect
+  // tears the old ProtocolManager down and builds a fresh one for the new auth.
+  const authKey = useConnectionStore((s) => s.authKey);
 
   useEffect(() => {
     let cancelled = false;
@@ -60,7 +63,9 @@ export function useBus(config = {}) {
       // is not the agent: auto-minting a session there would skip the login
       // screen entirely, which is exactly what a build must not do.
       const isLoopback = isLoopbackOrigin();
-      if (isLoopback && window.location.port === String(AGENT_PORT) && auth?.tunnelUrl !== window.location.origin) {
+      // `!authKey` guards a re-key: once the user has deliberately switched the
+      // workspace onto another host, that intent outranks the local agent's key.
+      if (isLoopback && window.location.port === String(AGENT_PORT) && !authKey && auth?.tunnelUrl !== window.location.origin) {
         try {
           const res = await fetch(LOCAL_AGENT_STATE);
           const data = res.ok ? await res.json() : null;
@@ -180,8 +185,8 @@ export function useBus(config = {}) {
       busRef.current = null;
       useConnectionStore.getState().reset();
     };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per authKey: a host switch re-keys from scratch
+  }, [authKey]);
 
   // Expose manual disconnect (used e.g. on device:rejected to stop auto-reconnect)
   const disconnect = () => {

@@ -1,4 +1,5 @@
 import { useCallback } from "react";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 
 const AUTH_COOKIE_NAME = "9remote_auth";
 
@@ -30,6 +31,9 @@ export function setAuthData({ apiKey, tunnelUrl, mode = "remote", tempKey = null
     else sessionStorage.removeItem("localIp");
   } catch {}
   setAuthCookie(apiKey);
+  // Reactive mirror: useBus watches this to re-key the workspace connection in
+  // place — the no-reload half of host switching.
+  useConnectionStore.getState().setAuthKey(apiKey);
 }
 
 // Type-safe session storage for auth data

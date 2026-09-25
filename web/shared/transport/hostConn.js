@@ -11,7 +11,7 @@ import { useMemo } from "react";
 // so no consumer ever branches on which kind of host it is looking at.
 
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
+import { useFleetStore, fleetBusOf, fleetPmOf } from "@/shared/stores/fleetStore";
 import { useFileBusStore, makeFileBus } from "@/shared/stores/fileBusStore";
 import { scopeOf } from "@/features/hosts/lib/fleetTree";
 
@@ -19,6 +19,7 @@ class HostConn {
   constructor(head) {
     this.head = head || null; // null = the main host
     this._busRef = { current: null };
+    this._pmRef = { current: null };
   }
 
   // The main connection is not always the same machine: switchHost makes another
@@ -45,6 +46,19 @@ class HostConn {
   get busRef() {
     this._busRef.current = this.bus;
     return this._busRef;
+  }
+
+  // The transport itself, for features that drive it directly (remote desktop's
+  // forceWsDisconnect, self-update retry widening). Live-read like `bus`.
+  get pm() {
+    if (!this.head) return useConnectionStore.getState().protocolRef?.current || null;
+    return fleetPmOf(this.head);
+  }
+
+  get pmRef() {
+    if (!this._pmRef) this._pmRef = { current: null };
+    this._pmRef.current = this.pm;
+    return this._pmRef;
   }
 
   // Full file API over this host's bus — one implementation (makeFileBus), the
