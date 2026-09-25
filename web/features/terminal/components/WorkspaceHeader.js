@@ -20,6 +20,7 @@ export const REVEAL_CLS = "opacity-0 group-hover:opacity-100 focus-visible:opaci
 export default function WorkspaceHeader({
   workspace, isActive, connected, collapsed, fileBus,
   onToggleCollapse, onSelect, onNewTerminal, onDelete, onRename,
+  onAddWorkspace = null,
   mobile = false
 }) {
   const { t } = useI18n();
@@ -74,6 +75,14 @@ export default function WorkspaceHeader({
           label={t("sessions.sessionActions")}
           revealCls=""
           items={[
+            onNewTerminal && connected && {
+              icon: Plus, label: t("terminal.newTerminal"),
+              onClick: () => onNewTerminal()
+            },
+            onAddWorkspace && connected && {
+              icon: Folder, label: t("workspaces.newWorkspace"),
+              onClick: () => onAddWorkspace()
+            },
             onRename && {
               icon: Pencil, label: t("workspaces.rename"),
               onClick: () => onRename()

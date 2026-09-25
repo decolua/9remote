@@ -13,7 +13,6 @@ import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import { backgroundLabel } from "@/features/terminal/constants/terminalConfig";
-import AgentOutdatedBanner, { isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
 import AgentSwitcher from "@/features/terminal/components/AgentSwitcher";
 import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { saveLastRoute, getLastRoute } from "@/shared/hooks/useLastRoute";
@@ -37,11 +36,9 @@ export default function MenuItems({
   onInstallApp,
   canInstall = false,
   isInstalled = false,
-  onCodespace,
   onLogout,
   connected = true,
   remoteAvailable = false,
-  codespaceInfo = null,
   showTheme = false,
   theme = "default",
   onThemeChange,
@@ -49,15 +46,13 @@ export default function MenuItems({
   busRef = null,
   subscribeToPush = null,
   unsubscribeFromPush = null,
-  onUpdate,
-  onRestart,
   onOpenBackgroundPicker
 }) {
   const { t } = useI18n();
   const inputMode = useInputMode();
   const openShortcuts = useShortcutsModalStore((s) => s.open);
   const closeMenu = useSlideMenuStore((s) => s.close);
-  const { connectionMode = "tunnel", agentVersion, updateAvailable } = useSlideMenuStore((s) => s.context);
+  const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
   const buttonToggles = useButtonToggles();
   const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
@@ -163,7 +158,6 @@ export default function MenuItems({
   // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
-  const isOutdated = !!updateAvailable || isWebOutdated(agentVersion, webVersion);
 
   const push = usePushToggle(subscribeToPush, unsubscribeFromPush);
   const artifact = useArtifactToggle(busRef, connected);
@@ -488,17 +482,6 @@ export default function MenuItems({
         </button>
       )}
 
-      {/* Codespace */}
-      {codespaceInfo?.isCodespaces && onCodespace && (
-        <button
-          onClick={() => { vibrate(); onCodespace(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <Sparkles className="text-brand-500" size={16} />
-          <span className="text-sm">{t("menu.codespace")}</span>
-        </button>
-      )}
-
       {/* Reload app */}
       {/* Reload & Restart dropdown */}
       <div ref={powerMenuRef} className="rounded-brand-lg overflow-hidden">
@@ -522,15 +505,6 @@ export default function MenuItems({
               <RefreshCw size={16} className={`ml-3 ${reloading ? "animate-spin" : ""}`} />
               <span className="text-sm">{t("menu.reload")}</span>
             </button>
-            {onRestart && (
-              <button
-                onClick={() => { vibrate(); setPowerMenuOpen(false); onRestart(); }}
-                className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition duration-150 ease-out hover:text-brand-500 active:scale-[0.99]"
-              >
-                <RotateCw size={16} className="ml-3" />
-                <span className="text-sm">{t("menu.restartHost")}</span>
-              </button>
-            )}
           </div>
         )}
       </div>
@@ -562,9 +536,6 @@ export default function MenuItems({
           <span className="text-sm">{t("menu.logout")}</span>
         </button>
       )}
-
-      {/* Version mismatch warning */}
-      {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} webVersion={webVersion} updateAvailable={updateAvailable} onUpdate={onUpdate} className="mt-3" />}
 
       {/* Version + connection mode */}
       <div className="flex items-center justify-end gap-2 mt-4 mr-1">

@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Download, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2 } from "@/shared/components/ui/Icon";
+import { ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2 } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
 import SitesList from "./SitesList";
@@ -9,8 +9,9 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { connForSession, useAllSessionStatus } from "@/shared/transport/hostConn";
+import { connForSession, connOf, useAllSessionStatus } from "@/shared/transport/hostConn";
 import { useI18n } from "@/shared/i18n";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "@/features/terminal/constants/shortcuts";
@@ -52,12 +53,13 @@ function TerminalHeader({
   onBack,
   onOpenRemote,
   onOpenMobile,
+  // The host this header currently speaks for (null = the active host), plus the
+  // per-host feature doors — the buttons act on THAT machine, not the login one.
+  hostKey = null,
+  onOpenRemoteHost = null,
+  onOpenMobileHost = null,
   onOpenFiles,
   onLogout,
-  onStopCodespace,
-  onUpdate,
-  onRestart,
-  codespaceInfo,
   tunnelUrl,
   apiKey,
   connectionMode,
@@ -84,8 +86,6 @@ function TerminalHeader({
   onToggleRightPanel,
   onReorderSession,
   rightPanelOpen = false,
-  updateAvailable = null,
-  canSelfUpdate = false,
   fileBus = null,
   homeDir = null,
   isDesktop = true,
@@ -194,7 +194,18 @@ function TerminalHeader({
   const setFullMode = useTerminalStore((s) => s.setFullMode);
   // A windowless emulator shows nothing on the host, so the button itself is
   // the only indication that one is running.
-  const mobileDeviceCount = useTerminalStore((s) => s.mobileDeviceCount);
+  const mainHead = useFleetStore((s) => s.currentKey);
+  const headerKey = hostKey || mainHead;
+  const headerHost = useFleetStore((s) => s.hosts[headerKey]);
+  const mobileDeviceCount = headerHost?.mobileDeviceCount || 0;
+  // Per-host capability: a foreign host decides for itself whether it can do
+  // remote desktop / mirroring / local sites. The active host keeps the values
+  // useAgentBus already resolved (serverInfo lands in its entry too).
+  const canRemote = hostKey ? !!headerHost?.remoteAvailable : !!onOpenRemote;
+  const canMobile = hostKey ? !!headerHost?.mobileAvailable : !!onOpenMobile;
+  // Local sites are the machine's own dev servers — browse the header host's.
+  const focusedBusRef = connOf(hostKey).busRef;
+  const sitesBusRef = hostKey ? focusedBusRef : busRef;
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
   const setContext = useSlideMenuStore((s) => s.setContext);
   const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
@@ -297,8 +308,7 @@ function TerminalHeader({
     setContext({
       connected,
       remoteAvailable: !!onOpenRemote,
-      codespaceInfo,
-      showTheme: false,
+          showTheme: false,
       busRef,
       tunnelUrl,
       apiKey,
@@ -306,20 +316,15 @@ function TerminalHeader({
       subscribeToPush,
       unsubscribeFromPush,
       agentVersion,
-      updateAvailable,
       carrier,
     });
 
     setCallbacks({
       onRemote: onOpenRemote,
       onFiles: onOpenFiles,
-      onCodespace: null,
       onLogout,
-      onStopCodespace,
-      onUpdate,
-      onRestart,
-    });
-  }, [isActive, connected, onOpenRemote, onOpenFiles, codespaceInfo, onLogout, onStopCodespace, onUpdate, onRestart, tunnelUrl, apiKey, connectionMode, agentVersion, updateAvailable, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
+            });
+  }, [isActive, connected, onOpenRemote, onOpenFiles, onLogout, tunnelUrl, apiKey, connectionMode, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
     <div className={`h-9 ${PANEL_HEADER_H_CLASS} px-2 sm:pl-0 sm:pr-2 flex items-stretch gap-0 flex-shrink-0 bg-bg border-b border-border-subtle`}>
@@ -469,16 +474,6 @@ function TerminalHeader({
       </div>
 
       <div className="flex items-center gap-2 flex-shrink-0 self-center">
-      {connected && onUpdate && canSelfUpdate && !!updateAvailable && (
-        <button
-          onClick={() => { vibrate(); onUpdate(); }}
-          className="hidden sm:flex px-2 sm:px-2.5 py-1 bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium rounded-brand items-center gap-1.5 flex-shrink-0 transition duration-150 ease-out active:scale-[0.94]"
-          title={t("menu.updateAvailableTitle")}
-        >
-          <Download size={13} />
-          <span>Update 9Remote</span>
-        </button>
-      )}
       {/* GitHub star — re-enable later
       <a
         href={GITHUB_REPO_URL}
@@ -491,18 +486,21 @@ function TerminalHeader({
         <Star size={13} className="text-yellow-500 fill-yellow-500" />
         {formattedStars && <span className="font-mono text-[11px]">{formattedStars}</span>}
       </a> */}
-      {showButton("remote") && onOpenRemote && !isSameMachine() && (
+      {/* `isSameMachine()` (page served from this very machine) only rules remote
+          out for the ACTIVE host — a foreign host in view is a different machine,
+          so its own desktop is a legitimate target. */}
+      {showButton("remote") && canRemote && (hostKey || !isSameMachine()) && (
         <button
-          onClick={() => { vibrate(); onOpenRemote(); }}
+          onClick={() => { vibrate(); (hostKey ? onOpenRemoteHost : onOpenRemote)?.(hostKey || undefined); }}
           className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94]"
           title={t("menu.remoteDesktop")}
         >
           <Monitor size={16} />
         </button>
       )}
-      {showButton("mobile") && onOpenMobile && (
+      {showButton("mobile") && canMobile && (
         <button
-          onClick={() => { vibrate(); onOpenMobile(); }}
+          onClick={() => { vibrate(); (hostKey ? onOpenMobileHost : onOpenMobile)?.(hostKey || undefined); }}
           className={`hidden sm:block p-1.5 hover:bg-surface-2 rounded-brand transition duration-150 ease-out active:scale-[0.94] ${
             mobileDeviceCount > 0 ? "text-green-400" : "text-text hover:text-text"
           }`}
@@ -517,7 +515,7 @@ function TerminalHeader({
       {showButton("sites") && (
       <button
         onClick={() => { vibrate(); openSites(); }}
-        disabled={!connected}
+        disabled={hostKey ? headerHost?.status !== "online" : !connected}
         className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed"
         title={t("menu.sites")}
       >
@@ -846,7 +844,7 @@ function TerminalHeader({
         confirmText={t("common.delete")}
       />
 
-      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} busRef={busRef} isOpen={sitesOpen} onClose={closeSites} />
+      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} busRef={sitesBusRef} siteHostKey={hostKey} isOpen={sitesOpen} onClose={closeSites} />
 
       {/* Jarvis coordinator overlay — fixed, so it floats over every pane */}
       {jarvisOpen && (

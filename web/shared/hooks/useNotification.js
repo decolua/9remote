@@ -3,7 +3,7 @@
 import { useEffect, useCallback, useMemo, useRef } from "react";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { useFleetStore } from "@/shared/stores/fleetStore";
+import { useFleetStore, fleetBusOf } from "@/shared/stores/fleetStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import { attentionSummary } from "@/features/terminal/lib/sessionStatusSummary";
 
@@ -28,6 +28,25 @@ export function useNotification(busRef, connected) {
 
   const isExpoWebView = typeof window !== "undefined" && !!window.ReactNativeWebView;
 
+  // Every host this device should hear from: the active bus plus each online
+  // fleet bus. Push is per (host, device) server-side — one browser
+  // subscription object is simply announced to all of them. The selector
+  // returns a PRIMITIVE (joined heads): the map's identity changes on every
+  // status tick, and re-announcing per tick would spam every bus.
+  const onlineFleetHeads = useFleetStore((s) => Object.values(s.hosts)
+    .filter((h) => h.status === "online")
+    .map((h) => h.key)
+    .join(","));
+  const eachOnlineBus = useCallback((fn) => {
+    if (busRef?.current) fn(busRef.current);
+    for (const h of Object.values(useFleetStore.getState().hosts)) {
+      if (h.status !== "online") continue;
+      const b = fleetBusOf(h.key);
+      if (b) fn(b);
+    }
+  }, [busRef]);
+  const subPayload = (sub) => (sub?.type === "expo" ? { type: "expo", token: sub.token } : sub?.toJSON?.() || sub);
+
   // Expose deep-link handler for native notification tap (Expo WebView)
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -46,12 +65,12 @@ export function useNotification(busRef, connected) {
   useEffect(() => {
     if (typeof window === "undefined" || !isExpoWebView) return;
     window.handleAppStateChange = (hidden) => {
-      busRef?.current?.emit("visibilityChange", !!hidden);
+      eachOnlineBus((b) => b.emit("visibilityChange", !!hidden));
     };
     return () => {
       try { delete window.handleAppStateChange; } catch (e) { window.handleAppStateChange = undefined; }
     };
-  }, [busRef, isExpoWebView]);
+  }, [busRef, isExpoWebView, eachOnlineBus]);
 
   // Subscribe to push notifications and send subscription to server
   const subscribeToPush = useCallback(async () => {
@@ -61,7 +80,7 @@ export function useNotification(busRef, connected) {
     // Expo WebView: request token via native bridge
     if (isExpoWebView) {
       window.handleExpoPushToken = (token) => {
-        busRef.current?.emit("pushSubscribe", { type: "expo", token });
+        eachOnlineBus((b) => b.emit("pushSubscribe", { type: "expo", token }));
         subscriptionRef.current = { type: "expo", token };
       };
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: "REQUEST_PUSH_TOKEN" }));
@@ -90,9 +109,11 @@ export function useNotification(busRef, connected) {
           applicationServerKey: vapidKey
         });
       }
-      busRef.current.emit("pushSubscribe", subscription.toJSON());
-      // Sync current visibility so server knows focus state immediately
-      busRef.current.emit("visibilityChange", document.hidden);
+      eachOnlineBus((b) => {
+        b.emit("pushSubscribe", subscription.toJSON());
+        // Sync current visibility so server knows focus state immediately
+        b.emit("visibilityChange", document.hidden);
+      });
       subscriptionRef.current = subscription;
     } catch (error) {
       console.error("Push notification setup failed:", error);
@@ -141,6 +162,15 @@ export function useNotification(busRef, connected) {
       } catch (e) { /* ignore */ }
     })();
   }, [busRef, connected, isExpoWebView]);
+
+  // A fleet bus that comes online mid-session must hear the subscription too —
+  // the agent side is idempotent (addPushSubscription overwrites), and hosts
+  // never went through the subscribe flow themselves.
+  useEffect(() => {
+    if (!subscriptionRef.current) return;
+    if (typeof window !== "undefined" && localStorage.getItem(USER_DISABLED_KEY) === "1") return;
+    eachOnlineBus((b) => b.emit("pushSubscribe", subPayload(subscriptionRef.current)));
+  }, [onlineFleetHeads, eachOnlineBus]);
 
   // Listen for notification events from server
   useEffect(() => {
@@ -229,26 +259,26 @@ export function useNotification(busRef, connected) {
     if (typeof window !== "undefined") localStorage.setItem(USER_DISABLED_KEY, "1");
     try {
       if (subscriptionRef.current?.type === "expo") {
-        busRef.current?.emit("pushUnsubscribe", subscriptionRef.current.token);
+        eachOnlineBus((b) => b.emit("pushUnsubscribe", subscriptionRef.current.token));
         subscriptionRef.current = null;
         return;
       }
       if (subscriptionRef.current) {
         await subscriptionRef.current.unsubscribe();
-        busRef.current?.emit("pushUnsubscribe", subscriptionRef.current.endpoint);
+        eachOnlineBus((b) => b.emit("pushUnsubscribe", subscriptionRef.current.endpoint));
         subscriptionRef.current = null;
       } else {
         const registration = await navigator.serviceWorker.ready;
         const sub = await registration.pushManager.getSubscription();
         if (sub) {
-          busRef.current?.emit("pushUnsubscribe", sub.endpoint);
+          eachOnlineBus((b) => b.emit("pushUnsubscribe", sub.endpoint));
           await sub.unsubscribe();
         }
       }
     } catch (error) {
       console.error("Push unsubscribe failed:", error);
     }
-  }, [busRef]);
+  }, [busRef, eachOnlineBus]);
 
   return { subscribeToPush, unsubscribeFromPush, notifications };
 }

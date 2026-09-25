@@ -8,7 +8,6 @@ import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useShallow } from "zustand/react/shallow";
 import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileBus } from "@/features/fileExplorer/hooks/useFileBus";
-import { useClipboardBus } from "@/features/clipboard/hooks/useClipboardBus";
 import DevTermLog from "@/features/terminal/components/DevTermLog";
 import { getRecentWorkspaces, addRecentWorkspace, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
 import { isDiffPath, parseRepoDiffPath } from "@/features/fileExplorer/constants/fileExplorer";
@@ -25,7 +24,7 @@ import { usePaneRegistry } from "@/features/terminal/hooks/usePaneRegistry";
 import { useSessionNavigation } from "@/features/terminal/hooks/useSessionNavigation";
 import { scopedFleetLists, rawWsIdOf, scopeOf } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
-import { useAgentUpdate } from "@/features/session/hooks/useAgentUpdate";
+import { useResumeGrace } from "@/shared/hooks/useResumeGrace";
 import { useGlobalShortcuts } from "@/shared/hooks/useGlobalShortcuts";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
@@ -42,9 +41,8 @@ import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
 import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 
 import SessionList from "@/features/session/components/SessionList";
-import HostsView from "@/features/hosts/components/HostsView";
-import { useFleetStore, fleetBusOf, emitWhenReady } from "@/shared/stores/fleetStore";
-import { switchHost } from "@/features/hosts/lib/switchHost";
+import { useFleetStore, emitWhenReady } from "@/shared/stores/fleetStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { connOf } from "@/shared/transport/hostConn";
 import { useApiKeyStorage, KEYS_CHANGED_EVENT } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
@@ -59,7 +57,6 @@ import FolderPickerModal from "@/features/terminal/components/FolderPickerModal"
 import CommandPalette from "@/features/fileExplorer/components/CommandPalette";
 import ShortcutsModal from "@/shared/components/ui/ShortcutsModal";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
-import UpdateModal from "@/shared/components/ui/UpdateModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
 import { useI18n } from "@/shared/i18n";
@@ -175,6 +172,12 @@ export default function WorkspaceLayout({ children }) {
   const router = useRouter();
   const { getAuth, setAuth } = useSessionStorage();
   const [auth, setAuthState] = useState(() => getAuth());
+  // Host switching re-keys in place: authKey is the reactive mirror of
+  // sessionStorage, so re-derive everything that read auth once at mount.
+  const authKey = useConnectionStore((s) => s.authKey);
+  useEffect(() => {
+    if (authKey) setAuthState(getAuth());
+  }, [authKey, getAuth]);
 
   useEffect(() => {
     setHydrated(true);
@@ -219,7 +222,7 @@ export default function WorkspaceLayout({ children }) {
       window.removeEventListener("contextmenu", onContextMenu);
     };
   }, []);
-  const { bus, busRef, protocolRef, disconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, codespaceInfo, codespaceDisconnected, codespaceStopping, platform, agentVersion, updateAvailable, canSelfUpdate, triggerUpdate, triggerRestart, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, stopCodespace, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
+  const { bus, busRef, protocolRef, disconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, platform, agentVersion, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   // Fleet: one background bus per saved host other than the current one; the
   // mobile home shows the fleet overview until the user enters a host (focus).
   const { loadKeys, saveKey, renameKey, removeKey } = useApiKeyStorage();
@@ -241,9 +244,6 @@ export default function WorkspaceLayout({ children }) {
   // Cache scope of the HOST this connection serves: switchHost makes another key this
   // connection, so the legacy "" bucket must not leak one machine's recents into it.
   const connScope = scopeOf(currentFleetKey || null);
-  const fleetMode = savedKeys.length >= 2;
-  const fleetFocus = useFleetStore((s) => s.focus);
-  const fleetOverlayOpen = useFleetStore((s) => s.overlayOpen);
   useEffect(() => {
     if (!hydrated) return;
     // Logged out — drop every fleet bus so agent data stops flowing to a session
@@ -272,9 +272,8 @@ export default function WorkspaceLayout({ children }) {
     () => [...workspaces, ...scopedLists.workspaces],
     [workspaces, scopedLists]
   );
-  // Home defaults to the fleet overview for multi-key users (focus null) and into
-  // the host for single-key users; "" (explicit "show hosts") opens it for anyone.
-  const showFleetHome = fleetFocus !== currentFleetKey && (fleetMode || fleetFocus === "");
+  // Home defaults to the host's own session list; the fleet view only ever opens
+  // as the Settings overlay.
 
   // Rename a saved host: the storage entry is keyed by id, the fleet row by key HEAD.
   const handleRenameHost = useCallback((key, label) => {
@@ -288,30 +287,37 @@ export default function WorkspaceLayout({ children }) {
 
   const [shells, setShells] = useState([]);
 
-  const { updating, updateMode, resumeGrace, doUpdate, doRestart, cancelUpdate } = useAgentUpdate({
-    connected, triggerUpdate, triggerRestart
-  });
+  // Per-host update state lives in the fleet store; this hook only keeps the
+  // PWA resume grace that suppresses connection modals after a tab reopens.
+  const resumeGrace = useResumeGrace();
+  // The active host's bus from the store stays set across a transient disconnect
+  // (the live ref nulls out), so an in-flight self-update must not flip the page
+  // back to the full-screen loading gate.
+  const stableBus = useConnectionStore((s) => s.bus);
+  const mainHostUpdating = !!mainHost?.updating;
+  // Self-update aftermath for the ACTIVE host: reconnect with a new version
+  // reloads once (loopback serves the web from the agent — fresh agent means a
+  // fresh bundle); a plain restart just clears the row's progress.
+  const updateSnapRef = useRef({ armed: false, version: null, dropped: false });
+  useEffect(() => {
+    if (!mainHost || !currentFleetKey) return;
+    const snap = updateSnapRef.current;
+    if (!mainHost.updating) { snap.armed = false; snap.dropped = false; return; }
+    if (!snap.armed) { snap.armed = true; snap.version = mainHost.version || null; }
+    if (!connected) snap.dropped = true;
+    if (snap.dropped && connected) {
+      // serverInfo (and with it the new version) lands right after the carrier
+      // reconnects — settle a beat later so the comparison sees it.
+      const timer = setTimeout(() => {
+        const h = useFleetStore.getState().hosts[currentFleetKey];
+        if (h?.version && snap.version && h.version !== snap.version) window.location.reload();
+        else useFleetStore.getState()._patchHost(currentFleetKey, { updating: false });
+      }, 1500);
+      return () => clearTimeout(timer);
+    }
+  }, [mainHost, mainHostUpdating, connected, currentFleetKey]);
 
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null, confirmText: null });
-
-  // Ask for confirmation before self-update (restarts connection, ~1 min)
-  const handleUpdate = useCallback(() => {
-    setConfirmDialog({
-      isOpen: true,
-      title: t("menu.updateConfirmTitle"),
-      message: t("menu.updateConfirmMessage"),
-      onConfirm: doUpdate,
-    });
-  }, [doUpdate, t]);
-
-  const handleRestart = useCallback(() => {
-    setConfirmDialog({
-      isOpen: true,
-      title: t("menu.restartConfirmTitle"),
-      message: t("menu.restartConfirmMessage"),
-      onConfirm: doRestart,
-    });
-  }, [doRestart, t]);
 
   // Hardcoded Windows shell picker: Command Prompt + PowerShell only.
   // Non-Windows hides the picker. Override the agent-reported list intentionally.
@@ -330,8 +336,7 @@ export default function WorkspaceLayout({ children }) {
   const fileBus = useFileBus();
   // Session-long, so the header button reflects a running device even with the
   // mirror panel closed.
-  useMobileDeviceWatch({ busRef: busRef, connected, enabled: mobileAvailable });
-  useClipboardBus(busRef, connected);
+  useMobileDeviceWatch();
   const { subscribeToPush, unsubscribeFromPush, notifications } = useNotification(busRef, connected);
 
   const setKeyboardOpen = useUIStore((state) => state.setKeyboardOpen);
@@ -673,22 +678,33 @@ export default function WorkspaceLayout({ children }) {
 
   useTerminalPageViewport({ setKeyboardOpen });
 
-  const handleOpenRemote = useCallback(() => {
+  // Which host a remote-desktop / mobile-mirror view targets (null = the active
+  // host). Same components, same flow — only the conn underneath changes.
+  const [remoteHead, setRemoteHead] = useState(null);
+  const [mobileHead, setMobileHead] = useState(null);
+  const remoteConn = connOf(remoteHead || currentFleetKey || null);
+  const mobileConn = connOf(mobileHead || currentFleetKey || null);
+  const remoteHostRow = fleetHostsMap[remoteHead || currentFleetKey];
+  const mobileHostRow = fleetHostsMap[mobileHead || currentFleetKey];
+
+  const handleOpenRemote = useCallback((head = null) => {
+    setRemoteHead(head);
     pushView({ type: "remote" });
   }, [pushView]);
 
   // Desktop keeps the mirror beside the terminal (float / pinned / PiP); a phone
   // has no room to split, so it stays a full-screen view there.
-  const handleOpenMobile = useCallback(() => {
-    if (!isDesktop) { pushView({ type: "mobile" }); return; }
-    if (!mobileOpen) { setMobileOpen(true); return; }
+  const handleOpenMobile = useCallback((head = null) => {
+    if (!isDesktop) { setMobileHead(head); pushView({ type: "mobile" }); return; }
+    if (!mobileOpen) { setMobileHead(head); setMobileOpen(true); return; }
     // Closing must end the agent session, not just hide the panel: the encoder
     // would keep producing frames nobody acknowledges, and the next open would
     // rejoin a stream already crawling behind a backlog of ack timeouts.
-    busRef.current?.emit("mobile:stop");
+    mobileConn.busRef.current?.emit("mobile:stop");
     setMobileSession(null);
     setMobileOpen(false);
-  }, [isDesktop, mobileOpen, setMobileOpen, setMobileSession, busRef, pushView]);
+    setMobileHead(null);
+  }, [isDesktop, mobileOpen, setMobileOpen, setMobileSession, mobileConn, pushView]);
 
   // Drag the pinned mirror's left edge. Mirrors the editor panel's handle: the
   // panel grows as the pointer moves left, so the delta is inverted.
@@ -708,11 +724,6 @@ export default function WorkspaceLayout({ children }) {
     sessionStorage.setItem("9remote_manual_disconnect", "1");
     window.location.replace("/login");
   }, [resetStore]);
-
-  // Redirect to login when the codespace is stopping
-  useEffect(() => {
-    if (codespaceStopping) handleDisconnect();
-  }, [codespaceStopping, handleDisconnect]);
 
   const handleLogoutWithConfirm = useCallback(() => {
     setConfirmDialog({
@@ -738,28 +749,12 @@ export default function WorkspaceLayout({ children }) {
   // status is safe to try; a dead pick leaves this session untouched). Only
   // with NO other host does the link drop for real and the retry screen own
   // the page.
+  // Disconnect the ACTIVE host — same meaning as any other row's disconnect, no
+  // host-hopping: the workspace connection drops and this page goes to the
+  // login/loading gate, while the key stays saved and its intent off.
   const onMainDisconnect = useCallback(() => {
-    const st = useFleetStore.getState();
-    const others = Object.values(st.hosts).filter(
-      (h) => h.key !== currentFleetKey && (h.status === "online" || h.status === "connecting")
-    );
-    const rest = Object.values(st.hosts).filter((h) => h.key !== currentFleetKey);
-    const target = others.find((h) => fleetBusOf(h.key) && h.status === "online")
-      || others.find((h) => h.status === "online")
-      || others.find((h) => fleetBusOf(h.key))
-      || others[0]
-      || rest[0]
-      || null;
-    if (!target) {
-      disconnect();
-      st.setAutoConnect(currentFleetKey, false);
-      st._patchHost(currentFleetKey, { status: "offline", lastSeenAt: Date.now() });
-      return;
-    }
-    switchHost(target.full || target.key, { currentKey: st.hosts[currentFleetKey]?.full || currentFleetKey }).catch(() => {});
-    // switchHost re-marks the host being left as auto-connect; the user just
-    // dropped it on purpose, so put that back off (both writes are sync).
-    st.setAutoConnect(currentFleetKey, false);
+    useFleetStore.getState().disconnectHost(currentFleetKey);
+    disconnect();
   }, [currentFleetKey, disconnect]);
 
   const closeConfirmDialog = useCallback(() => {
@@ -804,61 +799,23 @@ export default function WorkspaceLayout({ children }) {
     open: mobileOpen,
     mode: mobileMode,
     width: mobilePanelWidth,
-    protocolRef,
+    busRef: mobileConn.busRef,
+    protocolRef: mobileConn.pmRef,
+    connected: mobileHead ? mobileHostRow?.status === "online" : connected,
     onResizeStart: handleMobileResizeStart
-  }), [mobileOpen, mobileMode, mobilePanelWidth, protocolRef, handleMobileResizeStart]);
-
-  // Fleet home replaces SessionList in its slot, so it carries the same slide-menu
-  // context SessionList would have set (memoized: the effect keys off identity).
-  const remoteEntryEarly = connected && remoteAvailable && !codespaceInfo?.isCodespaces;
-  const fleetMenuContext = useMemo(() => ({
-    connected,
-    remoteAvailable: remoteEntryEarly,
-    codespaceInfo,
-    showTheme: false,
-    theme: "default",
-    busRef,
-    hideActions: ["remote", "files", "sites"],
-    tunnelUrl: auth?.tunnelUrl,
-    apiKey: auth?.apiKey,
-    connectionMode,
-    subscribeToPush,
-    unsubscribeFromPush,
-    notifications,
-    agentVersion,
-    carrier
-  }), [connected, remoteEntryEarly, codespaceInfo, busRef, auth, connectionMode, subscribeToPush,
-    unsubscribeFromPush, notifications, agentVersion, carrier]);
-  const fleetMenuCallbacks = useMemo(() => ({
-    onRemote: null,
-    onFiles: null,
-    onSelectSite: null,
-    onRefreshSites: null,
-    onCodespace: null,
-    onLogout: handleLogoutWithConfirm,
-    onThemeChange: null,
-    onStopCodespace: stopCodespace,
-    onUpdate: handleUpdate,
-    onRestart: handleRestart
-  }), [handleLogoutWithConfirm, stopCodespace, handleUpdate, handleRestart]);
+  }), [mobileOpen, mobileMode, mobilePanelWidth, mobileConn, mobileHead, mobileHostRow, connected, handleMobileResizeStart]);
 
   // A missing tunnelUrl is not a missing connection — the DO relay carries RTC,
-  // and the transport reports connected when that opens. Only the bus is a gate.
-  const isInitializing = !hydrated || !bus;
+  // and the transport reports connected when that opens. The STORE bus stays set
+  // across a transient disconnect (an in-flight self-update), so only its first
+  // absence counts as initializing.
+  const isInitializing = !hydrated || !stableBus;
 
   if (isInitializing) {
-    if (updating) {
-      return (
-        <>
-          <AnimatedBackground />
-          <UpdateModal open={updating} connected={connected} mode={updateMode} onRestart={doRestart} onCancel={cancelUpdate} />
-        </>
-      );
-    }
     return <ReconnectScreen label={t("workspace.loading")} />;
   }
 
-  const remoteEntry = connected && remoteAvailable && !codespaceInfo?.isCodespaces ? handleOpenRemote : null;
+  const remoteEntry = connected && remoteAvailable ? handleOpenRemote : null;
   const mobileEntry = connected && mobileAvailable ? handleOpenMobile : null;
 
   return (
@@ -878,15 +835,6 @@ export default function WorkspaceLayout({ children }) {
             : "opacity-0 z-0 pointer-events-none"
             }`}
         >
-          {showFleetHome ? (
-          <HostsView
-            currentKey={currentFleetKey}
-            homeDir={systemInfo?.homedir}
-            fullHost={{ sessions, workspaces, platform, version: agentVersion }}
-            menuContext={fleetMenuContext}
-            menuCallbacks={fleetMenuCallbacks}
-          />
-          ) : (
           <SessionList
             sessions={sessions}
             cwdBySession={cwdBySession}
@@ -899,21 +847,16 @@ export default function WorkspaceLayout({ children }) {
             onLogout={handleLogoutWithConfirm}
             onOpenRemote={remoteEntry}
             onOpenMobile={mobileEntry}
+            onOpenRemoteHost={handleOpenRemote}
+            onOpenMobileHost={handleOpenMobile}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
             connectionMode={connectionMode}
-            codespaceInfo={codespaceInfo}
-            codespaceDisconnected={codespaceDisconnected}
-            onStopCodespace={stopCodespace}
-            onUpdate={handleUpdate}
-            onRestart={handleRestart}
             isActive={currentView.type === "list"}
             busRef={busRef}
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
             agentVersion={agentVersion}
-            updateAvailable={updateAvailable}
-            canSelfUpdate={canSelfUpdate}
             carrier={carrier}
             workspaces={workspaces}
             onAddWorkspace={openFolderPicker}
@@ -927,7 +870,6 @@ export default function WorkspaceLayout({ children }) {
             onDeleteHost={handleDeleteHost}
             onMainDisconnect={onMainDisconnect}
           />
-          )}
         </div>
         )}
 
@@ -968,11 +910,10 @@ export default function WorkspaceLayout({ children }) {
             atStackBottom={isDesktop && currentView.type === "list"}
             onOpenRemote={remoteEntry}
             onOpenMobile={mobileEntry}
+            onOpenRemoteHost={handleOpenRemote}
+            onOpenMobileHost={handleOpenMobile}
             onOpenFiles={handleOpenFiles}
             onLogout={handleLogoutWithConfirm}
-            onStopCodespace={stopCodespace}
-            onUpdate={handleUpdate}
-            onRestart={handleRestart}
             onDeleteWorkspace={deleteWorkspace}
             onReorderSession={reorderSession}
             onAddWorkspace={openFolderPicker}
@@ -988,14 +929,11 @@ export default function WorkspaceLayout({ children }) {
             editorPanel={editorPanelProps}
             mobilePanel={mobilePanelProps}
             fileBus={fileBus}
-            codespaceInfo={codespaceInfo}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
             connectionMode={connectionMode}
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
-            updateAvailable={updateAvailable}
-            canSelfUpdate={canSelfUpdate}
           />
         )}
 
@@ -1010,17 +948,29 @@ export default function WorkspaceLayout({ children }) {
           />
         )}
 
-        {/* Remote Desktop */}
+        {/* Remote Desktop — rides the chosen host's conn (default: active) */}
         {currentView.type === "remote" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
-            <RemoteDesktop onClose={popView} busRef={busRef} protocolRef={protocolRef} connected={connected} connectionMode={connectionMode} carrier={carrier} hostPlatform={platform} />
+            <RemoteDesktop
+              onClose={() => { setRemoteHead(null); popView(); }}
+              busRef={remoteConn.busRef}
+              protocolRef={remoteConn.pmRef}
+              connected={remoteHead ? remoteHostRow?.status === "online" : connected}
+              carrier={remoteHead ? (remoteHostRow?.carrier || "ws") : carrier}
+              hostPlatform={remoteHostRow?.platform || platform}
+            />
           </div>
         )}
 
         {/* Android device mirroring (scrcpy over the transport bus) */}
         {currentView.type === "mobile" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
-            <MobileMirror onClose={popView} busRef={busRef} protocolRef={protocolRef} connected={connected} />
+            <MobileMirror
+              onClose={() => { setMobileHead(null); popView(); }}
+              busRef={mobileConn.busRef}
+              protocolRef={mobileConn.pmRef}
+              connected={mobileHead ? mobileHostRow?.status === "online" : connected}
+            />
           </div>
         )}
 
@@ -1029,8 +979,8 @@ export default function WorkspaceLayout({ children }) {
             navigation would otherwise pile entries onto the parent history. */}
         {currentView.type === "site" && (
           <BrowserView
-            busRef={busRef}
-            connected={connected}
+            busRef={currentView.hostKey ? connOf(currentView.hostKey).busRef : busRef}
+            connected={currentView.hostKey ? fleetHostsMap[currentView.hostKey]?.status === "online" : connected}
             initialPort={currentView.port}
             initialPath={currentView.path}
             onBack={storePopView}
@@ -1044,7 +994,7 @@ export default function WorkspaceLayout({ children }) {
               onSelect={handleSelectWorkspace}
               onBrowse={handleBrowseFolder}
               onBack={popView}
-              isCodespaces={codespaceInfo?.isCodespaces}
+              isCodespaces={!!mainHost?.isCodespaces}
               systemInfo={systemInfo}
             />
           </div>
@@ -1153,33 +1103,12 @@ export default function WorkspaceLayout({ children }) {
         {/* Connection Modal — overlay when retrying/failed (suppressed during self-update) */}
         {/* Not admitted yet = the agent has not accepted this device: the
             carrier can be open while the key TAIL is still being proven, and
-            the workspace must not show through that window. */}
-        {(!connected || !admitted) && <ReconnectScreen />}
-        {/* Fleet overlay — the slide-menu "Hosts" entry (desktop's only door in) */}
-        {fleetOverlayOpen && (
-          <div
-            className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150"
-            style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
-            onClick={() => useFleetStore.getState().closeOverlay()}
-          >
-            <div
-              className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto h-[min(85%,calc(var(--app-height,85vh)-2rem))] animate-in zoom-in-95 duration-150"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <HostsView
-                currentKey={currentFleetKey}
-                homeDir={systemInfo?.homedir}
-                fullHost={{ sessions, workspaces, platform, version: agentVersion }}
-                onClose={() => useFleetStore.getState().closeOverlay()}
-              />
-            </div>
-          </div>
-        )}
+            the workspace must not show through that window. An in-flight
+            self-update of the active host keeps the page usable — its row
+            carries the progress instead. */}
+        {(!connected || !admitted) && !mainHostUpdating && <ReconnectScreen />}
 
-        {!updating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
-
-        {/* Update Modal — progress overlay during agent self-update */}
-        <UpdateModal open={updating} connected={connected} mode={updateMode} onRestart={doRestart} onCancel={cancelUpdate} />
+        {!mainHostUpdating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Global Slide Menu — single instance at page level */}
         <SlideMenu />

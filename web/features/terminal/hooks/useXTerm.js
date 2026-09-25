@@ -18,6 +18,8 @@ import { createJoinSession } from "@/features/terminal/lib/termJoin";
 import { createOutputRouter } from "@/features/terminal/lib/termOutputRouter";
 import { writeChunked } from "@/features/terminal/lib/historyMirror";
 import { useTermTouchGestures } from "@/features/terminal/hooks/useTermTouchGestures";
+import { connForSession } from "@/shared/transport/hostConn";
+import { useFleetStore } from "@/shared/stores/fleetStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 
@@ -214,6 +216,15 @@ function setupMacMouseFix(term, container) {
 
 // isVisible: pane is shown; isFocused: receives keyboard input
 export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisible, isFocused, containerRef, mountDelay = 0, bgKey = "none", onInput, onSelectionMade }) {
+  // This pane's machine is mid self-update: the agent is (or is about to be)
+  // gone, so typed input can only be lost. Read live inside the handler — the
+  // pane stays mounted through the restart and must not need a re-render to
+  // start obeying again.
+  const hostBusy = useCallback(() => {
+    const st = useFleetStore.getState();
+    const head = connForSession(sessionId).head || st.currentKey;
+    return !!st.hosts[head]?.updating;
+  }, [sessionId]);
   const storeBus = useConnectionStore((s) => s.bus);
   const bus = propBus || storeBus;
   const termRef = useRef(null);
@@ -692,21 +703,23 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       inputHandlerRef.current = termRef.current.onData((data) => {
         // Drop automated terminal reports (DA1/DA2/CPR) triggered by replaying historical output
         if ((joiningRef.current || historyFetchingRef.current) && isTerminalReport(data)) return;
+        if (hostBusy()) return; // host is updating — nothing can answer this keystroke
         if (isUserTyping(data)) onInput?.(sessionId);
         bus.emit("input", { sessionId, data });
       });
     }
-  }, [isFocused, bus, sessionId, onInput]);
+  }, [isFocused, bus, sessionId, onInput, hostBusy]);
 
   // Forward mouse-report sequences on hover when unfocused for alt-screen scrolling
   useEffect(() => {
     if (!termRef.current || !bus || !sessionId || isFocused) return;
     const isMouseReport = (d) => d.startsWith("\x1b[<") || d.startsWith("\x1b[M");
     const handler = termRef.current.onData((data) => {
+      if (hostBusy()) return; // same gate as the focused path
       if (isMouseReport(data)) bus.emit("input", { sessionId, data });
     });
     return () => handler.dispose();
-  }, [isFocused, bus, sessionId]);
+  }, [isFocused, bus, sessionId, hostBusy]);
 
   useEffect(() => {
     if (!isVisible || !fitAddonRef.current || !termRef.current) return;

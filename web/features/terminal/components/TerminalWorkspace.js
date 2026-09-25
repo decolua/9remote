@@ -84,15 +84,15 @@ function TerminalWorkspace({
   sidebarCollapsed, sidebarWidth, setSidebarWidth, toggleSidebar,
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
-  onBack, onOpenRemote, onOpenMobile, onOpenFiles, onLogout, onStopCodespace, onUpdate, onRestart,
+  onBack, onOpenRemote, onOpenMobile, onOpenRemoteHost = null, onOpenMobileHost = null, onOpenFiles, onLogout,
   onRenameHost, onDeleteHost, onMainDisconnect,
   onDeleteWorkspace, onRenameWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
   rightPanel, editorPanel, mobilePanel, onOpenArtifact, fileBus,
   onCreateAnyHost, onQuickCreateHostAware,
-  codespaceInfo, tunnelUrl, apiKey, connectionMode,
+  tunnelUrl, apiKey, connectionMode,
   onResumeAgentSessionForeign = null,
-  subscribeToPush, unsubscribeFromPush, updateAvailable, canSelfUpdate
+  subscribeToPush, unsubscribeFromPush
 }) {
   const { t } = useI18n();
   const hasKeyboard = useInputMode() === "mouse";
@@ -187,6 +187,8 @@ function TerminalWorkspace({
   const headerModalBusRef = connOf(activeWsHostKey).busRef;
   const [foreignShells, setForeignShells] = useState([]);
   const activeHostStatus = useFleetStore((s) => (activeWsHostKey ? s.hosts[activeWsHostKey]?.status || null : null));
+  const fleetHosts = useFleetStore((s) => s.hosts);
+  const currentKey = useFleetStore((s) => s.currentKey);
   useEffect(() => {
     if (!activeWsHostKey) return;
     connOf(activeWsHostKey).bus?.emit("getShells", (res) => setForeignShells(res?.shells || []));
@@ -571,6 +573,8 @@ function TerminalWorkspace({
               onAddWorkspace={onAddWorkspace}
               onRenameWorkspace={onRenameWorkspace}
               onOpenSettings={onOpenSettings}
+              onOpenRemoteHost={onOpenRemoteHost}
+              onOpenMobileHost={onOpenMobileHost}
               onLogout={onLogout}
               onRenameHost={onRenameHost}
               onMainDisconnect={onMainDisconnect}
@@ -613,20 +617,17 @@ function TerminalWorkspace({
             hasUngrouped={sessions.some(s => !sessionWorkspaceId(s))}
             onOpenRemote={onOpenRemote}
             onOpenMobile={onOpenMobile}
+            onOpenRemoteHost={onOpenRemoteHost}
+            onOpenMobileHost={onOpenMobileHost}
+            hostKey={activeWsHostKey}
             onOpenFiles={onOpenFiles}
             onLogout={onLogout}
-            onStopCodespace={onStopCodespace}
-            onUpdate={onUpdate}
-            onRestart={onRestart}
-            codespaceInfo={codespaceInfo}
             tunnelUrl={tunnelUrl}
             apiKey={apiKey}
             connectionMode={connectionMode}
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
             agentVersion={agentVersion}
-            updateAvailable={updateAvailable}
-            canSelfUpdate={canSelfUpdate}
             busRef={activeBusRef}
             carrier={activeCarrier}
             shells={shells}
@@ -668,6 +669,9 @@ function TerminalWorkspace({
               const isFocused = sessionId === activeSessionId;
               const isHidden = hiddenPaneSessionIds.includes(sessionId);
               const isVisible = inActiveWorkspace && !isHidden && (isDesktop ? (!fullMode || isFocused) : isFocused);
+              // This pane's machine is restarting for a self-update: the wire is
+              // about to die, so the pane goes read-only until it reports back.
+              const hostUpdating = !!fleetHosts[connForSession(sessionId).head || currentKey]?.updating;
               // Background pool position — matches the header tab order
               const bgIndex = tabIndexBySession.get(sessionId) ?? 0;
               // Panes outside the active workspace stay mounted (LRU) but fully hidden
@@ -679,8 +683,8 @@ function TerminalWorkspace({
                     !inActiveWorkspace || (isDesktop && fullMode && !isFocused) || (isDesktop && isHidden)
                       ? "hidden"
                       : isDesktop
-                      ? `h-full relative bg-bg ${fullMode ? "w-full flex-1" : `border-r-2 border-border-subtle last:border-r-0 ${isPaneResizing ? "" : "transition-[width] duration-200 ease-out"}`}`
-                      : `absolute inset-0 ${isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
+                      ? `h-full relative bg-bg ${hostUpdating ? "opacity-50 pointer-events-none" : ""} ${fullMode ? "w-full flex-1" : `border-r-2 border-border-subtle last:border-r-0 ${isPaneResizing ? "" : "transition-[width] duration-200 ease-out"}`}`
+                      : `absolute inset-0 ${hostUpdating ? "opacity-50 pointer-events-none" : isFocused ? `opacity-100 z-10 ${slideClass}` : "opacity-0 z-0 pointer-events-none"}`
                   }
                   // Explicit px width (pinned or computed auto) so every width change —
                   // drag, double-click back to auto, add/remove pane — animates. Before
@@ -803,7 +807,7 @@ function TerminalWorkspace({
 
         {/* Single mount for every mode — see the pin slot above. */}
         {isDesktop && mobilePanel?.open && (
-          <MobileDock busRef={activeBusRef} protocolRef={mobilePanel.protocolRef} connected={isConnected} pinSlot={mobilePinSlot} />
+          <MobileDock busRef={mobilePanel.busRef || activeBusRef} protocolRef={mobilePanel.protocolRef} connected={mobilePanel.connected ?? isConnected} pinSlot={mobilePinSlot} />
         )}
 
         {/* Right panel: files / git / worktrees. Slides in over the panes on mobile, with a

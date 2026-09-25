@@ -77,7 +77,7 @@ async function setProxySession(action, { busRef, base, apiKey, port }) {
   return data?.sessionId || String(port);
 }
 
-export default function SitesList({ tunnelUrl, apiKey, busRef, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
+export default function SitesList({ tunnelUrl, apiKey, busRef, siteHostKey = null, onSelectSite, isOpen: externalIsOpen, onClose: externalOnClose }) {
   const { t } = useI18n();
   const pushView = useTerminalStore((s) => s.pushView);
   const { getAuth } = useSessionStorage();
@@ -170,7 +170,7 @@ export default function SitesList({ tunnelUrl, apiKey, busRef, onSelectSite, isO
     const inWorkspace = typeof window !== "undefined" && window.location.pathname.startsWith("/workspace");
     if (inWorkspace && busRef?.current?.connected) {
       busRef.current.emit("startProxySession", port);
-      pushView({ type: "site", port, path: "/" });
+      pushView({ type: "site", port, path: "/", hostKey: siteHostKey });
       onSelectSite?.(site);
       handleCloseModal();
       return;

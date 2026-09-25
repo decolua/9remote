@@ -4,6 +4,7 @@ import { Monitor, Smartphone, Globe } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
 import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 
 // Mobile-only cluster in the pane's top strip — title or pinned checklist,
@@ -13,7 +14,7 @@ import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 export default function PaneStripButtons({ onOpenRemote, onOpenMobile }) {
   const { t } = useI18n();
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
-  const mobileDeviceCount = useTerminalStore((s) => s.mobileDeviceCount);
+  const mobileDeviceCount = useFleetStore((s) => s.hosts[s.currentKey]?.mobileDeviceCount) || 0;
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
   const openSites = useSitesModalStore((s) => s.open);
 

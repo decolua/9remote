@@ -30,6 +30,11 @@ export const PANE_GAP_PX = 2;
 export const PANE_ROW_PADDING_PX = 0;
 export const MAX_LIVE_PANES = 12;
 
+// Touch long-press → drag-to-reorder on a session row: hold this long without
+// moving to arm, and cancel the hold past this much movement (it's a scroll).
+export const DRAG_HOLD_MS = 250;
+export const DRAG_MOVE_TOLERANCE_PX = 8;
+
 export const SIDEBAR_WIDTH = { default: 190, min: 180, max: Infinity };
 export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
 export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: Infinity };

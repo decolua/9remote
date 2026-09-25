@@ -4,9 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
-  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot, HardDrive
+  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot
 } from "@/shared/components/ui/Icon";
-import { useFleetStore } from "@/shared/stores/fleetStore";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
@@ -22,8 +21,6 @@ import VoiceEndpointSettings from "@/shared/components/ui/VoiceEndpointSettings"
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
-import AgentOutdatedBanner, { isWebOutdated } from "@/features/terminal/components/AgentOutdatedBanner";
-import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import PwaInstallGuide from "@/features/terminal/components/PwaInstallGuide";
 import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
 import { JarvisConfigPanel } from "@/features/jarvis/components/JarvisConfigPanel";
@@ -65,20 +62,17 @@ export default function SettingsDialog({
 
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
   const agentVersion = context.agentVersion;
-  const isOutdated = !!context.updateAvailable || isWebOutdated(agentVersion, webVersion);
-  const isCodespaces = !!context.codespaceInfo?.isCodespaces;
   const hideActions = useMemo(() => context.hideActions || [], [context.hideActions]);
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || !!window.ReactNativeWebView
   );
   const showInstall = !isApp && !isInstalled;
 
-  // Codespace only inside a codespace; the terminal tab is dead on screens with no PTY.
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
-    if (c.id === "codespace") return isCodespaces;
+    if (c.id === "codespace") return false;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
     return true;
-  }), [isCodespaces, hideActions]);
+  }), [hideActions]);
   // "install" is a drill-in from the install row, not a nav entry — it has no category
   const activeCategory = categories.find((c) => c.id === section);
 
@@ -177,14 +171,6 @@ export default function SettingsDialog({
             {section === "background" && <BackgroundPickerSheet inline busRef={context.busRef} />}
             {section === "general" && (
               <div className="space-y-6">
-                <Group title={t("hosts.title")}>
-                  <ActionRow
-                    icon={HardDrive}
-                    label={t("hosts.openHost")}
-                    onClick={() => { vibrate(); onClose(); useFleetStore.getState().openOverlay(); }}
-                  />
-                </Group>
-
                 {(push.supported || showInstall) && (
                   <Group>
                     {push.supported && (
@@ -216,9 +202,6 @@ export default function SettingsDialog({
                     disabled={reloading}
                     onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
                   />
-                  {callbacks.onRestart && (
-                    <ActionRow icon={RotateCw} label={t("menu.restartHost")} onClick={() => run(callbacks.onRestart)} />
-                  )}
                 </Group>
 
                 {callbacks.onLogout && (
@@ -226,8 +209,6 @@ export default function SettingsDialog({
                     <ActionRow icon={LogOut} label={t("menu.logout")} danger onClick={() => run(callbacks.onLogout)} />
                   </Group>
                 )}
-
-                {isOutdated && <AgentOutdatedBanner agentVersion={agentVersion} webVersion={webVersion} updateAvailable={context.updateAvailable} onUpdate={callbacks.onUpdate} />}
               </div>
             )}
 
@@ -374,14 +355,6 @@ export default function SettingsDialog({
                   </li>
                 ))}
               </ul>
-            )}
-
-            {section === "codespace" && (
-              <CodespacePanel
-                codespaceInfo={context.codespaceInfo}
-                busRef={context.busRef}
-                onStop={() => run(callbacks.onStopCodespace)}
-              />
             )}
 
             {section === "install" && <PwaInstallGuide />}

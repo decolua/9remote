@@ -1,39 +1,42 @@
 "use client";
 
-// Keeps the store's device count in step with the agent, for the whole session.
-//
-// Separate from useMobileDevices, which only lives while the mirror panel is
-// open: the header button has to show whether a device is up even when the
-// panel is closed, and a windowless emulator gives no other clue that it is.
+// Keeps every host's device count in step with its agent, for the whole
+// session — per-host entries, no main/fleet branch. Separate from
+// useMobileDevices, which only lives while a mirror panel is open: the header
+// buttons have to show whether a device is up even when the panel is closed.
 
 import { useEffect } from "react";
-import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { connOf } from "@/shared/transport/hostConn";
 
-export function useMobileDeviceWatch({ busRef, connected, enabled }) {
-  const setMobileDeviceCount = useTerminalStore((s) => s.setMobileDeviceCount);
-  const setMobileAvailable = useTerminalStore((s) => s.setMobileAvailable);
+export function useMobileDeviceWatch() {
+  // Primitive selector (joined heads): the map's identity changes on every
+  // status tick, and re-attaching listeners per tick would churn every bus.
+  // currentKey rides along: a host switch changes which bus is the workspace
+  // connection without changing the online SET — watchers must re-bind.
+  const onlineHeads = useFleetStore((s) => `${s.currentKey}|` + Object.values(s.hosts)
+    .filter((h) => h.status === "online" || h.status === "full")
+    .map((h) => h.key)
+    .join(","));
 
   useEffect(() => {
-    const bus = busRef?.current;
-    if (!bus || !connected || !enabled) return;
-    const onChanged = ({ count, available }) => {
-      setMobileDeviceCount(count);
-      if (typeof available === "boolean") setMobileAvailable(available);
-    };
-    bus.on("mobile:devicesChanged", onChanged);
-    // The agent pushes its first count when the bus connects, which is before
-    // this listener exists, and then only speaks up on change — so ask once for
-    // the value already missed.
-    bus.emit("mobile:deviceCount", {}, (res) => {
-      if (res && typeof res.count === "number") setMobileDeviceCount(res.count);
-      if (res && typeof res.available === "boolean") setMobileAvailable(res.available);
-    });
-    return () => {
-      bus.off("mobile:devicesChanged", onChanged);
-      // A dropped connection says nothing about the host's devices; clear it so
-      // the button does not claim a device is up on a stale reading.
-      setMobileDeviceCount(0);
-      setMobileAvailable(false);
-    };
-  }, [busRef, connected, enabled, setMobileDeviceCount, setMobileAvailable]);
+    const st = useFleetStore.getState();
+    const headsPart = onlineHeads.slice(onlineHeads.indexOf("|") + 1);
+    const cleanups = [];
+    for (const key of headsPart.split(",").filter(Boolean)) {
+      const head = key === st.currentKey ? null : key;
+      const bus = connOf(head).bus;
+      if (!bus) continue;
+      const apply = ({ count }) => useFleetStore.getState()._patchHost(key, { mobileDeviceCount: Number(count) || 0 });
+      bus.on("mobile:devicesChanged", apply);
+      // The agent pushes its first count when the bus connects, which is before
+      // this listener exists, and then only speaks up on change — so ask once
+      // for the value already missed.
+      bus.emit("mobile:deviceCount", {}, (res) => {
+        if (res && typeof res.count === "number") apply(res);
+      });
+      cleanups.push(() => bus.off("mobile:devicesChanged", apply));
+    }
+    return () => { for (const fn of cleanups) fn(); };
+  }, [onlineHeads]);
 }

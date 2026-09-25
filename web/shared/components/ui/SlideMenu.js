@@ -14,7 +14,6 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
-import CodespacePanel from "@/features/codespace/components/CodespacePanel";
 import SettingsDialog from "@/features/terminal/components/SettingsDialog";
 import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
@@ -83,7 +82,6 @@ export default function SlideMenu() {
 
   // Panel-specific handlers
   const handleOpenPwa = useCallback(() => setActivePanel("pwa"), [setActivePanel]);
-  const handleOpenCodespace = useCallback(() => setActivePanel("codespace"), [setActivePanel]);
 
   const handleBack = useCallback(() => {
     vibrate();
@@ -112,10 +110,6 @@ export default function SlideMenu() {
     }
   }, [canInstall, close, install, handleOpenPwa]);
 
-  const handleCodespace = useCallback(() => {
-    handleOpenCodespace();
-  }, [handleOpenCodespace]);
-
   const handleLogout = useCallback(() => {
     // Close menu first, then call logout callback
     // Logout callback may show confirm dialog, so we close menu first
@@ -129,22 +123,6 @@ export default function SlideMenu() {
   const handleThemeChange = useCallback((theme) => {
     callbacks.onThemeChange?.(theme);
   }, [callbacks]);
-
-  const handleStopCodespace = useCallback(() => {
-    close();
-    callbacks.onStopCodespace?.();
-  }, [close, callbacks]);
-
-  // Host update/restart: confirm dialog shows after menu closes
-  const handleUpdate = useCallback(() => {
-    close();
-    setTimeout(() => callbacks.onUpdate?.(), 50);
-  }, [close, callbacks]);
-
-  const handleRestart = useCallback(() => {
-    close();
-    setTimeout(() => callbacks.onRestart?.(), 50);
-  }, [close, callbacks]);
 
   const handleCommandNotes = useCallback(() => {
     close();
@@ -215,8 +193,6 @@ export default function SlideMenu() {
     switch (activePanel) {
       case "pwa":
         return t("pwa.title");
-      case "codespace":
-        return t("codespace.title");
       default:
         return t("menu.title");
     }
@@ -323,11 +299,9 @@ export default function SlideMenu() {
               onInstallApp={handleInstallApp}
               canInstall={canInstall}
               isInstalled={isInstalled}
-              onCodespace={context.codespaceInfo?.isCodespaces ? handleCodespace : null}
               onLogout={handleLogout}
               connected={context.connected}
               remoteAvailable={context.remoteAvailable}
-              codespaceInfo={context.codespaceInfo}
               showTheme={context.showTheme}
               theme={context.theme}
               onThemeChange={handleThemeChange}
@@ -335,21 +309,12 @@ export default function SlideMenu() {
               busRef={context.busRef}
               subscribeToPush={context.subscribeToPush}
               unsubscribeFromPush={context.unsubscribeFromPush}
-              onUpdate={handleUpdate}
-              onRestart={handleRestart}
               onOpenBackgroundPicker={handleOpenBackgroundPicker}
             />
           )}
 
           {activePanel === "pwa" && <PwaInstallGuide />}
 
-          {activePanel === "codespace" && (
-            <CodespacePanel
-              codespaceInfo={context.codespaceInfo}
-              busRef={context.busRef}
-              onStop={handleStopCodespace}
-            />
-          )}
         </div>
       </div>
 

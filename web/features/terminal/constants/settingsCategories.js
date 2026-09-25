@@ -10,5 +10,4 @@ export const SETTINGS_CATEGORIES = [
   { id: "mcp", labelKey: "menu.settingsMcp", icon: "Zap" },
   ...(JARVIS_ENABLED ? [{ id: "jarvis", labelKey: "menu.settingsJarvis", icon: "Bot" }] : []),
   { id: "shortcuts", labelKey: "shortcuts.menuLabel", icon: "Keyboard" },
-  { id: "codespace", labelKey: "menu.codespace", icon: "Sparkles" }
 ];

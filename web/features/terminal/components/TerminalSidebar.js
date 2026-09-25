@@ -67,6 +67,8 @@ function TerminalSidebar({
   onAddWorkspace,
   onRenameWorkspace = null,
   onOpenSettings,
+  onOpenRemoteHost = null,
+  onOpenMobileHost = null,
   onRenameHost = null,
   onDeleteHost = null,
   onMainDisconnect = null,
@@ -272,6 +274,7 @@ function TerminalSidebar({
           {h.key === (currentHost?.key || "main") ? (
             <HostTree
               host={{
+                ...(currentHost || {}),
                 key: currentHost?.key || "main",
                 label: currentHost?.label || "",
                 status: "full",
@@ -304,6 +307,8 @@ function TerminalSidebar({
               onUnhidePane={unhidePane}
               onAddWorkspace={onAddWorkspace}
               menuAddWorkspace={onAddWorkspace}
+              onOpenRemoteHost={onOpenRemoteHost}
+              onOpenMobileHost={onOpenMobileHost}
               onRowContextMenu={openContext}
               onRowTouch={{ start: handleTouchStart, move: clearLongPress, end: clearLongPress }}
               onRowMenu={(sessionId, name, rect) => setCtxMenu({ sessionId, left: rect.left, top: rect.bottom + 2, name })}
@@ -321,6 +326,8 @@ function TerminalSidebar({
               activeWorkspaceId={activeWsForHost(activeWorkspaceId, h.key)}
               connected={connected}
               hiddenPaneSessionIds={hiddenPaneSessionIds}
+              onOpenRemoteHost={onOpenRemoteHost}
+              onOpenMobileHost={onOpenMobileHost}
               onUnhidePane={unhidePane}
               treeCls="pl-3.5"
             />
