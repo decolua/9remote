@@ -39,7 +39,10 @@ export function setupCmdPoller(getActiveTunnel, setActiveTunnel, apiKey, getServ
       }
       else if (cmd === "regenerate-key") await handleRegenerate();
       else if (cmd === "shutdown") handleShutdown(getActiveTunnel, setActiveTunnel);
-      else if (cmd === "update") await runWebUpdate();
+      else if (cmd === "update") {
+        const ok = await runWebUpdate();
+        logger.info(`cmd update -> ${ok ? "started" : "SKIPPED (see reasons above)"}`);
+      }
       else if (cmd === "restart") restartServer(getServerManager?.());
     } catch (err) {
       // A throw here would surface as an unhandled rejection and take the CLI down

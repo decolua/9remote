@@ -8,6 +8,9 @@ import { browserFetch, NPM_REGISTRY_URL, NPM_INSTALL_SPEC, PACKAGE_NAME, PATHS }
 import { killAll as killAllPids, getPidsDir } from "./pids.js";
 import { getCliEntry, getNodeBin, nodeBinEnvPrefix } from "./autostart.js";
 import { UPDATE } from "../config.js";
+import { createLogger } from "../../lib/logger.js";
+
+const logger = createLogger("update");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const UPDATE_CHECK_TIMEOUT = 8000;
@@ -500,13 +503,16 @@ ${process.env.NREMOTE_REGISTRY ? `export NREMOTE_REGISTRY="${process.env.NREMOTE
 
 export async function runWebUpdate() {
   const currentVersion = getCurrentVersion();
-  if (!currentVersion) return false;
-  if (isRestrictedEnvironment()) return false;
+  if (!currentVersion) { logger.warn("update skipped: no version (source run?)"); return false; }
+  const restricted = isRestrictedEnvironment();
+  if (restricted) { logger.warn(`update skipped: restricted env (${restricted})`); return false; }
 
   const latest = await fetchLatestVersion();
-  if (!latest || !isNewerVersion(currentVersion, latest)) return false;
+  if (!latest) { logger.warn("update skipped: registry unreachable"); return false; }
+  if (!isNewerVersion(currentVersion, latest)) { logger.info(`update skipped: ${currentVersion} >= registry ${latest}`); return false; }
 
-  if (!acquireUpdateLock()) return false;
+  if (!acquireUpdateLock()) { logger.warn("update skipped: lock held by another run"); return false; }
+  logger.info(`update go: ${currentVersion} -> ${latest}`);
 
   const { shellCmd, windowsVerbatim } = buildUpdateScript({ currentVersion, latest, agentPid: process.pid });
 

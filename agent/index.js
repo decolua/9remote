@@ -33,7 +33,7 @@ import {
   handleConnections, handleDesktopToggle, handleRtcToggle, handleLogsGet, handleLogsClear,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
-  handleLocalToken, handleUpdate, setUpdateInfo,
+  handleLocalToken, handleUpdate, setUpdateInfo, getUpdateInfo,
 } from "./api/ui.js";
 import { broadcastServerInfo, setConnectCheckHandler } from "./features/terminal/terminalSocket.js";
 import { UPDATE } from "./cli/config.js";
@@ -154,6 +154,14 @@ async function checkForUpdate(currentVersion) {
     if (version && isNewerVersion(currentVersion, version)) {
       setUpdateInfo({ version });
       pushUiEvent("updateAvailable", { version });
+      broadcastServerInfo();
+      return;
+    }
+    // Registry is not ahead (fresh install, yanked/rolled-back release) — clear
+    // the standing notice. Without this the flag could only ever turn ON, so a
+    // client reconnecting to this process would keep showing the update pill.
+    if (getUpdateInfo()) {
+      setUpdateInfo(null);
       broadcastServerInfo();
     }
   } catch { /* non-critical */ }
