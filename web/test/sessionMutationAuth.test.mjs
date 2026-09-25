@@ -1,5 +1,5 @@
 // Mutating a session — repointing its tunnel, deleting it — was gated on
-// verifyApiKeyCrc alone, which for a v2 key only checks the shape. The apiKey it
+// the key-shape check alone. The apiKey it
 // checks is the HEAD, and the HEAD is public by design: /api/connect hands it
 // out and every device that ever paired keeps a copy. So anyone holding one
 // could repoint the victim's tunnelUrl at a host of their own, and the clients

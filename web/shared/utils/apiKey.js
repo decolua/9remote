@@ -1,21 +1,7 @@
-// HMAC verify for apiKey CRC. Secret must come from Workers env (env.API_KEY_SECRET).
-
-async function generateHmac(secret, machineId, keyId) {
-  const encoder = new TextEncoder();
-  const key = await crypto.subtle.importKey(
-    "raw",
-    encoder.encode(secret),
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"]
-  );
-  const signature = await crypto.subtle.sign("HMAC", key, encoder.encode(machineId + keyId));
-  return Array.from(new Uint8Array(signature)).map(b => b.toString(16).padStart(2, "0")).join("");
-}
-
 /**
- * Parse API key format: sk-{machineId8}-{keyId4}-{crc6} (legacy)
- * or v2: sk-{machineId8}-{rand8}-{rand8} — same shape, routing-only, no CRC.
+ * Parse API key format: sk-{machineId8}-{rand8}-{rand8}, full or HEAD.
+ * The HEAD (first two segments) is what the agent registers and clients
+ * present for routing — both shapes are valid at every trust boundary.
  */
 export function parseApiKey(apiKey) {
   if (!apiKey || !apiKey.startsWith("sk-")) return null;
@@ -23,22 +9,18 @@ export function parseApiKey(apiKey) {
     const [, machineId, a, b] = apiKey.split("-");
     return { machineId, keyId: a, version: 2, tail: b };
   }
-  // v2 HEAD (what the agent registers and clients present for routing)
   if (/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) {
     const [, machineId, a] = apiKey.split("-");
     return { machineId, keyId: a, version: 2 };
   }
-  // Legacy CRC is always the first 6 hex chars of the HMAC — anything else is forged.
-  const legacy = apiKey.match(/^sk-([a-z0-9]{8})-([a-z0-9]{4})-([0-9a-f]{6})$/);
-  if (legacy) return { machineId: legacy[1], keyId: legacy[2], crc: legacy[3] };
   return null;
 }
 
-/** Check if key is a legacy v1 key (requires agent update to v2) */
+/** A v1 key: sk-{machineId8}-{keyId4}-{crc6}. Shape-only — enough to tell its
+ *  holder to update the agent, which is all it is good for now. */
 export function isLegacyApiKey(apiKey) {
   if (typeof apiKey !== "string" || !apiKey) return false;
-  const parsed = parseApiKey(apiKey.trim().toLowerCase());
-  return !!parsed && parsed.version !== 2;
+  return /^sk-[a-z0-9]{8}-[a-z0-9]{4}-[0-9a-f]{6}$/.test(apiKey.trim().toLowerCase());
 }
 
 /** HEAD of a v2 key (routing part); v1 keys pass through unchanged. */
@@ -60,19 +42,8 @@ export function normalizeApiKey(apiKey) {
   return headOf(apiKey);
 }
 
-/**
- * Verify API key CRC using env-provided secret
- * @param {string} apiKey
- * @param {object} env - Cloudflare Workers env (contains API_KEY_SECRET or APP_SECRET)
- */
-export async function verifyApiKeyCrc(apiKey, env) {
-  const secret = env?.API_KEY_SECRET || env?.APP_SECRET;
-  if (!secret) throw new Error("API_KEY_SECRET or APP_SECRET not configured");
-  const parsed = parseApiKey(apiKey);
-  if (!parsed) return false;
-  // v2 (full or HEAD) has no CRC — format check in parseApiKey is the whole validation
-  if (parsed.version === 2) return true;
-  const { machineId, keyId, crc } = parsed;
-  const hmac = await generateHmac(secret, machineId, keyId);
-  return hmac.slice(0, crc.length) === crc;
+/** Accepted at every API trust boundary: a v2 key, full or HEAD.
+ *  v1 is retired — an agent still holding one must update to connect. */
+export function isAcceptedApiKey(apiKey) {
+  return parseApiKey(apiKey)?.version === 2;
 }

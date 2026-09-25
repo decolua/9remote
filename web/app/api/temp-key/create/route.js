@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { verifyApiKeyCrc, normalizeApiKey } from "@/shared/utils/apiKey";
+import { isAcceptedApiKey, normalizeApiKey } from "@/shared/utils/apiKey";
 import { withD1Retry } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
 import { checkMutationAuth } from "@/shared/utils/sessionMutationAuth";
@@ -38,7 +38,7 @@ export async function POST(request) {
     const body = await request.json();
     const { apiKey, expiryMinutes = TEMP_KEY_EXPIRY_MINUTES } = body;
 
-    if (!apiKey || !(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
+    if (!apiKey || !(isAcceptedApiKey(apiKey))) return jsonError("Invalid API key");
     const session = await withD1Retry(() => env.DB.prepare(
       "SELECT hostPublicKey FROM sessions WHERE apiKey = ?"
     ).bind(normalizeApiKey(apiKey)).first());

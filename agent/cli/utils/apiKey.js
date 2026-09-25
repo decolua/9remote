@@ -1,34 +1,5 @@
 import crypto from "crypto";
 
-// CRC secret for legacy v1 keys (must match web API_KEY_SECRET/APP_SECRET).
-const API_KEY_SECRET = process.env.API_KEY_SECRET || process.env.APP_SECRET;
-
-function generateKeyId() {
-  const chars = "abcdefghijklmnopqrstuvwxyz0123456789";
-  let result = "";
-  for (let i = 0; i < 4; i++) {
-    result += chars.charAt(Math.floor(Math.random() * chars.length));
-  }
-  return result;
-}
-
-function generateCrc(machineId, keyId) {
-  if (!API_KEY_SECRET) throw new Error("API_KEY_SECRET not configured (required for v1 keys)");
-  return crypto
-    .createHmac("sha256", API_KEY_SECRET)
-    .update(machineId + keyId)
-    .digest("hex")
-    .slice(0, 6);
-}
-
-export function generateApiKeyWithMachine(machineId) {
-  const shortId = machineId.slice(0, 8);
-  const keyId = generateKeyId();
-  const crc = generateCrc(shortId, keyId);
-  const key = `sk-${shortId}-${keyId}-${crc}`;
-  return { key, keyId };
-}
-
 // v2 keys: sk-{machineId8}-{rand8}-{rand8} (tail is private device secret).
 const KEY_V2_CHARS = "abcdefghijklmnpqrstuvwxyz123456789";
 const KEY_V2_SEGMENT = 8;
@@ -83,17 +54,6 @@ export function parseApiKey(apiKey) {
   if (/^sk-[a-z0-9]{8}-[a-np-z1-9]{8}$/.test(apiKey)) {
     const [, machineId, a] = apiKey.split("-");
     return { machineId, keyId: a, version: 2 };
-  }
-
-  const parts = apiKey.split("-");
-
-  if (parts.length === 4) {
-    const [, machineId, keyId, crc] = parts;
-
-    const expectedCrc = generateCrc(machineId, keyId);
-    if (crc !== expectedCrc) return null;
-
-    return { machineId, keyId };
   }
 
   return null;

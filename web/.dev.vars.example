@@ -21,6 +21,5 @@ APP_SECRET="REPLACE_WITH_openssl_rand_hex_32"
 
 # (Tùy chọn ghi đè - nếu để trống sẽ tự dùng APP_SECRET ở trên)
 # ADMIN_JWT_SECRET="REPLACE_WITH_openssl_rand_hex_32"
-# API_KEY_SECRET="REPLACE_WITH_openssl_rand_hex_32"
 # CRON_SECRET="REPLACE_WITH_openssl_rand_hex_32"
 # TOKEN_SECRET="REPLACE_WITH_openssl_rand_hex_32"

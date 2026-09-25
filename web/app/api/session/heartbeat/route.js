@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { verifyApiKeyCrc } from "@/shared/utils/apiKey";
+import { isAcceptedApiKey } from "@/shared/utils/apiKey";
 import { withD1Retry } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
 import { checkMutationAuth } from "@/shared/utils/sessionMutationAuth";
@@ -17,7 +17,7 @@ export async function POST(request) {
     const { apiKey, online } = body;
 
     if (!apiKey) return jsonError("Missing apiKey");
-    if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
+    if (!(isAcceptedApiKey(apiKey))) return jsonError("Invalid API key");
 
     // Same ownership proof as /api/session/update — knowing the HEAD is not
     // enough to flip someone's session online/offline.

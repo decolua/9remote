@@ -66,7 +66,6 @@ Create `web/.dev.vars` with your secret keys:
 
 ```bash
 ADMIN_JWT_SECRET="your-random-32-byte-secret"
-API_KEY_SECRET="your-random-32-byte-secret"
 TOKEN_SECRET="your-random-32-byte-secret"
 TURN_KEY_SECRET="your-turn-secret"
 ```

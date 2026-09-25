@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { parseApiKey, verifyApiKeyCrc } from "@/shared/utils/apiKey";
+import { parseApiKey, isAcceptedApiKey } from "@/shared/utils/apiKey";
 import { withD1Retry, invalidateCache, cacheKeys } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
 import { canReplaceHostKey } from "@/shared/utils/sessionMutationAuth";
@@ -12,7 +12,7 @@ export async function POST(request) {
   const { env } = getCloudflareContext();
   const { apiKey, hostPublicKey, hostX25519Key, tempKey } = await request.json();
 
-  if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
+  if (!(isAcceptedApiKey(apiKey))) return jsonError("Invalid API key");
   const { machineId } = parseApiKey(apiKey);
 
   // A registered host key is what stops anyone holding the HEAD from repointing

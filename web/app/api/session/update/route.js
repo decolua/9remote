@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { verifyApiKeyCrc } from "@/shared/utils/apiKey";
+import { isAcceptedApiKey } from "@/shared/utils/apiKey";
 import { withD1Retry, invalidateCache, cacheKeys } from "@/shared/utils/db";
 import { jsonOk, jsonError, optionsResponse } from "@/shared/utils/apiResponse";
 import { checkMutationAuth } from "@/shared/utils/sessionMutationAuth";
@@ -13,7 +13,7 @@ export async function POST(request) {
     const body = await request.json();
     const { apiKey, tunnelUrl, localIp } = body;
 
-    if (!(await verifyApiKeyCrc(apiKey, env))) return jsonError("Invalid API key");
+    if (!(isAcceptedApiKey(apiKey))) return jsonError("Invalid API key");
 
     // The apiKey here is the HEAD, which is public routing data — on its own it
     // says nothing about who is calling. Where the agent has registered a host

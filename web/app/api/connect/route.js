@@ -1,5 +1,5 @@
 import { getCloudflareContext } from "@opennextjs/cloudflare";
-import { verifyApiKeyCrc, normalizeApiKey } from "@/shared/utils/apiKey";
+import { isAcceptedApiKey, normalizeApiKey } from "@/shared/utils/apiKey";
 import { decryptToken } from "@/shared/utils/token";
 import { withD1Retry, cachedLookup, cacheKeys, CACHE_TTL } from "@/shared/utils/db";
 import { RATE_LIMITS, clientIp, isRateLimited, recordFailure, clearFailures } from "@/shared/utils/rateLimit";
@@ -76,7 +76,7 @@ export async function POST(request) {
       return jsonError("Missing token or apiKey");
     }
 
-    if (!(await verifyApiKeyCrc(apiKey, env))) {
+    if (!(isAcceptedApiKey(apiKey))) {
       await recordFailure(SCOPE, ip, RATE_LIMITS.connect, env.LOGIN_RATE_LIMITER);
       return jsonError("Invalid API key", 401);
     }
