@@ -5,10 +5,10 @@ import { resolveShell, getShellList, SESSION_NAME_MAX, AUTO_NAME_RE, OUTPUT_SLIC
 import { createLogger } from "../../../lib/logger.js";
 
 const capsLogger = createLogger("terminal");
-import { detectAgentClis } from "../agentCatalog.js";
+import { detectAgentClis, agentRenameCommand, agentIdFromProcess } from "../agentCatalog.js";
 import { listAgentSessions, matchLiveSessions, conversationTitle, deleteAgentSession } from "../agentHistory.js";
 import { getLiveConversations, forgetSession, claimResumedConversation, getConversation, getSessionAgent, setSessionAgent } from "../statusManager.js";
-import { setSessionMode } from "../sessionMode.js";
+import { setSessionMode, sendTerminalInput, CLEAR_LINE } from "../sessionMode.js";
 import { engineFromAgent } from "../conversationModes.js";
 import { isCodespaces } from "../codespaceManager.js";
 import { broadcast } from "../../../transport/broadcast.js";
@@ -111,6 +111,40 @@ export async function syncAutoNames(io, sessions, sessionId = null) {
     if (await nameOneSession(io, sessions, id)) changed = true;
   }
   if (changed) saveSessionMetadata(sessions);
+}
+
+// The conversation follows the terminal's new name: through the adapter when the
+// chat pane owns the CLI, else as the TUI's own rename command typed into the PTY.
+// Terminal-mode needs a tracked conversation (its CLI still owns the terminal) and
+// an engine with a TUI rename — anything else keeps the name on our side only.
+async function pushRenameToConversation(sessions, sessionId, rawName) {
+  // The name rides a PTY input line and RPC payloads — control chars are noise there.
+  const name = String(rawName || "").replace(/[\x00-\x1f\x7f]/g, " ").replace(/\s+/g, " ").trim().slice(0, SESSION_NAME_MAX);
+  if (!name) return;
+  const ai = globalAiManager.getSession(sessionId);
+  if (ai) {
+    await ai.renameConversation(name);
+    return;
+  }
+  const conv = getConversation(sessionId);
+  if (!conv) return;
+  const agentId = engineFromAgent(conv.agent) || conv.agent;
+  const cmd = agentRenameCommand(agentId);
+  if (!cmd) return;
+  const session = sessions.get(sessionId);
+  // The tracked conversation can outlive its TUI (exit → the shell reading is not
+  // confirmed yet), and a live agent's own tool can hold the foreground — only
+  // the agent TUI itself in front may take the line; a miss just skips the sync.
+  const foreground = session?.daemon && daemonClient.isConnected()
+    ? (await daemonClient.listSessions().catch(() => [])).find((s) => s.id === sessionId)?.foregroundProcess
+    : session?.pty ? path.basename(session.pty.process || "") : null;
+  if (agentIdFromProcess(foreground) !== agentId) return;
+  // Metachars are worthless in a title and lethal if a guard miss ever lands the
+  // line in a shell — drop them from the typed line only (adapters get the full name).
+  const safeName = name.replace(/[;&|`$<>\\()]/g, " ").replace(/\s+/g, " ").trim();
+  if (!safeName) return;
+  // CLEAR_LINE wipes whatever the user is mid-typing so the command lands whole.
+  sendTerminalInput(sessionId, session, `${CLEAR_LINE}${cmd} ${safeName}\r`);
 }
 
 // Walk chunks from the end — avoid joining full ≤2MB buffer just to keep a tail
@@ -636,6 +670,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       session.name = name;
       // The user named this terminal: its conversation's title stops driving it.
       session.autoNamed = false;
+      // And the conversation takes the name too, into its own CLI's store where it can.
+      pushRenameToConversation(sessions, sessionId, name);
       broadcast(io, "session-renamed", { sessionId, name });
       saveSessionMetadata(sessions);
       callback({ success: true });

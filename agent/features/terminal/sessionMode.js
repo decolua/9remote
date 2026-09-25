@@ -26,7 +26,7 @@ const UI_ENGINES = new Set(["claude", "codex", "opencode", "antigravity", "omp",
 const FALLBACK_ENGINE = "claude";
 
 // Clear line sequence: Esc on Windows (cmd/powershell), Ctrl+E + Ctrl+U on Unix
-const CLEAR_LINE = process.platform === "win32" ? "\x1b" : "\x05\x15";
+export const CLEAR_LINE = process.platform === "win32" ? "\x1b" : "\x05\x15";
 
 // The conversation this terminal holds, or the one its live chat session is actually
 // running when status has not caught up yet. A terminal switched into the UI records
@@ -76,7 +76,7 @@ export async function setSessionMode(sessionId, mode, { sessions, io } = {}) {
   return { success: true };
 }
 
-function sendTerminalInput(sessionId, session, input) {
+export function sendTerminalInput(sessionId, session, input) {
   if (session?.daemon && daemonClient.isConnected()) {
     // Fire-and-forget by contract: sendInput returns true/false (send() catches
     // its own write errors), and a session that died between the two exit-Tui

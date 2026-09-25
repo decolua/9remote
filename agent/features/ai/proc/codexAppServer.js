@@ -435,6 +435,14 @@ export class CodexAppServer {
     return this.threadId;
   }
 
+  // The server's own rename; it answers and emits thread/name/updated, which the
+  // listener above folds into threadTitle — same path as a rename typed in the TUI.
+  async setName(name) {
+    if (!this.threadId) return false;
+    await this.rpc.request("thread/name/set", { threadId: this.threadId, name }, { timeoutMs: REQUEST_TIMEOUT_MS });
+    return true;
+  }
+
   async updateSettings(patch = {}) {
     if (!this.threadId) {
       Object.assign(this.pendingSettings, patch);

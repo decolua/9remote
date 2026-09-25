@@ -9,40 +9,43 @@ import os from "os";
 // yoloEnv = same intent for CLIs that read an env var instead of a flag.
 // Agents with neither offer no skip-permission toggle.
 // short = compact name for tab defaults/placeholder; buttons keep the full label.
+// renameCmd = the TUI's own rename command taking the new name inline — the terminal
+// rename sync types it into the PTY. Only CLIs where it is scriptable (no dialog);
+// kilo/mimo/crush/openclaw/amp rename via picker or shell subcommand instead.
 export const AGENT_CLIS = [
-  { id: "claude", label: "Claude Code", short: "Claude", cmd: "claude", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["session_id"], resume: (id) => `claude --resume ${id}` },
-  { id: "codex", label: "Codex", cmd: "codex", yolo: "--dangerously-bypass-approvals-and-sandbox", sessionIdKeys: ["session_id"], resume: (id) => `codex resume ${id}` },
-  { id: "copilot", label: "GitHub Copilot", short: "Copilot", cmd: "copilot", yolo: "--yolo", resume: (id) => `copilot --resume=${id}` },
-  { id: "cursor", label: "Cursor", cmd: "cursor-agent", yolo: "--yolo", resume: (id) => `cursor-agent --resume ${id}` },
-  { id: "opencode", label: "OpenCode", cmd: "opencode", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["sessionID"], resume: (id) => `opencode --session ${id}` },
+  { renameCmd: "/rename", id: "claude", label: "Claude Code", short: "Claude", cmd: "claude", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["session_id"], resume: (id) => `claude --resume ${id}` },
+  { renameCmd: "/rename", id: "codex", label: "Codex", cmd: "codex", yolo: "--dangerously-bypass-approvals-and-sandbox", sessionIdKeys: ["session_id"], resume: (id) => `codex resume ${id}` },
+  { renameCmd: "/rename", id: "copilot", label: "GitHub Copilot", short: "Copilot", cmd: "copilot", yolo: "--yolo", resume: (id) => `copilot --resume=${id}` },
+  { renameCmd: "/rename", id: "cursor", label: "Cursor", cmd: "cursor-agent", yolo: "--yolo", resume: (id) => `cursor-agent --resume ${id}` },
+  { renameCmd: "/rename", id: "opencode", label: "OpenCode", cmd: "opencode", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["sessionID"], resume: (id) => `opencode --session ${id}` },
   { id: "aider", label: "Aider", cmd: "aider", yolo: "--yes-always" },
-  { id: "grok", label: "Grok", cmd: "grok", yolo: "--permission-mode bypassPermissions", sessionIdKeys: ["sessionId", "session_id"], resume: (id) => `grok --resume ${id}` },
+  { renameCmd: "/rename", id: "grok", label: "Grok", cmd: "grok", yolo: "--permission-mode bypassPermissions", sessionIdKeys: ["sessionId", "session_id"], resume: (id) => `grok --resume ${id}` },
   { id: "amp", label: "Amp", cmd: "amp", yolo: "--dangerously-allow-all" },
-  { id: "droid", label: "Droid", cmd: "droid", sessionIdKeys: ["session_id"], resume: (id) => `droid --resume ${id}` },
+  { renameCmd: "/rename", id: "droid", label: "Droid", cmd: "droid", sessionIdKeys: ["session_id"], resume: (id) => `droid --resume ${id}` },
   { id: "goose", label: "Goose", cmd: "goose", yoloEnv: { GOOSE_MODE: "auto" } },
   { id: "kilo", label: "Kilocode", cmd: "kilo", yolo: "--dangerously-skip-permissions" },
   { id: "crush", label: "Charm Crush", short: "Crush", cmd: "crush", yolo: "--yolo" },
-  { id: "qwen-code", label: "Qwen Code", short: "Qwen", cmd: "qwen", yolo: "--approval-mode yolo", resume: (id) => `qwen --resume ${id}` },
-  { id: "kimi", label: "Kimi", cmd: "kimi", yolo: "--yolo", sessionIdKeys: ["session_id"], resume: (id) => `kimi --session ${id}` },
-  { id: "openclaude", label: "OpenClaude", cmd: "openclaude", yolo: "--dangerously-skip-permissions" },
+  { renameCmd: "/rename", id: "qwen-code", label: "Qwen Code", short: "Qwen", cmd: "qwen", yolo: "--approval-mode yolo", resume: (id) => `qwen --resume ${id}` },
+  { renameCmd: "/title", id: "kimi", label: "Kimi", cmd: "kimi", yolo: "--yolo", sessionIdKeys: ["session_id"], resume: (id) => `kimi --session ${id}` },
+  { renameCmd: "/rename", id: "openclaude", label: "OpenClaude", cmd: "openclaude", yolo: "--dangerously-skip-permissions" },
   { id: "cline", label: "Cline", cmd: "cline", yolo: "--auto-approve true" },
-  { id: "rovo", label: "Rovo Dev", short: "Rovo", cmd: "rovo", yolo: "--yolo", resume: (id) => `acli rovodev run --restore ${id}` },
-  { id: "hermes", label: "Hermes", cmd: "hermes", yolo: "--yolo", resume: (id) => `hermes --resume ${id}` },
-  { id: "devin", label: "Devin", cmd: "devin", yolo: "--permission-mode bypass", sessionIdKeys: ["session_id"], resume: (id) => `devin --resume ${id}` },
-  { id: "auggie", label: "Auggie", cmd: "auggie" },
-  { id: "continue", label: "Continue", cmd: "cn", yolo: "--allow \"*\"" },
-  { id: "antigravity", label: "Antigravity", cmd: "agy", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["conversationId"], resume: (id) => `agy --conversation ${id}` },
-  { id: "mistral-vibe", label: "Mistral Vibe", short: "Vibe", cmd: "vibe", yolo: "--agent auto-approve" },
+  { renameCmd: "/sessions rename", id: "rovo", label: "Rovo Dev", short: "Rovo", cmd: "rovo", yolo: "--yolo", resume: (id) => `acli rovodev run --restore ${id}` },
+  { renameCmd: "/title", id: "hermes", label: "Hermes", cmd: "hermes", yolo: "--yolo", resume: (id) => `hermes --resume ${id}` },
+  { renameCmd: "/rename-session", id: "devin", label: "Devin", cmd: "devin", yolo: "--permission-mode bypass", sessionIdKeys: ["session_id"], resume: (id) => `devin --resume ${id}` },
+  { renameCmd: "/rename", id: "auggie", label: "Auggie", cmd: "auggie" },
+  { renameCmd: "/title", id: "continue", label: "Continue", cmd: "cn", yolo: "--allow \"*\"" },
+  { renameCmd: "/rename", id: "antigravity", label: "Antigravity", cmd: "agy", yolo: "--dangerously-skip-permissions", sessionIdKeys: ["conversationId"], resume: (id) => `agy --conversation ${id}` },
+  { renameCmd: "/rename", id: "mistral-vibe", label: "Mistral Vibe", short: "Vibe", cmd: "vibe", yolo: "--agent auto-approve" },
   { id: "mimo-code", label: "MiMo Code", short: "MiMo", cmd: "mimo", sessionIdKeys: ["sessionID"], resume: (id) => `mimo --session ${id}` },
   { id: "trae", label: "Trae", cmd: "traecli", yolo: "--yolo" },
-  { id: "ante", label: "Ante", cmd: "ante", yolo: "--yolo" },
+  { renameCmd: "/rename", id: "ante", label: "Ante", cmd: "ante", yolo: "--yolo" },
   { id: "kiro", label: "Kiro", cmd: "kiro-cli", yolo: "--trust-all-tools" },
   { id: "codebuff", label: "Codebuff", cmd: "codebuff" },
-  { id: "prime-agent", label: "Prime Agent", short: "Prime", cmd: "prime-agent", sessionIdKeys: ["session_id"], resume: (id) => `prime-agent --resume ${id}` },
-  { id: "command-code", label: "Command Code", short: "Command", cmd: "command-code", yolo: "--yolo" },
-  { id: "autohand", label: "Autohand Code", short: "Autohand", cmd: "autohand", yolo: "--unrestricted" },
-  { id: "pi", label: "Pi", cmd: "pi", sessionIdKeys: ["session_id"], resume: (id) => `pi --session ${id}` },
-  { id: "omp", label: "OMP", cmd: "omp", sessionIdKeys: ["session_id"], resume: (id) => `omp --resume ${id}` },
+  { renameCmd: "/name", id: "prime-agent", label: "Prime Agent", short: "Prime", cmd: "prime-agent", sessionIdKeys: ["session_id"], resume: (id) => `prime-agent --resume ${id}` },
+  { renameCmd: "/rename", id: "command-code", label: "Command Code", short: "Command", cmd: "command-code", yolo: "--yolo" },
+  { renameCmd: "/rename", id: "autohand", label: "Autohand Code", short: "Autohand", cmd: "autohand", yolo: "--unrestricted" },
+  { renameCmd: "/name", id: "pi", label: "Pi", cmd: "pi", sessionIdKeys: ["session_id"], resume: (id) => `pi --session ${id}` },
+  { renameCmd: "/rename", id: "omp", label: "OMP", cmd: "omp", sessionIdKeys: ["session_id"], resume: (id) => `omp --resume ${id}` },
   { id: "openclaw", label: "OpenClaw", cmd: "openclaw", resume: (id) => `openclaw --resume ${id}` }
 ];
 
@@ -50,6 +53,11 @@ const AGENT_BY_ID = new Map(AGENT_CLIS.map((a) => [a.id, a]));
 
 export function agentById(agentId) {
   return AGENT_BY_ID.get(agentId) || null;
+}
+
+/** The TUI rename command for a catalog agent, or null where none is scriptable. */
+export function agentRenameCommand(agentId) {
+  return AGENT_BY_ID.get(agentId)?.renameCmd || null;
 }
 
 // --- Conversation ids reported by the CLIs' own hooks ---

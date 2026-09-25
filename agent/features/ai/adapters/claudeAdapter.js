@@ -431,6 +431,14 @@ export class ClaudeAdapter {
     this._send(prompt, attachments, false);
   }
 
+  // The CLI executes a /-prefixed message as its own command, so the rename lands
+  // in its session store — no turn state, a command produces no turn to wait for.
+  renameThread(name) {
+    if (!this.rpc) return false;
+    this.rpc.notify("user", { message: { role: "user", content: `/rename ${name}` } });
+    return true;
+  }
+
   _send(prompt, attachments, retried) {
     this.isTurnRunning = true;
     this.turnStreamedText = "";

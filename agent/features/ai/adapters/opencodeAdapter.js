@@ -387,6 +387,15 @@ export class OpenCodeAdapter {
     this.onEvent?.(event, data);
   }
 
+  // The server's own rename; the pane's title watcher adopts it on the next poll.
+  async renameThread(name) {
+    if (!this.activeSessionId) return false;
+    await this.server.renameSession(this.activeSessionId, name);
+    this.metadata.threadName = name.slice(0, 80);
+    this.onEvent?.("init", { ...this.metadata });
+    return true;
+  }
+
   sendPrompt(promptText, attachments = null) {
     if (this.isTurnRunning) {
       throw new Error("OpenCode turn is already running.");

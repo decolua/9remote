@@ -537,6 +537,11 @@ export class CodexAdapter {
     return this.appServer.resolvePermission(requestId, behavior, message);
   }
 
+  /** Rename the running thread in codex's own store; `false` before the app-server boots. */
+  async renameThread(name) {
+    return Boolean(this.appServer && await this.appServer.setName(name));
+  }
+
   /**
    * Answer a question the CLI is blocking on. Only the app-server can ask one (the exec
    * transport has no way to), so a chat on that transport has nothing to answer — the

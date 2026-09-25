@@ -202,6 +202,15 @@ export class OmpAdapter {
   // The '/' menu rides the command feed; omp itself interprets "/name args".
   feed() {}
 
+  // omp's own rename (source "user", so later auto-naming cannot overwrite it).
+  // Never spawns: a rename is not worth resurrecting a stopped process, and a
+  // fresh spawn would name some brand-new empty session instead.
+  async renameThread(name) {
+    if (!this.rpc) return false;
+    await this.rpc.send("set_session_name", { name }, { timeoutMs: 10000 });
+    return true;
+  }
+
   interrupt() {
     // A stop may arrive after the engine already ended the turn (a missed
     // agent_end leaves the pane "working"): abort is idempotent server-side

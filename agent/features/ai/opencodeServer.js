@@ -254,6 +254,9 @@ export const listMessages = (sessionId) => api("GET", `/session/${sessionId}/mes
 // Session info including the agent it currently runs (read before a mode PATCH).
 export const getSession = (sessionId) => api("GET", `/api/session/${sessionId}`);
 
+// The same PATCH the TUI's rename dialog sends; the server emits session.updated.
+export const renameSession = (sessionId, title) => api("PATCH", `/api/session/${sessionId}`, { title });
+
 export const activeSessions = () => api("GET", "/api/session/active");
 
 // v1 message route, NOT /api/.../prompt: on 1.18.x the v2 endpoint only steers a

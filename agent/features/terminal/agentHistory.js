@@ -44,13 +44,19 @@ export function stripHarnessWrapping(text) {
 
 // Hermes titles its own sessions in state.db (sessions.title) a beat after the
 // turn ends — the pane header adopts it the way the TUI does.
+// One opener for both sides of the same table; null when there is nothing to open.
+function hermesDb(readOnly) {
+  const { DatabaseSync } = require("node:sqlite");
+  const dbPath = path.join(home(), ".hermes", "state.db");
+  if (!fs.existsSync(dbPath)) return null;
+  return new DatabaseSync(dbPath, { readOnly });
+}
+
 export function readHermesSessionTitle(sessionId) {
   if (!sessionId) return "";
   try {
-    const { DatabaseSync } = require("node:sqlite");
-    const dbPath = path.join(home(), ".hermes", "state.db");
-    if (!fs.existsSync(dbPath)) return "";
-    const db = new DatabaseSync(dbPath, { readOnly: true });
+    const db = hermesDb(true);
+    if (!db) return "";
     try {
       const row = db.prepare("SELECT title FROM sessions WHERE id = ?").get(sessionId);
       return String(row?.title || "").trim();
@@ -59,6 +65,25 @@ export function readHermesSessionTitle(sessionId) {
     }
   } catch {
     return "";
+  }
+}
+
+// The write side of the same table hermes' manual /title lands in: source 'user'
+// outranks its auto-titler, so the name sticks without touching the live process.
+export function renameHermesSession(sessionId, title) {
+  if (!sessionId || !title) return false;
+  try {
+    const db = hermesDb(false);
+    if (!db) return false;
+    try {
+      // changes>0: an id that matched nothing renamed nothing — not a success.
+      const res = db.prepare("UPDATE sessions SET title = ?, title_source = 'user' WHERE id = ?").run(title, sessionId);
+      return res.changes > 0;
+    } finally {
+      db.close();
+    }
+  } catch {
+    return false;
   }
 }
 

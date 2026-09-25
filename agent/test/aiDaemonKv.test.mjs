@@ -85,7 +85,9 @@ test("the agent writes a session's state at the turn's edges and restores it on 
   assert.match(SESSION, /effort: this\.effort/, "the effort pick is carried in daemon KV");
   assert.match(SESSION, /pendingPermission: this\.pendingPermission/, "an open gate is carried in daemon KV");
   assert.match(SESSION, /consumedLines: this\.consumedLines/, "the line watermark is carried in daemon KV");
-  assert.match(SESSION, /currentMode = mode/, "the adapter is seeded with the restored mode before adopt");
+  // The seeding moved to the engine registry (adapters/index.js) with the refactor.
+  const ENGINES = fs.readFileSync(path.join(root, "agent/features/ai/adapters/index.js"), "utf8");
+  assert.match(ENGINES, /adapter\.currentMode = ctx\.mode/, "the adapter is seeded with the restored mode before adopt");
   const CLIENT = fs.readFileSync(path.join(root, "agent/features/terminal/ptyDaemonClient.js"), "utf8");
   assert.match(CLIENT, /export async function kvSet/, "the client must expose kvSet");
   assert.match(CLIENT, /export async function kvGet/, "the client must expose kvGet");

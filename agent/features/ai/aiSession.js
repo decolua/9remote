@@ -6,18 +6,12 @@ import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
 import { readClaudeSessionState, readNewAttachments } from "./claudeTranscript.js";
 import { readThreadGoal } from "./goal.js";
-import { ClaudeAdapter } from "./adapters/claudeAdapter.js";
+import { getEngineDef, isManagedEngine, doctorSpecOf } from "./adapters/index.js";
 import { DaemonProc } from "./proc/daemonProc.js";
 import { replayWindow } from "./aiEventSlice.js";
 import { AI_REPLAY_BYTES } from "./constants.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
-import { CodexAdapter } from "./adapters/codexAdapter.js";
-import { OpenCodeAdapter } from "./adapters/opencodeAdapter.js";
 import { retainForSession as retainOpencodeServer, releaseForSession as releaseOpencodeServer } from "./opencodeServer.js";
-import { AntigravityAdapter } from "./adapters/antigravityAdapter.js";
-import { OmpAdapter } from "./adapters/ompAdapter.js";
-import { DevinAdapter } from "./adapters/devinAdapter.js";
-import { HermesAdapter } from "./adapters/hermesAdapter.js";
 import { attachmentMeta } from "./aiAttachment.js";
 import { getLastOutputAt, touchOutput, OUTPUT_LIVE_WINDOW_MS } from "../terminal/statusManager.js";
 import { TURN_END_EVENTS } from "./aiStatus.js";
@@ -31,26 +25,13 @@ const logger = createLogger("ai");
 const ANSI_RE = /\[[0-9;]*m/g;
 const stripAnsi = (text) => String(text || "").replace(ANSI_RE, "");
 
-// Engines whose CLI the daemon owns, so a turn outlives an agent restart.
-const MANAGED_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OPENCODE, AI_ENGINES.ANTIGRAVITY, AI_ENGINES.OMP, AI_ENGINES.DEVIN, AI_ENGINES.HERMES]);
-
-// Engine → the CLI's own health command, from each adapter's static spec; a Map so an engine id like "constructor" cannot hit Object.prototype.
-const DOCTOR_SPECS = new Map(
-  Object.entries({
-    [AI_ENGINES.CLAUDE]: ClaudeAdapter,
-    [AI_ENGINES.CODEX]: CodexAdapter,
-    [AI_ENGINES.OPENCODE]: OpenCodeAdapter,
-    [AI_ENGINES.ANTIGRAVITY]: AntigravityAdapter,
-    [AI_ENGINES.OMP]: OmpAdapter,
-    [AI_ENGINES.DEVIN]: DevinAdapter,
-    [AI_ENGINES.HERMES]: HermesAdapter
-  }).map(([engine, Adapter]) => [engine, Adapter.doctorSpec?.() || null])
-);
+// Engines whose CLI the daemon owns, and each engine's doctor command — both declared
+// in the adapter registry (adapters/index.js).
 
 // Spawns only the doctor command itself — never an AI session.
 export async function runEngineDoctor(engine, cwd, mock = false) {
   if (mock) return { ok: true, output: "Mock doctor: environment OK.", version: "mock" };
-  const spec = DOCTOR_SPECS.get(engine);
+  const spec = doctorSpecOf(engine);
   if (!spec?.command) return { ok: false, error: `No doctor command for engine: ${engine}` };
   return new Promise((resolve) => {
     const child = spawn(spec.command, spec.args || [], { cwd, env: getExtendedEnv() });
@@ -268,6 +249,7 @@ export class AiSession {
     this.promptQueue = [];
     this._drainTimer = null;
     this._stoppingForQueue = false;
+    this._ensureAlive = null;
     // Async watchdogs by tool id; ponytail: fallback only — task_* records disarm them on newer CLIs.
     this.asyncTimers = new Map();
     // A span, not timestamps — the client's clock is a different clock, and subtracting across them would print the skew.
@@ -285,7 +267,7 @@ export class AiSession {
     // Byte offset into the append-only transcript; a first read starts at the file's current end, not zero.
     this.attachmentOffset = snap?.attachmentOffset ?? null;
     // Not born here: start() decides between spawning and adopting the daemon's live process.
-    this.proc = MANAGED_ENGINES.has(engine) ? new DaemonProc({ procId: id }) : null;
+    this.proc = isManagedEngine(engine) ? new DaemonProc({ procId: id }) : null;
     // Lines already parsed into this log, so a re-attach fetches only the rest.
     this.consumedLines = snap?.consumedLines || 0;
     // Line numbers belong to a process; null (legacy snapshot) makes the first adopt replay the turn whole.
@@ -464,118 +446,37 @@ export class AiSession {
     // Handlers bind to the adapter that owns them and stand down once a newer one replaces it.
     let mine = null;
     const onEvent = (event, data) => {
-      if (this.adapter !== mine) return;
+      if (this.adapter && this.adapter !== mine) return;
       this.emitNormalized(event, data);
     };
     // Only claude is spawned with a mode; the rest map it through setOptions.
     const mode = this.permissionMode || this.options.mode || "default";
-
-    switch (this.engine) {
-      case AI_ENGINES.CLAUDE:
-        mine = new ClaudeAdapter({ cwd: this.cwd, onEvent, proc: this.managed ? this.proc : null, hostSessionId: this.id });
-        this.adapter = mine;
-        // Set BEFORE start(): setOptions would restart the CLI and spawn a second process.
-        if (this.model) mine.metadata.model = this.model;
-        if (this.effort) mine.effort = this.effort;
-        // adopt() re-seeds from currentMode; without this a re-attach resets the mode to
-        // the constructor's "default" and a Yolo session starts asking for permission.
-        mine.currentMode = mode;
-        return this._startManaged(mine, mode);
-      case AI_ENGINES.CODEX:
-        mine = new CodexAdapter({
-          cwd: this.cwd,
-          onEvent,
-          proc: this.managed ? this.proc : null,
-          threadId: this.threadId,
-          model: this.model || this.options.model,
-          hostSessionId: this.id,
-          // Caller's transport, not gated on `managed` — without a daemon the adapter makes its own proc.
-          transport: this.options.transport || null
-        });
-        this.adapter = mine;
-        // Re-sent on every rebuild — codex spawns fresh per turn.
-        if (this.permissionMode || this.options.model || this.options.effort || this.effort || this.options.sandbox || this.options.flags) {
-          mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
-        }
-        return this._startManaged(mine, mode);
-      case AI_ENGINES.OPENCODE:
-        mine = new OpenCodeAdapter({
-          cwd: this.cwd,
-          onEvent,
-          proc: this.managed ? this.proc : null,
-          sessionId: this.cliSessionId,
-          model: this.model || this.options.model,
-          hostSessionId: this.id
-        });
-        this.adapter = mine;
-        if (this.permissionMode || this.options.model || this.options.variant || this.options.flags) {
-          mine.setOptions({ ...this.options, mode: this.permissionMode || this.options.mode });
-        }
-        return this._startManaged(mine, mode);
-      case AI_ENGINES.ANTIGRAVITY:
-        mine = new AntigravityAdapter({
-          cwd: this.cwd,
-          onEvent,
-          proc: this.managed ? this.proc : null,
-          conversationId: this.cliSessionId,
-          model: this.model || this.options.model,
-          hostSessionId: this.id
-        });
-        this.adapter = mine;
-        // Through setOptions, not the field — it publishes effort on init and drops model-tier suffixes.
-        if (this.permissionMode || this.options.model || this.options.flags || this.effort) {
-          mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
-        }
-        return this._startManaged(mine, mode);
-      case AI_ENGINES.OMP:
-        mine = new OmpAdapter({
-          cwd: this.cwd,
-          onEvent,
-          proc: this.managed ? this.proc : null,
-          sessionId: this.cliSessionId,
-          model: this.model || this.options.model,
-          hostSessionId: this.id
-        });
-        this.adapter = mine;
-        if (this.permissionMode || this.options.model || this.effort) {
-          mine.setOptions({ ...this.options, effort: this.effort || this.options.effort, mode: this.permissionMode || this.options.mode });
-        }
-        return this._startManaged(mine, mode);
-      case AI_ENGINES.DEVIN:
-        mine = new DevinAdapter({
-          cwd: this.cwd,
-          onEvent,
-          proc: this.managed ? this.proc : null,
-          sessionId: this.cliSessionId,
-          model: this.model || this.options.model,
-          hostSessionId: this.id
-        });
-        this.adapter = mine;
-        // Mode is read-only on this wire (session/set-mode is absent) — only the model rides setOptions.
-        if (this.model || this.options.model) mine.setOptions({ model: this.model || this.options.model });
-        return this._startManaged(mine, mode);
-      case AI_ENGINES.HERMES:
-        mine = new HermesAdapter({
-          cwd: this.cwd,
-          onEvent,
-          proc: this.managed ? this.proc : null,
-          sessionId: this.cliSessionId,
-          model: this.model || this.options.model,
-          hostSessionId: this.id
-        });
-        this.adapter = mine;
-        if (this.permissionMode || this.model || this.effort) {
-          mine.setOptions({ mode: this.permissionMode || this.options.mode, model: this.model || this.options.model, effort: this.effort || this.options.effort });
-        }
-        return this._startManaged(mine, mode);
-      default:
-        throw new Error(`Unsupported engine: ${this.engine}`);
-    }
+    const def = getEngineDef(this.engine);
+    if (!def) throw new Error(`Unsupported engine: ${this.engine}`);
+    const ctx = {
+      cwd: this.cwd,
+      onEvent,
+      proc: this.managed ? this.proc : null,
+      hostSessionId: this.id,
+      // One field per spelling of "this chat's CLI conversation" — each adapter takes its own.
+      sessionId: this.cliSessionId,
+      threadId: this.threadId,
+      conversationId: this.cliSessionId,
+      model: this.model || this.options.model,
+      effort: this.effort,
+      mode,
+      options: this.options,
+      transport: this.options.transport || null
+    };
+    mine = def.build(ctx);
+    this.adapter = mine;
+    def.seed?.(mine, this);
+    return this._startManaged(mine, mode);
   }
 
   // The daemon holds the CLI, so a turn outlives an agent restart.
   get managed() {
-    return MANAGED_ENGINES.has(this.engine) && daemonClient.isConnected();
+    return isManagedEngine(this.engine) && daemonClient.isConnected();
   }
 
   async _startManaged(adapter, mode) {
@@ -1082,6 +983,23 @@ export class AiSession {
     this.emitNormalized("user_message", { text: prompt, attachments: attachmentMeta(attachments) });
   }
 
+  // The user renamed the terminal: the conversation follows, into the CLI's own
+  // store where it has a rename (its resume picker then shows the name). Recorded
+  // locally regardless — a fire-and-forget push (claude's notify) or an old CLI
+  // without the command still keeps the name on our side, and a confirmed
+  // CLI-side rename overwrites threadTitle through its own event.
+  async renameConversation(name) {
+    try {
+      await this.adapter?.renameThread?.(name);
+    } catch {
+      // fall through to the local record
+    }
+    if (this.threadTitle !== name) {
+      this.threadTitle = name;
+      this._saveKvState();
+    }
+  }
+
   // Restored from disk so a cleared session still names its model and skills before the CLI speaks.
   metadata() {
     return { model: this.model || "", threadId: this.threadId || "", sessionId: this.cliSessionId || "", skills: this.skills || [] };
@@ -1213,6 +1131,28 @@ export class AiSession {
   // Nothing emitted on purpose — the CLI's own task_notification settles the row on both paths.
   stopTask(taskId) {
     return this.adapter?.stopTask?.(taskId) || false;
+  }
+
+  // A restored session can outlive its daemon process (agent update, CLI crash):
+  // the manager still lists it and the pane hears "live", but every prompt goes
+  // into a dead pipe until someone presses restart. The daemon's proc table is
+  // the truth — probe it on prompt and rebuild, the manual restart's remedy,
+  // automated. A dead proc cannot be mid-turn, so the running flag needs no check.
+  async ensureProcAlive() {
+    // The adapter must actually ride the shared DaemonProc — one created while the
+    // daemon was down runs on a local child (adapter.proc !== this.proc) and is
+    // healthy; "absent from the daemon" is normal for it, not a zombie.
+    if (!this.managed || !this.proc || this.adapter?.proc !== this.proc) return;
+    if (this.destroyed || this.options.mock) return;
+    if (this._ensureAlive) return this._ensureAlive;
+    this._ensureAlive = (async () => {
+      let alive = true;
+      try {
+        alive = (await daemonClient.procList()).some((p) => p.procId === this.id && p.alive !== false);
+      } catch { return; } // daemon unreachable — its connection loss has its own recovery
+      if (!alive) await this.restart();
+    })();
+    try { await this._ensureAlive; } finally { this._ensureAlive = null; }
   }
 
   // Reboot the adapter without touching the terminal PTY; handlers detach so the dying process cannot race the new one.

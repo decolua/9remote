@@ -10,7 +10,7 @@ import { stageAttachment, buildAttachedPrompt } from "../aiAttachment.js";
 import { buildEditPatch } from "./claudeAdapter.js";
 import { getExtendedEnv } from "./env.js";
 import { HERMES_EFFORTS, setHermesReasoningEffort, resolveDefaultEffort, setHermesLiveCatalog } from "../models.js";
-import { readHermesSessionTitle } from "../../terminal/agentHistory.js";
+import { readHermesSessionTitle, renameHermesSession } from "../../terminal/agentHistory.js";
 import { createLogger } from "../../../lib/logger.js";
 
 const logger = createLogger("ai");
@@ -561,5 +561,16 @@ export class HermesAdapter {
     if (!title || title === this.metadata.threadName) return;
     this.metadata.threadName = title.slice(0, 80);
     this._emitInit();
+  }
+
+  // ACP has no rename, so the write goes straight into state.db beside the reader.
+  renameThread(name) {
+    const ok = renameHermesSession(this.activeSessionId, name);
+    if (ok) {
+      this._titledSession = this.activeSessionId;
+      this.metadata.threadName = name.slice(0, 80);
+      this._emitInit();
+    }
+    return ok;
   }
 }
