@@ -8,10 +8,23 @@ import { setupCmdPoller } from "../core/cmdPoller.js";
 import { showBanner } from "../utils/tui.js";
 import { markRemoteOffline } from "../tunnel/urlSync.js";
 import { initTray, killTray, openBrowser, updateTrayTooltip } from "../utils/tray.js";
+import { killCloudflared } from "../utils/cloudflared.js";
 import { ensureKeyData, getVersion } from "../session/key.js";
 import { DELAYS } from "../config.js";
 
 export async function startUiMode() {
+  // A server that already answers belongs to another CLI — a second one would only
+  // steal the pid file and race the owner's poller. Check twice: a server caught
+  // mid-shutdown (restart_agent kills the tree, then spawns us) must not read as
+  // alive, or nobody would be left serving.
+  if (await isServerRunning()) {
+    await new Promise((r) => setTimeout(r, DELAYS.guestRecheckMs));
+    if (await isServerRunning()) {
+      console.log(chalk.green(`\n🌐 UI already served at http://localhost:${SERVER_PORT}`));
+      return;
+    }
+  }
+
   writePid("agent", process.pid);
   showBanner(getVersion());
   const keyData = await ensureKeyData();
@@ -19,12 +32,13 @@ export async function startUiMode() {
   const themeArg = process.argv.find((a) => a.startsWith("--theme="));
   const theme = themeArg ? themeArg.split("=")[1] : null;
 
-  const alreadyRunning = await isServerRunning();
-  const serverManager = alreadyRunning
-    ? { getProcess: () => null, shutdown: () => {} }
-    : startServerWithRestart(null, null);
+  // Orphans from a dead run: leftover tunnels (pid file + by-port) — the port
+  // itself is swept by spawnServer's first start. Same boot contract as auto
+  // mode, safe because no other agent answered the guest guard above.
+  try { killCloudflared(); await new Promise((r) => setTimeout(r, DELAYS.killCloudflaredMs)); } catch {}
 
-  if (!alreadyRunning) await new Promise((r) => setTimeout(r, DELAYS.serverBootMs));
+  const serverManager = startServerWithRestart(null, null);
+  await new Promise((r) => setTimeout(r, DELAYS.serverBootMs));
 
   const uiUrl = `http://localhost:${SERVER_PORT}`;
   console.log(chalk.green(`\n🌐 UI ready at ${uiUrl}`));

@@ -33,6 +33,10 @@ export const DELAYS = {
   killCloudflaredMs: 500,
   killCloudflaredTuiMs: 300,
   serverBootMs: 2000,
+  // A second CLI that finds a live server re-checks after this before exiting —
+  // must exceed the max graceful shutdown (500ms flush + 1.5s heartbeat), or a
+  // server caught mid-shutdown (restart_agent) would read as alive.
+  guestRecheckMs: 3000,
   trayReadyMs: 1000,
   postReadyHoldMs: 2000,
   bgSpawnFlushMs: 400,

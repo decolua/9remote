@@ -7,10 +7,21 @@ import { startServerWithRestart, setupExitHandler, shutdownAll } from "../core/l
 import { setupCmdPoller } from "../core/cmdPoller.js";
 import { ensureKeyData } from "../session/key.js";
 import { refreshAutoStart } from "../utils/autostart.js";
+import { killCloudflared } from "../utils/cloudflared.js";
 import { SERVER_PORT } from "../../lib/constants.js";
 import { DELAYS } from "../config.js";
 
 export async function startTrayMode() {
+  // A server that already answers belongs to another CLI — same guest guard as ui
+  // mode: exit instead of stealing the pid file and racing the owner's poller.
+  if (await isServerRunning()) {
+    await new Promise((r) => setTimeout(r, DELAYS.guestRecheckMs));
+    if (await isServerRunning()) {
+      console.log(`\n🌐 9Remote already running at http://localhost:${SERVER_PORT}`);
+      return;
+    }
+  }
+
   // Record PID — this process holds dist/cli.cjs open; updater needs to kill it
   writePid("agent", process.pid);
 
@@ -22,12 +33,12 @@ export async function startTrayMode() {
   const themeArg = process.argv.find((a) => a.startsWith("--theme="));
   const theme = themeArg ? themeArg.split("=")[1] : null;
 
-  const alreadyRunning = await isServerRunning();
-  const serverManager = alreadyRunning
-    ? { getProcess: () => null, shutdown: () => {} }
-    : startServerWithRestart(null, null);
+  // Orphans from a dead run: leftover tunnels (pid file + by-port) — the port
+  // itself is swept by spawnServer's first start. Same boot contract as auto mode.
+  try { killCloudflared(); await new Promise((r) => setTimeout(r, DELAYS.killCloudflaredMs)); } catch {}
 
-  if (!alreadyRunning) await new Promise((r) => setTimeout(r, DELAYS.serverBootMs));
+  const serverManager = startServerWithRestart(null, null);
+  await new Promise((r) => setTimeout(r, DELAYS.serverBootMs));
 
   const uiUrl = `http://localhost:${SERVER_PORT}`;
 
