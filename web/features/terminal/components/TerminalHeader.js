@@ -651,7 +651,7 @@ function TerminalHeader({
                 >
                   <span className="flex items-center gap-1.5">
                     {fullMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-                    <span>{fullMode ? (t("sessions.restoreSplit") || "Restore Split") : (t("sessions.maximize") || "Maximize")}</span>
+                    <span className="whitespace-nowrap">{fullMode ? "Restore" : "Maximize"}</span>
                   </span>
                   <span className="text-[10px] text-text-muted">100%</span>
                 </button>

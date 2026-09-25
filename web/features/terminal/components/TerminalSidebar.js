@@ -458,7 +458,7 @@ function TerminalSidebar({
               >
                 <span className="flex items-center gap-1.5">
                   {ctxFullMode ? <Minimize2 size={12} /> : <Maximize2 size={12} />}
-                  <span>{ctxFullMode ? (t("sessions.restoreSplit") || "Restore Split") : (t("sessions.maximize") || "Maximize")}</span>
+                  <span className="whitespace-nowrap">{ctxFullMode ? "Restore" : "Maximize"}</span>
                 </span>
                 <span className="text-[10px] text-text-muted">100%</span>
               </button>

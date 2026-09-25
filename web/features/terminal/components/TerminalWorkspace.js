@@ -319,8 +319,6 @@ function TerminalWorkspace({
     [workspaceOpenedSessions, hiddenPaneSessionIds]
   );
   const paneCount = visibleWorkspaceSessions.length;
-  const appliedWidth = useTerminalStore((s) => s.autoPaneWidths[activeWorkspaceId] ?? null);
-  const setAutoPaneWidth = useTerminalStore((s) => s.setAutoPaneWidth);
   // The side panels' own widths, not the row's: the row spans sidebar + panes + panels and
   // does not change when one toggles, so the deduction has to come from here.
   const sideWidth = (rightPanel?.open && expanded ? rightPanel.width : 0)
@@ -330,26 +328,8 @@ function TerminalWorkspace({
     // A collapsed sidebar renders at 0 inside the row (rowWidth never changes), so the
     // deduction must follow its live width or the fit reserves space for a hidden panel.
     rowWidth, paneCount, sidebarWidth: sidebarCollapsed ? 0 : sidebarWidth, sidePx: sideWidth,
-    gapPx: PANE_GAP_PX, paddingPx: PANE_ROW_PADDING_PX, minWidth: PANE_WIDTH.min,
-    applied: appliedWidth
+    gapPx: PANE_GAP_PX, paddingPx: PANE_ROW_PADDING_PX, minWidth: PANE_WIDTH.min
   });
-
-  useEffect(() => {
-    if (autoWidth != null) setAutoPaneWidth(activeWorkspaceId, autoWidth);
-  }, [autoWidth, activeWorkspaceId, setAutoPaneWidth]);
-
-  // Only a deliberate action widens the row back out: a viewport resize, a double-click,
-  // adding or removing a pane, dragging the sidebar. A side panel toggling only narrows —
-  // widening re-fits the PTY, and cols is one-way, so it would re-wrap scrollback nobody
-  // asked to re-wrap. `autoPaneWidths` is the memory this compares against.
-  const deliberateRef = useRef({ paneWidth, paneCount, sidebarWidth, rowWidth });
-  useEffect(() => {
-    const prev = deliberateRef.current;
-    deliberateRef.current = { paneWidth, paneCount, sidebarWidth, rowWidth };
-    if (prev.paneWidth === paneWidth && prev.paneCount === paneCount
-      && prev.sidebarWidth === sidebarWidth && prev.rowWidth === rowWidth) return;
-    setAutoPaneWidth(activeWorkspaceId, null);
-  }, [paneWidth, paneCount, sidebarWidth, rowWidth, activeWorkspaceId, setAutoPaneWidth]);
 
   const effectivePaneWidth = paneWidth ?? autoWidth;
 
@@ -389,13 +369,8 @@ function TerminalWorkspace({
     });
   };
 
-  // Double-click or shortcut: an explicit fit, so it re-fits both ways — including when the
-  // row is already in auto mode but a side panel had narrowed it, which `paneWidth` alone
-  // cannot signal (it is null in both cases).
-  const fitPaneWidth = useCallback(() => {
-    setAutoPaneWidth(activeWorkspaceId, null);
-    setPaneWidth?.(null);
-  }, [activeWorkspaceId, setAutoPaneWidth, setPaneWidth]);
+  // Double-click or shortcut: back to the computed fit, dropping any pinned width.
+  const fitPaneWidth = useCallback(() => setPaneWidth?.(null), [setPaneWidth]);
 
   const [splitterMenu, setSplitterMenu] = useState(null);
   const splitterMenuRef = useRef(null);
@@ -418,12 +393,11 @@ function TerminalWorkspace({
           PANE_WIDTH.min,
           Math.floor((containerWidth - (fraction - 1) * PANE_GAP_PX) / fraction)
         );
-        setAutoPaneWidth(activeWorkspaceId, null);
         setPaneWidth?.(targetWidth);
       }
     }
     setSplitterMenu(null);
-  }, [fitPaneWidth, panesContainerRef, rowWidth, sidebarCollapsed, sidebarWidth, sideWidth, activeWorkspaceId, setAutoPaneWidth, setPaneWidth]);
+  }, [fitPaneWidth, panesContainerRef, rowWidth, sidebarCollapsed, sidebarWidth, sideWidth, setPaneWidth]);
 
   useEffect(() => {
     if (!splitterMenu) return;

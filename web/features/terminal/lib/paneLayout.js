@@ -61,15 +61,13 @@ export function centeredPaneScroll({ container, pane }) {
   return Math.max(0, Math.min(target, max));
 }
 
-// Width an auto-fit pane takes this render. Auto-fit is narrowing-only: a side panel
-// opening narrows the panes so nothing is clipped, but a panel closing leaves the freed
-// space empty until the user asks for it. Widening re-fits the PTY and cols is one-way —
-// it would re-wrap scrollback nobody asked to re-wrap. A deliberate action (double-click,
-// sidebar drag, pane add/remove, viewport resize) clears `applied` and full-fits; there is
-// no other way back up, so a row clamped at the floor stays clamped until one of those.
-export function autoFitPaneWidth({ rowWidth, paneCount, sidebarWidth, sidePx, gapPx, paddingPx, minWidth, applied }) {
+// Width an auto-fit pane takes this render. Symmetric: a panel opening narrows the panes
+// and a panel closing widens them back, so a transient narrow layout cannot hold the PTY
+// at a width it would otherwise only ratchet down from. The resize it drives is debounced
+// and skipped when cols/rows come out unchanged (useXTerm), so tracking a panel drag costs
+// one re-fit, not one PTY resize per frame.
+export function autoFitPaneWidth({ rowWidth, paneCount, sidebarWidth, sidePx, gapPx, paddingPx, minWidth }) {
   if (!(rowWidth > 0) || paneCount <= 0) return null;
   const base = rowWidth - sidebarWidth - paddingPx - sidePx;
-  const full = Math.max(minWidth, Math.floor((base - (paneCount - 1) * gapPx) / paneCount));
-  return applied == null ? full : Math.min(applied, full);
+  return Math.max(minWidth, Math.floor((base - (paneCount - 1) * gapPx) / paneCount));
 }
