@@ -199,6 +199,12 @@ export function handleDeviceAuthEvent(pm, event, data) {
     // this PM's auth, handshake included.
     pm._auth.tempKey = null;
     if (pm._auth.socketOptions?.auth) pm._auth.socketOptions.auth.tempKey = null;
+    // And from the session store, or the next page load resurrects it: getAuth
+    // would rebuild the wire with the code attached, the agent (its pairing
+    // window still live) would judge the KEY tail against the CODE tail, and
+    // the mismatch burns the code and kicks the user out — with the key itself
+    // safely saved, which is exactly as confusing as it sounds.
+    try { sessionStorage.removeItem("tempKey"); } catch {}
     // Store issued TAIL to establish persistent device authentication.
     const tail = data?.tail;
     if (!tail) return true;
