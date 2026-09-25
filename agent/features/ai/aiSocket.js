@@ -5,7 +5,7 @@ import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
-import { listModelOptions, listCodexModelOptions, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, listAntigravityModelOptions, listOmpModelOptions, listDevinModelOptions, listHermesModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
+import { listModelOptionsFor, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.js";
@@ -179,17 +179,6 @@ export function publicSession(session) {
     stats: session.adapter?.stats || null,
     queue: session.getQueue ? session.getQueue() : []
   };
-}
-
-function listModelOptionsFor(engine) {
-  if (engine === "claude") return listModelOptions();
-  if (engine === "codex") return listCodexModelOptions();
-  if (engine === "opencode") return listOpencodeModelOptions();
-  if (engine === "antigravity") return listAntigravityModelOptions();
-  if (engine === "omp") return listOmpModelOptions();
-  if (engine === "devin") return listDevinModelOptions();
-  if (engine === "hermes") return listHermesModelOptions();
-  return null;
 }
 
 // Two engines answer a catalog read by spawning a CLI — cache it across connects.
@@ -381,6 +370,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         }
       }
       if (!session) throw new Error(`AI session unavailable: ${sessionId}`);
+      // A zombie session (daemon proc gone) must not swallow the message — heal it
+      // first, and wait out any boot-time spawn still in flight on a healthy one.
+      await session.ensureProcAlive?.();
+      if (session.ready) await session.ready;
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
       // The pane has already dropped its log; a refused /clear would strand an empty chat — stop the turn instead.
       if (String(message).trim() === "/clear" && session.isTurnRunning) session.stop();
