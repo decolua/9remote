@@ -182,9 +182,16 @@ export async function initTray({ port, onQuit, onOpenUI }) {
       }
     });
 
-    // systray2 exposes ready() promise; legacy systray uses onReady/onError callbacks
+    // systray2 spawns its helper lazily: sendAction before ready() resolves writes to a
+    // null stdin and takes the whole agent down via unhandledRejection. Await it, and
+    // drop the instance if it never comes up.
     if (typeof trayInstance.ready === "function") {
-      trayInstance.ready().catch(() => {});
+      try {
+        await trayInstance.ready();
+      } catch {
+        trayInstance = null;
+        return null;
+      }
     } else {
       trayInstance.onReady(() => {});
       trayInstance.onError(() => {});
@@ -210,11 +217,13 @@ export function updateTrayTooltip({ tunnelUrl, running } = {}) {
     return;
   }
   try {
+    // sendAction is async and writes to the helper's stdin — a rejection here
+    // (helper gone, pipe closed) must never surface as an unhandledRejection.
     trayInstance.sendAction({
       type: "update-menu",
       menu: buildMenu(),
       seq_id: -1,
-    });
+    })?.catch?.(() => {});
   } catch {}
 }
 
