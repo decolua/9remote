@@ -27,13 +27,16 @@ export async function freshAuth(baseAuth = {}, connectionMode) {
   // A one-time login holds the CODE's tail, filed under the code; an API key
   // login holds the key's, filed under its HEAD.
   //
-  // Chosen by which entry actually HAS a tail, not by which exists: a browser
-  // that logged in before has a trust entry under the HEAD carrying a pinned
-  // host key and no tail, and preferring that one left a pairing device unable
-  // to present the code it was holding all along.
+  // While a tempKey is attached the agent judges every tail against the CODE's
+  // (a pairing session), so the code's tail wins whenever there is one — a
+  // browser that paired before carries the KEY's tail under the same HEAD, and
+  // preferring it here handed the agent the right tail for the wrong session,
+  // which burned the code and kicked the user out. Without a tempKey the key's
+  // tail is the only credential, and an entry with just a pinned host key (no
+  // tail) never outranks the code being held.
   const byKey = getTrust(baseAuth.apiKey);
   const byCode = baseAuth.tempKey ? getTrust(baseAuth.tempKey) : null;
-  const trust = byKey?.tail ? byKey : (byCode?.tail ? byCode : byKey || byCode);
+  const trust = byCode?.tail ? byCode : (byKey?.tail ? byKey : byKey || byCode);
   const tail = trust?.tail;
 
   delete auth.keyTail;
