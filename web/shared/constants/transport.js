@@ -43,6 +43,11 @@ export const STUN_PROBE = {
 // flicker. If not → fall back to a WS-driven rejoin to recover content.
 export const REJOIN_DEBOUNCE_MS = 500;
 
+// A blip that recovers within the first attempts is transport noise, not news:
+// the overlay already says "retrying", so the modal with its buttons waits
+// until the retries are visibly not working before it interrupts.
+export const RETRY_MODAL_MIN_ATTEMPT = 3;
+
 // Control-DC liveness (ttyd pattern: periodic ping, hang up after interval+grace
 // of silence). SCTP can stay "open" while an app-level stall blackholes every
 // message. Agent pings, web pongs; each side also measures the other direction.

@@ -3,7 +3,7 @@
 import Spinner from "./Spinner";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { APPROVAL_STATUS } from "@/shared/constants/transport";
+import { APPROVAL_STATUS, RETRY_MODAL_MIN_ATTEMPT } from "@/shared/constants/transport";
 
 /**
  * Connection overlay modal - shows when retrying, failed, or waiting for device approval
@@ -105,6 +105,10 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // attempt is just the connect being slow (the loading screen owns that
   // phase). Only a hard failure needs the buttons here.
   if (firstConnect && !retryStatus?.failed) return null;
+  // And an early retry on a live page is a blip, not news: the overlay already
+  // carries the "retrying" state, and the buttons only earn their interruption
+  // once the attempts are visibly not working.
+  if (retryStatus?.isRetrying && retryStatus.attempt < RETRY_MODAL_MIN_ATTEMPT) return null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
