@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Folder, KeyRound, Loader2, Monitor, Pencil, Plug, Power, RotateCw, Smartphone, Trash2, Zap } from "@/shared/components/ui/Icon";
+import { ChevronRight, Folder, KeyRound, Loader2, Monitor, Pencil, Plug, Power, RotateCw, Smartphone, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
@@ -41,8 +41,6 @@ export default function HostTreeRow({
   // Per-host update state: badge while an update waits, spinner while one runs.
   hostUpdating = false,
   onUpdateHost = null,
-  // Foreign hosts only: re-key the workspace connection onto this machine.
-  onSetActive = null,
   // Per-host feature doors — rendered only when the host reports the capability.
   onOpenRemote = null,
   onOpenMobile = null,
@@ -153,10 +151,6 @@ export default function HostTreeRow({
               {
                 icon: KeyRound, label: t("hosts.addHost"),
                 onClick: () => setAddOpen(true)
-              },
-              onSetActive && !hostUpdating && {
-                icon: Zap, label: t("hosts.setActive"),
-                onClick: () => { setMenuAt(null); vibrate(); onSetActive(); }
               },
               onOpenRemote && !hostUpdating && {
                 icon: Monitor, label: t("menu.remoteDesktop"),

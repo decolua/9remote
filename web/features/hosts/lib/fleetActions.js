@@ -2,6 +2,7 @@
 
 import { useFleetStore, fleetBusOf, emitWhenReady } from "@/shared/stores/fleetStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { switchHost } from "./switchHost";
 import { agentLaunchCommand } from "@/features/terminal/constants/agentCli";
 import { scopedWsId } from "./fleetTree";
 
@@ -28,9 +29,21 @@ export function makeFleetActions(host, { onSelectSession = null, onSelectWorkspa
       useFleetStore.getState().ensureHost(host.key);
       onSelectSession?.(sessionId);
     },
-    // Scope the raw id for the workspace model (ungrouped rides "head:_"), the
-    // same shape scopedFleetLists hands the main-host nav.
-    selectWorkspace: (rawId) => onSelectWorkspace?.(scopedWsId(host.key, rawId ?? "_")),
+    // Opening another host's workspace IS the switch: verify + re-key in place
+    // (no reload), then select it as the viewed host's own — its ids are the
+    // unscoped set now. An unreachable target falls back to the foreign view,
+    // so the tap always does something.
+    selectWorkspace: async (rawId) => {
+      const st = useFleetStore.getState();
+      if (host.key && host.key !== st.currentKey) {
+        try {
+          await switchHost(host.full || host.key);
+          onSelectWorkspace?.(rawId ?? "_");
+          return;
+        } catch { /* unreachable — view it as a foreign workspace instead */ }
+      }
+      onSelectWorkspace?.(scopedWsId(host.key, rawId ?? "_"));
+    },
     createSession: (name, workspaceId, shellId, cwd, agent, yolo, nameIsAuto, callback) => {
       // The modal hands the picked OPTION object; the wire and the tree want its id.
       const agentOpt = typeof agent === "string" ? null : agent;

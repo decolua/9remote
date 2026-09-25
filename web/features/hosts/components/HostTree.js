@@ -24,7 +24,6 @@ import HostTreeRow from "./HostTreeRow";
 import HostUpdateProgress from "./HostUpdateProgress";
 import HostApprovalNotice from "./HostApprovalNotice";
 import { hostTree } from "../lib/fleetTree";
-import { switchHost } from "../lib/switchHost";
 
 /**
  * ONE tree per host — the main host's and every other host's render through this.
@@ -72,7 +71,6 @@ export default function HostTree({
   const [sessDelete, setSessDelete] = useState(null);     // {id, name}
   const [wsPicker, setWsPicker] = useState(false);        // fleet add-workspace folder picker
   const [shells, setShells] = useState([]);
-  const [switchError, setSwitchError] = useState(false);  // last "set active" failed (host unreachable)
   const [updateConfirm, setUpdateConfirm] = useState(false);
 
   const status = host.status || "full";
@@ -139,17 +137,6 @@ export default function HostTree({
 
   const groups = hostTree(host.sessions, host.workspaces);
 
-  const setActive = () => {
-    vibrate();
-    setSwitchError(false);
-    // Verify runs first, so an unreachable host leaves this workspace untouched.
-    switchHost(host.full || host.key).catch((e) => {
-      console.error("switchHost", e);
-      setSwitchError(true);
-      setTimeout(() => setSwitchError(false), 4000);
-    });
-  };
-
   const createIn = (name, shellId, agent, yolo, cwd, nameIsAuto) => {
     actions.createSession?.(name, termModalWs === "ungrouped" ? null : termModalWs, shellId, cwd, agent, yolo, nameIsAuto);
     setTermModalWs(null);
@@ -168,7 +155,6 @@ export default function HostTree({
         meta={connecting ? <Loader2 size={12} className="animate-spin text-text-subtle" /> : null}
         hostUpdating={!!host.updating}
         onUpdateHost={online && !host.approval ? (mode) => useFleetStore.getState().requestHostUpdate(host.key, mode) : null}
-        onSetActive={status !== "full" && online ? setActive : null}
         onOpenRemote={online && host.remoteAvailable && onOpenRemoteHost ? () => onOpenRemoteHost(host.key) : null}
         onOpenMobile={online && host.mobileAvailable && onOpenMobileHost ? () => onOpenMobileHost(host.key) : null}
         onToggleCollapse={expandable ? () => {
@@ -187,13 +173,6 @@ export default function HostTree({
         onDelete={actions.deleteHost}
         showAdd={false}
       />
-
-      {/* A failed "set active": verify could not reach the target, this host is untouched */}
-      {switchError && (
-        <div className={treeCls}>
-          <div className="text-[11px] text-red-400 py-1">{t("agentSwitcher.unreachable")}</div>
-        </div>
-      )}
 
       {/* Updating or awaiting admission: the leaves are not this host's truth
           right now — hide them and let the row answer for itself. */}
