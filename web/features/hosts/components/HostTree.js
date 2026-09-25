@@ -1,14 +1,15 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
-import { EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
+import { Download, EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
 import { connOf } from "@/shared/transport/hostConn";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
+import { DRAG_HOLD_MS, DRAG_MOVE_TOLERANCE_PX } from "@/features/terminal/constants/terminalConfig";
 import { workspaceGitPath } from "@/features/terminal/lib/workspaceGrouping";
 import WorkspaceHeader from "@/features/terminal/components/WorkspaceHeader";
 import SessionAgentIcon from "@/features/terminal/components/SessionAgentIcon";
@@ -20,7 +21,10 @@ import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import HostTreeRow from "./HostTreeRow";
+import HostUpdateProgress from "./HostUpdateProgress";
+import HostApprovalNotice from "./HostApprovalNotice";
 import { hostTree } from "../lib/fleetTree";
+import { switchHost } from "../lib/switchHost";
 
 /**
  * ONE tree per host — the main host's and every other host's render through this.
@@ -42,6 +46,10 @@ export default function HostTree({
   onUnhidePane = null,
   onAddWorkspace = null,       // custom flow (main host's folder picker); null = name prompt
   menuAddWorkspace = null,     // root menu's "New workspace" entry (main host)
+  // Per-host feature doors: open remote desktop / the Android mirror ON THIS
+  // host's conn. Callers gate by the capability flags; a null prop hides it.
+  onOpenRemoteHost = null,
+  onOpenMobileHost = null,
   // Main-host extras. When present they take over: the rich context menu replaces
   // the built-in ⋯, per-session agent map outranks the session's own field, and
   // live cwd map feeds SessionMeta.
@@ -64,6 +72,8 @@ export default function HostTree({
   const [sessDelete, setSessDelete] = useState(null);     // {id, name}
   const [wsPicker, setWsPicker] = useState(false);        // fleet add-workspace folder picker
   const [shells, setShells] = useState([]);
+  const [switchError, setSwitchError] = useState(false);  // last "set active" failed (host unreachable)
+  const [updateConfirm, setUpdateConfirm] = useState(false);
 
   const status = host.status || "full";
   const connecting = status === "connecting";
@@ -94,7 +104,51 @@ export default function HostTree({
     onCommit: (orderedIds) => actions.reorderSession?.(orderedIds)
   });
 
+  // Touch long-press → drag, same gesture every host's rows share (no hover grip
+  // on a phone). One ref serves every row: touch drives one press at a time, and
+  // a swipe past the tolerance cancels the hold so scrolling stays untouched.
+  const holdRef = useRef(null);
+  const clearHold = () => {
+    if (holdRef.current) { clearTimeout(holdRef.current.timer); holdRef.current = null; }
+  };
+  const armHold = (e, id, ids) => {
+    if (ids.length < 2 || !actionable) return;
+    if (e.pointerType === "mouse") { startDrag(e, id, ids); return; }
+    // A caller with its own long-press menu (desktop sidebar's row menu) owns the
+    // hold — touch-drag there goes through the grip instead.
+    if (onRowTouch) return;
+    const start = { x: e.clientX, y: e.clientY };
+    // clientX/Y and pointerType outlive the dispatched event inside the timer
+    const down = e;
+    const timer = setTimeout(() => { clearHold(); vibrate(); startDrag(down, id, ids); }, DRAG_HOLD_MS);
+    holdRef.current = { timer, start };
+  };
+  const moveHold = (e) => {
+    const h = holdRef.current;
+    if (!h) return;
+    if (Math.abs(e.clientX - h.start.x) > DRAG_MOVE_TOLERANCE_PX || Math.abs(e.clientY - h.start.y) > DRAG_MOVE_TOLERANCE_PX) clearHold();
+  };
+  // While a drag is live, touch scrolling must not fight the transform
+  useEffect(() => {
+    if (!dragId) return;
+    const stopScroll = (e) => e.preventDefault();
+    window.addEventListener("touchmove", stopScroll, { passive: false });
+    return () => window.removeEventListener("touchmove", stopScroll);
+  }, [dragId]);
+
+
   const groups = hostTree(host.sessions, host.workspaces);
+
+  const setActive = () => {
+    vibrate();
+    setSwitchError(false);
+    // Verify runs first, so an unreachable host leaves this workspace untouched.
+    switchHost(host.full || host.key).catch((e) => {
+      console.error("switchHost", e);
+      setSwitchError(true);
+      setTimeout(() => setSwitchError(false), 4000);
+    });
+  };
 
   const createIn = (name, shellId, agent, yolo, cwd, nameIsAuto) => {
     actions.createSession?.(name, termModalWs === "ungrouped" ? null : termModalWs, shellId, cwd, agent, yolo, nameIsAuto);
@@ -112,6 +166,11 @@ export default function HostTree({
         mutedOffline={status !== "full"}
         collapsed={!open}
         meta={connecting ? <Loader2 size={12} className="animate-spin text-text-subtle" /> : null}
+        hostUpdating={!!host.updating}
+        onUpdateHost={online && !host.approval ? (mode) => useFleetStore.getState().requestHostUpdate(host.key, mode) : null}
+        onSetActive={status !== "full" && online ? setActive : null}
+        onOpenRemote={online && host.remoteAvailable && onOpenRemoteHost ? () => onOpenRemoteHost(host.key) : null}
+        onOpenMobile={online && host.mobileAvailable && onOpenMobileHost ? () => onOpenMobileHost(host.key) : null}
         onToggleCollapse={expandable ? () => {
           vibrate();
           if (!open) useFleetStore.getState().ensureHost(host.key); // expanding opens the bus
@@ -127,8 +186,41 @@ export default function HostTree({
         showAdd={false}
       />
 
-      {open && expandable && (
+      {/* A failed "set active": verify could not reach the target, this host is untouched */}
+      {switchError && (
         <div className={treeCls}>
+          <div className="text-[11px] text-red-400 py-1">{t("agentSwitcher.unreachable")}</div>
+        </div>
+      )}
+
+      {/* Updating or awaiting admission: the leaves are not this host's truth
+          right now — hide them and let the row answer for itself. */}
+      {host.updating ? (
+        <div className={`${treeCls} py-2`}>
+          <HostUpdateProgress />
+        </div>
+      ) : host.approval ? (
+        <div className={treeCls}>
+          <HostApprovalNotice hostKey={host.key} approval={host.approval} onDeleteHost={actions.deleteHost} />
+        </div>
+      ) : open && expandable && (
+        <div className={treeCls}>
+          {/* Update-available — one compact pill, first item of the tree (the
+              slot that turns into update progress / approval notice later).
+              The tree stays usable; the row itself only carries the dot. */}
+          {host.updateAvailable && host.canSelfUpdate && !host.approval && (
+            <button
+              type="button"
+              onClick={() => { vibrate(); setUpdateConfirm(true); }}
+              title={t("menu.updateAvailableTitle")}
+              className="flex items-center gap-1.5 px-2 py-1 mb-1 max-w-full text-[11px] font-medium text-brand-400 hover:text-brand-300 bg-brand-500/10 hover:bg-brand-500/20 rounded-brand transition-colors"
+            >
+              <Download size={12} className="shrink-0" />
+              <span className="truncate">
+                {t("menu.updateNow")}{host.updateAvailable?.version ? ` · ${host.updateAvailable.version}` : ""}
+              </span>
+            </button>
+          )}
           {groups.map(({ workspace, sessions }) => {
             const rawId = workspace?.id ?? null;
             const wsKey = rawId ?? "ungrouped";
@@ -147,6 +239,7 @@ export default function HostTree({
                   onToggleCollapse={() => toggleNode(wsKey)}
                   onSelect={actions.selectWorkspace ? () => { vibrate(); actions.selectWorkspace(rawId); } : null}
                   onNewTerminal={actions.createSession ? () => setTermModalWs(wsKey) : null}
+                  onAddWorkspace={menuAddWorkspace}
                   onRename={actions.renameWorkspace && rawId != null ? () => setWsRename({ id: rawId, value: workspace.name }) : null}
                   onDelete={actions.deleteWorkspace && rawId != null ? () => setWsDelete({ id: rawId, name: workspace.name }) : null}
                 />
@@ -162,10 +255,15 @@ export default function HostTree({
                       key={s.id}
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer touch-manipulation touch-pan-y ${
+                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
                         isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
                       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
                       onClick={(e) => { if (consumeClick()) return; vibrate(); actions.selectSession?.(s.id); }}
+                      onPointerDown={(e) => armHold(e, s.id, sessions.map((i) => i.id))}
+                      onPointerMove={moveHold}
+                      onPointerUp={clearHold}
+                      onPointerCancel={clearHold}
+                      onPointerLeave={clearHold}
                       onContextMenu={onRowContextMenu ? (e) => onRowContextMenu(e, s.id, title) : undefined}
                       onTouchStart={onRowTouch?.start}
                       onTouchMove={onRowTouch?.move}
@@ -175,7 +273,7 @@ export default function HostTree({
                         <button
                           data-gid={wsKey === "ungrouped" ? "" : rawId}
                           data-sid={s.id}
-                          onPointerDown={(e) => startDrag(e, s.id, sessions.map((i) => i.id))}
+                          onPointerDown={(e) => { e.stopPropagation(); startDrag(e, s.id, sessions.map((i) => i.id)); }}
                           disabled={sessions.length < 2}
                           className="absolute left-0 top-1/2 -translate-y-1/2 z-10 p-0.5 text-text-subtle opacity-0 group-hover:opacity-100 cursor-grab active:cursor-grabbing touch-none disabled:opacity-0 disabled:cursor-default"
                           tabIndex={-1}
@@ -352,6 +450,14 @@ export default function HostTree({
           confirmText={t("common.delete")}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={updateConfirm}
+        onClose={() => setUpdateConfirm(false)}
+        onConfirm={() => { setUpdateConfirm(false); useFleetStore.getState().requestHostUpdate(host.key, "update"); }}
+        title={t("menu.updateConfirmTitle")}
+        message={t("menu.updateConfirmMessage")}
+      />
 
       {sessRename !== null && (
         <PromptDialog

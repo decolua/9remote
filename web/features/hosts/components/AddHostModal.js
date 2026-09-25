@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { KeyRound, Loader2, X } from "@/shared/components/ui/Icon";
+import QRScanner from "@/shared/components/ui/QRScanner";
+import { KeyRound, Loader2, QrCode, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useAuth } from "@/shared/hooks/useAuth";
@@ -9,7 +10,7 @@ import { useApiKeyStorage } from "@/shared/hooks/useApiKeyStorage";
 import { headOf, tailOf, isLegacyApiKey } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
 import { useFleetStore } from "@/shared/stores/fleetStore";
-import { finishPairingLogin } from "../lib/switchHost";
+import { finishPairingLogin, armPairingSave } from "../lib/switchHost";
 import { parsePairingInput } from "../lib/parsePairingInput";
 
 // Add another machine: a pasted access key, or a pairing code read off the host's
@@ -25,6 +26,7 @@ export default function AddHostModal({ onClose }) {
   const [remember, setRemember] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [showQRScanner, setShowQRScanner] = useState(false);
   const inputRef = useRef(null);
 
   useEffect(() => {
@@ -44,11 +46,10 @@ export default function AddHostModal({ onClose }) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  const submit = async (e) => {
-    e?.preventDefault();
-    const raw = value.trim();
-    if (!raw || busy) return;
-    if (isLegacyApiKey(raw)) return setError(t("login.legacyKeyError"));
+  // Takes the raw input explicitly: the field and a scanned QR both land here.
+  const connect = async (raw) => {
+    if (!raw || busy) return false;
+    if (isLegacyApiKey(raw)) { setError(t("login.legacyKeyError")); return false; }
 
     vibrate();
     setBusy(true);
@@ -61,6 +62,7 @@ export default function AddHostModal({ onClose }) {
       // Access keys carry their own TAIL: verify without touching the live
       // session, then join the fleet as a sibling bus (no reload). One-time
       // keys need an enrollment session — handled below via finishPairingLogin.
+      if (isOneTime) armPairingSave(remember);
       const result = isOneTime
         ? await authenticateWithToken(parsed.tempKey, true, parsed.tail)
         : await authenticateWithApiKey(raw, { persistSession: false });
@@ -68,11 +70,14 @@ export default function AddHostModal({ onClose }) {
         setError(result?.error && result.error !== "wrong-key-tail"
           ? result.error
           : t("login.invalidKeyTail"));
-        return;
+        return false;
       }
       if (isOneTime) {
-        finishPairingLogin(parsed, { remember, leavingHead: useFleetStore.getState().currentKey });
-        return;
+        // Already in the workspace: the re-key rebuilds the connection, so close
+        // the modal rather than reloading the page onto the same place.
+        finishPairingLogin(parsed, { remember, leavingHead: useFleetStore.getState().currentKey, navigate: false });
+        onClose?.();
+        return true;
       }
       const head = headOf(raw);
       const tail = tailOf(raw);
@@ -86,14 +91,23 @@ export default function AddHostModal({ onClose }) {
         useFleetStore.getState().setAutoConnect(head, true);
       }
       onClose?.();
+      return true;
     } catch (err) {
       setError(err?.message || t("login.invalidKeyTail"));
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
+  const submit = (e) => { e?.preventDefault(); connect(value.trim()); };
+
+  // A pairing code's TAIL rides the URL fragment, so a scanned QR (not the
+  // clipboard-friendly query) is the one input that carries the whole code.
+  const handleScan = (scanned) => connect(String(scanned || "").trim());
+
   return (
+    <>
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center px-4 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150"
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
@@ -123,16 +137,27 @@ export default function AddHostModal({ onClose }) {
         </div>
 
         <div className="px-4 py-4 space-y-3">
-          <input
-            ref={inputRef}
-            type="text"
-            value={value}
-            onChange={(e) => { setValue(e.target.value); setError(""); }}
-            placeholder={t("login.placeholder")}
-            spellCheck={false}
-            autoComplete="off"
-            className="w-full px-3 py-2.5 bg-surface-2 border border-border-subtle rounded-[10px] font-mono text-sm text-text placeholder-text-subtle focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all duration-150"
-          />
+          <div className="relative">
+            <input
+              ref={inputRef}
+              type="text"
+              value={value}
+              onChange={(e) => { setValue(e.target.value); setError(""); }}
+              placeholder={t("login.placeholder")}
+              spellCheck={false}
+              autoComplete="off"
+              className="w-full pl-3 pr-11 py-2.5 bg-surface-2 border border-border-subtle rounded-[10px] font-mono text-sm text-text placeholder-text-subtle focus:outline-none focus:border-brand-500 focus:ring-2 focus:ring-brand-500/20 transition-all duration-150"
+            />
+            <button
+              type="button"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => { vibrate(); setShowQRScanner(true); }}
+              className="absolute right-2 top-1/2 -translate-y-1/2 w-7 h-7 grid place-items-center rounded-[7px] text-text-subtle hover:bg-surface-3 hover:text-brand-500 transition-colors"
+              aria-label={t("login.scanQr")}
+            >
+              <QrCode size={16} />
+            </button>
+          </div>
           <label className="flex items-center gap-2 px-0.5 text-xs text-text-muted cursor-pointer select-none">
             <input
               type="checkbox"
@@ -164,5 +189,12 @@ export default function AddHostModal({ onClose }) {
         </div>
       </form>
     </div>
+
+    {showQRScanner && (
+      <div className="fixed inset-0 z-[80]">
+        <QRScanner isOpen onClose={() => setShowQRScanner(false)} onScan={handleScan} />
+      </div>
+    )}
+    </>
   );
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Folder, KeyRound, Monitor, Pencil, Plug, Power, RotateCw, Trash2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, Folder, KeyRound, Loader2, Monitor, Pencil, Plug, Power, RotateCw, Smartphone, Trash2, Zap } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
@@ -38,6 +38,14 @@ export default function HostTreeRow({
   onRetry = null,
   // The desktop sidebar keeps its add-key button up in the brand row instead.
   showAdd = true,
+  // Per-host update state: badge while an update waits, spinner while one runs.
+  hostUpdating = false,
+  onUpdateHost = null,
+  // Foreign hosts only: re-key the workspace connection onto this machine.
+  onSetActive = null,
+  // Per-host feature doors — rendered only when the host reports the capability.
+  onOpenRemote = null,
+  onOpenMobile = null,
   // Mobile draws this row bigger (fonts on the standard scale, touch-sized
   // buttons); desktop keeps its compact sizes.
   mobile = false,
@@ -48,6 +56,7 @@ export default function HostTreeRow({
   const [removeOpen, setRemoveOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [addOpen, setAddOpen] = useState(false);
+  const [updateMode, setUpdateMode] = useState(null); // "update" | "restart" pending confirm
   const [menuAt, setMenuAt] = useState(null); // screen pos a right-click opened the menu at
 
   const displayLabel = label || "Local";
@@ -90,12 +99,15 @@ export default function HostTreeRow({
             {displayLabel}
           </span>
         </button>
+        {hostUpdating && (
+          <Loader2 size={mobile ? 14 : 12} className="animate-spin text-brand-400 shrink-0" aria-label={t("menu.updating")} />
+        )}
         {meta && <span className="text-[10px] text-text-subtle truncate min-w-0 max-w-[45%] mr-1">{meta}</span>}
 
         {/* Actions pinned absolute right — the ExplorerRow door: text runs full
             width, hover floats the cluster over its end with a surface backdrop. */}
         <div className={`absolute right-1 top-1/2 -translate-y-1/2 flex items-center ${mobile ? "gap-1.5 opacity-100" : "gap-1 sm:gap-1.5 px-1 rounded-[3px] bg-surface-2 opacity-0 group-hover:opacity-100 [@media(hover:none)]:opacity-100"} transition-opacity`}>
-          {showAdd && (
+          {showAdd && !hostUpdating && (
             <button
               onClick={(e) => { e.stopPropagation(); vibrate(); setAddOpen(true); }}
               className="p-0.5 text-text-subtle hover:text-text rounded-[2px] transition-colors"
@@ -115,7 +127,7 @@ export default function HostTreeRow({
             </button>
           )}
           {/* New workspace — its own folder button, one tap shallower than the menu. */}
-          {onAddWorkspace && (
+          {onAddWorkspace && !hostUpdating && (
             <button
               onClick={(e) => { e.stopPropagation(); vibrate(); onAddWorkspace(); }}
               className={`${mobile ? "p-1.5" : "p-0.5"} text-text-subtle hover:text-text rounded-[2px] transition-colors`}
@@ -134,6 +146,30 @@ export default function HostTreeRow({
             anchor={menuAt}
             onClose={() => setMenuAt(null)}
             items={[
+              onAddWorkspace && !hostUpdating && {
+                icon: Folder, label: t("workspaces.newWorkspace"),
+                onClick: () => onAddWorkspace()
+              },
+              {
+                icon: KeyRound, label: t("hosts.addHost"),
+                onClick: () => setAddOpen(true)
+              },
+              onSetActive && !hostUpdating && {
+                icon: Zap, label: t("hosts.setActive"),
+                onClick: () => { setMenuAt(null); vibrate(); onSetActive(); }
+              },
+              onOpenRemote && !hostUpdating && {
+                icon: Monitor, label: t("menu.remoteDesktop"),
+                onClick: () => { setMenuAt(null); vibrate(); onOpenRemote(); }
+              },
+              onOpenMobile && !hostUpdating && {
+                icon: Smartphone, label: t("mobile.androidDevice"),
+                onClick: () => { setMenuAt(null); vibrate(); onOpenMobile(); }
+              },
+              onUpdateHost && connected && !hostUpdating && {
+                icon: RotateCw, label: t("menu.restartHost"),
+                onClick: () => setUpdateMode("restart")
+              },
               onRename && hostKey && {
                 icon: Pencil, label: t("sessions.editName"),
                 onClick: () => setRename(displayLabel)
@@ -144,7 +180,7 @@ export default function HostTreeRow({
               },
               onDisconnect && {
                 icon: Power, label: t("common.disconnect"), danger: true,
-                onClick: () => setDisconnectOpen(true)
+                onClick: () => { setMenuAt(null); setDisconnectOpen(true); }
               }
             ]}
           />
@@ -187,6 +223,14 @@ export default function HostTreeRow({
         title={t("common.disconnect")}
         message={t("hosts.disconnectMessage", { name: displayLabel })}
         confirmText={t("common.disconnect")}
+      />
+
+      <ConfirmDialog
+        isOpen={updateMode !== null}
+        onClose={() => setUpdateMode(null)}
+        onConfirm={() => { onUpdateHost?.(updateMode); setUpdateMode(null); }}
+        title={updateMode === "restart" ? t("menu.restartConfirmTitle") : t("menu.updateConfirmTitle")}
+        message={updateMode === "restart" ? t("menu.restartConfirmMessage") : t("menu.updateConfirmMessage")}
       />
     </>
   );
