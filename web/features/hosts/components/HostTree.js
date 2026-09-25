@@ -2,10 +2,11 @@
 
 import { useEffect, useRef, useState } from "react";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
-import { Download, EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
+import { Check, Download, EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
+import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { connOf } from "@/shared/transport/hostConn";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
@@ -308,6 +309,13 @@ export default function HostTree({
                             label={t("sessions.sessionActions")}
                             revealCls=""
                             items={[
+                              // Same rule as the sidebar's context menu: only a finished terminal has a badge to clear.
+                              st === "done" && {
+                                icon: Check,
+                                label: t("sessions.markRead"),
+                                amber: true,
+                                onClick: () => useNotificationStore.getState().clearNotification(s.id)
+                              },
                               actions.renameSession && {
                                 icon: Pencil,
                                 label: t("sessions.editName"),

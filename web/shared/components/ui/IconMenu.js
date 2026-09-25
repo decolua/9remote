@@ -7,7 +7,7 @@ import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { vibrate } from "@/shared/utils/vibration";
 
 // A "..." button opening a small anchored popover of actions — matching the desktop
-// context menu (menu-popover). Items are { icon, label, danger?, onClick }; falsy
+// context menu (menu-popover). Items are { icon, label, danger?, amber?, onClick }; falsy
 // entries are skipped. Pass `anchor` ({ left, top }) to open from outside (e.g. right-click).
 export default function IconMenu({
   items, size = 12, label = "", revealCls = "", className = "", anchor = null, onClose
@@ -86,7 +86,7 @@ export default function IconMenu({
             className="fixed z-[70] menu-popover p-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 shadow-xl"
             style={{ left: pos.left, top: pos.top }}
           >
-            {visible.map(({ icon: Icon, label: text, danger, onClick }) => (
+            {visible.map(({ icon: Icon, label: text, danger, amber, onClick }) => (
               <button
                 key={text}
                 type="button"
@@ -97,7 +97,9 @@ export default function IconMenu({
                   onClick?.();
                 }}
                 className={`w-full text-left px-2.5 py-1.5 text-xs rounded-[6px] flex items-center gap-2 transition-colors ${
-                  danger ? "text-red-500 hover:bg-red-500/10" : "text-text hover:bg-surface-2/80"
+                  danger ? "text-red-500 hover:bg-red-500/10"
+                    : amber ? "text-amber-500 hover:bg-amber-500/10"
+                    : "text-text hover:bg-surface-2/80"
                 }`}
               >
                 {Icon && <Icon size={13} className="flex-shrink-0" />}
