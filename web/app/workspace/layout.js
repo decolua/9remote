@@ -170,7 +170,7 @@ export default function WorkspaceLayout({ children }) {
   })));
 
   const router = useRouter();
-  const { getAuth, setAuth } = useSessionStorage();
+  const { getAuth, setAuth, clearAuth } = useSessionStorage();
   const [auth, setAuthState] = useState(() => getAuth());
   // Host switching re-keys in place: authKey is the reactive mirror of
   // sessionStorage, so re-derive everything that read auth once at mount.
@@ -720,10 +720,12 @@ export default function WorkspaceLayout({ children }) {
   const handleDisconnect = useCallback(() => {
     useFleetStore.getState().closeAll();
     resetStore();
-    sessionStorage.clear();
+    // clearAuth, not a bare sessionStorage.clear — an explicit logout must also
+    // drop the remembered login, or the next visit walks straight back in.
+    clearAuth();
     sessionStorage.setItem("9remote_manual_disconnect", "1");
     window.location.replace("/login");
-  }, [resetStore]);
+  }, [resetStore, clearAuth]);
 
   const handleLogoutWithConfirm = useCallback(() => {
     setConfirmDialog({

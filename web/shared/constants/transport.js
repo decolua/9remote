@@ -154,6 +154,11 @@ export const KEYS_CHANGED_EVENT = "9remote:keys-changed";
 // login page reads this on mount and shows it like any bad-key error.
 export const LOGIN_ERROR_KEY = "9remote_login_error";
 
+// Mermaid sanitises its HTML labels by default. `loose` turns that off and lets
+// a label in an opened .mmd document run script in this origin, which holds the
+// keys — so the default stays.
+export const MERMAID_SECURITY_LEVEL = "strict";
+
 // Network-change recovery. `online`/`connection.change` are only hints (MDN:
 // onLine is "inherently unreliable"; Network Information API is absent on
 // Safari), so they merely trigger a probe — the srflx IP below is the truth.

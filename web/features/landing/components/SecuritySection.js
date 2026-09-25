@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { THEME } from "../constants/landingConfig";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { MERMAID_SECURITY_LEVEL } from "@/shared/constants/transport";
 
 let mermaidPromise = null;
 function loadMermaid() {
@@ -69,7 +70,7 @@ export default function SecuritySection() {
         mermaid.initialize({
           startOnLoad: false,
           theme: theme === "dark" ? "dark" : "neutral",
-          securityLevel: "loose",
+          securityLevel: MERMAID_SECURITY_LEVEL,
           sequence: {
             useMaxWidth: true,
             showSequenceNumbers: true,

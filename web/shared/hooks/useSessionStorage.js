@@ -2,6 +2,41 @@ import { useCallback } from "react";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 
 const AUTH_COOKIE_NAME = "9remote_auth";
+// Persistent mirror of the sessionStorage auth block, so closing the browser does
+// not cost the user a re-login. Gated on the login page's own "remember key"
+// preference — the same switch that decides whether the key is saved at all.
+const REMEMBER_STORAGE_KEY = "9remote_auth_state";
+const REMEMBER_PREF_KEY = "9remote_remember_key_preference";
+// tempKey is deliberately absent: a one-time code is not a session worth
+// resuming, and the enrollment it drives — plus the WANTS_SAVE flag that lives
+// only in sessionStorage — cannot survive the tab. Re-pairing is the honest
+// answer there, and mirroring the code would re-enroll on every later open.
+const AUTH_FIELDS = ["apiKey", "tunnelUrl", "mode", "localIp"];
+
+function rememberEnabled() {
+  try {
+    return localStorage.getItem(REMEMBER_PREF_KEY) !== "false";
+  } catch {
+    return false;
+  }
+}
+
+// Drop the mirror without touching the live session — for the "remember key"
+// switch itself, which must not log the user out of the tab they are in.
+export function clearRememberedAuth() {
+  try {
+    localStorage.removeItem(REMEMBER_STORAGE_KEY);
+  } catch {}
+}
+
+// Best-effort — storage throws in private mode / blocked-cookie modes.
+function readRemembered() {
+  try {
+    return JSON.parse(localStorage.getItem(REMEMBER_STORAGE_KEY) || "null");
+  } catch {
+    return null;
+  }
+}
 
 // Set auth cookie for proxy authentication
 function setAuthCookie(apiKey) {
@@ -19,6 +54,13 @@ function clearAuthCookie() {
 // Plain (non-hook) auth writer for flows outside React, e.g. host switching.
 export function setAuthData({ apiKey, tunnelUrl, mode = "remote", tempKey = null, localIp = null }) {
   if (typeof window === "undefined") return;
+  // Nothing to remember is nothing to keep — a session rekeyed away (the fleet
+  // disconnect path clears the auth block) must not leave the previous host
+  // waiting on the login screen.
+  if (!apiKey) {
+    try { localStorage.removeItem(REMEMBER_STORAGE_KEY); } catch {}
+    return;
+  }
   // Storage may be unavailable (private mode / blocked cookies) — the auth
   // cookie below still carries the key, so persistence is best-effort.
   try {
@@ -31,6 +73,12 @@ export function setAuthData({ apiKey, tunnelUrl, mode = "remote", tempKey = null
     else sessionStorage.removeItem("localIp");
   } catch {}
   setAuthCookie(apiKey);
+  // localStorage may be unavailable while sessionStorage is not, so the two are
+  // written independently — the session must not die with the persistence.
+  try {
+    if (rememberEnabled()) localStorage.setItem(REMEMBER_STORAGE_KEY, JSON.stringify({ apiKey, tunnelUrl, mode, localIp }));
+    else localStorage.removeItem(REMEMBER_STORAGE_KEY);
+  } catch {}
   // Reactive mirror: useBus watches this to re-key the workspace connection in
   // place — the no-reload half of host switching.
   useConnectionStore.getState().setAuthKey(apiKey);
@@ -51,11 +99,26 @@ export function useSessionStorage() {
       localIp = sessionStorage.getItem("localIp");
     } catch { return null; }
 
-    if (!apiKey) return null; // RTC-first: tunnelUrl optional (fallback only)
+    // Closed tab: sessionStorage is empty but the remembered block survives.
+    // tunnelUrl is a fallback hint only — the live route is re-resolved from the
+    // Worker on connect, and the workspace's reconnect screen owns the rest.
+    if (!apiKey) {
+      const remembered = readRemembered();
+      if (!remembered?.apiKey) return null;
+      try {
+        for (const field of AUTH_FIELDS) {
+          if (remembered[field]) sessionStorage.setItem(field, remembered[field]);
+        }
+      } catch {}
+      apiKey = remembered.apiKey;
+      tunnelUrl = remembered.tunnelUrl ?? null;
+      mode = remembered.mode ?? null;
+      localIp = remembered.localIp ?? null;
+    }
 
     // Ensure cookie is set when reading auth (in case page was refreshed)
     setAuthCookie(apiKey);
-    
+
     return { apiKey, tunnelUrl, mode, tempKey, localIp };
   }, []);
 
@@ -64,6 +127,7 @@ export function useSessionStorage() {
   const clearAuth = useCallback(() => {
     if (typeof window === "undefined") return;
     try { sessionStorage.clear(); } catch {}
+    try { localStorage.removeItem(REMEMBER_STORAGE_KEY); } catch {}
     clearAuthCookie();
   }, []);
 

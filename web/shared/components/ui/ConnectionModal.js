@@ -31,6 +31,8 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
       onLogout();
       return;
     }
+    // sessionStorage only: clearing localStorage too would drop the saved keys
+    // and the remembered login the user still needs on the other side.
     sessionStorage.clear();
     // Full load — a lazy chunk fetch can hang forever on the dead network that got us here
     window.location.replace("/login");

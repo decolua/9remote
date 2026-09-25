@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { useI18n } from "@/shared/i18n";
 import { useTheme } from "@/shared/theme/ThemeProvider";
+import { MERMAID_SECURITY_LEVEL } from "@/shared/constants/transport";
 
 // Mermaid is ~800KB — loaded on first use and kept for the rest of the session, so a
 // second diagram renders immediately and someone who never opens one pays nothing.
@@ -50,9 +51,7 @@ export default function MermaidViewer({ content, reloadKey = 0 }) {
       mermaid.initialize({
         startOnLoad: false,
         theme: theme === "dark" ? "dark" : "default",
-        // The diagram is our own file, not third-party input, and strict mode drops
-        // the HTML labels people routinely write.
-        securityLevel: "loose",
+        securityLevel: MERMAID_SECURITY_LEVEL,
       });
       try {
         // A fresh id each render: mermaid keys internal state off it and reusing one

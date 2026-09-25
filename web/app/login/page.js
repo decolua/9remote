@@ -18,7 +18,7 @@ import { useI18n } from "@/shared/i18n";
 import { X } from "@/shared/components/ui/Icon";
 import CodespaceList from "@/features/codespace/components/CodespaceList";
 import { useGithub } from "@/features/codespace/hooks/useGithub";
-import { useSessionStorage } from "@/shared/hooks/useSessionStorage";
+import { useSessionStorage, clearRememberedAuth } from "@/shared/hooks/useSessionStorage";
 import { buildCodespaceUrl } from "@/shared/constants/github";
 import { setTrust, withTail } from "@/shared/transport/lib/deviceTrust";
 import { LOGIN_ERROR_KEY, ONE_TIME_CODE_LENGTH, PENDING_SAVE_KEY } from "@/shared/constants/transport";
@@ -45,7 +45,7 @@ function LoginContent() {
   const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
 
   const { token: githubToken, clearToken: clearGithubToken } = useGithub();
-  const { setAuth } = useSessionStorage();
+  const { getAuth, setAuth } = useSessionStorage();
 
   const searchParams = useSearchParams();
   const router = useRouter();
@@ -70,6 +70,23 @@ function LoginContent() {
     return null;
   });
   const isTokenAuth = !!token || !!tempKey;
+
+  // Remembered login: a key that outlived the tab goes straight to the workspace,
+  // with no network check — the workspace's reconnect screen owns an unreachable
+  // host, and blocking the login page on a round-trip would defeat the point.
+  const autoLoginDone = useRef(false);
+  useEffect(() => {
+    if (autoLoginDone.current) return;
+    // A pairing link or a rejection reason on screen outranks a stale key.
+    if (token || tempKey || sessionStorage.getItem(LOGIN_ERROR_KEY)) return;
+    // On the agent's own port the effect below re-reads /api/ui/state, which is
+    // fresher than anything remembered — including a `?mode=remote` intent.
+    if (isLoopbackOrigin() && window.location.port === String(AGENT_PORT)) return;
+    if (sessionStorage.getItem("9remote_manual_disconnect") === "1") return;
+    if (!getAuth()?.apiKey) return;
+    autoLoginDone.current = true;
+    router.replace("/workspace/");
+  }, [token, tempKey, getAuth, router]);
 
   useEffect(() => {
     if (window.location.hash || window.location.search) {
@@ -154,9 +171,11 @@ function LoginContent() {
 
   const handleRememberChange = (checked) => {
     setRememberKey(checked);
-    if (typeof window !== "undefined") {
-      localStorage.setItem("9remote_remember_key_preference", checked);
-    }
+    if (typeof window === "undefined") return;
+    localStorage.setItem("9remote_remember_key_preference", checked);
+    // Turning the switch off must also drop a mirror an earlier session left
+    // behind — otherwise the key survives a choice that said not to keep it.
+    if (!checked) clearRememberedAuth();
   };
 
   const authenticateWithTempKey = useCallback(async (stashed) => {
