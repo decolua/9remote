@@ -4,7 +4,8 @@ import { useState, useEffect, useCallback, useMemo } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
-  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot
+  Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot,
+  Power, PowerOff, Lock, FileText
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -26,8 +27,11 @@ import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPick
 import { JarvisConfigPanel } from "@/features/jarvis/components/JarvisConfigPanel";
 import { useJarvisStore } from "@/shared/stores/jarvisStore";
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
+import { useAgentLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
+import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor };
 
 
 /**
@@ -40,8 +44,13 @@ export default function SettingsDialog({
 }) {
   const { t, locale } = useI18n();
   const { theme: appTheme, setTheme } = useTheme();
-  const [section, setSection] = useState("general");
+  // The dialog mounts only after the desktop check (post-mount), so the env
+  // probe is stable here — no SSR/hydration split to worry about.
+  const agentEnv = isAgentEnvironment();
+  const [section, setSection] = useState(agentEnv ? "agent" : "general");
   const [reloading, setReloading] = useState(false);
+  const [confirmShutdown, setConfirmShutdown] = useState(false);
+  const agentLocal = useAgentLocalSettings();
 
   const [languageOpen, setLanguageOpen] = useState(false);
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
@@ -71,8 +80,12 @@ export default function SettingsDialog({
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
     if (c.id === "codespace") return false;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
+    // Agent-env only tab; General is client-web only (push/install/logout are
+    // meaningless on the origin the agent itself serves).
+    if (c.id === "agent") return agentEnv;
+    if (c.id === "general") return !agentEnv;
     return true;
-  }), [hideActions]);
+  }), [hideActions, agentEnv]);
   // "install" is a drill-in from the install row, not a nav entry — it has no category
   const activeCategory = categories.find((c) => c.id === section);
 
@@ -320,6 +333,64 @@ export default function SettingsDialog({
               </div>
             )}
 
+            {section === "agent" && (
+              <div className="space-y-6">
+                <Group title={t("menu.agentSystem")}>
+                  <ToggleRow
+                    icon={Power}
+                    label={t("menu.agentAutoStart")}
+                    hint={t("menu.agentAutoStartHint")}
+                    value={!!agentLocal.autoStart}
+                    loading={agentLocal.autoStart === null}
+                    onChange={agentLocal.toggleAutoStart}
+                  />
+                  {agentLocal.unlock?.supported && (
+                    <ToggleRow
+                      icon={Lock}
+                      label={t("menu.agentUnlock")}
+                      hint={agentLocal.unlock.stale
+                        ? t("menu.agentUnlockStale")
+                        : agentLocal.unlock.enabled
+                          ? t("menu.agentUnlockReady")
+                          : t("menu.agentUnlockHint")}
+                      value={!!agentLocal.unlock.enabled}
+                      disabled={!!agentLocal.unlock.busy}
+                      onChange={agentLocal.toggleUnlock}
+                    />
+                  )}
+                </Group>
+
+                <Group title={t("menu.agentLogs")}>
+                  <ActionRow
+                    icon={FileText}
+                    label={t("menu.agentLogsOpen")}
+                    onClick={() => run(() => window.open("/logs", "_blank"))}
+                  />
+                </Group>
+
+                <Group title={t("menu.agentPower")}>
+                  <ActionRow
+                    icon={RefreshCw}
+                    iconClass={reloading ? "animate-spin" : ""}
+                    label={t("menu.reload")}
+                    disabled={reloading}
+                    onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
+                  />
+                  <ActionRow
+                    icon={RotateCw}
+                    label={t("menu.agentRestart")}
+                    onClick={() => run(agentLocal.stopAgent)}
+                  />
+                  <ActionRow
+                    icon={PowerOff}
+                    label={t("menu.agentShutdown")}
+                    danger
+                    onClick={() => setConfirmShutdown(true)}
+                  />
+                </Group>
+              </div>
+            )}
+
             {section === "jarvis" && (
               <div className="space-y-6">
                 <ToggleRow
@@ -363,6 +434,13 @@ export default function SettingsDialog({
       </div>
 
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
+      <ConfirmDialog
+        isOpen={confirmShutdown}
+        onClose={() => setConfirmShutdown(false)}
+        onConfirm={() => { setConfirmShutdown(false); run(agentLocal.shutdownAgent); }}
+        title={t("menu.agentShutdownConfirmTitle")}
+        message={t("menu.agentShutdownConfirmMsg")}
+      />
     </div>
   );
 }
