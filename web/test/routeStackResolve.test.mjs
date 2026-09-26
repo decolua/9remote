@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { stackForUrl } from "../features/terminal/constants/routeConfig.js";
+import { stackForUrl, viewToPath, pathToView } from "../features/terminal/constants/routeConfig.js";
 
 const list = { type: "list" };
 const termA = { type: "terminal", sessionId: "a" };
@@ -29,4 +29,10 @@ test("Switching tabs replaces the top instead of growing the stack", () => {
 
 test("A view the stack does not hold is a new level", () => {
   assert.equal(stackForUrl([list, termB], files), null);
+});
+
+test("Pair view round-trips through the URL", () => {
+  const pair = { type: "pair" };
+  assert.equal(viewToPath(pair), "/workspace/pair");
+  assert.deepEqual(pathToView("/workspace/pair", new URLSearchParams()), pair);
 });

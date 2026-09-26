@@ -8,7 +8,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
-import { Monitor, Zap, ArrowRight, KeyRound, Settings } from "@/shared/components/ui/Icon";
+import { Monitor, Zap, ArrowRight, KeyRound, QrCode, Settings } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -18,6 +18,7 @@ import { orderedHostsOf } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
+import { isAgentEnvironment } from "@/shared/utils/localOrigin";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
 
@@ -61,6 +62,9 @@ export default function SessionList({
   const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
+  const pushView = useTerminalStore((s) => s.pushView);
+  // Pairing QR lives on the agent's own page — hide the entry on the public web.
+  const isAgentUi = isAgentEnvironment();
 
   const [bgTarget, setBgTarget] = useState(null);           // session whose background sheet is open
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
@@ -161,6 +165,9 @@ export default function SessionList({
         <div className="flex items-center gap-1 flex-shrink-0">
           {showButton("remote") && remoteHosts.length > 0 && (
             <HeaderButton icon={Monitor} label={t("menu.remoteDesktop")} onClick={pickHost} disabled={!connected} />
+          )}
+          {isAgentUi && (
+            <HeaderButton icon={QrCode} label={t("connection.pairTab")} onClick={() => { vibrate(); pushView({ type: "pair" }); }} />
           )}
           <HeaderButton icon={KeyRound} label={t("hosts.addHost")} onClick={() => { vibrate(); setAddHostOpen(true); }} />
           <HeaderButton icon={Settings} label={t("menu.title")} onClick={openMenu} />

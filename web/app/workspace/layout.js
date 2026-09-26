@@ -49,6 +49,7 @@ import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
 import BrowserView from "@/features/browser/components/BrowserView";
 import WorkspaceList from "@/features/fileExplorer/components/WorkspaceList";
+import PairDeviceView from "@/features/session/components/PairDeviceView";
 import FileExplorer from "@/features/fileExplorer/components/FileExplorer";
 import FileEditor from "@/features/fileExplorer/components/FileEditor";
 import GitPanel from "@/features/fileExplorer/components/GitPanel";
@@ -1000,6 +1001,13 @@ export default function WorkspaceLayout({ children }) {
             initialPath={currentView.path}
             onBack={storePopView}
           />
+        )}
+
+        {/* Paired Device — agent-local pairing QR; renders an unavailable notice on the public web */}
+        {currentView.type === "pair" && (
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
+            <PairDeviceView onClose={popView} />
+          </div>
         )}
 
         {/* Workspace List */}

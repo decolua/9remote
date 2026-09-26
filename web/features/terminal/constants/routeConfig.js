@@ -12,7 +12,8 @@ export const VIEW_TO_PATH = {
   remote: () => `${WORKSPACE_BASE}/remote`,
   mobile: () => `${WORKSPACE_BASE}/mobile`,
   workspaces: () => `${WORKSPACE_BASE}/workspaces`,
-  browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path })
+  browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path }),
+  pair: () => `${WORKSPACE_BASE}/pair`
 };
 
 // Views rendered as a store-only overlay: never mirrored into the URL. The site
@@ -30,7 +31,8 @@ export const SEGMENT_TO_TYPE = {
   remote: "remote",
   mobile: "mobile",
   workspaces: "workspaces",
-  browse: "browse"
+  browse: "browse",
+  pair: "pair"
 };
 
 // Build "?a=b" string, skipping empty values

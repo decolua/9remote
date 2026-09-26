@@ -96,6 +96,7 @@ function TerminalSidebar({
   const fullMode = useTerminalStore((s) => s.fullMode);
   const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
   const setFullMode = useTerminalStore((s) => s.setFullMode);
+  const pushView = useTerminalStore((s) => s.pushView);
   const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
   const toggleHidePane = useTerminalStore((s) => s.toggleHidePane);
   const unhidePane = useTerminalStore((s) => s.unhidePane);
@@ -229,7 +230,7 @@ function TerminalSidebar({
         <div className="flex items-center gap-2 min-w-0">
           {SHOW_PAIR_DEVICE ? (
             <button
-              onClick={() => { window.location.href = "/"; }}
+              onClick={() => { vibrate(); pushView({ type: "pair" }); }}
               className="flex items-center gap-1.5 px-1.5 py-1 text-[12px] font-medium text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex-shrink-0"
               title="Pair Device"
             >
