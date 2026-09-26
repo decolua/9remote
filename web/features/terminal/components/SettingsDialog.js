@@ -95,7 +95,7 @@ export default function SettingsDialog({
     // single Escape would reach both and close the dialog underneath it. The
     // innermost layer wins: skip while a child modal is up.
     const onKey = (e) => {
-      if (e.key === "Escape" && !languageOpen) {
+      if (e.key === "Escape" && !languageOpen && !confirmShutdown) {
         e.preventDefault();
         e.stopPropagation();
         onClose();
@@ -107,7 +107,7 @@ export default function SettingsDialog({
       window.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = "";
     };
-  }, [onClose, languageOpen]);
+  }, [onClose, languageOpen, confirmShutdown]);
 
   // Actions that navigate away close the dialog first
   const run = useCallback((fn) => { vibrate(); onClose(); setTimeout(() => fn?.(), 50); }, [onClose]);
@@ -364,7 +364,9 @@ export default function SettingsDialog({
                   <ActionRow
                     icon={FileText}
                     label={t("menu.agentLogsOpen")}
-                    onClick={() => run(() => window.open("/logs", "_blank"))}
+                    // Open inside the click — a deferred window.open loses user
+                    // activation and popup blockers eat it.
+                    onClick={() => { vibrate(); window.open("/logs", "_blank"); onClose(); }}
                   />
                 </Group>
 
