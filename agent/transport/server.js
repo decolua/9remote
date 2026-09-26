@@ -927,6 +927,13 @@ export async function startTransportServer(server) {
 
       // Waiting on the KEY, not the host: hold unapproved until the proof or the deadline settles it.
       if (verdict.decision === ADMISSION.hold && verdict.step === "auth") {
+        // No id to prove: onTailProven runs the retry NOW and route() re-enters this
+        // branch synchronously until the stack dies. Such a socket can never be admitted.
+        if (!deviceId) {
+          logger.warn(`route: socket with no device id (${ip}) — disconnecting`);
+          socket.disconnect(true);
+          return;
+        }
         logger.info(`route: awaiting TAIL proof device=${deviceId?.slice(0, 8) || "no-id"}`);
         onTailProven(deviceId, () => route(), () => {
           rejectDeviceTail(socket, deviceId, TAIL_REJECT_REASON.timeout);
