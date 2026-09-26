@@ -61,6 +61,16 @@ export const AI_DOCTOR_TIMEOUT_MS = 30000;
 // Cache TTL for engine model catalog.
 export const AI_MODEL_CACHE_TTL_MS = 30000;
 
+// Daemon-held CLI procs whose chat no longer exists are swept on this cadence;
+// the boot sweep runs as soon as the daemon connects.
+export const ORPHAN_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
+
+// Conversation CLIs whose process is killed after AI_IDLE_KILL_MS with no
+// activity; the next prompt respawns it, resuming the saved conversation.
+export const IDLE_KILL_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.OMP, AI_ENGINES.DEVIN, AI_ENGINES.HERMES]);
+export const AI_IDLE_KILL_MS = 30 * 60 * 1000;
+export const AI_IDLE_TICK_MS = 60 * 1000;
+
 
 
 // OpenCode's mode IS its agent (build = full access, plan = read-only); the v2

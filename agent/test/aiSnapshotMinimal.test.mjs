@@ -138,7 +138,7 @@ test("the file is state and nothing else — the exact set it may carry", () => 
   for (const [event, data] of LOG_EVENTS) s.emitNormalized(event, data);
   const keys = Object.keys(snapshotOf(s)).sort();
   assert.deepEqual(keys, [
-    "attachmentOffset", "cliSessionId", "consumedEpoch", "consumedLines", "createdAt",
+    "asleep", "attachmentOffset", "cliSessionId", "consumedEpoch", "consumedLines", "createdAt",
     "cwd", "effort", "engine", "model", "options", "permissionMode", "threadId"
   ].sort(), "a field added here without a reason is a megabyte waiting to happen");
 });

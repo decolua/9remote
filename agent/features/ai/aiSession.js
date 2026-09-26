@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT, AI_TASK_RECORDS_BYTES } from "./constants.js";
+import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT, AI_TASK_RECORDS_BYTES, IDLE_KILL_ENGINES, AI_IDLE_KILL_MS } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
 import { readClaudeSessionState, readNewAttachments } from "./claudeTranscript.js";
@@ -300,6 +300,11 @@ export class AiSession {
     this.effort = snap?.effort || options.effort || options.defaultEffort || (this.engine === AI_ENGINES.CODEX ? "xhigh" : "");
     // Restored so a reload re-sends the user's mode — turn-per-CLI engines need it on every prompt.
     this.permissionMode = snap?.permissionMode || options.mode || options.defaultMode || null;
+    // The CLI process was idle-killed; persisted so every surface (and a restarted
+    // agent) knows the pane is resting — the next prompt respawns it.
+    this.asleep = Boolean(snap?.asleep);
+    // Any event bumps this; idle-kill only fires past AI_IDLE_KILL_MS of silence.
+    this.lastActivityAt = Date.now();
     // The harness's own transcript records beat 9Remote's reconstruction — override, not merge.
     if (this.engine === AI_ENGINES.CLAUDE && bindId) {
       const state = readClaudeSessionState(this.cwd, bindId);
@@ -346,6 +351,7 @@ export class AiSession {
       cwd: this.cwd,
       cliSessionId: this.cliSessionId || null,
       threadId: this.threadId || null,
+      asleep: this.asleep || false,
       options: this.options || {},
       consumedLines: this.consumedLines || 0,
       consumedEpoch: this.consumedEpoch ?? null,
@@ -396,6 +402,7 @@ export class AiSession {
       if (saved.cwd && !this.cwd) this.cwd = saved.cwd;
       if (saved.cliSessionId && !this.cliSessionId) this.cliSessionId = saved.cliSessionId;
       if (saved.threadId && !this.threadId) this.threadId = saved.threadId;
+      if (saved.asleep) this.asleep = true;
       if (saved.options) this.options = { ...saved.options, ...this.options };
       // The line watermark is saved for diagnosis but NOT restored here: it belongs to
       // the adopt path, which owns the process it indexes — a restored one would make
@@ -414,6 +421,8 @@ export class AiSession {
         }
         if (isAlive) {
           this.isTurnRunning = true;
+          // A live process means the idle-kill never happened (or already woke).
+          this.asleep = false;
           this.turnStartedAt = saved.turn.startedAt || Date.now();
           // The gate a dead agent left open: the control_request that opened it sits
           // before the adopt watermark, so the adapter's map came back empty. Put the
@@ -496,7 +505,8 @@ export class AiSession {
     this.consumedLines = 0;
     this.consumedEpoch = null;
     // Turn-per-CLI engines idle between turns; asking the adapter (not the engine) survives transport swaps.
-    if (!adapter.persistent && this.engine !== AI_ENGINES.CLAUDE) return null;
+    // A sleeping pane stays unspawned — the next prompt's refused write respawns it.
+    if ((!adapter.persistent && this.engine !== AI_ENGINES.CLAUDE) || this.asleep) return null;
     const fetch = await adapter.start(mode, this.cliSessionId || this.threadId);
     this._replay(fetch);
     return fetch;
@@ -575,6 +585,42 @@ export class AiSession {
     });
   }
 
+  // An async row the CLI has not settled (background task, detached subagent) —
+  // its process must outlive the turn that launched it.
+  _runningAsync() {
+    if (this.asyncTimers.size) return true;
+    const running = new Set();
+    for (const { event, data } of this.history) {
+      if (event !== "tool_result" || !data?.async || !data.id) continue;
+      if (data.status === "running") running.add(data.id);
+      else running.delete(data.id);
+    }
+    return running.size > 0;
+  }
+
+  // Every gate that must be open before the CLI's process may die — kill only
+  // what is provably resting. A gate, a queued prompt, a live async row or a
+  // running turn each veto the kill.
+  get idleKillEligible() {
+    return !this.destroyed && !this.asleep && IDLE_KILL_ENGINES.has(this.engine)
+      && Boolean(this.adapter) && !this.proc?.dead && !this.isTurnRunning
+      && !(this.promptQueue?.length) && !this.pendingPermission()
+      && !this._runningAsync() && Date.now() - this.lastActivityAt >= AI_IDLE_KILL_MS;
+  }
+
+  // Kill the idle CLI process; the next prompt respawns it resuming the saved
+  // conversation (claude: --resume on refused write; the others: their own
+  // _ensureStarted). The sleep event is recorded so every surface — and a
+  // restarted agent — knows the pane is resting, not gone.
+  async idleKill() {
+    if (!this.idleKillEligible) return false;
+    this.asleep = true;
+    this.emitNormalized("sleep", {});
+    await this.adapter?.stop();
+    this._saveKvState(false);
+    return true;
+  }
+
   // elapsedMs is a duration, not a mark — the two machines sit on different clocks.
   turnState() {
     return {
@@ -633,9 +679,13 @@ export class AiSession {
     }
     // Stamped on the way out so every turn-ending writer is covered once.
     const now = Date.now();
+    // Any event is activity — the idle-kill clock restarts from here.
+    this.lastActivityAt = now;
     if (event === "user_message") {
       this.turnStartedAt = now;
       this.lastTurnMs = 0;
+      // A prompt wakes a sleeping pane; the respawn itself is _startManaged's.
+      this.asleep = false;
     } else if (TURN_END_EVENTS.has(event)) {
       if (this.turnStartedAt) this.lastTurnMs = now - this.turnStartedAt;
       // Copied, not mutated — capEvent may hand back the adapter's own object.
@@ -880,6 +930,8 @@ export class AiSession {
         createdAt: this.createdAt,
         // The whole "user's own picks" family, kept whole.
         options: this.options,
+        // Resting panes rehydrate as resting — the respawn happens on the next prompt.
+        asleep: this.asleep,
         // Output-stream watermark + owning process, so a re-attached turn arrives whole and exactly once.
         consumedLines: this.consumedLines,
         consumedEpoch: this.consumedEpoch,

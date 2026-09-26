@@ -200,7 +200,9 @@ function TerminalStatusBar({
       ? t("common.statusBlocked")
       : sessionState === "done"
         ? t("common.statusDone")
-        : t("common.statusIdle");
+        : sessionState === "sleep"
+          ? t("common.statusSleep")
+          : t("common.statusIdle");
 
   const cwdDisplay = cwd ? shortenHomePath(cwd.replace(/\\/g, "/"), homeDir) : "";
   const changedLabel = changed > MAX_CHANGED_BADGE ? `${MAX_CHANGED_BADGE}+` : changed;

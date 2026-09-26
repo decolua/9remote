@@ -1,7 +1,14 @@
 // Manages all active AI sessions across Claude, Codex, and OpenCode
-import { AI_ENGINES } from "./constants.js";
+import fs from "node:fs";
+import path from "node:path";
+import { AI_ENGINES, ORPHAN_SWEEP_INTERVAL_MS, AI_IDLE_TICK_MS } from "./constants.js";
 import { AiSession } from "./aiSession.js";
+import * as daemonClient from "../terminal/ptyDaemonClient.js";
+import { PATHS } from "../../lib/constants.js";
+import { createLogger } from "../../lib/logger.js";
 import { registerDoneReleaser } from "../terminal/statusManager.js";
+
+const logger = createLogger("ai");
 
 export class AiManager {
   constructor() {
@@ -83,6 +90,60 @@ export class AiManager {
 
 // Global instance for agent daemon
 export const globalAiManager = new AiManager();
+
+// Daemon-held CLI procs are keyed by chat id; a proc whose chat no longer exists (a
+// stop RPC that never landed, a snapshot pruned while the agent was down) is RAM held
+// forever — the daemon has no owner of its own. Owner = a live session or a snapshot
+// file on disk; anything else in the daemon's proc map is an orphan.
+function chatExists(procId) {
+  if (globalAiManager.sessions.has(procId)) return true;
+  // Same sanitize as aiSnapshotFile(): id -> `<engine>-<safe>.json`.
+  const safe = String(procId).replace(/[^a-zA-Z0-9_-]/g, "_");
+  return Object.values(AI_ENGINES).some((engine) =>
+    fs.existsSync(path.join(PATHS.AI_SESSIONS, `${engine}-${safe}.json`)));
+}
+
+export async function sweepOrphanProcs(client = daemonClient) {
+  if (!client.isConnected()) return;
+  try {
+    const held = await client.procList();
+    const procs = Array.isArray(held) ? held : held?.procs || [];
+    for (const proc of procs) {
+      const id = proc?.procId || proc?.id;
+      if (!id || chatExists(id)) continue;
+      // Re-check at kill time: a chat created after the list was fetched is in the map
+      // before its first proc RPC can land.
+      await new Promise((resolve) => setImmediate(resolve));
+      if (chatExists(id)) continue;
+      await client.procStop(id);
+      logger.info(`[proc-sweep] stopped orphan daemon proc ${id} (${proc.total || 0} lines buffered)`);
+    }
+  } catch {
+    // The daemon is optional; the next tick retries.
+  }
+}
+
+let sweepTimer = null;
+// Boot: sweep once the daemon connects (or now, if it already has). Runtime: the
+// interval catches leaks born mid-flight (e.g. a procStop refused while the daemon
+// socket was reconnecting).
+function scheduleOrphanSweep() {
+  const start = () => {
+    if (sweepTimer) return sweepOrphanProcs();
+    sweepTimer = setInterval(sweepOrphanProcs, ORPHAN_SWEEP_INTERVAL_MS);
+    sweepTimer.unref?.();
+    sweepOrphanProcs();
+  };
+  if (daemonClient.isConnected()) start();
+  else daemonClient.on("connected", start);
+}
+scheduleOrphanSweep();
+
+// Idle-kill ticker: one door for every session — no per-session timers to leak,
+// and the eligibility check re-reads live state on every tick.
+setInterval(() => {
+  for (const s of globalAiManager.sessions.values()) s.idleKill?.();
+}, AI_IDLE_TICK_MS).unref?.();
 
 // A hook-reported DONE outranks a turn whose `result` line the stream lost — end it
 // so clients stop spinning and sendPrompt unblocks. No-op when the turn already ended.

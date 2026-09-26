@@ -128,7 +128,12 @@ export async function ensureServer() {
       base = url;
       // A leftover from an earlier 9remote agent is still ours to retire.
       const holder = await portHolder(port);
-      if (await markerMatches(holder)) adoptedOurs = Number(holder);
+      if (await markerMatches(holder)) {
+        adoptedOurs = Number(holder);
+        // No session retained it in THIS run — without arming here an adopted
+        // leftover outlives the agent forever (nobody opens a chat to release it).
+        armIdleStop();
+      }
       syncCredentials(url).catch(() => {});
       return url;
     }
@@ -158,6 +163,9 @@ export async function ensureServer() {
         base = url;
         // Ownership marker: a later agent adopts this server knowing it is ours.
         try { fs.writeFileSync(markerFile(), String(proc.pid)); } catch {}
+        // A caller with no chat session (e.g. the model catalog) must not leave
+        // the spawn alive forever; armIdleStop no-ops when a session retained it.
+        armIdleStop();
         syncCredentials(url).catch(() => {});
         return url;
       }
@@ -191,16 +199,11 @@ function serverPort() {
 const SERVER_IDLE_STOP_MS = 30000;
 let sessionCount = 0;
 let idleStopTimer = null;
+// Test-only override for SERVER_IDLE_STOP_MS so retire paths run in milliseconds.
+let testIdleMs = null;
 
-/** A chat session started using the server — keeps it alive past idle stops. */
-export function retainForSession() {
-  sessionCount += 1;
-  if (idleStopTimer) { clearTimeout(idleStopTimer); idleStopTimer = null; }
-}
-
-/** A chat session went away — the LAST one retires the server we spawned. */
-export function releaseForSession() {
-  sessionCount = Math.max(0, sessionCount - 1);
+/** Arm the idle retirement if no chat session holds the server. */
+function armIdleStop() {
   if (sessionCount > 0 || idleStopTimer) return;
   idleStopTimer = setTimeout(() => {
     idleStopTimer = null;
@@ -214,8 +217,20 @@ export function releaseForSession() {
       try { process.kill(adoptedOurs, "SIGTERM"); } catch {}
       clearMarker();
     }
-  }, SERVER_IDLE_STOP_MS);
+  }, testIdleMs ?? SERVER_IDLE_STOP_MS);
   idleStopTimer.unref?.();
+}
+
+/** A chat session started using the server — keeps it alive past idle stops. */
+export function retainForSession() {
+  sessionCount += 1;
+  if (idleStopTimer) { clearTimeout(idleStopTimer); idleStopTimer = null; }
+}
+
+/** A chat session went away — the LAST one retires the server we spawned. */
+export function releaseForSession() {
+  sessionCount = Math.max(0, sessionCount - 1);
+  armIdleStop();
 }
 
 async function api(method, path, body, { timeoutMs = 30000 } = {}) {
@@ -396,6 +411,16 @@ export function _useTestBase(url) {
   base = url;
   // ensureServer short-circuits on a live proc; fake one while overridden.
   proc = url ? { exitCode: null } : null;
+  booting = null;
+}
+
+// Test hook: swap in a fake server proc and/or adopted pid (to observe retire
+// kills without spawning opencode) and shorten the idle window.
+export function _useTestProc({ fake = null, adoptedPid = null, idleMs = null } = {}) {
+  testIdleMs = idleMs;
+  base = fake || adoptedPid ? "http://test" : null;
+  proc = fake;
+  adoptedOurs = adoptedPid;
   booting = null;
 }
 

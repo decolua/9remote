@@ -162,6 +162,7 @@ export function publicSession(session) {
     events,
     hasMore,
     isTurnRunning: session.isTurnRunning,
+    asleep: Boolean(session.asleep),
     // Host-clock durations, so a mid-turn join counts from the real start, not its own join.
     elapsedMs: session.turnState().elapsedMs,
     lastTurnMs: session.lastTurnMs || null,

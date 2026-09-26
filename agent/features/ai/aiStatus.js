@@ -11,6 +11,8 @@ export const EVENT_TO_STATE = Object.freeze({
   permission_request: "blocked",
   blocked: "blocked",
   turn_complete: "done",
+  // The idle-kill took the CLI's process; a prompt respawns it resuming the chat.
+  sleep: "sleep",
   // The CLI was interrupted or failed, so the dot is not claiming an answer is waiting
   // to be read. `done` is reserved for a turn that actually finished.
   stopped: "idle",

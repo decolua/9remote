@@ -4,6 +4,8 @@ import { useEffect, useRef, useCallback, useState } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
+import { useFleetStore } from "@/shared/stores/fleetStore";
+import { connForSession } from "@/shared/transport/hostConn";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
 import { applyTaskRecord, foldTaskRecords, noticeFrom, lastIndexOfCompacting } from "../lib/harnessTasks";
@@ -719,6 +721,12 @@ export function useAiSession({
           sessionId, isTurnRunning: res.session.isTurnRunning, elapsedMs: res.session.elapsedMs,
           lastTurnMs: res.session.lastTurnMs, events: events.length, hasMore: res.session.hasMore
         });
+        // A resting pane rehydrates as resting — the dot says sleep until the next
+        // prompt (whose user_message moves it to working through the bus).
+        if (res.session.asleep && !res.session.isTurnRunning) {
+          const fleet = useFleetStore.getState();
+          fleet.applyStatusChange(connForSession(sessionId).head ?? fleet.currentKey, { sessionId, state: "sleep" });
+        }
         // The host replays only the tail of a long log; the rest is fetched on scroll-up.
         olderSeqRef.current = events[0]?.seq ?? 0;
         setHasOlder(Boolean(res.session.hasMore) && events.length > 0);
