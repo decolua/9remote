@@ -109,9 +109,7 @@ export function approveDeviceSession(deviceId) {
 }
 
 export function removeDevice(deviceId) {
-  // Removal is the host saying "not this device" — keep it kicked for the
-  // session so the loopback auto-approve cannot silently re-admit it.
-  kickedDevices.add(deviceId);
+  // Removal only forgets the device (list cleanup); blocking a live one is Reject's job.
   sessionApproved.delete(deviceId);
   approvedDevices.delete(deviceId);
   saveApprovedDevices();
