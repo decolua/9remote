@@ -24,7 +24,9 @@
       "core:window:allow-set-theme",
       "core:window:allow-set-background-color",
       "core:window:allow-set-badge-count",
-      "notification:default"
+      "notification:default",
+      "opener:allow-open-url",
+      "opener:allow-default-urls"
     ]
   }
 ]
