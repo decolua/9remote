@@ -3,7 +3,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
 import {
-  Pencil, Trash2, ChevronRight, ChevronLeft, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check, Image as ImageIcon, Maximize2, Minimize2, Eye, EyeOff, Columns2, Monitor, KeyRound
+  Pencil, Trash2, ChevronRight, QrCode, PanelLeft, Settings, Download, RotateCw, Bot, Sparkles, Zap, Check, Image as ImageIcon, Maximize2, Minimize2, Eye, EyeOff, Columns2, Monitor, KeyRound
 } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -16,14 +16,12 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { SIDEBAR_WIDTH } from "../constants/terminalConfig";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
-import { AGENT_PORT } from "@/shared/constants/API";
-
 import { sessionWorkspaceId, UNGROUPED_KEY } from "../lib/paneLayout";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "../constants/shortcuts";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { isLoopbackOrigin, isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { isAgentEnvironment } from "@/shared/utils/localOrigin";
 import { isChatEngine, SWITCHABLE_STATES } from "./TerminalHeader";
 import SessionBackgroundModal from "./SessionBackgroundModal";
 import HostTreeRow from "@/features/hosts/components/HostTreeRow";
@@ -33,12 +31,10 @@ import IconMenu from "@/shared/components/ui/IconMenu";
 import { orderedHostsOf, activeWsForHost } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 
-// Inside the Tauri shell or on a page the agent itself serves (its own port), the
-// sidebar's brand row becomes a back-to-dashboard button instead. The web app keeps
-// the brand — including the web dev server, which is loopback but not the agent.
-const SHOW_PAIR_DEVICE = typeof window !== "undefined" && (
-  !!window.__TAURI__ || (isLoopbackOrigin() && window.location.port === String(AGENT_PORT))
-);
+// Inside the agent environment (Tauri shell, agent-served page, or the
+// NEXT_PUBLIC_DEV_AGENT dev flag) the sidebar's brand row becomes the
+// pair-device button instead. The public web keeps the brand.
+const SHOW_PAIR_DEVICE = isAgentEnvironment();
 
 // Second line of a terminal row lives in SessionMeta.js — shared with the mobile
 // session list so both screens render a terminal the same way.
@@ -97,6 +93,8 @@ function TerminalSidebar({
   const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
   const setFullMode = useTerminalStore((s) => s.setFullMode);
   const pushView = useTerminalStore((s) => s.pushView);
+  const viewStack = useTerminalStore((s) => s.viewStack);
+  const pairActive = viewStack[viewStack.length - 1]?.type === "pair";
   const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
   const toggleHidePane = useTerminalStore((s) => s.toggleHidePane);
   const unhidePane = useTerminalStore((s) => s.unhidePane);
@@ -228,22 +226,8 @@ function TerminalSidebar({
         className="px-1 flex items-center justify-between flex-shrink-0 border-b border-border-subtle relative z-10"
       >
         <div className="flex items-center gap-2 min-w-0">
-          {SHOW_PAIR_DEVICE ? (
-            <button
-              onClick={() => { vibrate(); pushView({ type: "pair" }); }}
-              className="flex items-center gap-1.5 px-1.5 py-1 text-[12px] font-medium text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex-shrink-0"
-              title="Pair Device"
-            >
-              <ChevronLeft size={14} className="opacity-70" />
-              <QrCode size={13} className="opacity-80" />
-              <span className="truncate">Pair Device</span>
-            </button>
-          ) : (
-            <>
-              <img src="/icon-192.png" alt="9Remote" draggable={false} className="w-4 h-4 rounded-[4px] object-contain flex-shrink-0 pointer-events-none select-none" />
-              <span className="text-[13px] font-semibold text-text truncate">9Remote</span>
-            </>
-          )}
+          <img src="/icon-192.png" alt="9Remote" draggable={false} className="w-4 h-4 rounded-[4px] object-contain flex-shrink-0 pointer-events-none select-none" />
+          <span className="text-[13px] font-semibold text-text truncate">9Remote</span>
         </div>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {/* Add another machine — kept here in the brand row, not down in the tree. */}
@@ -271,6 +255,19 @@ function TerminalSidebar({
           hooks differ). The -ml cancels the container's pl so each root sits at
           x=0 like every other host's, with its workspaces indented by treeCls. */}
       <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable pt-1.5 pl-3.5 relative z-10">
+        {/* Agent-env only: the local dashboard (QR, devices, services) as an item above the hosts. */}
+        {SHOW_PAIR_DEVICE && (
+          <button
+            onClick={() => { vibrate(); pushView({ type: "pair" }); }}
+            className={`-ml-3.5 w-[calc(100%+0.875rem)] flex items-center gap-2 px-3 py-1.5 rounded-brand text-left transition-colors ${
+              pairActive ? "bg-brand-500/15 text-brand-500" : "text-text-muted hover:text-text hover:bg-surface-2"
+            }`}
+            title="Pair Device"
+          >
+            <QrCode size={14} className="flex-shrink-0 opacity-80" />
+            <span className="text-[12.5px] font-medium truncate">Pair Device</span>
+          </button>
+        )}
         {orderedHosts.map((h, i) => (
           <div key={h.key} className={i === 0 ? "-ml-3.5" : "mt-1 -ml-3.5 border-t border-border-subtle pt-1"}>
           {h.key === (currentHost?.key || "main") ? (

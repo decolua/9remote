@@ -81,6 +81,7 @@ function TerminalWorkspace({
   openedSessions, livePanes, mountedWorkspaces, cwdBySession,
   sessionStatus, notifications,
   isDesktop, isTerminalView, slideClass, shells,
+  pairDashboard = null,
   sidebarCollapsed, sidebarWidth, setSidebarWidth, toggleSidebar,
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
@@ -521,7 +522,7 @@ function TerminalWorkspace({
 
   return (
     <div
-      className={`absolute inset-0 flex flex-col ${isTerminalView ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"}`}
+      className={`absolute inset-0 flex flex-col ${isTerminalView || pairDashboard ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"}`}
     >
       <div ref={rowRef} className={`flex-1 min-h-0 relative ${isDesktop ? "flex flex-row" : "flex flex-col"}`}>
         {isDesktop && (
@@ -564,7 +565,12 @@ function TerminalWorkspace({
           </div>
         )}
 
-        <div className="flex-1 min-w-0 min-h-0 flex flex-col">
+        <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
+          {/* Agent dashboard fills the content area (desktop pair view) — the
+              sidebar sibling stays visible and interactive beside it. */}
+          {pairDashboard && (
+            <div className="absolute inset-0 z-20 overflow-hidden bg-bg">{pairDashboard}</div>
+          )}
           {/* With no session there is nothing to tab between, so the strip goes away on
               desktop. Mobile keeps it: the header is the only way to reach Settings there,
               since the sidebar (which holds it on desktop) does not exist. */}

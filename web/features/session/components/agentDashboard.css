@@ -1,0 +1,232 @@
+/* Agent-dashboard port — the glass theme of agent/ui's MainScreen, scoped under
+   .agent-dashboard so none of it leaks into the web app's own tokens/classes.
+   Light vars are the default; dark follows the web ThemeProvider's root class.
+   The Material Symbols font import lives in globals.css (same as Inter). */
+
+.agent-dashboard {
+  --radius-brand: 8px;
+  --radius-brand-lg: 10px;
+  --brand-500: #E85A2C;
+  --brand-600: #cc4e24;
+  --brand-400: #f2711c;
+  --brand-rgb: 232, 90, 44;
+  --ring: rgba(232, 90, 44, 0.42);
+  --bg-body: #FCFBF9;
+  --surface-2: rgba(255, 255, 255, 0.9);
+  --border: rgba(20, 30, 60, 0.10);
+  --border-subtle: rgba(20, 30, 60, 0.06);
+  --text-main: #0C1230;
+  --text-muted: #5A648A;
+  --glass-bg: rgba(255, 255, 255, 0.74);
+  --glass-border: rgba(20, 30, 60, 0.10);
+  --glass-hover: rgba(255, 255, 255, 0.9);
+  --grid-opacity: 0.08;
+  --surface-3: #E7E7E9;
+  --text-subtle: #8A93B4;
+  --success: #10B981;
+  --success-rgb: 16, 185, 129;
+  --danger: #DC2626;
+  --danger-rgb: 220, 38, 38;
+  --warn: #D97706;
+  --warn-rgb: 217, 119, 6;
+  --grid-line: rgba(0, 0, 0, 0.6);
+  --light-1: rgba(0, 0, 0, 0.045);
+  --light-2: rgba(0, 0, 0, 0.03);
+  --light-3: rgba(0, 0, 0, 0.02);
+  --row-bg: rgba(255, 255, 255, 0.72);
+  --row-hover: rgba(20, 30, 60, 0.04);
+  --pane-right-bg: rgba(255, 255, 255, 0.5);
+  --qr-plate-shadow: 0 24px 60px -20px rgba(60, 70, 120, 0.35), 0 0 0 1px var(--border-subtle);
+  --shadow-elev: 0 10px 30px -12px rgba(20, 30, 60, 0.18);
+}
+
+:root.dark .agent-dashboard {
+  --brand-500: #FF6A3D;
+  --brand-600: #e5572c;
+  --brand-400: #ff8155;
+  --brand-rgb: 255, 106, 61;
+  --ring: rgba(255, 106, 61, 0.55);
+  --bg-body: #0a0a0a;
+  --surface-2: #262626;
+  --border: rgba(255, 255, 255, 0.10);
+  --border-subtle: rgba(255, 255, 255, 0.07);
+  --text-main: #fafafa;
+  --text-muted: #a1a1a1;
+  --glass-bg: rgba(38, 38, 38, 0.7);
+  --glass-border: rgba(255, 255, 255, 0.08);
+  --glass-hover: #2a2a2a;
+  --grid-opacity: 0.04;
+  --surface-3: #2a2a2a;
+  --text-subtle: #737373;
+  --success: #34E5A4;
+  --success-rgb: 52, 229, 164;
+  --danger: #FF5252;
+  --danger-rgb: 255, 82, 82;
+  --warn: #FFC24B;
+  --warn-rgb: 255, 194, 75;
+  --grid-line: rgba(255, 255, 255, 1);
+  --light-1: rgba(255, 255, 255, 0.10);
+  --light-2: rgba(255, 255, 255, 0.07);
+  --light-3: rgba(255, 255, 255, 0.035);
+  --row-bg: rgba(255, 255, 255, 0.04);
+  --row-hover: rgba(255, 255, 255, 0.03);
+  --pane-right-bg: rgba(23, 23, 23, 0.28);
+  --qr-plate-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-subtle);
+  --shadow-elev:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.06),
+    0 24px 60px -18px rgba(3, 6, 16, 0.9);
+}
+
+.agent-dashboard .card-elev {
+  background: var(--glass-bg);
+  box-shadow: var(--shadow-elev);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-brand-lg);
+  backdrop-filter: blur(20px) saturate(140%);
+  -webkit-backdrop-filter: blur(20px) saturate(140%);
+  transition: box-shadow 0.2s ease, border-color 0.2s ease;
+}
+
+.agent-dashboard .glass-card {
+  background: var(--glass-bg);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  backdrop-filter: blur(24px) saturate(190%);
+  -webkit-backdrop-filter: blur(24px) saturate(190%);
+  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.55), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  transition: all 0.2s ease;
+}
+
+.agent-dashboard .hero-card {
+  position: relative;
+  overflow: hidden;
+  background: var(--row-bg);
+  border: 1px solid var(--border-subtle);
+  border-radius: 16px;
+  transition: transform 0.2s ease;
+}
+.agent-dashboard .hero-card:hover { transform: translateY(-1px); }
+.agent-dashboard .hero-card::before {
+  content: "";
+  position: absolute;
+  top: -50%;
+  left: -65%;
+  width: 60%;
+  height: 200%;
+  background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.02) 20%, rgba(255, 255, 255, 0.22) 50%, rgba(255, 255, 255, 0.02) 80%, transparent 100%);
+  transform: rotate(25deg);
+  pointer-events: none;
+  opacity: 0;
+}
+:root.light .agent-dashboard .hero-card::before {
+  background: linear-gradient(115deg, transparent 0%, rgba(255, 255, 255, 0.1) 20%, rgba(255, 255, 255, 0.5) 50%, rgba(255, 255, 255, 0.1) 80%, transparent 100%);
+}
+.agent-dashboard .hero-card:hover::before {
+  opacity: 1;
+  animation: ad-mirror-sheen 1.5s linear infinite;
+}
+@keyframes ad-mirror-sheen { 0% { left: -65%; } 100% { left: 110%; } }
+
+.agent-dashboard .glass-btn {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+}
+.agent-dashboard .glass-btn:hover {
+  background: var(--glass-hover);
+  border-color: var(--ring, var(--border));
+}
+
+.agent-dashboard .btn-primary {
+  background: linear-gradient(135deg, var(--brand-500), var(--brand-400));
+  border-radius: var(--radius-brand);
+  color: #fff;
+  font-weight: 600;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  box-shadow: 0 8px 20px -6px rgba(var(--brand-rgb), 0.5);
+}
+.agent-dashboard .btn-primary:hover { filter: brightness(1.06); transform: translateY(-1px); }
+
+.agent-dashboard .material-symbols-outlined {
+  font-family: "Material Symbols Rounded";
+  font-variation-settings: "FILL" 0, "wght" 300, "GRAD" 0, "opsz" 24;
+  line-height: 1;
+  user-select: none;
+}
+
+.agent-dashboard .card-act { color: var(--text-muted); transition: all 0.15s ease; }
+.agent-dashboard .card-act:hover { background: var(--surface-2); color: var(--text-main); }
+
+.agent-dashboard .qr-spin { animation: ad-spin 0.9s linear infinite; transform-origin: 50% 50%; }
+@keyframes ad-spin { from { transform: rotate(0deg); } to { transform: rotate(360deg); } }
+
+.agent-dashboard .bg-sq-grid {
+  background-image:
+    linear-gradient(to right, var(--grid-line) 1px, transparent 1px),
+    linear-gradient(to bottom, var(--grid-line) 1px, transparent 1px);
+  background-size: 40px 40px;
+  opacity: var(--grid-opacity);
+  -webkit-mask-image: radial-gradient(ellipse 120% 90% at 50% 0%, #000 30%, transparent 80%);
+  mask-image: radial-gradient(ellipse 120% 90% at 50% 0%, #000 30%, transparent 80%);
+}
+
+.agent-dashboard .bg-light-drift {
+  background:
+    radial-gradient(820px 620px at 18% 10%, var(--light-1), transparent 60%),
+    radial-gradient(720px 540px at 84% 80%, var(--light-2), transparent 65%),
+    radial-gradient(620px 420px at 55% 45%, var(--light-3), transparent 60%);
+  animation: ad-light-drift 18s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes ad-light-drift {
+  0%   { transform: translate3d(-2%, -1%, 0) scale(1.05); opacity: 0.82; }
+  100% { transform: translate3d(2%, 2%, 0) scale(1.16); opacity: 1; }
+}
+
+.agent-dashboard .pane-hero-glow {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(900px 700px at 58% 30%, var(--light-1), transparent 62%),
+    radial-gradient(1100px 800px at 12% 95%, var(--light-2), transparent 68%);
+  animation: ad-hero-glow-drift 16s ease-in-out infinite alternate;
+  will-change: transform;
+}
+@keyframes ad-hero-glow-drift {
+  0%   { transform: translate3d(-1.5%, -1%, 0) scale(1.04); opacity: 0.8; }
+  100% { transform: translate3d(2%, 1.5%, 0) scale(1.12); opacity: 1; }
+}
+
+.agent-dashboard .brand-grad-text {
+  background: linear-gradient(to bottom, var(--text-main), var(--text-muted));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.agent-dashboard .logo-glass {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.07), rgba(255, 255, 255, 0.02));
+  border: 1px solid rgba(255, 255, 255, 0.10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 0 22px -6px rgba(var(--brand-rgb), 0.45);
+}
+:root.light .agent-dashboard .logo-glass {
+  background: linear-gradient(150deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6));
+  border: 1px solid rgba(20, 30, 60, 0.10);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 22px -8px rgba(var(--brand-rgb), 0.35);
+}
+
+.agent-dashboard .row-hover { transition: background-color 0.15s ease; }
+.agent-dashboard .row-hover:hover { background: var(--row-hover); }
+
+.agent-dashboard .chip-blink { animation: ad-chip-blink 1.2s ease-in-out infinite; }
+@keyframes ad-chip-blink { 50% { opacity: 0.35; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-dashboard .bg-light-drift,
+  .agent-dashboard .pane-hero-glow,
+  .agent-dashboard .chip-blink,
+  .agent-dashboard .hero-card:hover::before { animation: none; }
+}
