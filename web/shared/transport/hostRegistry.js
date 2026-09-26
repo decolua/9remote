@@ -63,6 +63,9 @@ export class HostRegistry {
     this._servedBus = servedBus || (() => null);
     // head -> ProtocolManager (transport objects, deliberately not store state)
     this.buses = new Map();
+    // Connect-deadline timers, keyed like buses: drop() must kill its own, or a
+    // retry inside the deadline answers for the attempt it replaced.
+    this._connectTimers = new Map();
     // Deferred intents: pressed while a bus is still opening, fired on connect.
     // Cleared on disconnect — a command never replays against a later session.
     this.pending = new Map();
@@ -135,7 +138,6 @@ export class HostRegistry {
 
     const patch = (p) => this._patch(head, p);
     let bound = false;
-    let connectTimer = null;
 
     const pm = new ProtocolManager(
       {
@@ -147,7 +149,8 @@ export class HostRegistry {
         deviceId,
         tempKey: null,
         onConnect: (bus) => {
-          clearTimeout(connectTimer);
+          clearTimeout(this._connectTimers.get(head));
+          this._connectTimers.delete(head);
           patch({ status: "online", lastSeenAt: Date.now(), updating: false, approval: null });
           // Deferred intents fire in press order, then the fresh lists land.
           const q = this.pending.get(head);
@@ -171,13 +174,14 @@ export class HostRegistry {
     );
     this.buses.set(head, pm);
     patch({ status: "connecting" });
-    connectTimer = setTimeout(() => this._onConnectTimeout(head), CONNECT_TIMEOUT_MS);
+    this._connectTimers.set(head, setTimeout(() => this._onConnectTimeout(head), CONNECT_TIMEOUT_MS));
     pm.connect();
   }
 
   // Only the still-connecting verdict flips: a bus that answered by now has
   // already patched online, and a carrier reconnect re-patches anyway.
   _onConnectTimeout(head) {
+    this._connectTimers.delete(head);
     if (!this.buses.has(head) || this._hostOf(head)?.status !== "connecting") return;
     this._patch(head, { status: "offline" });
     // A host that never answered is not auto-connected next visit either —
@@ -190,6 +194,8 @@ export class HostRegistry {
   drop(head) {
     const pm = this.buses.get(head);
     if (pm) { pm.disconnect(); this.buses.delete(head); }
+    clearTimeout(this._connectTimers.get(head));
+    this._connectTimers.delete(head);
     this.pending.delete(head);
   }
 
@@ -203,6 +209,8 @@ export class HostRegistry {
   closeAll() {
     for (const pm of this.buses.values()) pm.disconnect();
     this.buses.clear();
+    for (const t of this._connectTimers.values()) clearTimeout(t);
+    this._connectTimers.clear();
     this.pending.clear();
     this.disarmProbe();
   }

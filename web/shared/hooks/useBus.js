@@ -13,6 +13,10 @@ import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
 
+// Matches the registry's connect deadline: a re-keyed connection that never
+// opened by then stops riding the previous host's "connected" verdict.
+const REKEY_STALL_MS = 15000;
+
 /**
  * Owns the ProtocolManager and hands back its bus — the one object the app talks
  * to. Not a bus: socket.io is only one of the carriers underneath (RTC is the
@@ -59,6 +63,8 @@ export function useBus(config = {}) {
   useEffect(() => {
     let cancelled = false;
     let protocol = null;
+    let opened = false;
+    let watchdog = null;
 
     const start = async () => {
       let auth = getAuth();
@@ -128,6 +134,8 @@ export function useBus(config = {}) {
         tempKey: auth.tempKey ?? null,
         onConnect: (bus, mode) => {
           if (cancelled) return;
+          opened = true;
+          clearTimeout(watchdog);
           hadConnectionRef.current = true;
           busRef.current = bus;
           useConnectionStore.getState().setConnection({ deliberate: false, everConnected: true });
@@ -203,12 +211,22 @@ export function useBus(config = {}) {
         carrier: "ws"
       });
       protocol.connect();
+      // A re-key carries the old host's connected verdict (no loading blink);
+      // a PM that never opens fires no onDisconnect to correct it — deadline it.
+      if (hadConnectionRef.current) {
+        watchdog = setTimeout(() => {
+          if (cancelled || opened) return;
+          setConnected(false);
+          useConnectionStore.getState().setConnection({ connected: false });
+        }, REKEY_STALL_MS);
+      }
     };
 
     start();
 
     return () => {
       cancelled = true;
+      clearTimeout(watchdog);
       protocol?.disconnect();
       protocolRef.current = null;
       busRef.current = null;
