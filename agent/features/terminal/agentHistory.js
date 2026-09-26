@@ -3,11 +3,13 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import crypto from "crypto";
+import { execFileSync } from "child_process";
 import { HISTORY } from "./constants.js";
 import { createRequire } from "module";
 import { writeJsonAtomic } from "../../lib/atomicFile.js";
 import { agentById } from "./agentCatalog.js";
 import { getConversationMode, engineFromAgent } from "./conversationModes.js";
+import { parseWorktreeList } from "../fileExplorer/gitRepoScan.js";
 
 const require = createRequire(import.meta.url);
 
@@ -653,15 +655,55 @@ export function clearHistoryCache() {
   cache.clear();
 }
 
+// Sibling worktrees of a repo: if the cwd belongs to a repo with linked worktrees,
+// the history includes sessions from the main checkout (unlabeled) plus each linked
+// worktree (labeled with its branch). Both main and worktrees see the same list.
+function repoWorktreeInfo(cwd) {
+  try {
+    const out = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, timeout: 5000, encoding: "utf8" });
+    const trees = parseWorktreeList(out);
+    if (!trees || trees.length <= 1) return null;
+    const main = trees[0];
+    if (!main?.path) return null;
+    const linked = trees.slice(1)
+      .filter((w) => !w.bare && fs.existsSync(w.path))
+      .map((w) => ({
+        path: path.resolve(w.path),
+        branch: (w.branch && w.branch !== "main" && w.branch !== "master") ? w.branch : path.basename(w.path)
+      }));
+    if (!linked.length) return null;
+    return { mainPath: path.resolve(main.path), linked };
+  } catch {
+    return null;
+  }
+}
+
 export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fresh = false } = {}) {
   if (!cwd) return [];
   const cached = cache.get(cwd);
   if (!fresh && cached && Date.now() - cached.at < HISTORY.CACHE_TTL_MS) return cached.rows.slice(0, limit);
 
   const rows = [];
-  for (const source of HISTORY_SOURCES) {
-    const collect = COLLECTORS[source.layout];
-    rows.push(...collect(source, cwd, HISTORY.PER_AGENT_LIMIT));
+  const wtInfo = repoWorktreeInfo(cwd);
+
+  if (!wtInfo) {
+    for (const source of HISTORY_SOURCES) {
+      const collect = COLLECTORS[source.layout];
+      rows.push(...collect(source, cwd, HISTORY.PER_AGENT_LIMIT));
+    }
+  } else {
+    // Collect from main checkout (no branch label)
+    for (const source of HISTORY_SOURCES) {
+      const collect = COLLECTORS[source.layout];
+      rows.push(...collect(source, wtInfo.mainPath, HISTORY.PER_AGENT_LIMIT));
+    }
+    // Collect from each linked worktree (labeled with its worktree branch)
+    for (const wt of wtInfo.linked) {
+      for (const source of HISTORY_SOURCES) {
+        const collect = COLLECTORS[source.layout];
+        rows.push(...collect(source, wt.path, HISTORY.PER_AGENT_LIMIT).map((r) => ({ ...r, branch: wt.branch })));
+      }
+    }
   }
   rows.sort((a, b) => b.updatedAt - a.updatedAt || SOURCE_RANK.get(a.agent) - SOURCE_RANK.get(b.agent));
 

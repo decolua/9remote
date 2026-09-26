@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import { X, History, Trash2, Search, Play } from "@/shared/components/ui/Icon";
+import { X, History, Trash2, Search, GitFork } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
@@ -111,7 +111,7 @@ export default function AgentHistoryModal({
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200 touch-none"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-xl w-full max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200 bg-surface border border-border rounded-brand-lg overflow-hidden shadow-2xl">
+      <div className="relative card-elev max-w-xl w-full max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-border-subtle flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -131,7 +131,7 @@ export default function AgentHistoryModal({
         </div>
 
         {/* Search & Filters */}
-        <div className="p-3 border-b border-border-subtle flex flex-col gap-2 bg-surface-1/50 flex-shrink-0">
+        <div className="p-3 border-b border-border-subtle flex flex-col gap-2.5 bg-surface-2/30 flex-shrink-0">
           <div className="relative flex items-center">
             <Search size={15} className="absolute left-3 text-text-muted pointer-events-none" />
             <input
@@ -139,7 +139,7 @@ export default function AgentHistoryModal({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={t("agentHistory.searchPlaceholder")}
-              className="w-full pl-9 pr-8 py-1.5 text-xs bg-surface-2 border border-border-subtle rounded-brand text-text placeholder-text-muted outline-none focus:border-text-muted/40 focus:ring-1 focus:ring-text-muted/20 transition-all"
+              className="w-full pl-9 pr-8 py-1.5 text-xs bg-surface-2 border border-border-subtle rounded-brand text-text placeholder-text-muted outline-none focus:border-brand-500/50 focus:ring-1 focus:ring-brand-500/20 transition-all"
             />
             {query && (
               <button
@@ -152,13 +152,13 @@ export default function AgentHistoryModal({
           </div>
 
           {agentTypes.length > 1 && (
-            <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5 scrollbar-none">
+            <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               <button
                 onClick={() => setSelectedAgent("all")}
-                className={`px-2.5 py-1 text-xs rounded-brand transition-colors whitespace-nowrap ${
+                className={`shrink-0 h-7 px-3.5 text-xs rounded-brand transition-colors whitespace-nowrap flex items-center justify-center ${
                   selectedAgent === "all"
                     ? "bg-surface-3 text-text font-medium border border-border-subtle shadow-sm"
-                    : "bg-surface-2 text-text-muted hover:text-text"
+                    : "bg-surface-2/60 text-text-muted hover:text-text hover:bg-surface-2 border border-transparent"
                 }`}
               >
                 {t("agentHistory.allAgents")}
@@ -167,10 +167,10 @@ export default function AgentHistoryModal({
                 <button
                   key={ag}
                   onClick={() => setSelectedAgent(ag)}
-                  className={`px-2.5 py-1 text-xs rounded-brand transition-colors flex items-center gap-1.5 whitespace-nowrap capitalize ${
+                  className={`shrink-0 h-7 px-3.5 text-xs rounded-brand transition-colors flex items-center gap-2 whitespace-nowrap capitalize ${
                     selectedAgent === ag
                       ? "bg-surface-3 text-text font-medium border border-border-subtle shadow-sm"
-                      : "bg-surface-2 text-text-muted hover:text-text"
+                      : "bg-surface-2/60 text-text-muted hover:text-text hover:bg-surface-2 border border-transparent"
                   }`}
                 >
                   <img src={agentIconUrl(ag)} alt="" className={`w-3.5 h-3.5 ${AGENT_ICON_CLS}`} />
@@ -193,36 +193,41 @@ export default function AgentHistoryModal({
               const openId = row.openSessionId && liveSessionIds?.has(row.openSessionId)
                 ? row.openSessionId
                 : null;
-              const isActive = !!openId && openId === activeSessionId;
               const title = row.title || t("agentHistory.untitled");
 
               return (
                 <div
                   key={`${row.agent}:${row.sessionId}`}
-                  className={`group flex items-center gap-2.5 px-3 py-2 rounded-brand transition-colors ${
-                    isActive ? "bg-surface-2 border border-border-subtle" : "hover:bg-surface-2"
-                  }`}
+                  onClick={() => handleResume(row, openId)}
+                  className="group flex items-center gap-2.5 px-3 py-2 rounded-brand cursor-pointer transition-colors hover:bg-surface-2"
                 >
                   <img
                     src={agentIconUrl(row.agent)}
                     alt={row.agent}
-                    className={`w-5 h-5 flex-shrink-0 object-contain ${AGENT_ICON_CLS}`}
+                    className={`w-5 h-5 flex-shrink-0 object-contain ${AGENT_ICON_CLS} ${openId ? "" : "opacity-70"}`}
                   />
-                  <div
-                    onClick={() => handleResume(row, openId)}
-                    className="flex-1 min-w-0 cursor-pointer"
-                  >
+                  <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className={`text-xs truncate font-medium ${openId ? "text-emerald-400" : "text-text"}`}>
+                      <span className={`text-xs truncate ${openId ? "text-text font-medium" : "text-text-muted"}`}>
                         {title}
                       </span>
                       {openId && (
-                        <span className="px-1.5 py-0.2 text-[10px] rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex-shrink-0">
+                        <span className="px-2 py-0.5 text-[10px] leading-none rounded bg-success/15 text-success border border-success/25 flex-shrink-0 font-medium">
                           {t("agentHistory.openNow")}
                         </span>
                       )}
                     </div>
-                    <div className="flex items-center gap-2 mt-0.5 text-[11px] text-text-subtle">
+                    <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-text-subtle min-w-0">
+                      {/* Worktree rows name their branch here; main-checkout rows stay bare */}
+                      {row.branch && row.branch !== "main" && row.branch !== "master" && (
+                        <>
+                          <span className="flex items-center gap-0.5 min-w-0 max-w-[45%]" title={row.branch}>
+                            <GitFork size={9} className="text-brand-500 shrink-0" />
+                            <span className="truncate">{row.branch}</span>
+                          </span>
+                          <span>•</span>
+                        </>
+                      )}
                       <span className="capitalize">{row.agent}</span>
                       <span>•</span>
                       <span className="tabular-nums">{relativeAge(row.updatedAt, t)}</span>
@@ -237,18 +242,16 @@ export default function AgentHistoryModal({
 
                   <div className="flex items-center gap-1 flex-shrink-0">
                     <button
-                      onClick={() => handleResume(row, openId)}
-                      disabled={!connected}
-                      className="p-1.5 text-text-muted hover:text-text hover:bg-surface-3 rounded-brand transition-colors"
-                      title={openId ? t("agentHistory.openNow") : t("common.confirm")}
-                    >
-                      <Play size={14} />
-                    </button>
-                    <button
-                      onClick={() => setDeletingSession(row)}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeletingSession(row);
+                      }}
                       disabled={!connected || !!openId}
-                      className="p-1.5 text-text-muted hover:text-red-400 hover:bg-red-500/10 rounded-brand transition-colors disabled:opacity-30 disabled:hover:text-text-muted disabled:hover:bg-transparent"
-                      title={openId ? t("agentHistory.openNow") : t("agentHistory.delete")}
+                      className={`p-1.5 text-text-muted hover:text-danger hover:bg-danger/10 rounded-brand transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 ${
+                        openId ? "invisible pointer-events-none" : ""
+                      }`}
+                      title={t("agentHistory.delete")}
+                      aria-label={t("agentHistory.delete")}
                     >
                       <Trash2 size={14} />
                     </button>

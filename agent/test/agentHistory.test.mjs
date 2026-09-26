@@ -5,7 +5,8 @@
 // Run: node --test agent/test/agentHistory.test.mjs
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync, existsSync } from "fs";
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, rmSync, existsSync, realpathSync } from "fs";
+import { execSync } from "child_process";
 import { createRequire } from "module";
 const require = createRequire(import.meta.url);
 import { tmpdir } from "os";
@@ -359,6 +360,62 @@ test("deleteAgentSession deletes Claude session file and updates cache", async (
 
   rows = await listAgentSessions({ cwd: CWD });
   assert.equal(rows.some((r) => r.sessionId === "to_delete"), false);
+});
+
+
+// --- sibling worktrees ---
+
+test("a repo using worktrees includes main and worktree sessions, with worktree labeled", async () => {
+  const repo = join(home, "wtrepo");
+  mkdirSync(repo, { recursive: true });
+  execSync("git init -q", { cwd: repo });
+  writeFileSync(join(repo, "a.txt"), "x");
+  execSync("git -c user.name=t -c user.email=t@t add .", { cwd: repo });
+  execSync("git -c user.name=t -c user.email=t@t commit -qm init", { cwd: repo });
+  execSync("git worktree add ../wtrepo-feat-x -b feat-x", { cwd: repo });
+  // CLIs record the resolved path (/private/var on macOS) — same as git reports
+  const wtCwd = realpathSync(join(home, "wtrepo-feat-x"));
+  write(`.claude/projects/${wtCwd.replace(/[/\\:]/g, "-")}/wt1.jsonl`, jsonl(
+    { type: "user", message: { role: "user", content: "worktree work" } }
+  ), 6000);
+  const repoCwd = realpathSync(repo);
+  write(`.claude/projects/${repoCwd.replace(/[/\\:]/g, "-")}/main1.jsonl`, jsonl(
+    { type: "user", message: { role: "user", content: "main checkout work" } }
+  ), 6100);
+  clearHistoryCache();
+
+  // From the main checkout: both rows present; main has no branch, worktree has branch.
+  const rows = await listAgentSessions({ cwd: repo });
+  const claudeRows = rows.filter((r) => r.agent === "claude");
+  assert.equal(claudeRows.length, 2);
+  const mainRow = claudeRows.find((r) => r.sessionId === "main1");
+  const wtRow = claudeRows.find((r) => r.sessionId === "wt1");
+  assert.ok(mainRow && wtRow);
+  assert.equal(mainRow.branch, undefined);
+  assert.equal(wtRow.branch, "feat-x");
+  assert.equal(wtRow.cwd, wtCwd);
+
+  // From inside the worktree: exact same list and labels.
+  clearHistoryCache();
+  const wtRows = (await listAgentSessions({ cwd: wtCwd })).filter((r) => r.agent === "claude");
+  assert.equal(wtRows.length, 2);
+  assert.equal(wtRows.find((r) => r.sessionId === "main1")?.branch, undefined);
+  assert.equal(wtRows.find((r) => r.sessionId === "wt1")?.branch, "feat-x");
+});
+
+test("a repo with no worktrees keeps its plain per-cwd list", async () => {
+  const repo = join(home, "plainrepo");
+  mkdirSync(repo, { recursive: true });
+  execSync("git init -q", { cwd: repo });
+  const repoCwd = realpathSync(repo);
+  write(`.claude/projects/${repoCwd.replace(/[/\\:]/g, "-")}/solo.jsonl`, jsonl(
+    { type: "user", message: { role: "user", content: "solo work" } }
+  ), 6200);
+  clearHistoryCache();
+
+  const rows = (await listAgentSessions({ cwd: repoCwd })).filter((r) => r.agent === "claude");
+  assert.deepEqual(rows.map((r) => r.sessionId), ["solo"]);
+  assert.equal(rows[0].branch, undefined);
 });
 
 

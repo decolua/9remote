@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, History, ExternalLink, Trash2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, History, ExternalLink, Trash2, GitFork } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
@@ -141,8 +141,17 @@ export default function AgentHistoryPanel({
                       alt={row.agent}
                       className={`flex-shrink-0 ${AGENT_ICON_CLS} ${asList ? "w-4 h-4" : "w-2.5 h-2.5"} ${openId ? "" : "opacity-70"}`}
                     />
-                    <span className={`truncate flex-1 min-w-0 ${asList ? "text-sm" : "text-[11px]"}`} data-tip={title}>
-                      {title}
+                    <span className="flex-1 min-w-0 flex flex-col">
+                      <span className={`truncate ${asList ? "text-sm" : "text-[11px]"}`} data-tip={title}>
+                        {title}
+                      </span>
+                      {/* Worktree rows whisper their branch on a sub-line; main-checkout rows stay bare */}
+                      {row.branch && row.branch !== "main" && row.branch !== "master" && (
+                        <span className="flex items-center gap-0.5 min-w-0 text-[10px] leading-tight">
+                          <GitFork size={9} className="text-brand-500 shrink-0" />
+                          <span className="truncate text-text-subtle">{row.branch}</span>
+                        </span>
+                      )}
                     </span>
                     {/* The time is the row's last in-flow item; the ExplorerRow door
                         floats the delete button over it on hover with a backdrop. */}
@@ -155,7 +164,7 @@ export default function AgentHistoryPanel({
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeletingSession(row); }}
                       disabled={!connected || !!openId}
-                      className={`flex-shrink-0 p-1 rounded-[4px] text-text-subtle transition-colors hover:bg-red-500/15 hover:text-red-400 opacity-60 hover:opacity-100 ${openId ? "invisible" : ""}`}
+                      className={`flex-shrink-0 p-1 rounded-[4px] text-text-subtle transition-colors hover:bg-danger/10 hover:text-danger opacity-60 hover:opacity-100 ${openId ? "invisible" : ""}`}
                       title={openId ? t("agentHistory.openNow") : t("agentHistory.delete")}
                       aria-label={t("agentHistory.delete")}
                     >
@@ -165,7 +174,7 @@ export default function AgentHistoryPanel({
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeletingSession(row); }}
                       disabled={!connected || !!openId}
-                      className={`absolute right-1 top-1/2 -translate-y-1/2 pl-1.5 pr-0.5 rounded-[4px] bg-surface-2 text-text-subtle group-hover:text-red-400 hover:bg-red-500/15 transition-colors opacity-0 group-hover:opacity-100 ${openId ? "invisible" : ""}`}
+                      className={`absolute right-1 top-1/2 -translate-y-1/2 pl-1.5 pr-0.5 rounded-[4px] bg-surface-2 text-text-subtle group-hover:text-danger hover:bg-danger/10 transition-colors opacity-0 group-hover:opacity-100 ${openId ? "invisible" : ""}`}
                       title={openId ? t("agentHistory.openNow") : t("agentHistory.delete")}
                       aria-label={t("agentHistory.delete")}
                     >
