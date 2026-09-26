@@ -55,6 +55,7 @@ export const UPDATE = {
   verifyTimeoutMs: 15000,
   lockTtlMs: 300000,
   lockFile: "update.lock",
+  gateTimeoutMs: 60000, // loading gate dies on its own — orphan can never hold the port
 };
 
 export const URL_SYNC_DEBOUNCE_MS = 5000;

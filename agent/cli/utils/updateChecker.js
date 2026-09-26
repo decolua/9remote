@@ -376,10 +376,36 @@ function npmCommand() {
   return "npm";
 }
 
+// Tiny static server holding SERVER_PORT during reinstall: webview reloads land
+// on an "updating…" page instead of a dead origin (WKWebView goes black for good).
+// /api/health stays 503 so splash/overlay pollers keep waiting for the real agent.
+function writeGateScript(port, timeoutMs) {
+  const gatePath = path.join(os.tmpdir(), `${PACKAGE_NAME}-gate.cjs`);
+  const source = `const http = require("http");
+const PORT = ${port};
+const EXIT_MS = ${timeoutMs};
+const HTML = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>9Remote</title><style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#101218;color:#c9ced6;font-family:system-ui,-apple-system,sans-serif}.spin{width:26px;height:26px;border:3px solid #2a2f3a;border-top-color:#e68a6e;border-radius:50%;animation:r 1s linear infinite;margin:0 auto 14px}@keyframes r{to{transform:rotate(360deg)}}</style></head><body><div><div class="spin"></div><div>9Remote is updating…</div></div><script>setInterval(function(){fetch("/api/health",{cache:"no-store"}).then(function(r){if(r.ok)location.reload()}).catch(function(){})},1500)</script></body></html>';
+function bind(attempt) {
+  const s = http.createServer((req, res) => {
+    if (req.url.startsWith("/api/health")) { res.writeHead(503, { "Content-Type": "text/plain" }); return res.end("updating"); }
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+    res.end(HTML);
+  });
+  s.on("error", () => { if (attempt < 150) setTimeout(() => bind(attempt + 1), 200); });
+  s.listen(PORT, "127.0.0.1");
+}
+bind(0);
+setTimeout(() => process.exit(0), EXIT_MS);
+`;
+  writeFileSync(gatePath, source);
+  return gatePath;
+}
+
 function buildUpdateScript({ currentVersion, latest, agentPid }) {
   const pidsDir = getPidsDir();
   const reg = registryFlag();
   const nodeBin = getNodeBin();
+  const gatePath = writeGateScript(SERVER_PORT, UPDATE.gateTimeoutMs);
   const nodeEnv = nodeBinEnvPrefix();
   const cliEntry = getCliEntry();
   const lock = LOCK_PATH;
@@ -411,6 +437,9 @@ for %%N in (cloudflared agent) do (
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
 timeout /t 3 /nobreak >nul
 
+REM Loading gate: hold the port with an updating page during reinstall
+start "" /b "%NODE%" "${gatePath}"
+
 set ATTEMPT=0
 :installloop
 set /a ATTEMPT+=1
@@ -439,6 +468,10 @@ if not "!NEWVER!"=="${latest}" (
   call ${npm} install ${PACKAGE_NAME}@${currentVersion} ${npmFlags} >nul 2>&1
 )
 del /f /q "${lock}" >nul 2>&1
+
+REM Free the port for the new agent (kills the loading gate)
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
+timeout /t 1 /nobreak >nul
 
 wscript "${restartVbsPath}"
 exit /b 0
@@ -474,6 +507,9 @@ done
 lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
 sleep 2
 
+# Loading gate holds the port so webview reloads show "updating", not black
+(${nodeEnv}"${nodeBin}" "${gatePath}" >/dev/null 2>&1 &)
+
 attempt=0
 while [ $attempt -lt ${UPDATE.maxRetry} ]; do
   attempt=$((attempt+1))
@@ -492,6 +528,10 @@ if [ "$NEWVER" != "${latest}" ]; then
   echo "Verify failed (got $NEWVER, want ${latest}), rolling back to ${currentVersion}..."
   ${npm} install ${PACKAGE_NAME}@${currentVersion} ${npmFlags} || true
 fi
+
+# Free the port for the new agent (kills the loading gate)
+lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
+sleep 1
 
 rm -f "${lock}"
 ${process.env.NREMOTE_REGISTRY ? `export NREMOTE_REGISTRY="${process.env.NREMOTE_REGISTRY}"\n` : ""}${nodeEnv}"${nodeBin}" "${cliEntry}" ${restartArgs()}
