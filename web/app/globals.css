@@ -286,11 +286,11 @@
 /* Default = dark theme tokens (neutral zinc) */
 :root {
   --bg: #0a0a0a;
-  --surface: #171717;
-  --surface-2: #262626;
+  --surface: #191919;
+  --surface-2: #222222;
   --surface-3: #2a2a2a;
-  --border: rgba(255, 255, 255, 0.10);
-  --border-subtle: rgba(255, 255, 255, 0.07);
+  --border: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(255, 255, 255, 0.12);
   --text: #fafafa;
   --text-muted: #a1a1a1;
   --text-subtle: #737373;
@@ -312,7 +312,7 @@
   --shadow-focus: 0 0 0 3px rgba(229,106,74,0.18);
   /* Glass card (terminal-glass) — sits well above the near-black canvas, or it reads
      as a smudge under the cine-bg grain */
-  --card-glass-bg: rgba(38,38,38,0.66);
+  --card-glass-bg: rgba(25,25,25,0.92);
   --card-glass-border: rgba(255,255,255,0.14);
   --card-shine: inset 0 1px 0 rgba(255,255,255,0.16);
   color-scheme: dark;
@@ -357,7 +357,7 @@
   --surface-2: #f4f4f5;
   --surface-3: #e7e7e9;
   --border: #e5e7eb;
-  --border-subtle: #f1f1f3;
+  --border-subtle: #e9e9ec;
   --text: #0a0a0a;
   --text-muted: #6B7280;
   --text-subtle: #9CA3AF;

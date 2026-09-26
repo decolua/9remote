@@ -471,8 +471,8 @@ export default function NewTerminalModal({
                 onKeyDown={(e) => onGridKey(e, i)}
                 data-picked={active}
                 data-index={i}
-                className={`flex items-center gap-2 px-2.5 py-2 rounded-brand text-left transition-colors min-w-0 outline-none focus:outline-none focus:ring-0 ${
-                  active ? "bg-brand-500/15 text-text" : "text-text-muted hover:bg-surface-2 hover:text-text"
+                className={`modal-row text-left min-w-0 outline-none focus:outline-none focus:ring-0 ${
+                  active ? "modal-row-active text-text" : "text-text-muted hover:text-text"
                 }`}
               >
                 <AgentAvatar agent={a} />
@@ -481,7 +481,7 @@ export default function NewTerminalModal({
                   <>
                     <span className="hidden sm:inline-flex items-center gap-0.5 shrink-0 select-none">
                       {quickKeys.map((k) => (
-                        <kbd key={k} className="inline-flex items-center justify-center px-1 py-0.5 text-[10px] font-mono leading-none rounded bg-surface-2 border border-border-subtle text-text-muted">
+                        <kbd key={k} className="inline-flex items-center justify-center px-1 py-0.5 text-[10px] font-mono leading-none rounded bg-surface-3 text-text-muted">
                           {k}
                         </kbd>
                       ))}
@@ -494,7 +494,7 @@ export default function NewTerminalModal({
           })}
         </div>
 
-        <div className="px-4 pt-3 pb-4 border-t border-border/60 space-y-3">
+        <div className="px-4 pt-3 pb-4 space-y-3">
           {/* Dependent on the pick above, so they sit right under it */}
           {!agent && shells.length > 0 && (
             <select
