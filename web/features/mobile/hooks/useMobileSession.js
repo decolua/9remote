@@ -8,7 +8,7 @@ import { DEFAULT_PRESET, streamOptionsFor } from "../constants/mobileConfig";
 import { emitAck } from "./useMobileDevices";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 
-export function useMobileSession({ busRef, connected, devices, startAvd }) {
+export function useMobileSession({ busRef, connected, devices, startAvd, stopAvd, stopping }) {
   // Serial and meta live in the store, not in this component: the desktop dock
   // remounts this tree when the user moves the mirror between float, pinned and
   // PiP, and a restarted stream there would cost a visible reconnect.
@@ -19,6 +19,7 @@ export function useMobileSession({ busRef, connected, devices, startAvd }) {
   const [starting, setStarting] = useState(false);
   const [error, setError] = useState(null);
   const startedRef = useRef(false);
+  const cancelledRef = useRef(false);
   // Devices auto-open has already tried. A failed start leaves serial/meta
   // unset, so without this the effect re-fires on its own state change, forever.
   const autoTriedRef = useRef(new Set());
@@ -31,6 +32,14 @@ export function useMobileSession({ busRef, connected, devices, startAvd }) {
     startedRef.current = false;
     setSession(null);
   }, [busRef, setSession]);
+
+  // Cancel an in-flight open: stops whatever exists now (the agent supersedes
+  // a pending mobile:start on mobile:stop), and open() shuts the device down
+  // when its boot resolves after the cancel.
+  const cancel = useCallback(() => {
+    cancelledRef.current = true;
+    stop();
+  }, [stop]);
 
   const startStream = useCallback(async (targetSerial) => {
     // Size follows this viewport's real pixels, bitrate follows that size — a
@@ -53,19 +62,25 @@ export function useMobileSession({ busRef, connected, devices, startAvd }) {
    */
   const open = useCallback(async (device) => {
     if (!device) return;
+    cancelledRef.current = false;
     setStarting(true);
     setError(null);
     autoTriedRef.current.add(device.id);
     try {
       const target = device.serial || (device.avdName ? await startAvd(device.avdName) : null);
+      // Cancelled mid-boot: the emulator that just came up goes straight back
+      // down, riding the picker's normal stopping state.
+      if (cancelledRef.current) { if (target) stopAvd?.(target); return; }
       if (!target) throw new Error("Device did not start");
       await startStream(target);
+      // Cancelled mid-start: the stream we just got is torn down with it.
+      if (cancelledRef.current) { stop(); if (target) stopAvd?.(target); }
     } catch (e) {
-      setError(e.message);
+      if (!cancelledRef.current) setError(e.message);
     } finally {
       setStarting(false);
     }
-  }, [startAvd, startStream]);
+  }, [startAvd, startStream, stopAvd, stop]);
 
   // Auto-open when there is exactly one device AND it is already running —
   // booting an emulator is slow and costly, so that stays an explicit tap.
@@ -75,8 +90,14 @@ export function useMobileSession({ busRef, connected, devices, startAvd }) {
     if (live.length !== 1 || devices.length !== 1) return;
     const only = live[0];
     if (autoTriedRef.current.has(only.id)) return;
-    open(only);
-  }, [devices, meta, starting, serial, open]);
+    // Stopping is not stopped: the row still reports "running" for seconds, and
+    // re-opening it here would fight the shutdown the user just asked for.
+    if (stopping?.has(only.serial)) return;
+    // Deferred a tick so the effect never calls setState synchronously (React
+    // cascading-render lint); cancelled if the deps change before it fires.
+    const id = setTimeout(() => open(only), 0);
+    return () => clearTimeout(id);
+  }, [devices, meta, starting, serial, open, stopping]);
 
   // The agent restarts the encoder at a smaller size when the link cannot carry
   // the requested one. The canvas and decoder are keyed on meta, so adopting the
@@ -106,5 +127,5 @@ export function useMobileSession({ busRef, connected, devices, startAvd }) {
   // the explicit close/stop paths instead.
 
 
-  return { serial, meta, starting, error, setError, open, stop };
+  return { serial, meta, starting, error, setError, open, stop, cancel };
 }

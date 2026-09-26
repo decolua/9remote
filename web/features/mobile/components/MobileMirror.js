@@ -32,14 +32,14 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
 
   const deviceApi = useMobileDevices({ busRef, connected });
   const {
-    devices, canManage, booting, refresh, startAvd, stopAvd, lowPower, setLowPower,
+    devices, canManage, booting, refresh, startAvd, stopAvd, stopping, lowPower, setLowPower,
     sdkJob, presets, refreshPresets, provision, cancelSetup, deleteAvd, wipeAvd
   } = deviceApi;
 
-  const session = useMobileSession({ busRef, connected, devices, startAvd });
-  const { serial, meta, starting, error: sessionError, open, stop } = session;
+  const session = useMobileSession({ busRef, connected, devices, startAvd, stopAvd, stopping });
+  const { serial, meta, starting, error: sessionError, open, stop, cancel } = session;
 
-  const { status } = useMobileStream({ busRef, connected, canvasRef, meta });
+  const { status, fps } = useMobileStream({ busRef, connected, canvasRef, meta });
   const input = useMobileInput({ busRef, canvasRef });
   const apps = useMobileApps({ busRef, protocolRef, serial, enabled: !!meta });
   const logcat = useMobileLogcat({
@@ -85,6 +85,13 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
 
   const phaseLabel = (phase) => t(`mobile.phase${phase.charAt(0).toUpperCase()}${phase.slice(1)}`);
 
+  // The stream died but the session may just need restarting — if the device
+  // row is gone (unplugged/crashed emulator) there is nothing to restart into.
+  const retry = useCallback(() => {
+    const dev = devices.find((d) => d.serial === serial);
+    if (dev) open(dev);
+  }, [devices, serial, open]);
+
   // No device open yet → the picker IS the screen.
   if (!meta) {
     return (
@@ -108,6 +115,12 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
               <Loader2 size={22} className="text-brand-500 animate-spin" />
               <p className="text-text text-sm">{booting ? phaseLabel(booting.phase) : t("mobile.starting")}</p>
               {booting && <p className="text-text-muted text-xs">{booting.avdName}</p>}
+              <button
+                onClick={() => { vibrate(); cancel(); }}
+                className="px-3 py-1.5 text-xs text-text-muted bg-surface hover:bg-surface-2 rounded-brand transition-colors"
+              >
+                {t("common.cancel")}
+              </button>
             </div>
           ) : !DECODER_SUPPORTED ? (
             <p className="text-text-muted text-sm max-w-xs text-center p-6">{t("mobile.unsupportedBrowser")}</p>
@@ -117,6 +130,7 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
               devices={devices}
               canManage={canManage}
               booting={booting}
+              stopping={stopping}
               loading={!deviceApi.loaded}
               error={sessionError || deviceApi.error}
               onOpen={open}
@@ -168,10 +182,32 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
           onWheel={input.onWheel}
           className="max-w-full max-h-full object-contain touch-none"
         />
-        {status !== "streaming" && (
+        {(status === "connecting" || status === "idle") && (
           <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
             <Loader2 size={22} className="text-brand-500 animate-spin" />
           </div>
+        )}
+        {(status === "ended" || status === "decoder failed") && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-6 text-center bg-black/40">
+            <p className="text-text text-sm">
+              {t(status === "ended" ? "mobile.streamEnded" : "mobile.streamFailed")}
+            </p>
+            {currentDevice ? (
+              <button
+                onClick={() => { vibrate(); retry(); }}
+                className="px-3 py-1.5 text-xs text-brand-500 bg-surface hover:bg-surface-2 rounded-brand transition-colors"
+              >
+                {t("mobile.retry")}
+              </button>
+            ) : (
+              <p className="text-text-muted text-xs">{t("mobile.streamGone")}</p>
+            )}
+          </div>
+        )}
+        {status === "streaming" && fps > 0 && (
+          <span className="absolute top-2 right-2 px-1.5 py-0.5 rounded bg-black/50 text-[10px] text-white/80 pointer-events-none">
+            {fps} fps
+          </span>
         )}
 
         {/* The strip of device screen left showing doubles as a dismiss target,

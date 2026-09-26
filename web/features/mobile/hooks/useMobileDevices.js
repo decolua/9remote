@@ -18,6 +18,9 @@ export function useMobileDevices({ busRef, connected }) {
   const [devices, setDevices] = useState([]);
   const [canManage, setCanManage] = useState(false);
   const [booting, setBooting] = useState(null);   // { avdName, phase }
+  // Serials on their way down: agent stop takes up to 20s, and the row must
+  // say so — a stop button that looks idle reads as "did nothing".
+  const [stopping, setStopping] = useState(() => new Set());
   const [error, setError] = useState(null);
   // Rendered (empty list vs. not asked yet), so it has to be state, not a ref.
   const [loaded, setLoaded] = useState(false);
@@ -41,6 +44,14 @@ export function useMobileDevices({ busRef, connected }) {
     }
     const list = Array.isArray(res.devices) ? res.devices : [];
     setDevices(list);
+    // A serial that vanished from the list has finished stopping even if the
+    // avdStop ack is still pending (panel closed mid-stop, tab hidden, …).
+    setStopping((prev) => {
+      const live = new Set(list.map((d) => d.serial).filter(Boolean));
+      for (const serial of prev) if (live.has(serial)) return prev; // fast path
+      const next = new Set([...prev].filter((serial) => live.has(serial)));
+      return next.size === prev.size ? prev : next;
+    });
     return list;
   }, [busRef, connected]);
 
@@ -82,9 +93,12 @@ export function useMobileDevices({ busRef, connected }) {
   }, [busRef, refresh, lowPower]);
 
   const stopAvd = useCallback(async (serial) => {
+    if (!serial) return false;
     setError(null);
+    setStopping((prev) => new Set(prev).add(serial));
     const res = await emitAck(busRef?.current, "mobile:avdStop", { serial });
     await refresh();
+    setStopping((prev) => { const next = new Set(prev); next.delete(serial); return next; });
     if (!res?.success) setError(res?.error || "Could not stop");
     return res?.success;
   }, [busRef, refresh]);
@@ -128,7 +142,7 @@ export function useMobileDevices({ busRef, connected }) {
 
   return {
     devices, canManage, booting, error, setError,
-    refresh, startAvd, stopAvd,
+    refresh, startAvd, stopAvd, stopping,
     lowPower, setLowPower,
     sdkJob, presets, refreshPresets, provision, cancelSetup, deleteAvd, wipeAvd,
     // Distinguishes "still asking the agent" from "asked, and there are none".

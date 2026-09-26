@@ -15,6 +15,7 @@ export default {
     rename: "Đổi tên",
     remove: "Gỡ bỏ",
     open: "Mở",
+    clear: "Xóa nội dung",
     yes: "Có",
     no: "Không",
     ok: "OK",

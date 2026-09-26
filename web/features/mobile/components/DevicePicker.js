@@ -16,7 +16,7 @@ const MAX_STAGGER = 8;
 
 function StateDot({ state }) {
   const cls = state === "running" ? "bg-green-500 animate-pulse"
-    : state === "starting" ? "bg-amber-400 animate-pulse"
+    : state === "starting" || state === "stopping" ? "bg-amber-400 animate-pulse"
       : "bg-text-muted/40";
   return <span className={`w-2 h-2 rounded-full flex-shrink-0 ${cls}`} />;
 }
@@ -30,7 +30,7 @@ function setupStepKey(job) {
 }
 
 export default function DevicePicker({
-  devices, canManage, booting, loading, error, onOpen, onStop, onRefresh,
+  devices, canManage, booting, stopping, loading, error, onOpen, onStop, onRefresh,
   lowPower, onLowPowerChange, onAddDevice, onDeleteAvd, onWipeAvd,
   sdkJob, onShowSetup
 }) {
@@ -95,6 +95,7 @@ export default function DevicePicker({
       <div className="space-y-1.5">
         {devices.map((device, index) => {
           const isBooting = booting?.avdName && booting.avdName === device.avdName;
+          const isStopping = stopping?.has(device.serial);
           const running = device.state === "running";
           return (
             <div
@@ -105,7 +106,7 @@ export default function DevicePicker({
               <div className="flex items-center gap-2.5 px-3 py-2">
                 <button
                   onClick={() => { vibrate(); onOpen?.(device); }}
-                  disabled={isBooting}
+                  disabled={isBooting || isStopping}
                   className="flex items-center gap-2.5 flex-1 min-w-0 text-left disabled:opacity-60 transition-all duration-150 ease-out active:scale-[0.99]"
                 >
                   {device.kind === "physical"
@@ -114,23 +115,27 @@ export default function DevicePicker({
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="text-sm text-text truncate">{device.name}</span>
                     <span className="text-xs text-text-muted truncate">
-                      {isBooting ? t(`mobile.phase${booting.phase.charAt(0).toUpperCase()}${booting.phase.slice(1)}`) : (device.serial || t("mobile.stopped"))}
+                      {isBooting ? t(`mobile.phase${booting.phase.charAt(0).toUpperCase()}${booting.phase.slice(1)}`) : isStopping ? t("mobile.stoppingDevice") : (device.serial || t("mobile.stopped"))}
                     </span>
                   </div>
-                  <StateDot state={isBooting ? "starting" : device.state} />
+                  <StateDot state={isBooting || isStopping ? "starting" : device.state} />
                 </button>
 
                 {isBooting ? (
                   <Loader2 size={15} className="text-brand-500 animate-spin flex-shrink-0" />
                 ) : running && device.canStop ? (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); vibrate(); onStop?.(device); }}
-                    className="p-1.5 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
-                    title={t("mobile.stopDevice")}
-                    aria-label={t("mobile.stopDevice")}
-                  >
-                    <Square size={14} />
-                  </button>
+                  isStopping ? (
+                    <Loader2 size={15} className="text-brand-500 animate-spin flex-shrink-0" />
+                  ) : (
+                    <button
+                      onClick={(e) => { e.stopPropagation(); vibrate(); onStop?.(device); }}
+                      className="p-1.5 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
+                      title={t("mobile.stopDevice")}
+                      aria-label={t("mobile.stopDevice")}
+                    >
+                      <Square size={14} />
+                    </button>
+                  )
                 ) : !running ? (
                   <button
                     onClick={(e) => { e.stopPropagation(); vibrate(); onOpen?.(device); }}

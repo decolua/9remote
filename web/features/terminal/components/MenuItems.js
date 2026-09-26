@@ -234,8 +234,8 @@ export default function MenuItems({
                 <div key={group} className="space-y-1.5">
                   <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t(titleKey)}</p>
                   {buttonToggles.buttons.filter((b) => b.group === group).map((btn) => {
-                    // Hide remote desktop and emulator buttons from mobile right menu
-                    if (btn.id === "remote" || btn.id === "mobile") return null;
+                    // Hide remote desktop button from mobile right menu
+                    if (btn.id === "remote") return null;
                     const RowIcon = BUTTON_TOGGLE_ICONS[btn.id];
                     const on = buttonToggles.isOn(btn);
                     return (
