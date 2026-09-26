@@ -66,6 +66,8 @@ export function useNotification(busRef, connected) {
     if (typeof window === "undefined" || !isExpoWebView) return;
     window.handleAppStateChange = (hidden) => {
       eachOnlineBus((b) => b.emit("visibilityChange", !!hidden));
+      // PM recovery listens on DOM — bus.emit only travels over the wire to the agent
+      document.dispatchEvent(new CustomEvent("app-visibility", { detail: { hidden: !!hidden } }));
     };
     return () => {
       try { delete window.handleAppStateChange; } catch (e) { window.handleAppStateChange = undefined; }

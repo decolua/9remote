@@ -75,6 +75,20 @@ export function attachWatchers(pm) {
   };
   document.addEventListener("visibilitychange", visibilityHandler);
 
+  // Expo WebView: document.hidden never flips — native AppState bridge is the only foreground signal.
+  // Dedup edge transitions: iOS fires background→inactive→active, and the bridge maps
+  // inactive to hidden too — a naive set would reset _hiddenAt right before "active".
+  let appHidden = false;
+  const appVisibilityHandler = (e) => {
+    const hidden = !!e.detail?.hidden;
+    if (hidden === appHidden) return;
+    appHidden = hidden;
+    if (hidden) { pm._hiddenAt = Date.now(); return; }
+    clearTimeout(pm._resumeCoalesceTimer);
+    pm._resumeCoalesceTimer = setTimeout(runResumeCheck, RESUME_COALESCE_MS);
+  };
+  document.addEventListener("app-visibility", appVisibilityHandler);
+
   // Handle Page Lifecycle 'resume' for Android Chrome where visibilitychange may not fire.
   const resumeHandler = () => {
     if (document.visibilityState === "visible") visibilityHandler();
@@ -109,6 +123,7 @@ export function attachWatchers(pm) {
     visibilityHandler,
     detach() {
       document.removeEventListener("visibilitychange", visibilityHandler);
+      document.removeEventListener("app-visibility", appVisibilityHandler);
       document.removeEventListener("resume", resumeHandler);
       document.removeEventListener("freeze", freezeHandler);
       window.removeEventListener("online", netHandler);
