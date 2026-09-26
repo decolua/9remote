@@ -291,6 +291,10 @@ export class CodexAppServer {
     }
 
     if (item.type === "fileChange") {
+      // Only a FAILED patch opens the card: success draws its diffs (a card beside them
+      // would duplicate every file), but without one a failed result lands on nothing
+      // and a patch that failed to apply looks like one that landed.
+      if (status === "failed") out.push({ event: "tool_start", data: { id, name: "file_change", status: "running", input: {} } });
       for (const change of item.changes || []) {
         out.push({ event: "diff", data: { file: change.path || "", patch: change.diff || "", content: "" } });
       }
@@ -303,7 +307,11 @@ export class CodexAppServer {
 
     if (item.type === "mcpToolCall") {
       out.push({ event: "tool_start", data: { id, name: item.tool || "mcp_tool_call", status: done ? "done" : "running", input: item.arguments || {} } });
-      if (done) out.push({ event: "tool_result", data: { id, name: item.tool || "mcp_tool_call", output: typeof item.result === "string" ? item.result : JSON.stringify(item.result ?? ""), error: "", status: "done" } });
+      if (done) {
+        // The item's own status, not a hardcoded success — the app-server marks a failed call "failed".
+        const failed = item.status === "failed";
+        out.push({ event: "tool_result", data: { id, name: item.tool || "mcp_tool_call", output: failed ? "" : (typeof item.result === "string" ? item.result : JSON.stringify(item.result ?? "")), error: failed ? String(item.error?.message || "The MCP tool call failed.") : "", status: failed ? "error" : "done" } });
+      }
       return out;
     }
 
@@ -401,7 +409,9 @@ export class CodexAppServer {
     this.isTurnRunning = false;
     this.gates.clear();
     this.onEvent?.("error", { message: `Codex app-server exited (code ${info?.code ?? "?"})` });
-    this.onEvent?.("turn_complete", { stats: {} });
+    // isError, or the status channel reads this exit as a clean finish and the phone
+    // is told the agent finished its turn while the process was dying.
+    this.onEvent?.("turn_complete", { stats: {}, isError: true, result: "", subtype: "exit" });
   }
 
   async start() {

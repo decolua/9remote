@@ -176,14 +176,16 @@ export class HermesAdapter {
     if (session.modes?.currentModeId) this.metadata.permissionMode = session.modes.currentModeId;
   }
 
-  _handleExit({ error } = {}) {
+  _handleExit({ code, signal, error } = {}) {
     const wasRunning = this.isTurnRunning;
     this.rpc = null;
     this.isTurnRunning = false;
     // A dead process waits on nothing; stale entries keep the idle watchdog stood down.
     this.pendingRequests.clear();
     if (error) this.onEvent?.("error", { message: error });
-    else if (wasRunning) this.onEvent?.("turn_complete", { stats: this.stats, result: "", isError: false, subtype: "exit" });
+    // child.on('close') carries only code/signal (no error field) — a CLI killed mid-turn
+    // used to end silently because both the `error` check and isError missed it.
+    else if (wasRunning) this.onEvent?.("turn_complete", { stats: this.stats, result: code != null && code !== 0 ? `Hermes exited (code ${code}).` : signal ? `Hermes was killed (${signal})` : "", isError: (code != null && code !== 0) || Boolean(signal), subtype: "exit" });
   }
 
   setOptions({ model, mode, effort, resume } = {}) {
@@ -536,10 +538,13 @@ export class HermesAdapter {
     if (apply) apply();
     this._scheduleTitleRefresh();
     const stop = String(result?.stopReason || "end_turn");
+    // The stop word rides the sentence — the row used to say only the generic "ended in an
+    // error" while the actual reason sat unread in `subtype`.
+    const failed = stop !== "end_turn" && stop !== "cancelled";
     this.onEvent?.("turn_complete", {
       stats: this.stats,
-      result: "",
-      isError: stop !== "end_turn" && stop !== "cancelled",
+      result: failed ? `The turn stopped early (${stop}).` : "",
+      isError: failed,
       subtype: stop
     });
   }

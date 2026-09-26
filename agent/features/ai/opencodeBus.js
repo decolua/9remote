@@ -200,7 +200,10 @@ export function createOpencodeBusParser({ onEvent, stats = {} }) {
       }
       if (data.finish !== TOOL_CALLS) {
         stats.totalTurns = (stats.totalTurns || 0) + 1;
-        onEvent("turn_complete", { stats, result: "", isError: false, subtype: "" });
+        // The engine's finish set includes "error" and "content-filter" — a step that
+        // ended on either is a failed turn, not a clean one.
+        const failed = data.finish === "error" || data.finish === "content-filter";
+        onEvent("turn_complete", { stats, result: failed ? `The turn ended early (${data.finish}).` : "", isError: failed, subtype: data.finish || "" });
       }
       return;
     }

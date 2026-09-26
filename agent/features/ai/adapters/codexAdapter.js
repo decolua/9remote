@@ -311,7 +311,8 @@ export class CodexAdapter {
     this.proc.onExit = ({ code, error }) => {
       this.isTurnRunning = false;
       if (error) this.onEvent?.("error", { message: error });
-      else this.onEvent?.("turn_complete", { stats: this.stats, exitCode: code });
+      // A nonzero exit is news: without isError the row never draws and the pane reads a crash as a clean finish.
+      else this.onEvent?.("turn_complete", { stats: this.stats, exitCode: code, isError: code != null && code !== 0, result: code != null && code !== 0 ? `Codex exited (code ${code}).` : "", subtype: "exit" });
     };
   }
 

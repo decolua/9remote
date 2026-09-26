@@ -572,12 +572,22 @@ export class OpenCodeAdapter {
       clearInterval(this._pollTimer);
       this._pollTimer = null;
     }
-    await poll();
+    const [last] = await poll();
     this.isTurnRunning = false;
     this._queueSwitches();
     this.stats.totalTurns = (this.stats.totalTurns || 0) + 1;
     this.onEvent?.("stats", { stats: this.stats });
-    this.onEvent?.("turn_complete", { stats: this.stats, result: "", isError: false, subtype: "" });
+    // The store's own record of a provider failure: the route answers 200 while the
+    // message carries info.error — unread, a failed turn settled as a clean one.
+    const failure = String(last?.info?.error?.message || "").trim();
+    const finish = String(last?.info?.finish || "");
+    const failed = Boolean(failure) || finish === "error" || finish === "content-filter";
+    this.onEvent?.("turn_complete", {
+      stats: this.stats,
+      result: failure || (failed ? `The turn ended early (${finish}).` : ""),
+      isError: failed,
+      subtype: finish
+    });
   }
 
   // Interrupt current turn on server; session and context are preserved.
@@ -586,7 +596,10 @@ export class OpenCodeAdapter {
     this._interrupted = true;
     this.isTurnRunning = false;
     if (this.activeSessionId) {
-      this.server.interruptSession(this.activeSessionId).catch(() => {});
+      // A refused interrupt leaves the engine running while the pane believes it stopped —
+      // say so, or the next prompt queues behind a turn the user thinks they cancelled.
+      this.server.interruptSession(this.activeSessionId)
+        .catch((e) => this.onEvent?.("error", { message: `OpenCode did not accept the stop: ${e.message}` }));
     }
     return true;
   }

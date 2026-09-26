@@ -99,14 +99,16 @@ export class DevinAdapter {
     this.onEvent?.("init", { ...this.metadata });
   }
 
-  _handleExit({ error } = {}) {
+  _handleExit({ code, signal, error } = {}) {
     const wasRunning = this.isTurnRunning;
     this.rpc = null;
     this.isTurnRunning = false;
     // A dead process waits on nothing; stale entries keep the idle watchdog stood down.
     this.pendingRequests.clear();
     if (error) this.onEvent?.("error", { message: error });
-    else if (wasRunning) this.onEvent?.("turn_complete", { stats: this.stats, result: "", isError: false, subtype: "exit" });
+    // child.on('close') carries only code/signal (no error field) — a CLI killed mid-turn
+    // used to end silently because both the `error` check and isError missed it.
+    else if (wasRunning) this.onEvent?.("turn_complete", { stats: this.stats, result: code != null && code !== 0 ? `Devin exited (code ${code}).` : signal ? `Devin was killed (${signal})` : "", isError: (code != null && code !== 0) || Boolean(signal), subtype: "exit" });
   }
 
   setOptions({ model, resume } = {}) {
@@ -377,10 +379,13 @@ export class DevinAdapter {
     this.stats.cachedTokens = usage.cachedReadTokens || 0;
     this.stats.totalTurns += 1;
     const stop = String(result?.stopReason || "end_turn");
+    // The stop word rides the sentence — the row used to say only the generic "ended in an
+    // error" while the actual reason sat unread in `subtype`.
+    const failed = stop !== "end_turn" && stop !== "cancelled";
     this.onEvent?.("turn_complete", {
       stats: this.stats,
-      result: "",
-      isError: stop !== "end_turn" && stop !== "cancelled",
+      result: failed ? `The turn stopped early (${stop}).` : "",
+      isError: failed,
       subtype: stop
     });
   }

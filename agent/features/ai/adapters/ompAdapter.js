@@ -66,7 +66,8 @@ export class OmpAdapter {
       const wasRunning = this.isTurnRunning;
       this.isTurnRunning = false;
       if (error) this.onEvent?.("error", { message: error });
-      else if (wasRunning) this.onEvent?.("turn_complete", { stats: this.stats, result: "", isError: code !== 0, subtype: "" });
+      // The code rides the sentence — without it the row can only say the generic "ended in an error".
+      else if (wasRunning) this.onEvent?.("turn_complete", { stats: this.stats, result: code != null && code !== 0 ? `OMP exited (code ${code}).` : "", isError: code != null && code !== 0, subtype: "exit" });
     };
     const started = await this.proc.start({ bin: "omp", args: this._args(), cwd: this.cwd, env: getExtendedEnv({ hostSessionId: this.hostSessionId }), keepStdin: true });
     this.rpc = new OmpRpcClient({ proc: this.proc });

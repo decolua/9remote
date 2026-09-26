@@ -452,7 +452,17 @@ export class ClaudeAdapter {
 
   // Rebuild and re-send ONCE after a refusal (the session survives via --resume); silent — an unasked recovery must not paint a failure, a loop would spin the daemon.
   _resendAfterRefusal(prompt, attachments) {
-    if (this.resumeRejected || this._respawning) return;
+    if (this.resumeRejected || this._respawning) {
+      // The refusal callback replaces _handleRefusal, so the turn flag is ours to drop —
+      // and without a row the pane spins forever over a prompt that never sent.
+      this.isTurnRunning = false;
+      this.onEvent?.("error", {
+        message: this._respawning
+          ? `The CLI is restarting — the prompt was not sent: ${prompt}`
+          : `The CLI refused this session and it cannot be resumed: ${prompt}`
+      });
+      return;
+    }
     this._respawning = true;
     // Deferred: the rebuild swallows `rpc` and rebinds `proc` — it must not run inside a handler those own.
     setTimeout(() => {
