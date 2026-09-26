@@ -324,12 +324,14 @@ export class CodexEngine extends AiEngine {
         },
         // Fallback models when host catalog cannot be read
         models: [
-          { id: "gpt-6-astra", label: "GPT-6-Astra", short: "6 Astra" },
-          { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", short: "5.6 Sol" },
-          { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", short: "5.6 Terra" },
-          { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", short: "5.6 Luna" },
-          { id: "gpt-5.5", label: "GPT-5.5", short: "5.5" },
-          { id: "gpt-5.2", label: "GPT-5.2", short: "5.2" },
+          { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", short: "5.6 Sol", provider: "openai", desc: "Flagship reasoning model for complex engineering" },
+          { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", short: "5.6 Terra", provider: "openai", desc: "High-throughput balanced model" },
+          { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", short: "5.6 Luna", provider: "openai", desc: "Fast, lightweight reasoning model" },
+          { id: "gpt-5.5", label: "GPT-5.5", short: "5.5", provider: "openai", desc: "Advanced reasoning and coding model" },
+          { id: "gpt-5.3-codex", label: "GPT-5.3-Codex", short: "5.3 Codex", provider: "openai", desc: "Specialized code generation & editing model" },
+          { id: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max", short: "5.1 Max", provider: "openai", desc: "Large-context deep reasoning model" },
+          { id: "gpt-5.1-codex-mini", label: "GPT-5.1-Codex-Mini", short: "5.1 Mini", provider: "openai", desc: "Fast, cost-effective coding model" },
+          { id: "gpt-6-astra", label: "GPT-6-Astra", short: "6 Astra", provider: "openai", desc: "Preview high-capability reasoning model" },
         ],
         permissionModes: [
           { id: "plan", label: "Plan", desc: "Explore and propose without changing anything", icon: PERMISSION_ICONS.readonly },

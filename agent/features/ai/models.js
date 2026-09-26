@@ -55,68 +55,163 @@ export function listModelOptions() {
   return options.length > 0 ? options : FALLBACK;
 }
 
-// Read custom model IDs from ~/.codex/config.toml when a custom provider is configured.
-function configuredCodexModels() {
-  let text = "";
-  try {
-    text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
-  } catch {
-    return null;
-  }
-  const sections = text.split(/^\s*\[/m);
-  const top = sections[0] || "";
-  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(top)?.[1] || "";
-  if (!provider || !text.includes(`[model_providers.${provider}]`)) return null;
+const FALLBACK_CODEX_MODELS = [
+  { id: "gpt-5.6-sol", label: "GPT-5.6-Sol", short: "5.6 Sol", provider: "openai", desc: "Flagship reasoning model for complex engineering" },
+  { id: "gpt-5.6-terra", label: "GPT-5.6-Terra", short: "5.6 Terra", provider: "openai", desc: "High-throughput balanced model" },
+  { id: "gpt-5.6-luna", label: "GPT-5.6-Luna", short: "5.6 Luna", provider: "openai", desc: "Fast, lightweight reasoning model" },
+  { id: "gpt-5.5", label: "GPT-5.5", short: "5.5", provider: "openai", desc: "Advanced reasoning and coding model" },
+  { id: "gpt-5.3-codex", label: "GPT-5.3-Codex", short: "5.3 Codex", provider: "openai", desc: "Specialized code generation & editing model" },
+  { id: "gpt-5.1-codex-max", label: "GPT-5.1-Codex-Max", short: "5.1 Max", provider: "openai", desc: "Large-context deep reasoning model" },
+  { id: "gpt-5.1-codex-mini", label: "GPT-5.1-Codex-Mini", short: "5.1 Mini", provider: "openai", desc: "Fast, cost-effective coding model" },
+  { id: "gpt-6-astra", label: "GPT-6-Astra", short: "6 Astra", provider: "openai", desc: "Our most capable model for complex, demanding work" },
+];
 
-  const ids = [];
-  const push = (id) => { if (id && !ids.includes(id)) ids.push(id); };
-  push(/^\s*model\s*=\s*"([^"]+)"/m.exec(top)?.[1]);
-  for (const section of sections.slice(1)) {
-    const header = (section.slice(0, section.indexOf("]")) || "").trim();
-    if (!/^profiles\.[^.\]]+$/.test(header)) continue;
-    const sectionProvider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(section)?.[1] || provider;
-    if (sectionProvider !== provider) continue;
-    push(/^\s*model\s*=\s*"([^"]+)"/m.exec(section)?.[1]);
-  }
-  return ids.length > 0 ? ids : null;
+// True when codex routes through a user-declared provider (e.g. 9router) —
+// bare OpenAI slugs have no route there, so the official catalog must stay hidden.
+function codexUsesCustomProvider(text) {
+  const top = (text.split(/^\s*\[/m)[0] || "");
+  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(top)?.[1] || "";
+  return Boolean(provider) && provider !== "openai" && text.includes(`[model_providers.${provider}]`);
 }
 
-// List Codex model options from config or `codex debug models` catalog.
-export function listCodexModelOptions() {
-  const configured = configuredCodexModels();
-  if (configured) {
-    return configured.map((id) => ({ id, label: id, short: id, desc: "Configured in ~/.codex/config.toml", efforts: [], defaultEffort: "" }));
-  }
-  let res;
+// Read custom profiles from ~/.codex/*.config.toml and ~/.codex/config.toml
+function readCodexProfiles() {
+  const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+  const options = [];
+  const seenIds = new Set();
+
+  // 1. Standalone profile files ~/.codex/<name>.config.toml
   try {
-    res = spawnSync("codex", ["debug", "models"], {
+    const files = fs.readdirSync(codexHome);
+    for (const f of files) {
+      if (f.endsWith(".config.toml") && f !== "config.toml") {
+        const name = f.replace(/\.config\.toml$/, "");
+        try {
+          const text = fs.readFileSync(path.join(codexHome, f), "utf8");
+          const model = /^\s*model\s*=\s*"([^"]+)"/m.exec(text)?.[1] || "";
+          const effort = /^\s*model_reasoning_effort\s*=\s*"([^"]+)"/m.exec(text)?.[1] || "";
+          const id = model || name;
+          if (id && !seenIds.has(id)) {
+            seenIds.add(id);
+            options.push({
+              id,
+              label: id,
+              short: id,
+              desc: `Profile: ${name}`,
+              provider: "profiles",
+              efforts: effort ? [effort] : [],
+              defaultEffort: effort || ""
+            });
+          }
+        } catch {}
+      }
+    }
+  } catch {}
+
+  // 2. Default model and in-file profiles from ~/.codex/config.toml
+  try {
+    const text = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
+    const sections = text.split(/^\s*\[/m);
+    const top = sections[0] || "";
+    const topModel = /^\s*model\s*=\s*"([^"]+)"/m.exec(top)?.[1];
+    const topEffort = /^\s*model_reasoning_effort\s*=\s*"([^"]+)"/m.exec(top)?.[1] || "";
+    if (topModel && !seenIds.has(topModel)) {
+      seenIds.add(topModel);
+      options.push({
+        id: topModel,
+        label: topModel,
+        short: topModel,
+        desc: "Default in ~/.codex/config.toml",
+        provider: "profiles",
+        efforts: topEffort ? [topEffort] : [],
+        defaultEffort: topEffort
+      });
+    }
+
+    for (const section of sections.slice(1)) {
+      const header = (section.slice(0, section.indexOf("]")) || "").trim();
+      const profileMatch = /^profiles\.([^.\]]+)$/.exec(header);
+      if (profileMatch) {
+        const name = profileMatch[1];
+        const model = /^\s*model\s*=\s*"([^"]+)"/m.exec(section)?.[1];
+        const effort = /^\s*model_reasoning_effort\s*=\s*"([^"]+)"/m.exec(section)?.[1] || "";
+        const id = model || name;
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          options.push({
+            id,
+            label: id,
+            short: id,
+            desc: `Profile: ${name}`,
+            provider: "profiles",
+            efforts: effort ? [effort] : [],
+            defaultEffort: effort
+          });
+        }
+      }
+    }
+  } catch {}
+
+  return options;
+}
+
+// List Codex model options: custom profiles on top, followed by official OpenAI models
+// (official ones only when codex is NOT routed through a custom provider).
+export function listCodexModelOptions() {
+  const profileOptions = readCodexProfiles();
+  const seenIds = new Set(profileOptions.map((o) => o.id));
+
+  const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
+  let configText = "";
+  try {
+    configText = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
+  } catch {}
+  if (codexUsesCustomProvider(configText)) return profileOptions;
+
+  let liveModels = [];
+  try {
+    const res = spawnSync("codex", ["debug", "models"], {
       encoding: "utf8",
       timeout: CODEX_CATALOG_TIMEOUT_MS
     });
-  } catch {
-    return [];
-  }
-  if (res.error || res.status !== 0) return [];
+    if (!res.error && res.status === 0) {
+      liveModels = JSON.parse(res.stdout || "{}").models || [];
+    }
+  } catch {}
 
-  let models = [];
-  try {
-    models = JSON.parse(res.stdout || "{}").models || [];
-  } catch {
-    return [];
+  const officialModels = [];
+  if (liveModels.length > 0) {
+    for (const m of liveModels) {
+      if (!m?.slug || m.visibility !== "list") continue;
+      officialModels.push({
+        id: m.slug,
+        label: m.display_name || m.slug,
+        short: m.display_name || m.slug,
+        desc: m.description || "",
+        provider: "openai",
+        defaultEffort: m.default_reasoning_level || "",
+        efforts: (m.supported_reasoning_levels || []).map((r) => r.effort),
+        contextWindow: Math.round((m.context_window || 0) * ((m.effective_context_window_percent ?? 100) / 100)) || 0
+      });
+    }
   }
 
-  return models
-    .filter((m) => m?.slug && m.visibility === "list")
-    .map((m) => ({
-      id: m.slug,
-      label: m.display_name || m.slug,
-      short: m.display_name || m.slug,
-      desc: m.description || "",
-      defaultEffort: m.default_reasoning_level || "",
-      efforts: (m.supported_reasoning_levels || []).map((r) => r.effort),
-      // Effective context window accounting for CLI headroom percentage.
-      contextWindow: Math.round((m.context_window || 0) * ((m.effective_context_window_percent ?? 100) / 100)) || 0
-    }));
+  // Ensure all standard Codex models are present
+  for (const m of FALLBACK_CODEX_MODELS) {
+    if (!officialModels.some((o) => o.id === m.id)) {
+      officialModels.push(m);
+    }
+  }
+
+  const result = [...profileOptions];
+  for (const m of officialModels) {
+    if (!seenIds.has(m.id)) {
+      seenIds.add(m.id);
+      result.push(m);
+    }
+  }
+
+  return result;
 }
 
 // List OpenCode models and supported reasoning variants via `opencode models --verbose`.

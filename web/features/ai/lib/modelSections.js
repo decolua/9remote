@@ -8,6 +8,7 @@ export function getProvider(m) {
 
 export function formatProviderTitle(provider) {
   if (!provider) return "Other Models";
+  if (provider === "profiles" || provider === "codex-profiles") return "Custom Profiles";
   if (provider === "opencode-go") return "OpenCode Go";
   if (provider === "opencode") return "OpenCode Zen";
   if (provider === "9router") return "9Router";
@@ -39,8 +40,10 @@ export function buildModelSections(allModels, filteredModels, currentModel, quer
     byProvider.get(p).push(m);
   }
 
-  // Sort providers alphabetically (keeping opencode-go / opencode first if present)
+  // Sort providers: Custom Profiles first, then opencode-go / opencode, then alphabetical
   const providerKeys = [...byProvider.keys()].sort((a, b) => {
+    if (a === "profiles" || a === "codex-profiles") return -1;
+    if (b === "profiles" || b === "codex-profiles") return 1;
     if (a === "opencode-go") return -1;
     if (b === "opencode-go") return 1;
     if (a === "opencode") return -1;

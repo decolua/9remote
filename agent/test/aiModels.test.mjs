@@ -27,16 +27,19 @@ await test("codex default is a slug in codex's own catalog", () => {
   assert.ok(!id.includes(" "), `id must not be a display label: ${id}`);
 });
 
-// A host pointed at a provider it declared itself (`model_provider` → a
+// A host routed through a provider it declared itself (`model_provider` → a
 // [model_providers.*] block) must not be offered OpenAI's catalog — those slugs 404
-// through the gateway. Only runs on a host so configured; the catalog is right otherwise.
-await test("a custom provider's options are the ids its own config names", () => {
-  const text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
-  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(text.split(/^\s*\[/m)[0] || "")?.[1];
-  if (!provider || !text.includes(`[model_providers.${provider}]`)) return;
+// through the gateway. Profiles from its own config are offered either way.
+await test("codex options: profiles always, official catalog only when not custom-routed", () => {
   const options = listCodexModelOptions();
-  assert.ok(options.length > 0);
-  for (const o of options) assert.ok(text.includes(`"${o.id}"`), o.id);
+  const text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
+  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(text.split(/^\s*\[/m)[0] || "")?.[1] || "";
+  const custom = Boolean(provider) && provider !== "openai" && text.includes(`[model_providers.${provider}]`);
+  if (custom) {
+    assert.ok(options.every((o) => o.provider === "profiles"));
+  } else {
+    assert.ok(options.some((o) => o.id === "gpt-5.6-sol"));
+  }
 });
 
 await test("opencode default is a provider/model id from its own catalog", () => {
