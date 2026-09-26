@@ -402,7 +402,9 @@ export function cancelInstall() {
 
 // Generic profiles ask for 800MB data partition instead of 6GB for named devices.
 const PROVISION_PRESETS = [
-  { id: "phone", label: "Phone", profileId: "medium_phone", api: 36 },
+  // lcd halves the pixels the software renderer/encoder pushes — a 1080p virtual
+  // display caps the mirror at ~18-21fps; 720x1600 keeps the same 9:20 aspect.
+  { id: "phone", label: "Phone", profileId: "medium_phone", api: 36, lcd: { width: 720, height: 1600, density: 280 } },
   { id: "tablet", label: "Tablet", profileId: "medium_tablet", api: 36 }
 ];
 
@@ -456,7 +458,10 @@ export async function provisionPreset(presetId, { onStep } = {}) {
       name = `9r_${preset.id}_${n}`;
     }
 
-    await step("create", () => createAvd({ name, imagePath, deviceId: preset.profileId }));
+    await step("create", async () => {
+      await createAvd({ name, imagePath, deviceId: preset.profileId });
+      if (preset.lcd) await applyAvdLcd(name, preset.lcd);
+    });
     endJob({ phase: "done" });
     logger.info(`📱 Provisioned ${name} (${imagePath})`);
     return { avdName: name };
@@ -501,6 +506,31 @@ function avdHome() {
   return process.env.ANDROID_AVD_HOME || process.env.ANDROID_SDK_HOME
     ? path.join(process.env.ANDROID_AVD_HOME || process.env.ANDROID_SDK_HOME, ".android", "avd")
     : path.join(os.homedir(), ".android", "avd");
+}
+
+// Rewrite hw.lcd.* lines in an AVD config.ini (avdmanager has no resolution
+// flag; Android Studio edits this same file). Pure on text for testability.
+export function lcdConfigPatch(text, lcd) {
+  const wanted = { width: lcd.width, height: lcd.height, density: lcd.density };
+  const seen = new Set();
+  const out = [];
+  for (const line of text.split("\n")) {
+    const m = line.match(/^(hw\.lcd\.(width|height|density)\s*=).*/);
+    if (m) {
+      out.push(`${m[1]} ${wanted[m[2]]}`);
+      seen.add(m[2]);
+    } else out.push(line);
+  }
+  for (const [key, value] of Object.entries(wanted)) {
+    if (!seen.has(key)) out.push(`hw.lcd.${key} = ${value}`);
+  }
+  return out.join("\n");
+}
+
+async function applyAvdLcd(avdName, lcd) {
+  const configPath = path.join(avdPaths(avdName).dir, "config.ini");
+  fs.writeFileSync(configPath, lcdConfigPatch(fs.readFileSync(configPath, "utf8"), lcd));
+  logger.info(`📱 AVD ${avdName} lcd set to ${lcd.width}x${lcd.height}@${lcd.density}`);
 }
 
 function avdPaths(avdName) {

@@ -365,5 +365,26 @@ test("rotation only accepts the four Android values", () => {
   }
 });
 
+console.log("\navd lcd config patch (720p default for provisioned phones)");
+
+const { lcdConfigPatch } = await import("../features/mobile/sdkSetup.js");
+
+test("rewrites existing hw.lcd values and preserves other lines", () => {
+  const src = "hw.lcd.width = 1080\nhw.lcd.height = 2400\nhw.lcd.density = 420\nhw.ramSize = 2048\n";
+  const out = lcdConfigPatch(src, { width: 720, height: 1600, density: 280 });
+  assert.match(out, /hw\.lcd\.width = 720/);
+  assert.match(out, /hw\.lcd\.height = 1600/);
+  assert.match(out, /hw\.lcd\.density = 280/);
+  assert.match(out, /hw\.ramSize = 2048/, "unrelated config must survive");
+  assert.ok(!out.includes("1080"), "old width must be gone");
+});
+
+test("appends missing hw.lcd keys", () => {
+  const out = lcdConfigPatch("hw.ramSize = 2048\n", { width: 720, height: 1600, density: 280 });
+  for (const k of ["width = 720", "height = 1600", "density = 280"]) {
+    assert.match(out, new RegExp(`hw\\.lcd\\.${k}`));
+  }
+});
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);
