@@ -1,9 +1,11 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft } from "@/shared/components/ui/Icon";
+import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft, Plus, Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import transliterate from "@sindresorhus/transliterate";
+import { shortenHomePath, suggestWorktreePath } from "@/features/terminal/lib/workspaceGrouping";
 import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { agentIconUrl, AGENT_ICON_CLS, canSkipPermissions, loadShellPref, loadTerminalPrefs, savePref, TERMINAL_PREF_KEYS } from "@/features/terminal/constants/agentCli";
 import { isMac } from "@/features/terminal/constants/shortcuts";
@@ -65,6 +67,15 @@ export default function NewTerminalModal({
   // null = inherit the workspace's last cwd, same as before this picker existed
   const [cwd, setCwd] = useState(null);
   const [browsing, setBrowsing] = useState(false);
+  // Pending worktree: typed below the location picker, but only created when the
+  // modal's own Create runs — cancelling the modal must not leave a worktree behind.
+  const [wtOpen, setWtOpen] = useState(false);
+  const [wtName, setWtName] = useState("");
+  const [wtRepo, setWtRepo] = useState(null);
+  const [wtBusy, setWtBusy] = useState(false);
+  const [wtError, setWtError] = useState(null);
+  const [repos, setRepos] = useState(null); // lazy repo scan [{path,name,branch}]
+  const wtInputRef = useRef(null);
   // On by default — the agent acts without approval prompts unless the user opted out before
   const [skipPermissions, setSkipPermissions] = useState(() => loadTerminalPrefs().yolo);
   const [shellId, setShellId] = useState(() => {
@@ -87,6 +98,48 @@ export default function NewTerminalModal({
   }, []);
 
   const quickKeys = isMac() ? QUICK_KEYS_MAC : QUICK_KEYS_PC;
+
+  // Free-form name → git-safe branch: transliterate to ASCII (sửa → sua) so any
+  // language reads as words, non-word runs collapse to one dash, edges trimmed.
+  const wtBranch = transliterate(wtName.trim())
+    .replace(/[^\w.-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  // The worktree hangs off whatever the location picker points at (a repo root or
+  // one of its worktrees — git adds siblings from any checkout); scan+workspace
+  // only back the untouched default.
+  const wtRepoPath = cwd || wtRepo || workspacePath;
+  // Staged = a valid branch typed in; survives collapsing the input, so Create is
+  // what actually creates it.
+  const stagedWorktree = wtBranch ? { repo: wtRepoPath, branch: wtBranch, path: suggestWorktreePath(wtRepoPath, wtBranch) } : null;
+
+  const expandWorktree = () => {
+    vibrate();
+    setWtError(null);
+    setWtOpen(true);
+    // Lazy: pick the workspace's root repo silently — a multi-repo folder gets the
+    // first repo at its root, no chooser UI.
+    if (repos === null && modalFileBus?.gitScanRepos) {
+      modalFileBus.gitScanRepos(workspacePath).then((res) => {
+        const list = res?.success ? res.repos || [] : [];
+        setRepos(list);
+        setWtRepo((prev) => prev || list.find((r) => !r.relPath)?.path || list[0]?.path || null);
+      });
+    }
+    // Tap IS the intent to type — focus on touch too, unlike mount-time autofocus
+    requestAnimationFrame(() => wtInputRef.current?.focus());
+  };
+  const unstageWorktree = () => {
+    vibrate();
+    setWtOpen(false);
+    setWtName("");
+    setWtError(null);
+  };
+  const stageWorktree = () => {
+    if (!stagedWorktree) return;
+    vibrate();
+    setWtError(null);
+    setWtOpen(false);
+  };
 
   // Bring the restored pick into view once, after detection populates the list.
   // Not per-render: re-scrolling on every keystroke would fight the user's scroll.
@@ -158,9 +211,11 @@ export default function NewTerminalModal({
   // suggestName already carries the caller's per-workspace counter.
   // Short name keeps the mobile placeholder tidy; buttons keep the full label.
   const suggestIndex = suggestName.match(/\d+$/)?.[0];
-  const defaultName = agent
-    ? `${agent.short || agent.label}${suggestIndex ? ` ${suggestIndex}` : ""}`
-    : (suggestName || t("terminal.defaultName"));
+  const defaultName = stagedWorktree
+    ? stagedWorktree.branch
+    : agent
+      ? `${agent.short || agent.label}${suggestIndex ? ` ${suggestIndex}` : ""}`
+      : (suggestName || t("terminal.defaultName"));
 
   // Where to look for past conversations: whatever the location picker points at,
   // falling back to the workspace root it defaults to.
@@ -170,18 +225,42 @@ export default function NewTerminalModal({
 
   const submit = (picked = agent) => {
     vibrate();
-    if (!picked && shellId) savePref(TERMINAL_PREF_KEYS.shell, shellId);
-    savePref(TERMINAL_PREF_KEYS.agent, picked?.id || "");
-    savePref(TERMINAL_PREF_KEYS.yolo, skipPermissions ? "1" : "0");
-    const yolo = skipPermissions && canSkipPermissions(picked);
-    // An agent tab left unnamed takes the agent's name, not the host's generic "Term N"
-    const suffix = suggestIndex ? ` ${suggestIndex}` : "";
-    const typed = name.trim();
-    const finalName = typed || (picked ? `${picked.short || picked.label}${suffix}` : null);
-    // A name we filled in ourselves is still the terminal's to lose: it keeps
-    // following its conversation's title, unlike one the user actually typed.
-    onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo, cwd, !typed);
-    onClose?.();
+    if (wtBusy) return;
+    const finalize = (effCwd) => {
+      if (!picked && shellId) savePref(TERMINAL_PREF_KEYS.shell, shellId);
+      savePref(TERMINAL_PREF_KEYS.agent, picked?.id || "");
+      savePref(TERMINAL_PREF_KEYS.yolo, skipPermissions ? "1" : "0");
+      const yolo = skipPermissions && canSkipPermissions(picked);
+      // An agent tab left unnamed takes the agent's name, not the host's generic "Term N";
+      // a staged worktree names the tab after its branch instead.
+      const suffix = suggestIndex ? ` ${suggestIndex}` : "";
+      const typed = name.trim();
+      const finalName = typed || (stagedWorktree ? stagedWorktree.branch : (picked ? `${picked.short || picked.label}${suffix}` : null));
+      // A name we filled in ourselves is still the terminal's to lose: it keeps
+      // following its conversation's title, unlike one the user actually typed.
+      onCreate?.(finalName, !picked ? (shellId || null) : null, picked, yolo, effCwd, !typed);
+      onClose?.();
+    };
+    // Create is the commit point: the worktree is made here, never while typing.
+    if (!stagedWorktree) return finalize(cwd);
+    if (!modalFileBus?.gitWorktreeAdd) {
+      setWtError("This agent version does not support worktrees");
+      setWtOpen(true);
+      return;
+    }
+    setWtBusy(true);
+    setWtError(null);
+    modalFileBus.gitWorktreeAdd(stagedWorktree.repo, stagedWorktree.path, stagedWorktree.branch, true)
+      .then((res) => {
+        setWtBusy(false);
+        if (!res?.success) {
+          // Keep the input up with the typed name — fix it and press Create again
+          setWtError(res?.error || "Failed to create worktree");
+          setWtOpen(true);
+          return;
+        }
+        finalize(res.path || stagedWorktree.path);
+      });
   };
 
   const submitRef = useRef(submit);
@@ -263,15 +342,94 @@ export default function NewTerminalModal({
             </button>
           </div>
           {workspacePath && !showHistory && (
+            <>
             <LocationPicker
               workspacePath={workspacePath}
               workspaceName={workspaceName}
               fileBus={modalFileBus}
               homeDir={homeDir}
               value={cwd}
-              onChange={setCwd}
+              onChange={(p) => setCwd(p)}
               onBrowse={() => setBrowsing(true)}
+              staged={stagedWorktree}
             />
+            {wtOpen ? (
+              <div data-wt-form className="space-y-1">
+                <div className="flex items-center gap-1.5">
+                  <div className="relative flex-1 min-w-0">
+                    <input
+                      type="text"
+                      ref={wtInputRef}
+                      value={wtName}
+                      disabled={wtBusy}
+                      onChange={(e) => setWtName(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { e.preventDefault(); stageWorktree(); }
+                        else if (e.key === "Escape") { e.preventDefault(); e.stopPropagation(); unstageWorktree(); }
+                      }}
+                      placeholder={t("workspaces.worktreeName")}
+                      className="w-full pl-2.5 pr-7 py-1.5 rounded-brand bg-surface-2 text-xs text-text placeholder-text-subtle border border-border-subtle focus:outline-none focus:border-brand-500"
+                    />
+                    {wtName && !wtBusy && (
+                      <button
+                        type="button"
+                        onClick={() => { vibrate(); setWtName(""); wtInputRef.current?.focus(); }}
+                        aria-label={t("common.clear")}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 text-text-subtle hover:text-text rounded transition-colors"
+                      >
+                        <X size={12} />
+                      </button>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    onClick={stageWorktree}
+                    disabled={!stagedWorktree || wtBusy}
+                    className="p-1.5 rounded-brand bg-brand-500 hover:bg-brand-600 text-white transition-colors disabled:opacity-50 disabled:pointer-events-none shrink-0"
+                    aria-label={t("workspaces.addWorktree")}
+                  >
+                    <Check size={12} />
+                  </button>
+                  {/* Touch has no Escape — this is how the form closes on a phone.
+                      Named in words, not a second X: the input already has one. */}
+                  <button
+                    type="button"
+                    onClick={unstageWorktree}
+                    disabled={wtBusy}
+                    className="px-2 py-1.5 rounded-brand text-xs text-text-muted hover:text-text hover:bg-surface-2 transition-colors disabled:opacity-50 shrink-0"
+                  >
+                    {t("common.cancel")}
+                  </button>
+                </div>
+                {/* A name that transliterates to nothing can't become a branch — say why */}
+                {wtName.trim() && !wtBranch && (
+                  <p className="text-[10px] text-red-500 leading-tight">{t("workspaces.worktreeNameAscii")}</p>
+                )}
+                {/* Path preview — the directory is derived, never typed */}
+                <p className="truncate text-[10px] text-text-subtle leading-tight" title={stagedWorktree?.path}>
+                  {shortenHomePath(suggestWorktreePath(wtRepoPath, wtBranch || "…"), homeDir)}
+                </p>
+                {wtError && <p className="text-[10px] text-red-500 break-words">{wtError}</p>}
+              </div>
+            ) : (
+              <button
+                type="button"
+                onClick={expandWorktree}
+                title={stagedWorktree ? stagedWorktree.path : undefined}
+                className="w-full flex items-center gap-1.5 px-2.5 py-1 rounded-brand text-xs transition-colors hover:bg-surface-2"
+              >
+                <Plus size={13} className="shrink-0 text-brand-500" />
+                {stagedWorktree ? (
+                  <>
+                    <span className="truncate text-text font-medium">{stagedWorktree.branch}</span>
+                    <span className="truncate text-[10px] text-text-subtle">{shortenHomePath(stagedWorktree.path, homeDir)}</span>
+                  </>
+                ) : (
+                  <span className="text-text-muted">{t("workspaces.addWorktree")}</span>
+                )}
+              </button>
+            )}
+            </>
           )}
         </div>
 
@@ -369,21 +527,33 @@ export default function NewTerminalModal({
             <label htmlFor="newTerminalName" className="block text-[11px] font-medium text-text-muted px-0.5">
               {t("terminal.nameLabel")}
             </label>
-            <input
-              id="newTerminalName"
-              type="text"
-              ref={nameRef}
-              value={name}
-              placeholder={defaultName}
-              onInput={(e) => setName(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "ArrowUp") {
-                  e.preventDefault();
-                  listRef.current?.querySelector("[data-picked=true]")?.focus();
-                }
-              }}
-              className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
-            />
+            <div className="relative">
+              <input
+                id="newTerminalName"
+                type="text"
+                ref={nameRef}
+                value={name}
+                placeholder={defaultName}
+                onInput={(e) => setName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "ArrowUp") {
+                    e.preventDefault();
+                    listRef.current?.querySelector("[data-picked=true]")?.focus();
+                  }
+                }}
+                className="w-full pl-3 pr-8 py-2 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+              />
+              {name && (
+                <button
+                  type="button"
+                  onClick={() => { vibrate(); setName(""); nameRef.current?.focus(); }}
+                  aria-label={t("common.clear")}
+                  className="absolute right-2 top-1/2 -translate-y-1/2 p-0.5 text-text-subtle hover:text-text rounded transition-colors"
+                >
+                  <X size={13} />
+                </button>
+              )}
+            </div>
           </div>
           {/* Primary action last, at the end of the reading direction */}
           <div className="flex gap-2">
@@ -396,12 +566,15 @@ export default function NewTerminalModal({
             </button>
             <button
               onClick={() => submit()}
-              className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors flex items-center justify-center gap-1.5"
+              disabled={wtBusy || (wtOpen && !stagedWorktree)}
+              className="flex-1 py-2 text-sm font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors flex items-center justify-center gap-1.5 disabled:opacity-60"
             >
-              <span>{t("common.create")}</span>
-              <kbd className="hidden sm:inline-flex items-center justify-center w-4 h-4 rounded bg-white/20 text-white">
-                <CornerDownLeft size={10} strokeWidth={2.5} />
-              </kbd>
+              {wtBusy ? <Loader2 size={14} className="animate-spin" /> : <span>{t("common.create")}</span>}
+              {!wtBusy && (
+                <kbd className="hidden sm:inline-flex items-center justify-center w-4 h-4 rounded bg-white/20 text-white">
+                  <CornerDownLeft size={10} strokeWidth={2.5} />
+                </kbd>
+              )}
             </button>
           </div>
         </div>
