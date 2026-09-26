@@ -10,11 +10,18 @@ import os from "node:os";
  * opencode/antigravity, which have no reader of their own, showed claude's list as if it
  * were theirs. An engine with no reader returns nothing rather than borrowing another's.
  */
+// Engine → its own MCP config reader. Each engine reads its OWN config, and only its
+// own: the codex branch used to run for every engine, so the modal listed claude's
+// servers as codex's and vice versa. An engine with no reader returns nothing rather
+// than borrowing another's.
+const MCP_SERVER_READERS = {
+  claude: claudeServers,
+  codex: codexServers,
+  opencode: opencodeServers
+};
+
 export function listMcpServers(engine = "claude") {
-  if (engine === "claude") return claudeServers();
-  if (engine === "codex") return codexServers();
-  if (engine === "opencode") return opencodeServers();
-  return [];
+  return MCP_SERVER_READERS[engine]?.() ?? [];
 }
 
 /** OpenCode keeps them in ~/.config/opencode/opencode.json under mcp.servers. */

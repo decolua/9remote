@@ -446,7 +446,7 @@ export class AiSession {
     // Handlers bind to the adapter that owns them and stand down once a newer one replaces it.
     let mine = null;
     const onEvent = (event, data) => {
-      if (this.adapter && this.adapter !== mine) return;
+      if (this.adapter !== mine) return;
       this.emitNormalized(event, data);
     };
     // Only claude is spawned with a mode; the rest map it through setOptions.

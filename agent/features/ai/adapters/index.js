@@ -95,8 +95,12 @@ export const ENGINES = Object.freeze({
   }
 });
 
+// hasOwnProperty, not a bare lookup: an id like "constructor" hits Object.prototype
+// and would hand back the Object constructor as if it were an engine def.
+const hasOwn = (obj, key) => Object.prototype.hasOwnProperty.call(obj, key);
+
 /** Engine definition, or null — callers fall back, they never throw on an unknown id. */
-export const getEngineDef = (engine) => ENGINES[engine] || null;
+export const getEngineDef = (engine) => (engine != null && hasOwn(ENGINES, engine) ? ENGINES[engine] : null);
 
 /** Whether the daemon owns this engine's CLI, so a turn outlives an agent restart. */
 export const isManagedEngine = (engine) => Boolean(ENGINES[engine]?.managed);

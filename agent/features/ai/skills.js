@@ -72,28 +72,26 @@ export function listSkills(engine = "claude", workspacePath = null) {
 }
 
 /** Every place one engine reads skills from, most specific last. */
+// Engine → its skill directories, most specific last; an engine nobody has taught gets
+// no library rather than another engine's.
+const SKILL_DIRS = {
+  codex: (home) => [path.join(home, ".codex", "skills")],
+  opencode: (home) => [path.join(home, ".config", "opencode", "skills")],
+  // Both are real: the user's own library and the CLI's shipped ones.
+  antigravity: (home) => [
+    path.join(home, ".gemini", "skills"),
+    path.join(home, ".gemini", "antigravity-cli", "builtin", "skills")
+  ],
+  claude: (home, workspacePath) => [
+    path.join(home, ".claude", "skills"),
+    path.join(home, ".claude", "skills copy"),
+    ...(workspacePath ? [path.join(workspacePath, ".claude", "skills")] : [])
+  ],
+  // Hermes resolves skills only from its home (tools/skills_tool.py: "all
+  // skills live in ~/.hermes/skills/") — no workspace-level library exists.
+  hermes: (home) => [path.join(home, ".hermes", "skills")]
+};
+
 function skillDirs(engine, home, workspacePath) {
-  if (engine === "codex") return [path.join(home, ".codex", "skills")];
-  if (engine === "opencode") return [path.join(home, ".config", "opencode", "skills")];
-  if (engine === "antigravity") {
-    // Both are real: the user's own library and the CLI's shipped ones.
-    return [
-      path.join(home, ".gemini", "skills"),
-      path.join(home, ".gemini", "antigravity-cli", "builtin", "skills")
-    ];
-  }
-  if (engine === "claude") {
-    return [
-      path.join(home, ".claude", "skills"),
-      path.join(home, ".claude", "skills copy"),
-      ...(workspacePath ? [path.join(workspacePath, ".claude", "skills")] : [])
-    ];
-  }
-  if (engine === "hermes") {
-    // Hermes resolves skills only from its home (tools/skills_tool.py: "all
-    // skills live in ~/.hermes/skills/") — no workspace-level library exists.
-    return [path.join(home, ".hermes", "skills")];
-  }
-  // An engine nobody has taught: no library, rather than another engine's.
-  return [];
+  return SKILL_DIRS[engine]?.(home, workspacePath) ?? [];
 }

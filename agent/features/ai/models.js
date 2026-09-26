@@ -190,19 +190,31 @@ export function saveAiPreference(engine, patch) {
 }
 
 // Resolve default model from preferences or CLI configuration.
-export function resolveDefaultModel(engine) {
-  const saved = readAiPreferences()[engine]?.model;
-  if (typeof saved === "string" && saved) return saved.split("\t")[0].trim();
+// Engine → its model catalog reader; an engine with no entry has no catalog to offer.
+const MODEL_LISTERS = {
+  claude: listModelOptions,
+  codex: listCodexModelOptions,
+  opencode: listOpencodeModelOptions,
+  antigravity: listAntigravityModelOptions,
+  omp: listOmpModelOptions,
+  devin: listDevinModelOptions,
+  hermes: listHermesModelOptions
+};
 
-  if (engine === "claude") {
+export function listModelOptionsFor(engine) {
+  return MODEL_LISTERS[engine]?.() ?? null;
+}
+
+// Engine → its own default-model reader; an engine with no entry has no CLI default to read.
+const DEFAULT_MODEL_READERS = {
+  claude() {
     const settings = readClaudeSettings();
     const alias = typeof settings.model === "string" ? settings.model : "";
     if (!alias) return "";
     const slot = SLOTS.find(([key, label]) => label.toLowerCase() === alias.toLowerCase());
     return (slot && settings.env?.[slot[0]]) || alias;
-  }
-
-  if (engine === "codex") {
+  },
+  codex() {
     try {
       const file = path.join(os.homedir(), ".codex", "config.toml");
       const text = fs.readFileSync(file, "utf8");
@@ -211,9 +223,8 @@ export function resolveDefaultModel(engine) {
     } catch {
       return "";
     }
-  }
-
-  if (engine === "opencode") {
+  },
+  opencode() {
     // Read last used model from OpenCode state file.
     try {
       const file = path.join(os.homedir(), ".local", "state", "opencode", "model.json");
@@ -226,9 +237,8 @@ export function resolveDefaultModel(engine) {
     } catch {
       return "";
     }
-  }
-
-  if (engine === "omp") {
+  },
+  omp() {
     try {
       const file = path.join(os.homedir(), ".omp", "agent", "config.yml");
       const text = fs.readFileSync(file, "utf8");
@@ -237,9 +247,8 @@ export function resolveDefaultModel(engine) {
     } catch {
       return "";
     }
-  }
-
-  if (engine === "devin") {
+  },
+  devin() {
     // The CLI's own record: the model its newest session actually ran — never a canned id.
     try {
       const { DatabaseSync } = require("node:sqlite");
@@ -258,21 +267,22 @@ export function resolveDefaultModel(engine) {
       return "";
     }
   }
+};
 
-  return "";
+export function resolveDefaultModel(engine) {
+  const saved = readAiPreferences()[engine]?.model;
+  if (typeof saved === "string" && saved) return saved.split("\t")[0].trim();
+  return DEFAULT_MODEL_READERS[engine]?.() || "";
 }
 
 // Resolve default reasoning effort from preferences or CLI configuration.
-export function resolveDefaultEffort(engine) {
-  const saved = readAiPreferences()[engine]?.effort;
-  if (typeof saved === "string" && saved) return saved;
-
-  if (engine === "claude") {
+// Engine → its own default-effort reader; an engine with no entry has none to read.
+const DEFAULT_EFFORT_READERS = {
+  claude() {
     const level = readClaudeSettings().effortLevel;
     return typeof level === "string" ? level.trim() : "";
-  }
-
-  if (engine === "codex") {
+  },
+  codex() {
     try {
       const text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
       const top = text.split(/^\s*\[/m)[0] || "";
@@ -280,15 +290,18 @@ export function resolveDefaultEffort(engine) {
     } catch {
       return "";
     }
-  }
-
-  if (engine === "hermes") {
+  },
+  hermes() {
     // Scoped to the agent: block — a loose match catches reasoning_effort under
     // other sections (summaries, image description) that this engine never reads.
     return /^\s*reasoning_effort:\s*["']?([\w-]+)/m.exec(yamlBlock(readHermesConfig(), "agent"))?.[1] || "";
   }
+};
 
-  return "";
+export function resolveDefaultEffort(engine) {
+  const saved = readAiPreferences()[engine]?.effort;
+  if (typeof saved === "string" && saved) return saved;
+  return DEFAULT_EFFORT_READERS[engine]?.() || "";
 }
 
 // The serve server's own model list (GET /api/model): the only source that

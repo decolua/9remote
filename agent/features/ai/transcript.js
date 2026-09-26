@@ -618,13 +618,18 @@ export function recoverFromHermesTranscript(sessionId) {
 }
 
 // Dispatches transcript recovery by engine; leafOverride is Claude-specific for rewind.
+// Engine → rebuild its event log from the CLI's own transcript; an engine with no
+// reader has nothing to recover from.
+const TRANSCRIPT_RECOVERERS = {
+  claude: (cwd, sessionId, leafOverride) => recoverFromClaudeTranscript(cwd, sessionId, 1, leafOverride),
+  codex: (cwd, sessionId) => recoverFromCodexTranscript(cwd, sessionId),
+  opencode: (cwd, sessionId) => recoverFromOpencodeTranscript(cwd, sessionId),
+  antigravity: (cwd, sessionId) => recoverFromAntigravityTranscript(cwd, sessionId),
+  omp: (cwd, sessionId) => recoverFromOmpTranscript(cwd, sessionId),
+  devin: (_cwd, sessionId) => recoverFromDevinTranscript(sessionId),
+  hermes: (_cwd, sessionId) => recoverFromHermesTranscript(sessionId)
+};
+
 export function recoverFromTranscript(engine, cwd, sessionId, leafOverride = null) {
-  if (engine === "claude") return recoverFromClaudeTranscript(cwd, sessionId, 1, leafOverride);
-  if (engine === "codex") return recoverFromCodexTranscript(cwd, sessionId);
-  if (engine === "opencode") return recoverFromOpencodeTranscript(cwd, sessionId);
-  if (engine === "antigravity") return recoverFromAntigravityTranscript(cwd, sessionId);
-  if (engine === "omp") return recoverFromOmpTranscript(cwd, sessionId);
-  if (engine === "devin") return recoverFromDevinTranscript(sessionId);
-  if (engine === "hermes") return recoverFromHermesTranscript(sessionId);
-  return null;
+  return TRANSCRIPT_RECOVERERS[engine]?.(cwd, sessionId, leafOverride) ?? null;
 }
