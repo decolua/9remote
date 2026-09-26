@@ -293,11 +293,8 @@ export default function VoiceEndpointSettings({ dense = false }) {
       <div className={rowCls} onClick={handleOpen}>
         <Mic size={16} className={`${dense ? "text-text" : "text-brand-500"} flex-shrink-0`} />
         <div className="flex-1 min-w-0 flex flex-col">
-          <span className="flex items-center gap-1.5">
-            <span className="truncate">Voice input</span>
-            <span className="text-xs text-text-muted shrink-0">{engine}</span>
-          </span>
-          <span className="text-xs text-text-muted truncate">Speak instead of typing — chat, terminal, remote</span>
+          <span className="truncate">Voice input</span>
+          <span className="text-xs text-text-muted truncate">{engine}</span>
         </div>
         <button
           type="button"

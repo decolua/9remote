@@ -40,6 +40,8 @@ export function useVoiceLang(fallbackLocale) {
 // Fatal errors: user must act — don't auto-restart on these.
 const FATAL = new Set(["not-allowed", "service-not-allowed", "audio-capture", "language-not-supported"]);
 const MONITOR_MS = 80;
+// Clips whose peak RMS stays under this are silent — skip the LLM (it hallucinates text).
+const SILENCE_PEAK_RMS = 3;
 
 function getRecognition() {
   if (typeof window === "undefined") return null;
@@ -107,6 +109,7 @@ export function useVoiceInput({
     sess.stream.getTracks().forEach((t) => t.stop());
     try { sess.ctx.close(); } catch {}
     try {
+      if (sess.peak.v < SILENCE_PEAK_RMS) return; // silent clip — nothing to transcribe
       const blob = new Blob(sess.chunks, { type: sess.rec.mimeType || "audio/webm" });
       const text = await transcribeBlob(useVoiceStore.getState(), blob, langRef.current);
       const combined = `${baseRef.current}${text}`.replace(/\s+/g, " ").trimStart();
@@ -142,14 +145,16 @@ export function useVoiceInput({
       analyser.fftSize = 512;
       ctx.createMediaStreamSource(stream).connect(analyser);
       const buf = new Uint8Array(analyser.fftSize);
+      const peak = { v: 0 };
       const timer = setInterval(() => {
         analyser.getByteTimeDomainData(buf);
         let sum = 0;
         for (let i = 0; i < buf.length; i++) sum += Math.abs(buf[i] - 128);
         const rms = sum / buf.length;
+        if (rms > peak.v) peak.v = rms;
         setVolume(Math.min(1, Math.max(0, (rms - 2) / 20)));
       }, MONITOR_MS);
-      aiRef.current = { stream, rec, chunks, stopped, ctx, timer };
+      aiRef.current = { stream, rec, chunks, stopped, ctx, timer, peak };
       rec.start();
       setListening(true);
     } catch (err) {
