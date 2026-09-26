@@ -59,6 +59,12 @@ export function parseApiKey(apiKey) {
   return null;
 }
 
+// A v1 key: sk-{machineId8}-{keyId4}-{crc6} — retired worker-side, upgraded on load.
+export function isLegacyApiKey(apiKey) {
+  if (typeof apiKey !== "string" || !apiKey) return false;
+  return /^sk-[a-z0-9]{8}-[a-z0-9]{4}-[0-9a-f]{6}$/.test(apiKey.trim().toLowerCase());
+}
+
 export function maskApiKey(apiKey) {
   if (!apiKey || apiKey.length < 8) return "sk-***";
   return `${apiKey.slice(0, 3)}***${apiKey.slice(-4)}`;
