@@ -10,7 +10,7 @@ const OPENCODE_UA = "opencode/1.18.31";
 const FINGERPRINT_TOOLS = ["bash", "glob", "grep", "read"];
 const BASE62 = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz";
 const REQUEST_TIMEOUT_MS = 60000;
-export const MAX_WAV_B64_CHARS = 4000000; // ~3MB audio ≈ 90s of 16kHz mono
+export const MAX_AUDIO_B64_CHARS = 4000000; // ~3MB audio — WAV ≈ 90s, MP3 ≈ 12min
 
 // Upstream id shapes: ses_/msg_ + 12 hex + 14 base62.
 function clientId(prefix) {
@@ -27,7 +27,7 @@ async function upstreamError(res) {
   }
 }
 
-export async function transcribeViaOpencode(model, wavB64, prompt) {
+export async function transcribeViaOpencode(model, audioB64, prompt, format = "wav") {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
   try {
@@ -45,10 +45,12 @@ export async function transcribeViaOpencode(model, wavB64, prompt) {
       },
       body: JSON.stringify({
         model,
+        // MiMo thinks by default (~740 reasoning chars ≈ +2-3s); STT needs none.
+        reasoning: { effort: "none" },
         stream: true, // free tier rejects non-streaming with 403 FreeTierError
         messages: [{ role: "user", content: [
           { type: "text", text: prompt },
-          { type: "input_audio", input_audio: { data: wavB64, format: "wav" } },
+          { type: "input_audio", input_audio: { data: audioB64, format } },
         ]}],
         // Decoy quartet the gate requires; "none" keeps the decoys uncallable.
         tools: FINGERPRINT_TOOLS.map((name) => ({

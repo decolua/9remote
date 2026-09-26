@@ -8,7 +8,7 @@ import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import VoiceLangModal from "@/shared/components/ui/VoiceLangModal";
 import { useVoiceLang } from "@/shared/hooks/useVoiceInput";
 import { useVoiceStore } from "@/shared/stores/voiceStore";
-import { VOICE_ENDPOINT_DEFAULT, VOICE_PRESETS, chat, recordClip, resolveVoiceCfg, sttErrText, transcribeBlob } from "@/shared/lib/voiceStt";
+import { VOICE_ENDPOINT_DEFAULT, VOICE_PRESETS, VOICE_FREE_STT_ENABLED, chat, recordClip, resolveVoiceCfg, sttErrText, transcribeBlob } from "@/shared/lib/voiceStt";
 
 const FIELD_CLS = "w-full px-2.5 py-1.5 rounded bg-bg border border-border-subtle text-xs font-mono text-text placeholder-text-muted focus:outline-none focus:border-brand-500";
 const BTN_CLS = "px-3 py-1.5 rounded-brand text-xs font-medium transition-colors";
@@ -16,9 +16,9 @@ const CHIP_CLS = "px-2.5 py-1 rounded-brand text-[11px] border transition-colors
 const CHIP_ON = "border-brand-500 bg-brand-500/10 text-brand-400";
 const CHIP_OFF = "border-border-subtle bg-surface-2/30 text-text-muted hover:text-text hover:bg-surface-2";
 
-// One flat engine row — Free (AI, no key) first, then Browser, then keyed providers.
+// One flat engine row — Free (AI, no key) first when enabled, then Browser, then keyed providers.
 const ENGINES = [
-  { id: "opencode", mode: "ai", label: "Free" },
+  ...(VOICE_FREE_STT_ENABLED ? [{ id: "opencode", mode: "ai", label: "Free" }] : []),
   { id: "browser", mode: "browser", label: "Browser" },
   { id: "gemini", mode: "ai", label: VOICE_PRESETS.gemini.label },
   { id: "openrouter", mode: "ai", label: VOICE_PRESETS.openrouter.label },
@@ -56,7 +56,7 @@ function VoiceConfigModal({ onClose }) {
   const busy = keyState?.busy || voiceState?.busy;
   const currentLang = SUPPORTED_LOCALES.find((l) => l.code === voiceLang);
 
-  const hasKey = preset === "opencode"
+  const hasKey = preset === "opencode" && VOICE_FREE_STT_ENABLED
     ? true // free tier — no key, the agent holds the client fingerprint
     : preset === "gemini"
     ? store.geminiKeys.some((k) => k.trim())
@@ -68,7 +68,7 @@ function VoiceConfigModal({ onClose }) {
 
   const testKey = async () => {
     vibrate();
-    if (preset === "opencode") { setKeyState({ ok: true, msg: "No key needed — use Test voice" }); return; }
+    if (preset === "opencode" && VOICE_FREE_STT_ENABLED) { setKeyState({ ok: true, msg: "No key needed — use Test voice" }); return; }
     setKeyState({ busy: true, msg: "Testing…" });
     try {
       const cfg = resolveVoiceCfg(useVoiceStore.getState());
@@ -82,7 +82,7 @@ function VoiceConfigModal({ onClose }) {
     if (!hasKey) { setVoiceState({ ok: false, msg: "Enter an API key first" }); return; }
     setVoiceState({ busy: true, msg: "Recording…" });
     try {
-      const text = await transcribeBlob(useVoiceStore.getState(), await recordClip());
+      const text = await transcribeBlob(useVoiceStore.getState(), await recordClip(), voiceLang);
       setVoiceState({ ok: !!text, msg: text || "(empty reply)" });
     } catch (err) { setVoiceState({ ok: false, msg: sttErrText(err) }); }
   };
@@ -101,7 +101,7 @@ function VoiceConfigModal({ onClose }) {
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5 flex flex-col gap-3">
+        <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5 flex flex-col gap-3 min-h-[320px]">
       {/* Dictation language — applies to both engines */}
       <button
         type="button"
@@ -109,6 +109,9 @@ function VoiceConfigModal({ onClose }) {
         className="w-full px-3 py-2 rounded-brand bg-surface-2/50 text-left flex items-center gap-2.5 text-sm text-text hover:bg-surface-2 transition-colors"
       >
         <span className="flex-1 min-w-0 truncate">Language</span>
+        {voiceLang === "auto" && (
+          <span className="text-xs text-text-muted">Auto</span>
+        )}
         {currentLang && (
           <span className="flex items-center gap-1.5 flex-shrink-0 text-xs text-text-muted">
             <img

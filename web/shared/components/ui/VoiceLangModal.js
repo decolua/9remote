@@ -6,6 +6,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { SPEECH_LANG } from "@/shared/hooks/useVoiceInput";
+import { VOICE_FREE_STT_ENABLED } from "@/shared/lib/voiceStt";
 
 // Only locales with a known speech tag can be dictated.
 const VOICE_LOCALES = SUPPORTED_LOCALES.filter((l) => SPEECH_LANG[l.code]);
@@ -46,6 +47,18 @@ export default function VoiceLangModal({ isOpen, value, onSelect, onClose }) {
           </button>
         </div>
         <div className="flex-1 overflow-y-auto modal-scrollable p-3">
+          {VOICE_FREE_STT_ENABLED && (
+            <button
+              onClick={() => handleSelect("auto")}
+              className={`w-full px-2 py-2 mb-2 rounded-brand flex items-center gap-2 transition-all duration-150 ease-out active:scale-[0.97] ${
+                value === "auto" ? "bg-brand-500 text-white" : "text-text hover:bg-surface-2"
+              }`}
+            >
+              <span className="w-[17px] text-center flex-shrink-0 text-sm">🌐</span>
+              <span className="flex-1 text-sm font-medium text-left">Auto detect</span>
+              {value === "auto" && <Check size={14} className="flex-shrink-0" />}
+            </button>
+          )}
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {VOICE_LOCALES.map((l) => {
               const active = l.code === value;

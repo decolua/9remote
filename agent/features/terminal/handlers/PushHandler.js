@@ -7,7 +7,7 @@ import { scanLocalSites } from "../portScanner.js";
 import { startProxySession, endProxySession, setupSiteRequestHandler } from "../../../proxy/index.js";
 import { setMcpEnabled, MCP_CLIENTS } from "../../../mcp/mcpConfig.js";
 import { readSettings, writeSettings } from "../../../lib/settings.js";
-import { transcribeViaOpencode, MAX_WAV_B64_CHARS } from "../opencodeStt.js";
+import { transcribeViaOpencode, MAX_AUDIO_B64_CHARS } from "../opencodeStt.js";
 import { broadcast } from "../../../transport/broadcast.js";
 
 export function setupPushHandlers(socket, io) {
@@ -121,13 +121,14 @@ export function setupPushHandlers(socket, io) {
   });
 
   // Free-tier voice STT runs agent-side: opencode.ai serves no CORS, so the browser can't call it
-  socket.on("voice:transcribe", async ({ wavB64, model, prompt } = {}, callback) => {
+  socket.on("voice:transcribe", async ({ audioB64, format, model, prompt } = {}, callback) => {
     if (typeof callback !== "function") return;
-    if (typeof wavB64 !== "string" || !wavB64) return callback({ error: "bad-audio" });
-    if (wavB64.length > MAX_WAV_B64_CHARS) return callback({ error: "audio-too-large" });
+    if (typeof audioB64 !== "string" || !audioB64) return callback({ error: "bad-audio" });
+    if (audioB64.length > MAX_AUDIO_B64_CHARS) return callback({ error: "audio-too-large" });
+    if (!["mp3", "wav"].includes(format)) return callback({ error: "bad-format" });
     if (!/^[\w.-]+$/.test(model || "")) return callback({ error: "bad-model" });
     try {
-      const text = await transcribeViaOpencode(model, wavB64, String(prompt || "").slice(0, 2000));
+      const text = await transcribeViaOpencode(model, audioB64, String(prompt || "").slice(0, 2000), format);
       callback({ text });
     } catch (err) {
       callback({ error: err?.message || "STT failed" });

@@ -21,13 +21,14 @@ export const localeToSpeechLang = (locale) => SPEECH_LANG[locale] || locale || "
 
 const VOICE_LANG_KEY = "voiceLang";
 
-// Voice dictation language, persisted; falls back to the given UI locale.
+// Voice dictation language, persisted. Defaults to the UI locale; "auto" lets the
+// AI engine detect it and borrows the browser locale for the Web Speech engine.
 export function useVoiceLang(fallbackLocale) {
-  const [lang, setLang] = useState(fallbackLocale);
+  const [lang, setLang] = useState(fallbackLocale && SPEECH_LANG[fallbackLocale] ? fallbackLocale : "auto");
   useEffect(() => {
     const saved = typeof window !== "undefined" && localStorage.getItem(VOICE_LANG_KEY);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
-    if (saved && SPEECH_LANG[saved]) setLang(saved);
+    if (saved === "auto" || (saved && SPEECH_LANG[saved])) setLang(saved);
   }, []);
   const update = useCallback((code) => {
     setLang(code);
@@ -185,7 +186,8 @@ export function useVoiceInput({
     const SR = getRecognition();
     if (!SR) return;
     const rec = new SR();
-    rec.lang = langRef.current;
+    // Web Speech needs a concrete tag — "auto" borrows the browser's own locale.
+    rec.lang = langRef.current === "auto" ? (navigator.language || "en-US") : langRef.current;
     rec.continuous = true;
     rec.interimResults = true;
 

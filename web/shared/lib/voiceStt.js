@@ -3,6 +3,9 @@
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 
 export const VOICE_ENDPOINT_DEFAULT = "https://openrouter.ai/api/v1";
+// Kill switch — hides the agent-routed free preset and the Auto detect
+// language option; flip to true to bring them back.
+export const VOICE_FREE_STT_ENABLED = false;
 export const VOICE_LS_KEYS = {
   enabled: "voiceEnabled", mode: "voiceMode",
   // legacy flat config, read once for migration
@@ -88,9 +91,28 @@ function blobToBase64(blob) {
   });
 }
 
-// Browsers record webm/opus (mp4/aac on Safari), but Gemini's OpenAI layer
-// only accepts wav/mp3 — decode the clip and send a 16 kHz mono WAV, which
-// every endpoint takes. ~32 KB/s, so dictation clips stay small.
+// MP3 32kbps mono 16k is speech-grade and ~8x lighter than WAV on the wire.
+const MP3_KBPS = 32;
+const MP3_SAMPLE_CHUNK = 1152;
+
+function encodeMp3(lamejs, samples, rate) {
+  const enc = new lamejs.Mp3Encoder(1, rate, MP3_KBPS);
+  const pcm = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    pcm[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+  }
+  const parts = [];
+  for (let i = 0; i < pcm.length; i += MP3_SAMPLE_CHUNK) {
+    const buf = enc.encodeBuffer(pcm.subarray(i, i + MP3_SAMPLE_CHUNK));
+    if (buf.length) parts.push(new Uint8Array(buf));
+  }
+  const end = enc.flush();
+  if (end.length) parts.push(new Uint8Array(end));
+  return new Blob(parts, { type: "audio/mp3" });
+}
+
+// WAV fallback (~32 KB/s uncompressed) when the MP3 encoder is unavailable.
 function encodeWav(samples, rate) {
   const buf = new ArrayBuffer(44 + samples.length * 2);
   const v = new DataView(buf);
@@ -107,7 +129,9 @@ function encodeWav(samples, rate) {
   return new Blob([buf], { type: "audio/wav" });
 }
 
-async function blobToWav(blob) {
+// Decode any recorded format to 16kHz mono, then encode MP3 (every OpenAI-compat
+// endpoint takes it); fall back to WAV when the encoder can't load.
+async function blobToAudio(blob) {
   const RATE = 16000;
   const dec = new OfflineAudioContext(1, 1, RATE);
   const audio = await dec.decodeAudioData(await blob.arrayBuffer());
@@ -116,20 +140,30 @@ async function blobToWav(blob) {
   src.buffer = audio;
   src.connect(out.destination);
   src.start();
-  return encodeWav((await out.startRendering()).getChannelData(0), RATE);
+  const samples = (await out.startRendering()).getChannelData(0);
+  try {
+    const mod = await import("@breezystack/lamejs");
+    const lamejs = mod.default || mod;
+    if (typeof lamejs?.Mp3Encoder !== "function") throw new Error("encoder missing");
+    return { blob: encodeMp3(lamejs, samples, RATE), format: "mp3" };
+  } catch {
+    return { blob: encodeWav(samples, RATE), format: "wav" };
+  }
 }
 
 // Map the store state to the endpoint/model/key the request actually uses.
 // Gemini rotates across its key list — N free keys stack to N x free quota.
 let rrIdx = 0;
 export function resolveVoiceCfg(s) {
-  if (s.preset === "opencode") {
+  // Hidden free preset falls back to gemini so a dormant saved config still works
+  const preset = s.preset === "opencode" && !VOICE_FREE_STT_ENABLED ? "gemini" : s.preset;
+  if (preset === "opencode") {
     return { endpoint: VOICE_PRESETS.opencode.endpoint, model: s.opencodeModel?.trim() || VOICE_PRESETS.opencode.model, apiKey: "public" };
   }
-  if (s.preset === "gemini" || s.preset === "openrouter") {
-    const p = VOICE_PRESETS[s.preset];
-    const model = s[`${s.preset}Model`]?.trim() || p.model;
-    if (s.preset === "gemini") {
+  if (preset === "gemini" || preset === "openrouter") {
+    const p = VOICE_PRESETS[preset];
+    const model = s[`${preset}Model`]?.trim() || p.model;
+    if (preset === "gemini") {
       const keys = s.geminiKeys.map((k) => k.trim()).filter(Boolean);
       return { endpoint: p.endpoint, model, apiKey: keys.length ? keys[rrIdx++ % keys.length] : "" };
     }
@@ -138,19 +172,35 @@ export function resolveVoiceCfg(s) {
   return { endpoint: s.customEndpoint, model: s.customModel, apiKey: s.customKey };
 }
 
-const STT_PROMPT = `Transcribe this audio accurately for a developer coding & terminal context.
-- Auto-detect spoken language; do NOT translate.
+// "auto" leaves the language open; a concrete BCP-47 tag forces it — Chinese-centric
+// models like MiMo otherwise transcribe unfamiliar speech into Chinese characters.
+function languageName(tag) {
+  try {
+    return new Intl.DisplayNames(["en"], { type: "language" }).of(String(tag).split("-")[0]);
+  } catch {
+    return tag;
+  }
+}
+
+export function buildSttPrompt(lang) {
+  const name = lang && lang !== "auto" ? languageName(lang) : null;
+  const head = name
+    ? `The audio is spoken ${name}. Transcribe it verbatim in ${name}.\n- Do NOT translate to any other language.`
+    : "Auto-detect spoken language; do NOT translate.";
+  return `Transcribe this audio accurately for a developer coding & terminal context.
+- ${head}
 - Keep English tech terms, code, and CLI commands in English (e.g. git, npm, docker, API, bug, log, deploy).
 - Add natural punctuation. Omit filler sounds.
 - Output ONLY the transcribed text.`;
+}
 
 // Free preset: the agent does the upstream call (opencode.ai blocks browser CORS).
-function transcribeViaAgent(model, wavB64) {
+function transcribeViaAgent(model, audioB64, prompt, format) {
   return new Promise((resolve, reject) => {
     const bus = useConnectionStore.getState().bus;
     if (!bus || typeof bus.emit !== "function") return reject(new Error("No agent connection"));
     const timer = setTimeout(() => reject(new Error("Timed out")), AGENT_STT_TIMEOUT_MS);
-    bus.emit("voice:transcribe", { wavB64, model, prompt: STT_PROMPT }, (res) => {
+    bus.emit("voice:transcribe", { audioB64, format, model, prompt }, (res) => {
       clearTimeout(timer);
       if (res?.error) reject(new Error(res.error));
       else resolve(res?.text || "");
@@ -158,15 +208,17 @@ function transcribeViaAgent(model, wavB64) {
   });
 }
 
-export async function transcribeBlob(state, blob) {
+export async function transcribeBlob(state, blob, lang) {
   const cfg = resolveVoiceCfg(state);
-  const wavB64 = await blobToBase64(await blobToWav(blob));
-  if (state.preset === "opencode") return transcribeViaAgent(cfg.model, wavB64);
+  const prompt = buildSttPrompt(lang);
+  const { blob: audio, format } = await blobToAudio(blob);
+  const audioB64 = await blobToBase64(audio);
+  if (state.preset === "opencode" && VOICE_FREE_STT_ENABLED) return transcribeViaAgent(cfg.model, audioB64, prompt, format);
   const data = await chat(cfg, {
     model: cfg.model,
     messages: [{ role: "user", content: [
-      { type: "text", text: STT_PROMPT },
-      { type: "input_audio", input_audio: { data: wavB64, format: "wav" } },
+      { type: "text", text: prompt },
+      { type: "input_audio", input_audio: { data: audioB64, format } },
     ]}],
   });
   return data?.choices?.[0]?.message?.content?.trim() || "";
