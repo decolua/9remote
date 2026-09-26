@@ -4,6 +4,7 @@ import { memo, useState, useEffect, useRef, useCallback } from "react";
 import { HelpCircle, Check, ChevronLeft, ChevronRight, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { parseAnswered } from "../../lib/parseAnswered";
+import { getEngineConfig } from "../../registry";
 import { SKIP_BEHAVIOR, SKIP_MESSAGE } from "../../constants";
 import { useAiPaneScope } from "../PaneScope";
 
@@ -119,7 +120,7 @@ export const AiQuestionCard = memo(function AiQuestionCard({
         {current && <span className="text-text-muted/70 leading-snug">{current.question}</span>}
         {/* Headless agy auto-skips every question (no answer channel exists); the TUI in
             a real terminal is the one place it waits — say so where the skip is seen. */}
-        {engine === "antigravity" && (
+        {Boolean(getEngineConfig(engine).headlessQuestions) && (
           <span className="text-[12px] text-text-muted/60 leading-snug">
             Headless Antigravity cannot wait for an answer — open it in a terminal (new terminal → Antigravity) to answer questions interactively.
           </span>

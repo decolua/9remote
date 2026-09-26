@@ -35,6 +35,17 @@ function alreadySaid(messages, text) {
   return Boolean(last && last.role === "assistant" && String(last.content || "").trim().endsWith(said));
 }
 
+// Escape codes a raw CLI line carries — the row shows the text between them, not the codes.
+const ANSI_CODES_RE = /\u001b\[[0-9;?]*[A-Za-z]/g;
+const ansiText = (chunk) => String(chunk || "").replace(ANSI_CODES_RE, "").trim();
+
+/** The failure already drew its own row (an `error` event) — a turn_complete with no sentence of its own adds only a duplicate. */
+const failureAlreadyDrew = (messages, text) => {
+  if (String(text || "").trim()) return false;
+  const last = messages[messages.length - 1];
+  return Boolean(last && last.role === "notice" && last.level === "error");
+};
+
 // A refused prompt: the text rides the row so a reload still shows what never sent.
 const refusedNoticeContent = (data) =>
   data?.text ? `Not sent — ${data.reason || "the turn is still running"}: ${data.text}` : data?.reason || "Not sent";
@@ -225,8 +236,9 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         activePermission = null;
         if (data?.stats) stats = { ...stats, ...data.stats };
         if (messages.length > 0) messages[messages.length - 1].isLive = false;
-        // A failed turn draws the CLI's own sentence; alreadySaid guards its double report.
-        if (data?.isError && !alreadySaid(messages, data.result)) {
+        // A failed turn draws the CLI's own sentence; alreadySaid guards its double report,
+        // and an error row that just landed says everything a sentence-less one would.
+        if (data?.isError && !failureAlreadyDrew(messages, data.result) && !alreadySaid(messages, data.result)) {
           messages.push({
             id: `n-${++msgSeq}`, role: "notice", subtype: data.subtype || "",
             level: "error", content: data.result || "The turn ended in an error."
@@ -295,7 +307,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         const type = data?.type || "";
         const record = data?.record || null;
         harnessRecords.push([type, data?.subtype || "", record, data?.ageMs]);
-        const notice = noticeFrom(type, record);
+        const notice = noticeFrom(type, record, engine);
    if (!notice) break;
         // A settled compaction replaces the "Compacting…" row it ends; compactSettled is a wire flag, not row data.
         const { compactSettled, ...row } = notice;
@@ -313,6 +325,20 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
           messages.pop();
         }
         messages.push({ id: `n-${++msgSeq}`, role: "notice", ...row });
+        break;
+      }
+      case "ansi": {
+        // Raw CLI output the JSON parsers could not read — a crash trace, a banner, or
+        // the host's own "output lost while the agent restarted" line. Prose, not codes.
+        const chunk = ansiText(data?.chunk);
+        if (!chunk) break;
+        // Same rule as the cli_event path beside this: drop the empty placeholder so the
+        // row does not leave a bare bubble behind it.
+        const last = messages[messages.length - 1];
+        if (last && last.role === "assistant" && !last.content && !last.thinking && !(last.tools || []).length) {
+          messages.pop();
+        }
+        messages.push({ id: `n-${++msgSeq}`, role: "notice", subtype: "ansi", level: "warning", content: chunk });
         break;
       }
       default:
@@ -463,7 +489,7 @@ export function useAiSession({
       case "turn_complete":
         finishTurn(sid, data.stats, data.turnMs, Boolean(data?.replay));
         // A failed turn draws the CLI's own sentence, rebuilt on replay too; alreadySaid guards the double report.
-        if (data?.isError && !alreadySaid(useAiStore.getState().bySession[sid]?.messages, data.result)) {
+        if (data?.isError && !failureAlreadyDrew(useAiStore.getState().bySession[sid]?.messages, data.result) && !alreadySaid(useAiStore.getState().bySession[sid]?.messages, data.result)) {
           useAiStore.getState().addNotice(sid, {
             subtype: data.subtype || "", level: "error",
             content: data.result || "The turn ended in an error."
@@ -527,8 +553,14 @@ export function useAiSession({
         const record = data?.record || null;
         useAiStore.getState().applyTaskRecords(sid, [[type, data?.subtype || "", record, data?.ageMs]]);
         // Same rule as the replay: the harness decides which records a person reads.
-        const notice = noticeFrom(type, record);
+        const notice = noticeFrom(type, record, engine);
         if (notice) useAiStore.getState().addNotice(sid, notice);
+        break;
+      }
+      case "ansi": {
+        // Same row the replay draws: raw CLI output no parser could read.
+        const chunk = ansiText(data?.chunk);
+        if (chunk) useAiStore.getState().addNotice(sid, { subtype: "ansi", level: "warning", content: chunk });
         break;
       }
       default:

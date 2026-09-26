@@ -429,8 +429,12 @@ test("a persisted-output frame never reaches a queued prompt's row either", () =
   assert.equal(noticeFrom("attachment", { type: "queued_command", prompt: "chạy test giúp tôi" }).content, "chạy test giúp tôi");
 });
 
-test("codex warnings stay out of the chat", () => {
-  assert.equal(noticeFrom("warning", { threadId: "t-1", message: "Stream error: retrying" }), null);
+test("a warning record becomes the row its message asks for", () => {
+  // The shared fallback, not an allowlist: every engine's `type: "warning"` channel
+  // (the adapters' _warn) and codex's own warnings read the same way.
+  const n = noticeFrom("warning", { threadId: "t-1", message: "Stream error: retrying" });
+  assert.equal(n.content, "Stream error: retrying");
+  assert.equal(n.level, "warning");
 });
 
 test("a codex error is read one level down, where its message lives", () => {
@@ -444,8 +448,10 @@ test("an error the CLI is retrying is not painted as a dead turn", () => {
   assert.equal(n.level, "warning");
 });
 
-test("a config warning stays out of the chat", () => {
-  assert.equal(noticeFrom("configWarning", { summary: "unknown key", details: "line 4" }), null);
+test("a config warning joins its summary and details", () => {
+  const n = noticeFrom("configWarning", { summary: "unknown key", details: "line 4" });
+  assert.equal(n.content, "unknown key — line 4");
+  assert.equal(n.level, "warning");
 });
 
 test("a rerouted model is stated, not hidden", () => {
@@ -524,6 +530,37 @@ test("a spawn failure is the same row the harness's own errors use", () => {
   assert.equal(n.length, 1);
   assert.equal(n[0].level, "error");
   assert.match(n[0].content, /ENOENT/);
+});
+
+test("raw CLI output the parsers could not read draws one clean row", () => {
+  const out = reduceSessionEvents([
+    { event: "user_message", data: { text: "ch\u00e0o" } },
+    { event: "ansi", data: { chunk: "\u001b[31mError: ENOENT dev server\u001b[0m\r\n" } }
+  ], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].subtype, "ansi");
+  assert.equal(rows[0].content, "Error: ENOENT dev server", "escape codes stripped, sentence kept");
+  assert.equal(out.messages.filter((m) => m.role === "assistant" && !m.content && !(m.tools || []).length).length, 0, "no empty bubble left behind");
+});
+
+test("a failure the error event already drew is not drawn twice", () => {
+  const out = reduceSessionEvents([
+    { event: "user_message", data: { text: "fix bug" } },
+    { event: "error", data: { message: "model quota exceeded" } },
+    { event: "turn_complete", data: { isError: true, result: "", subtype: "exit" } }
+  ], "codex");
+  assert.equal(notices(out).length, 1, "the sentence-less turn_complete adds nothing");
+  assert.equal(notices(out)[0].content, "model quota exceeded");
+});
+
+test("a failed turn that states its own sentence draws it beside the error", () => {
+  const out = reduceSessionEvents([
+    { event: "user_message", data: { text: "fix bug" } },
+    { event: "error", data: { message: "app-server died" } },
+    { event: "turn_complete", data: { isError: true, result: "Codex exited (code 1).", subtype: "exit" } }
+  ], "codex");
+  assert.deepEqual(notices(out).map((n) => n.content), ["app-server died", "Codex exited (code 1)."]);
 });
 
 test("a refused prompt is a notice, not a turn ending", () => {

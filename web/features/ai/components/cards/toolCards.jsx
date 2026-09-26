@@ -13,7 +13,7 @@ import { AiAgentCard } from "./AiAgentCard";
 import { AiPlanModeCard } from "./AiPlanModeCard";
 import { AiReviewCard } from "./AiReviewCard";
 import { AiQuestionCard } from "./AiQuestionCard";
-import { getToolCategory } from "../../registry";
+import { getToolCategory, getEngineConfig } from "../../registry";
 
 // Each entry takes the uniform props every consumer has and adapts them to its own card,
 // so the caller spreads nothing and knows nothing about the shape each card wants. The key
@@ -42,7 +42,7 @@ const CARDS = {
     if (tool.status === "running" || (!tool.output && !tool.error)) return null;
     // agy headless auto-skips a question within milliseconds — nothing can answer it —
     // so the CLI's own "User Skipped" record reads as the muted Skipped view, not Answered.
-    const skipped = ctx?.engine === "antigravity" && /user skipped/i.test(String(tool.output || ""));
+    const skipped = Boolean(getEngineConfig(ctx?.engine).headlessQuestions) && /user skipped/i.test(String(tool.output || ""));
     return (
       <AiQuestionCard
         key={tool.id}

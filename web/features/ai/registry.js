@@ -154,6 +154,14 @@ export const DEFAULT_CONFIG = Object.freeze({
   defaultEffort: "",
   features: DEFAULT_FEATURES,
   slashCommands: DEFAULT_SLASH_COMMANDS,
+  // A cli_event type → { text(record), level } the engine phrases itself; everything
+  // undeclared falls to the generic reader in lib/harnessTasks.js (NOTICE_TEXTS).
+  notices: Object.freeze({}),
+  // A running question tool renders pinned above the composer on engines whose CLI can
+  // be answered through it; elsewhere it stays a plain row (headless engines cannot).
+  questionGate: false,
+  // The engine runs headless and auto-skips every question — the card says so.
+  headlessQuestions: false,
 });
 
 const VARIANT_OPTIONS = Object.freeze([
@@ -187,6 +195,9 @@ export class AiEngine {
       defaultEffort: o.defaultEffort || DEFAULT_CONFIG.defaultEffort,
       features: { ...DEFAULT_CONFIG.features, ...(o.features || {}) },
       slashCommands: o.slashCommands || DEFAULT_CONFIG.slashCommands,
+      notices: o.notices || DEFAULT_CONFIG.notices,
+      questionGate: o.questionGate ?? DEFAULT_CONFIG.questionGate,
+      headlessQuestions: o.headlessQuestions ?? DEFAULT_CONFIG.headlessQuestions,
     });
     return this._config;
   }
@@ -237,7 +248,7 @@ export class ClaudeEngine extends AiEngine {
         color: "#d97706",
       },
       ui: { id: "claude-ui", label: "Claude UI", short: "Claude UI" },
-      overrides: {},
+      overrides: { questionGate: true },
     });
   }
 
@@ -397,6 +408,7 @@ export class OpenCodeEngine extends AiEngine {
         ],
         defaultMode: "auto",
         features: { thinking: true, planMode: true, tasks: false, skills: false, mcp: false, rewind: true },
+        questionGate: true,
         slashCommands: [
           { name: "/model", description: "Choose the OpenCode model", action: "modal:model" },
           { name: "/variant", description: "Model variant / reasoning effort", action: "submenu", optionKey: "variant", subOptions: VARIANT_OPTIONS },
@@ -459,6 +471,7 @@ export class OmpEngine extends AiEngine {
         ],
         defaultMode: "auto",
         features: { thinking: true, planMode: false, tasks: true, skills: false, mcp: false, rewind: true },
+        questionGate: true,
         slashCommands: [
           { name: "/model", description: "Choose the OMP model", action: "modal:model" },
           { name: "/effort", description: "Thinking level (set_thinking_level)", action: "submenu", optionKey: "effort", subOptions: EFFORT_OPTIONS },
@@ -572,6 +585,7 @@ export class AntigravityEngine extends AiEngine {
         ],
         defaultMode: "accept-edits",
         features: { thinking: true, planMode: true, tasks: false, skills: false, mcp: false, rewind: false },
+        headlessQuestions: true,
         slashCommands: [
           { name: "/model", description: "Choose the Antigravity model", action: "modal:model" },
           { name: "/effort", description: "Reasoning effort (--effort)", action: "submenu", optionKey: "effort", subOptions: ANTIGRAVITY_EFFORT_OPTIONS },
@@ -631,6 +645,7 @@ export class DevinEngine extends AiEngine {
         ],
         defaultMode: "accept-edits",
         features: { thinking: true, planMode: false, tasks: false, skills: false, mcp: false, rewind: false },
+        questionGate: true,
         slashCommands: [
           { name: "/model", description: "Choose the Devin model", action: "modal:model" },
           { name: "/resume", description: "Resume a previous Devin session", action: "modal:sessions" },

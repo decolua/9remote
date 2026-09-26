@@ -13,6 +13,7 @@
 //   background_tasks_changed the live set — absence means the task ended
 
 import { formatTokens } from "./liveStatus";
+import { getEngineConfig } from "../registry.js";
 
 // Wrapper tags the harness writes around text IT generated, not text a person wrote. The
 // CLI says so itself of the task notification ("never quote or paste any part of it"): it
@@ -285,10 +286,53 @@ function compactFrom(record) {
  * `level` is the harness's own (`info` | `warning` | `error` | `suggestion`), passed
  * through so the row is styled the way the CLI would have styled it.
  */
-export function noticeFrom(type, record) {
+// Where a record keeps the sentence a person reads, tried in order. The shared fallback
+// every engine's records land in when neither a structural rule above nor a notice the
+// engine declared for itself claimed them — a record with no readable text draws nothing,
+// which is what keeps bookkeeping out of the pane without an allowlist of names.
+const NOTICE_TEXTS = [
+  (r) => (typeof r.content === "string" ? r.content : ""),
+  (r) => (typeof r.message === "string" ? r.message : ""),
+  (r) => (typeof r.error?.formatted === "string" ? r.error.formatted : ""),
+  (r) => (typeof r.error?.message === "string" ? r.error.message : ""),
+  (r) => (r.summary || r.details ? [r.summary, r.details].filter(Boolean).join(" — ") : ""),
+  (r) => (typeof r.reason === "string" ? r.reason : "")
+];
+
+// Records the harness writes for itself — progress churn, per-prompt hook output — that
+// carry text but are not for the reader. Mirrors the host's LIVE_ONLY lists so both
+// doors agree, and explicit, so a new engine can never resurface them by accident.
+const HIDDEN_NOTICE_TYPES = new Set([
+  "tool_progress", "thinking_tokens", "hook_started", "hook_progress", "hook_response", "control_response"
+]);
+
+const NOTICE_LEVELS = new Set(["info", "suggestion", "warning", "error"]);
+// A type whose name already says how loud the row is.
+const TYPE_LEVELS = { warning: "warning", guardianWarning: "warning", configWarning: "warning", deprecationNotice: "warning", notice: "warning" };
+
+/** The row's level: the record's own word, else the type's, else guessed from the name. */
+function noticeLevel(type, record) {
+  if (NOTICE_LEVELS.has(record?.level)) return record.level;
+  // hasOwnProperty: a wire type like "constructor" would hand back the Object constructor.
+  if (Object.prototype.hasOwnProperty.call(TYPE_LEVELS, type)) return TYPE_LEVELS[type];
+  if (/error|fail/i.test(type)) return "error";
+  if (/warn|retr/i.test(type)) return "warning";
+  return "info";
+}
+
+export function noticeFrom(type, record, engine = null) {
   if (!record) return null;
-  // OpenCode runner records ride whole under session.next.* names (cli_event);
-  // only the ones a reader needs to see get a row, the rest stay stored silently.
+  // A notice the engine declared for itself (registry.js overrides.notices) — its own
+  // wording for a record the generic reader cannot phrase.
+  const noticesOf = getEngineConfig(engine).notices;
+  // Same prototype guard as noticeLevel — the type is a wire string.
+  const declared = noticesOf && Object.prototype.hasOwnProperty.call(noticesOf, type) ? noticesOf[type] : null;
+  if (declared) {
+    const content = String(declared.text?.(record) || "").trim();
+    if (content) return { subtype: type, level: declared.level || "info", content };
+  }
+  // OpenCode runner records ride whole under session.next.* names (cli_event); the ones
+  // with their own wording are declared here, the rest fall to the generic reader.
   if (type.startsWith("session.next.")) {
     if (type === "session.next.retried") {
       const text = `Retrying (attempt ${record.attempt ?? "?"}): ${record.error?.message || ""}`.trim();
@@ -303,26 +347,11 @@ export function noticeFrom(type, record) {
     if (type === "session.next.revert.staged") return { subtype: type, level: "info", content: "Rewind staged" };
     if (type === "session.next.revert.committed") return { subtype: type, level: "info", content: "Rewound the conversation" };
     if (type === "session.next.agent.switched") return { subtype: type, level: "info", content: `Agent: ${record.agent || ""}` };
-    return null;
   }
-  if (type === "warning" || type === "guardianWarning" || type === "configWarning" || type === "deprecationNotice") return null;
-  // Codex says the same things under its own names, and it says them the same way: a
-  // record whose whole point IS the sentence (`warning`, `warning`/`guardianWarning`,
-  // a `configWarning`) is one the CLI means a person to read. Its errors nest one level
-  // (`error.error.message`), and a reroute is a change of model the user should see —
-  // silently answering from another model is the kind of thing this file exists to stop.
-  const codexText =
-    type === "error" ? String(record.error?.message || "").trim()
-    : type === "warning" || type === "guardianWarning" ? String(record.message || "").trim()
-    : type === "configWarning" ? [record.summary, record.details].filter(Boolean).join(" — ").trim()
-    : type === "deprecationNotice" ? [record.summary, record.details].filter(Boolean).join(" — ").trim()
-    : type === "model/rerouted" ? `Model rerouted: ${record.fromModel} → ${record.toModel}`
-    : "";
-  if (codexText) {
-    // A retrying error is the CLI saying it is still working, and painting it red says the
-    // turn died. Only the one it is not retrying is an error.
-    const level = type === "error" && !record.willRetry ? "error" : "warning";
-    return { subtype: type, level, content: codexText };
+  // A reroute is a change of model the user should see — silently answering from another
+  // model is the kind of thing this file exists to stop.
+  if (type === "model/rerouted") {
+    return { subtype: type, level: "warning", content: `Model rerouted: ${record.fromModel} → ${record.toModel}` };
   }
   // Codex states a compaction as one notification and nothing else — no start, no counts,
   // and no content. It gets the same one-line row Claude's boundary gets, because it is
@@ -401,18 +430,31 @@ export function noticeFrom(type, record) {
     const collapsed = collapsePersistedOutput(body);
     return collapsed ? { subtype: kind, level: "info", content: collapsed } : null;
   }
-  if (type !== "system") return null;
-  // The same guard on this door: a `system` record's `content` can carry a harness frame
-  // too, and the frame is the one thing that must never reach the screen.
-  if (isHarnessFrame(record.content)) return null;
-  const text = typeof record.content === "string" && record.content.trim()
-    ? record.content.trim()
-    : typeof record.error?.formatted === "string" && record.error.formatted.trim()
-      ? record.error.formatted.trim()
-      // `error.message` is the last resort: some records carry no formatted form.
-      : typeof record.error?.message === "string" && record.error.message.trim()
-        ? record.error.message.trim()
-        : "";
-  if (!text) return null;
-  return { subtype: record.subtype || "", level: record.level || "info", content: text };
+  if (type === "system") {
+    // The same guard on this door: a `system` record's `content` can carry a harness frame
+    // too, and the frame is the one thing that must never reach the screen.
+    if (isHarnessFrame(record.content)) return null;
+    const text = typeof record.content === "string" && record.content.trim()
+      ? record.content.trim()
+      : typeof record.error?.formatted === "string" && record.error.formatted.trim()
+        ? record.error.formatted.trim()
+        // `error.message` is the last resort: some records carry no formatted form.
+        : typeof record.error?.message === "string" && record.error.message.trim()
+          ? record.error.message.trim()
+          : "";
+    if (!text) return null;
+    return { subtype: record.subtype || "", level: record.level || "info", content: text };
+  }
+
+  // The shared fallback, last of all: any record nothing above claimed that still carries
+  // readable text draws a row, whatever its type is called. An error the CLI is retrying
+  // is it saying it is still working, and painting it red would say the turn died.
+  if (HIDDEN_NOTICE_TYPES.has(type)) return null;
+  for (const read of NOTICE_TEXTS) {
+    const content = collapsePersistedOutput(read(record)).trim();
+    if (!content || isHarnessFrame(content)) continue;
+    const level = type === "error" && record.willRetry ? "warning" : noticeLevel(type, record);
+    return { subtype: type, level, content };
+  }
+  return null;
 }
