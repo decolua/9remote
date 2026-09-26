@@ -29,6 +29,7 @@ function pushToAgent(s) {
         customEndpoint: s.customEndpoint,
         customModel: s.customModel,
         customKey: s.customKey,
+        opencodeModel: s.opencodeModel,
       }
     });
   } catch {}
@@ -45,6 +46,7 @@ export const useVoiceStore = create((set, get) => ({
   customEndpoint: "",
   customModel: "",
   customKey: "",
+  opencodeModel: "",
   setEnabled: (v) => { save("enabled", v); set({ enabled: v }); pushToAgent(get()); },
   setMode: (m) => { save("mode", m); set({ mode: m }); pushToAgent(get()); },
   setPreset: (p) => { save("preset", p); set({ preset: p }); pushToAgent(get()); },
@@ -63,6 +65,7 @@ export const useVoiceStore = create((set, get) => ({
       if (typeof remote.customEndpoint === "string") { next.customEndpoint = remote.customEndpoint; save("customEndpoint", next.customEndpoint); }
       if (typeof remote.customModel === "string") { next.customModel = remote.customModel; save("customModel", next.customModel); }
       if (typeof remote.customKey === "string") { next.customKey = remote.customKey; save("customKey", next.customKey); }
+      if (typeof remote.opencodeModel === "string") { next.opencodeModel = remote.opencodeModel; save("opencodeModel", next.opencodeModel); }
       return next;
     });
   },
@@ -77,7 +80,7 @@ if (typeof window !== "undefined") {
     const state = {
       enabled: g("enabled") !== "0",
       mode: g("mode") === "ai" ? "ai" : "browser",
-      preset: ["gemini", "openrouter", "custom"].includes(g("preset")) ? g("preset") : null,
+      preset: ["gemini", "openrouter", "opencode", "custom"].includes(g("preset")) ? g("preset") : null,
       geminiKeys: loadList(g("geminiKeys")),
       geminiModel: g("geminiModel") || "",
       openrouterKey: g("openrouterKey") || "",
@@ -85,6 +88,7 @@ if (typeof window !== "undefined") {
       customEndpoint: g("customEndpoint") || "",
       customModel: g("customModel") || "",
       customKey: g("customKey") || "",
+      opencodeModel: g("opencodeModel") || "",
     };
     // One-time migration of the legacy flat endpoint/apiKey/model config.
     if (!state.preset) {

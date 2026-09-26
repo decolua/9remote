@@ -16,9 +16,13 @@ const CHIP_CLS = "px-2.5 py-1 rounded-brand text-[11px] border transition-colors
 const CHIP_ON = "border-brand-500 bg-brand-500/10 text-brand-400";
 const CHIP_OFF = "border-border-subtle bg-surface-2/30 text-text-muted hover:text-text hover:bg-surface-2";
 
-const MODES = [
-  { value: "browser", label: "Browser" },
-  { value: "ai", label: "AI Speech To Text" },
+// One flat engine row — Free (AI, no key) first, then Browser, then keyed providers.
+const ENGINES = [
+  { id: "opencode", mode: "ai", label: "Free" },
+  { id: "browser", mode: "browser", label: "Browser" },
+  { id: "gemini", mode: "ai", label: VOICE_PRESETS.gemini.label },
+  { id: "openrouter", mode: "ai", label: VOICE_PRESETS.openrouter.label },
+  { id: "custom", mode: "ai", label: VOICE_PRESETS.custom.label },
 ];
 
 function Chip({ active, onClick, children }) {
@@ -52,7 +56,9 @@ function VoiceConfigModal({ onClose }) {
   const busy = keyState?.busy || voiceState?.busy;
   const currentLang = SUPPORTED_LOCALES.find((l) => l.code === voiceLang);
 
-  const hasKey = preset === "gemini"
+  const hasKey = preset === "opencode"
+    ? true // free tier — no key, the agent holds the client fingerprint
+    : preset === "gemini"
     ? store.geminiKeys.some((k) => k.trim())
     : preset === "openrouter" ? !!store.openrouterKey.trim() : !!store.customKey.trim();
   // Presets prefill the model; an empty override falls back to the preset default.
@@ -62,6 +68,7 @@ function VoiceConfigModal({ onClose }) {
 
   const testKey = async () => {
     vibrate();
+    if (preset === "opencode") { setKeyState({ ok: true, msg: "No key needed — use Test voice" }); return; }
     setKeyState({ busy: true, msg: "Testing…" });
     try {
       const cfg = resolveVoiceCfg(useVoiceStore.getState());
@@ -116,9 +123,17 @@ function VoiceConfigModal({ onClose }) {
       </button>
 
       <div className="flex items-center gap-1.5 flex-wrap">
-        {MODES.map((m) => (
-          <Chip key={m.value} active={mode === m.value} onClick={() => { vibrate(); setMode(m.value); }}>
-            {m.label}
+        {ENGINES.map((e) => (
+          <Chip
+            key={e.id}
+            active={mode === e.mode && (e.mode === "browser" || preset === e.id)}
+            onClick={() => {
+              vibrate();
+              if (e.mode === "browser") setMode("browser");
+              else { setMode("ai"); setPreset(e.id); }
+            }}
+          >
+            {e.label}
           </Chip>
         ))}
       </div>
@@ -129,13 +144,6 @@ function VoiceConfigModal({ onClose }) {
         </p>
       ) : (
         <>
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {Object.entries(VOICE_PRESETS).map(([id, p]) => (
-              <Chip key={id} active={preset === id} onClick={() => { vibrate(); setPreset(id); }}>
-                {p.label}
-              </Chip>
-            ))}
-          </div>
           <p className={`text-[11px] leading-relaxed ${hasKey ? "text-text-muted" : "text-amber-500"}`}>
             {preset === "custom"
               ? "Any OpenAI-compatible /chat/completions endpoint"
@@ -160,19 +168,44 @@ function VoiceConfigModal({ onClose }) {
           {preset === "gemini" && (
             <div>
               <div className="flex items-center justify-between mb-1">
-                <span className="text-xs font-semibold text-text">API keys — one per line</span>
+                <span className="text-xs font-semibold text-text">API keys</span>
                 <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" className="flex items-center gap-1 text-[11px] text-brand-500 hover:text-brand-400 hover:underline transition-colors">
                   AI Studio <ExternalLink size={10} />
                 </a>
               </div>
-              <textarea
-                rows={3}
-                value={store.geminiKeys.join("\n")}
-                onChange={(e) => setField("geminiKeys", e.target.value.split("\n"))}
-                placeholder={"AIza…\nAIza…"}
-                className={`${FIELD_CLS} resize-y`}
-                autoComplete="off"
-              />
+              <div className="flex flex-col gap-1.5">
+                {store.geminiKeys.map((k, i) => (
+                  <div key={i} className="flex items-center gap-1.5">
+                    <input
+                      type="password"
+                      value={k}
+                      onChange={(e) => {
+                        const next = [...store.geminiKeys];
+                        next[i] = e.target.value;
+                        setField("geminiKeys", next);
+                      }}
+                      placeholder={`Key ${i + 1}`}
+                      className={FIELD_CLS}
+                      autoComplete="off"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setField("geminiKeys", store.geminiKeys.filter((_, j) => j !== i))}
+                      aria-label={`Remove key ${i + 1}`}
+                      className="shrink-0 p-1.5 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand transition-colors"
+                    >
+                      <X size={14} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setField("geminiKeys", [...store.geminiKeys, ""])}
+                  className="self-start text-[11px] text-brand-500 hover:text-brand-400 transition-colors"
+                >
+                  + Add key
+                </button>
+              </div>
             </div>
           )}
           {preset === "openrouter" && (

@@ -1,5 +1,7 @@
 // Voice STT via an OpenAI-compatible chat endpoint (default OpenRouter).
 // Shared by the settings modal (test buttons) and the AI dictation engine.
+import { useConnectionStore } from "@/shared/stores/connectionStore";
+
 export const VOICE_ENDPOINT_DEFAULT = "https://openrouter.ai/api/v1";
 export const VOICE_LS_KEYS = {
   enabled: "voiceEnabled", mode: "voiceMode",
@@ -7,6 +9,7 @@ export const VOICE_LS_KEYS = {
   endpoint: "voiceEndpoint", apiKey: "voiceApiKey", model: "voiceModel",
   preset: "voicePreset", geminiKeys: "voiceGeminiKeys", openrouterKey: "voiceOpenrouterKey",
   customEndpoint: "voiceCustomEndpoint", customModel: "voiceCustomModel", customKey: "voiceCustomKey",
+  opencodeModel: "voiceOpencodeModel",
 };
 
 // Presets fill endpoint + model; only the key(s) are user input.
@@ -23,9 +26,18 @@ export const VOICE_PRESETS = {
     model: "google/gemini-3.5-flash-lite",
     note: "$0.30/1M in · $2.50/1M out",
   },
+  // Free tier via the agent — opencode.ai has no CORS, so the browser cannot call it
+  opencode: {
+    label: "Free",
+    endpoint: "https://opencode.ai/zen/v1",
+    model: "mimo-v2.6-flash-free",
+    note: "OpenCode free · no key · routed through the agent",
+  },
   custom: { label: "Custom" },
 };
 const REQUEST_TIMEOUT_MS = 15000;
+// Agent-side STT gets the upstream's full window — long dictation clips outrun 15s.
+const AGENT_STT_TIMEOUT_MS = 60000;
 const RECORD_MS = 3000;
 
 // ponytail: /models can't validate keys on OpenRouter (public route), so a
@@ -111,6 +123,9 @@ async function blobToWav(blob) {
 // Gemini rotates across its key list — N free keys stack to N x free quota.
 let rrIdx = 0;
 export function resolveVoiceCfg(s) {
+  if (s.preset === "opencode") {
+    return { endpoint: VOICE_PRESETS.opencode.endpoint, model: s.opencodeModel?.trim() || VOICE_PRESETS.opencode.model, apiKey: "public" };
+  }
   if (s.preset === "gemini" || s.preset === "openrouter") {
     const p = VOICE_PRESETS[s.preset];
     const model = s[`${s.preset}Model`]?.trim() || p.model;
@@ -123,20 +138,35 @@ export function resolveVoiceCfg(s) {
   return { endpoint: s.customEndpoint, model: s.customModel, apiKey: s.customKey };
 }
 
-export async function transcribeBlob(state, blob) {
-  const cfg = resolveVoiceCfg(state);
-  const data = await chat(cfg, {
-    model: cfg.model,
-    messages: [{ role: "user", content: [
-      {
-        type: "text",
-        text: `Transcribe this audio accurately for a developer coding & terminal context.
+const STT_PROMPT = `Transcribe this audio accurately for a developer coding & terminal context.
 - Auto-detect spoken language; do NOT translate.
 - Keep English tech terms, code, and CLI commands in English (e.g. git, npm, docker, API, bug, log, deploy).
 - Add natural punctuation. Omit filler sounds.
-- Output ONLY the transcribed text.`,
-      },
-      { type: "input_audio", input_audio: { data: await blobToBase64(await blobToWav(blob)), format: "wav" } },
+- Output ONLY the transcribed text.`;
+
+// Free preset: the agent does the upstream call (opencode.ai blocks browser CORS).
+function transcribeViaAgent(model, wavB64) {
+  return new Promise((resolve, reject) => {
+    const bus = useConnectionStore.getState().bus;
+    if (!bus || typeof bus.emit !== "function") return reject(new Error("No agent connection"));
+    const timer = setTimeout(() => reject(new Error("Timed out")), AGENT_STT_TIMEOUT_MS);
+    bus.emit("voice:transcribe", { wavB64, model, prompt: STT_PROMPT }, (res) => {
+      clearTimeout(timer);
+      if (res?.error) reject(new Error(res.error));
+      else resolve(res?.text || "");
+    });
+  });
+}
+
+export async function transcribeBlob(state, blob) {
+  const cfg = resolveVoiceCfg(state);
+  const wavB64 = await blobToBase64(await blobToWav(blob));
+  if (state.preset === "opencode") return transcribeViaAgent(cfg.model, wavB64);
+  const data = await chat(cfg, {
+    model: cfg.model,
+    messages: [{ role: "user", content: [
+      { type: "text", text: STT_PROMPT },
+      { type: "input_audio", input_audio: { data: wavB64, format: "wav" } },
     ]}],
   });
   return data?.choices?.[0]?.message?.content?.trim() || "";
