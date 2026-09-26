@@ -911,6 +911,7 @@ export default function WorkspaceLayout({ children }) {
             isDesktop={isDesktop}
             isTerminalView={isTerminalView}
             pairDashboard={isDesktop && currentView?.type === "pair" ? <AgentDashboardView /> : null}
+            welcomeActive={currentView?.type === "welcome"}
             slideClass={slideClass}
             shells={shells}
             sidebarCollapsed={sidebarCollapsed}

@@ -13,7 +13,8 @@ export const VIEW_TO_PATH = {
   mobile: () => `${WORKSPACE_BASE}/mobile`,
   workspaces: () => `${WORKSPACE_BASE}/workspaces`,
   browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path }),
-  pair: () => `${WORKSPACE_BASE}/pair`
+  pair: () => `${WORKSPACE_BASE}/pair`,
+  welcome: () => `${WORKSPACE_BASE}/welcome`
 };
 
 // Views rendered as a store-only overlay: never mirrored into the URL. The site
@@ -32,7 +33,8 @@ export const SEGMENT_TO_TYPE = {
   mobile: "mobile",
   workspaces: "workspaces",
   browse: "browse",
-  pair: "pair"
+  pair: "pair",
+  welcome: "welcome"
 };
 
 // Build "?a=b" string, skipping empty values

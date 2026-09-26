@@ -94,7 +94,8 @@ function TerminalSidebar({
   const setFullMode = useTerminalStore((s) => s.setFullMode);
   const pushView = useTerminalStore((s) => s.pushView);
   const viewStack = useTerminalStore((s) => s.viewStack);
-  const pairActive = viewStack[viewStack.length - 1]?.type === "pair";
+  const topViewType = viewStack[viewStack.length - 1]?.type;
+  const pairActive = topViewType === "pair";
   const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
   const toggleHidePane = useTerminalStore((s) => s.toggleHidePane);
   const unhidePane = useTerminalStore((s) => s.unhidePane);
@@ -225,10 +226,17 @@ function TerminalSidebar({
         style={{ height: PANEL_HEADER_HEIGHT }}
         className="px-1 flex items-center justify-between flex-shrink-0 border-b border-border-subtle relative z-10"
       >
-        <div className="flex items-center gap-2 min-w-0">
+        {/* Brand doubles as the welcome-stage launcher — the fresh-machine screen
+            stays reachable once workspaces exist. No hover/active background: the
+            logo must read as static chrome, not a row button. */}
+        <button
+          onClick={() => { vibrate(); pushView({ type: "welcome" }); }}
+          title="9Remote"
+          className="flex items-center gap-2 min-w-0 flex-shrink-0"
+        >
           <img src="/icon-192.png" alt="9Remote" draggable={false} className="w-4 h-4 rounded-[4px] object-contain flex-shrink-0 pointer-events-none select-none" />
           <span className="text-[13px] font-semibold text-text truncate">9Remote</span>
-        </div>
+        </button>
         <div className="flex items-center gap-0.5 flex-shrink-0">
           {/* Add another machine — kept here in the brand row, not down in the tree. */}
           <button

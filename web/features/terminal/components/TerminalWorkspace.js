@@ -82,6 +82,7 @@ function TerminalWorkspace({
   sessionStatus, notifications,
   isDesktop, isTerminalView, slideClass, shells,
   pairDashboard = null,
+  welcomeActive = false,
   sidebarCollapsed, sidebarWidth, setSidebarWidth, toggleSidebar,
   paneWidth = null, setPaneWidth,
   paneRegistry, bindSwipeTab, nav,
@@ -522,7 +523,7 @@ function TerminalWorkspace({
 
   return (
     <div
-      className={`absolute inset-0 flex flex-col ${isTerminalView || pairDashboard ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"}`}
+      className={`absolute inset-0 flex flex-col ${isTerminalView || pairDashboard || welcomeActive ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"}`}
     >
       <div ref={rowRef} className={`flex-1 min-h-0 relative ${isDesktop ? "flex flex-row" : "flex flex-col"}`}>
         {isDesktop && (
@@ -570,6 +571,20 @@ function TerminalWorkspace({
               sidebar sibling stays visible and interactive beside it. */}
           {pairDashboard && (
             <div className="absolute inset-0 z-20 overflow-hidden bg-bg">{pairDashboard}</div>
+          )}
+
+          {/* Welcome stage on demand (logo click): the same empty-state screen a
+              fresh machine shows, reachable even with workspaces present. */}
+          {welcomeActive && !pairDashboard && (
+            <div className="absolute inset-0 z-20 overflow-y-auto bg-bg">
+              <TerminalEmptyState
+                onAddWorkspace={onAddWorkspace}
+                onOpenRemote={onOpenRemote}
+                recent={recentWorkspaces}
+                homeDir={homeDir}
+                onOpenRecent={(path) => onAddWorkspace?.(path)}
+              />
+            </div>
           )}
           {/* With no session there is nothing to tab between, so the strip goes away on
               desktop. Mobile keeps it: the header is the only way to reach Settings there,

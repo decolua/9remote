@@ -36,3 +36,9 @@ test("Pair view round-trips through the URL", () => {
   assert.equal(viewToPath(pair), "/workspace/pair");
   assert.deepEqual(pathToView("/workspace/pair", new URLSearchParams()), pair);
 });
+
+test("Welcome view round-trips through the URL", () => {
+  const welcome = { type: "welcome" };
+  assert.equal(viewToPath(welcome), "/workspace/welcome");
+  assert.deepEqual(pathToView("/workspace/welcome", new URLSearchParams()), welcome);
+});
