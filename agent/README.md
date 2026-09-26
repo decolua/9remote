@@ -9,8 +9,9 @@
 
   # 9Remote — Remote Everything, Vibecode Everywhere
 
-  **Your entire dev workstation in your pocket.**<br/>
-  **Remote IDE, 60fps Desktop, Visual File Explorer, Live Mobile Emulator, Zero-Config Localhost, and Every AI Harness in One UI — Claude Code, Codex, Gemini CLI & 30+ agents on PC, Web, iPad, or phone.**
+  **Bring every dev tool to your phone. Your entire dev workstation in your pocket.**
+
+  Your terminal, IDE, 60fps desktop, files, localhost previews, mobile emulators and every AI coding agent — Claude Code, Codex, Gemini CLI & 30+ more — streamed from your own machine to your phone, tablet or any browser over encrypted WebRTC P2P. No port forwarding, no accounts, no config: install on macOS, Windows or Linux, scan the QR code, and you're in. Sessions survive network switches and locked phones — builds keep running while you walk away.
 
 > **Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them.** Same agents, one UI you'll actually love.
 
