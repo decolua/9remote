@@ -175,16 +175,16 @@ export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBu
     bus.emit("gitBranch", { repoPath }, resolve);
   }),
 
-  gitScanRepos: (rootPath, maxDepth) => new Promise((resolve) => {
+  gitScanRepos: (rootPath, maxDepth, force) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
-    bus.emit("gitScanRepos", { rootPath, maxDepth }, resolve);
+    bus.emit("gitScanRepos", { rootPath, maxDepth, force }, resolve);
   }),
 
-  gitWorkspaceChangedCount: (rootPath, maxDepth) => new Promise((resolve) => {
+  gitWorkspaceChangedCount: (rootPath, maxDepth, force) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
-    bus.emit("gitWorkspaceChangedCount", { rootPath, maxDepth }, resolve);
+    bus.emit("gitWorkspaceChangedCount", { rootPath, maxDepth, force }, resolve);
   }),
 
   gitRefreshRepos: (rootPath) => new Promise((resolve) => {

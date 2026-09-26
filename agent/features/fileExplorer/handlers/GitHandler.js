@@ -18,10 +18,10 @@ const _countCache = new Map(); // repoPath → { ts, value, pending }
 
 // Changed-file count for one repo, TTL-cached and de-duplicated: a spawn already in
 // flight is awaited rather than repeated.
-async function changedCountCached(repoPath) {
+async function changedCountCached(repoPath, force) {
   const cached = _countCache.get(repoPath);
   const now = Date.now();
-  if (cached && now - cached.ts < GIT_COUNT_TTL_MS) return cached.value;
+  if (!force && cached && now - cached.ts < GIT_COUNT_TTL_MS) return cached.value;
   if (cached?.pending) {
     try { return await cached.pending; } catch { return { success: false }; }
   }
@@ -169,19 +169,19 @@ export function setupGitHandlers(socket) {
   // Lightweight: only the count of changed files (badge), avoids sending the full list.
   // Async (runGit = spawn) + per-cwd TTL cache so rapid requests (e.g. typing) don't
   // spawn git repeatedly or block the event loop.
-  socket.on("gitChangedCount", async ({ repoPath }, callback) => {
-    callback(await changedCountCached(repoPath));
+  socket.on("gitChangedCount", async ({ repoPath, force }, callback) => {
+    callback(await changedCountCached(repoPath, !!force));
   });
 
   // One number for the whole workspace: the root repo plus every repo under it, so the
   // terminal badge and the git panel can never disagree. Shares the per-repo TTL cache
   // with gitChangedCount/gitScanRepos, so polling this costs nothing extra.
-  socket.on("gitWorkspaceChangedCount", async ({ rootPath, maxDepth }, callback) => {
+  socket.on("gitWorkspaceChangedCount", async ({ rootPath, maxDepth, force }, callback) => {
     if (!rootPath) return callback({ success: false, error: "rootPath required" });
     if (isSensitivePath(rootPath)) return callback({ success: false, error: "Access denied" });
     try {
       const found = scanReposCached(rootPath, maxDepth ? { maxDepth } : {});
-      const results = await Promise.all(found.map(async (repo) => [repo.path, await changedCountCached(repo.path)]));
+      const results = await Promise.all(found.map(async (repo) => [repo.path, await changedCountCached(repo.path, !!force)]));
       const perRepo = {};
       let count = 0;
       for (const [repoPath, res] of results) {
@@ -438,7 +438,7 @@ export function setupGitHandlers(socket) {
 
   // Repos at or under a workspace root. Bounded by depth + wall clock and memoized per
   // root inside gitRepoScan, so expanding the tree never re-walks the disk.
-  socket.on("gitScanRepos", async ({ rootPath, maxDepth }, callback) => {
+  socket.on("gitScanRepos", async ({ rootPath, maxDepth, force }, callback) => {
     if (!rootPath) return callback({ success: false, error: "rootPath required" });
     if (isSensitivePath(rootPath)) return callback({ success: false, error: "Access denied" });
     try {
@@ -447,7 +447,7 @@ export function setupGitHandlers(socket) {
       const repos = await Promise.all(found.map(async (repo) => {
         const [branchRes, countRes] = await Promise.all([
           runGit(["branch", "--show-current"], repo.path),
-          changedCountCached(repo.path)
+          changedCountCached(repo.path, !!force)
         ]);
         return {
           ...repo,

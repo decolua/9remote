@@ -19,7 +19,7 @@ export function useWorkspaceRepos(rootPath, propFileBus) {
     setScanning(true);
     if (force) await fileBus.gitRefreshRepos?.(rootPath);
     const depth = deepScan ? REPO_SCAN.deepMaxDepth : REPO_SCAN.maxDepth;
-    const res = await fileBus.gitScanRepos(rootPath, depth);
+    const res = await fileBus.gitScanRepos(rootPath, depth, force);
     setScanning(false);
     setRepos(res?.success ? res.repos || [] : []);
   }, [rootPath, fileBus]);

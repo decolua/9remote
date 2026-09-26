@@ -11,8 +11,8 @@ const entries = new Map(); // rootPath → { state, stop, refs, subs, fileBus }
 
 const EMPTY = { count: 0, perRepo: {} };
 
-function fetchOnce(entry, rootPath) {
-  entry.fileBus?.gitWorkspaceChangedCount?.(rootPath).then((res) => {
+function fetchOnce(entry, rootPath, force) {
+  entry.fileBus?.gitWorkspaceChangedCount?.(rootPath, undefined, force).then((res) => {
     if (!res?.success) return;
     entry.state = { count: res.count || 0, perRepo: res.perRepo || {} };
     entry.subs.forEach((fn) => fn(entry.state));
@@ -40,10 +40,11 @@ function release(rootPath) {
   entries.delete(rootPath);
 }
 
-// Force a refresh for a workspace (after commit / discard) without waiting for the poll.
+// Force a refresh for a workspace (after commit / discard / refresh button) without
+// waiting for the poll. `force` bypasses the agent-side TTL cache so the number is live.
 export function refreshWorkspaceChangedCount(rootPath) {
   const entry = entries.get(rootPath);
-  if (entry) fetchOnce(entry, rootPath);
+  if (entry) fetchOnce(entry, rootPath, true);
 }
 
 export function useWorkspaceChangedCount(rootPath, fileBus, { enabled = true } = {}) {
@@ -53,6 +54,7 @@ export function useWorkspaceChangedCount(rootPath, fileBus, { enabled = true } =
     if (!rootPath || !fileBus || !enabled) return;
     const entry = acquire(rootPath, fileBus);
     entry.subs.add(setState);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- latch shared entry state on subscribe; identity-guarded
     setState((prev) => (prev === entry.state ? prev : entry.state));
     return () => {
       entry.subs.delete(setState);
