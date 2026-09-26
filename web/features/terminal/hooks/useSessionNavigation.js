@@ -74,7 +74,9 @@ export function useSessionNavigation({
 
     const onDockClick = () => {
       const activeNotifs = useNotificationStore.getState().notifications;
-      const entries = Object.values(activeNotifs || {});
+      // Only sessions waiting on the user hijack the dock click — a lingering "done"
+      // badge (cleared only by typing into it) must not pull the view into its tab.
+      const entries = Object.values(activeNotifs || {}).filter((n) => n.type === "blocked");
       if (!entries.length) return;
 
       const inCurrentWorkspace = (sId) => {
@@ -89,11 +91,7 @@ export function useSessionNavigation({
         if (aCur && !bCur) return -1;
         if (!aCur && bCur) return 1;
 
-        // 2. Blocked (waiting approval) > done
-        if (a.type === "blocked" && b.type !== "blocked") return -1;
-        if (b.type === "blocked" && a.type !== "blocked") return 1;
-
-        // 3. Latest timestamp
+        // 2. Latest timestamp
         return (b.timestamp || 0) - (a.timestamp || 0);
       });
 
