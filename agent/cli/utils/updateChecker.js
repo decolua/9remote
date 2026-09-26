@@ -385,16 +385,20 @@ function writeGateScript(port, timeoutMs) {
 const PORT = ${port};
 const EXIT_MS = ${timeoutMs};
 const HTML = '<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>9Remote</title><style>body{margin:0;height:100vh;display:flex;align-items:center;justify-content:center;background:#101218;color:#c9ced6;font-family:system-ui,-apple-system,sans-serif}.spin{width:26px;height:26px;border:3px solid #2a2f3a;border-top-color:#e68a6e;border-radius:50%;animation:r 1s linear infinite;margin:0 auto 14px}@keyframes r{to{transform:rotate(360deg)}}</style></head><body><div><div class="spin"></div><div>9Remote is updating…</div></div><script>setInterval(function(){fetch("/api/health",{cache:"no-store"}).then(function(r){if(r.ok)location.reload()}).catch(function(){})},1500)</script></body></html>';
-function bind(attempt) {
-  const s = http.createServer((req, res) => {
-    if (req.url.startsWith("/api/health")) { res.writeHead(503, { "Content-Type": "text/plain" }); return res.end("updating"); }
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
-    res.end(HTML);
-  });
-  s.on("error", () => { if (attempt < 150) setTimeout(() => bind(attempt + 1), 200); });
-  s.listen(PORT, "127.0.0.1");
+function handler(req, res) {
+  if (req.url.startsWith("/api/health")) { res.writeHead(503, { "Content-Type": "text/plain" }); return res.end("updating"); }
+  res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" });
+  res.end(HTML);
 }
-bind(0);
+// The real agent binds dual-stack; localhost may resolve to ::1 first, so the
+// gate must answer on both loopback families or the webview still goes black.
+function bind(host, attempt) {
+  const s = http.createServer(handler);
+  s.on("error", (e) => { if (e.code === "EADDRINUSE" && attempt < 150) setTimeout(() => bind(host, attempt + 1), 200); });
+  s.listen(PORT, host);
+}
+bind("127.0.0.1", 0);
+bind("::1", 0);
 setTimeout(() => process.exit(0), EXIT_MS);
 `;
   writeFileSync(gatePath, source);
