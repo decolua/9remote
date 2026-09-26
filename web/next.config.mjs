@@ -49,6 +49,33 @@ const nextConfig = {
     NEXT_PUBLIC_STATIC_EXPORT: process.env.STATIC_EXPORT || "0",
   },
   ...(isStaticExport ? {} : {
+    // Dev-only proxy for agent-env UI work (NEXT_PUBLIC_DEV_AGENT=1): the
+    // agent-local APIs live on the agent's own server, so the dev server
+    // forwards them there — the page stays same-origin from the browser's view.
+    // Paths the web app owns itself (/api/version, /api/session, /api/webrtc,
+    // ...) are deliberately NOT listed. Never active in production builds.
+    ...(process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_DEV_AGENT === "1" ? {
+      async rewrites() {
+        const agentOrigin = process.env.DEV_AGENT_ORIGIN || "http://localhost:2208";
+        const agentApi = [
+          "/api/ui/:path*",
+          "/api/key/:path*",
+          "/api/autostart",
+          "/api/desktop-unlock/:path*",
+          "/api/permissions/:path*",
+          "/api/permissions",
+          "/api/desktop/:path*",
+          "/api/remote/enabled",
+          "/api/sleep-inhibit",
+          "/api/device/:path*",
+          "/api/logs/:path*",
+          "/api/logs",
+          "/api/sessions/:path*",
+          "/api/connections"
+        ].map((p) => ({ source: p, destination: `${agentOrigin}${p}` }));
+        return agentApi;
+      },
+    } : {}),
     async headers() {
     // Report-Only for now: this reports what it WOULD block and blocks nothing,
     // so a policy that is subtly wrong shows up in the console instead of in a

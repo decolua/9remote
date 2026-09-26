@@ -26,7 +26,10 @@ export function isAgentEnvironment() {
   return (
     !!window.__TAURI__ ||
     window.location.port === String(AGENT_PORT) ||
-    process.env.NEXT_PUBLIC_STATIC_EXPORT === "1"
+    process.env.NEXT_PUBLIC_STATIC_EXPORT === "1" ||
+    // Dev escape hatch for hot-reload work on agent-env UI (tab/data are proxied
+    // to a local agent by next.config rewrites). No build pipeline sets this.
+    process.env.NEXT_PUBLIC_DEV_AGENT === "1"
   );
 }
 
