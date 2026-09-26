@@ -3,6 +3,7 @@ import { BaseProtocol } from "./BaseProtocol.js";
 import { encode, decode, decodeFrame, encodeFragments, createReassembler } from "./codec.js";
 import { ADAPTER_STATE, CHANNELS, CONTROL_RTC_MAX_BYTES, FILE_TRANSFER, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "../lib/transportConstants.js";
 import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
+import { MOBILE_DC } from "../features/mobile/constants.js";
 import { resolveCandidate } from "../lib/mdnsResolver.js";
 import { createLogger } from "../lib/logger.js";
 import { getHostPublicKeyB64, getHostX25519PublicKeyB64, signSdp } from "../lib/hostKey.js";
@@ -83,8 +84,8 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
 // WebRtcProtocol: server adapter handling control, binary, and file DataChannels.
 export class WebRtcProtocol extends BaseProtocol {
   static id = "rtc";
-  static capabilities = { control: true, binary: true, file: true, signaling: "external" };
-  static priority = { control: 50, binary: 100, file: 100 };
+  static capabilities = { control: true, binary: true, file: true, mobile: true, signaling: "external" };
+  static priority = { control: 50, binary: 100, file: 100, mobile: 100 };
 
   constructor() {
     super();
@@ -92,6 +93,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcControl = null;
     this._dcBinary = null;
     this._dcFile = null;
+    this._dcMobile = null;
     this._iceServers = DEFAULT_ICE;
     this._refreshTimer = null;
     this._remoteSet = false;
@@ -185,6 +187,18 @@ export class WebRtcProtocol extends BaseProtocol {
         return false;
       }
     }
+    if (channel === CHANNELS.mobile) {
+      if (!this._dcMobile) return false;
+      try {
+        const raw = Array.isArray(payload) ? payload[0] : payload;
+        const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
+        if (this._dcMobile.bufferedAmount() > MOBILE_DC.bufferThreshold) return false;
+        return this._dcMobile.sendMessageBinary(chunk);
+      } catch (err) {
+        logger.error(`send mobile failed: ${err.message}`);
+        return false;
+      }
+    }
     return false;
   }
 
@@ -225,6 +239,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcControl = null;
     this._dcBinary = null;
     this._dcFile = null;
+    this._dcMobile = null;
     this._remoteSet = false;
     this._lastMid = null;
     this.typeDetail = "dc-stun";
@@ -265,6 +280,7 @@ export class WebRtcProtocol extends BaseProtocol {
         if (label === "control") { this._dcControl = dc; if (this._peerHb) this._startHeartbeat(dc); }
         else if (label === "binary") this._dcBinary = dc;
         else if (label === "file") this._dcFile = dc;
+        else if (label === "mobile") this._dcMobile = dc;
         // Adapter is open once control and binary channels are established.
         if (this._dcControl && this._dcBinary) this._setState(ADAPTER_STATE.open);
       };
@@ -274,6 +290,7 @@ export class WebRtcProtocol extends BaseProtocol {
         if (label === "control") { this._stopHeartbeat(); this._dcControl = null; }
         if (label === "binary") this._dcBinary = null;
         if (label === "file") this._dcFile = null;
+        if (label === "mobile") this._dcMobile = null;
         if (!this._dcControl && !this._dcBinary) this._setState(ADAPTER_STATE.closed);
       });
       dc.onError((err) => logger.error(`DC[${label}] error: ${err?.message || err}`));

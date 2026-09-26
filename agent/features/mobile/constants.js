@@ -78,9 +78,10 @@ export const FRAME_HEADER_SIZE = 12;
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const MAX_READER_BUFFER_BYTES = 32 * 1024 * 1024;
 
-// Frame flow control tunables.
+// Frame flow control tunables. ackWindow bounds frames per RTT: 4 choked
+// throughput to ~100KB/RTT on a tunnel (agent≤web REASSEMBLY_WINDOW must stay larger).
 export const FLOW = {
-  ackWindow: 4,
+  ackWindow: 24,
   ackPollMs: 8,
   ackTimeoutMs: 1500,
   deadAckLimit: 8,
@@ -101,6 +102,10 @@ export const ADAPT = {
 
 // Video chunk size fitting SCTP limit on the file channel.
 export const VIDEO_CHUNK_PAYLOAD = 56 * 1024;
+
+// Dedicated mobile video DC: tight backpressure — real-time frames must drop,
+// not queue (the file DC's 8MB threshold would buffer seconds of video).
+export const MOBILE_DC = { bufferThreshold: 512 * 1024 };
 
 export const CONTROL_TYPE = {
   injectKeycode: 0,

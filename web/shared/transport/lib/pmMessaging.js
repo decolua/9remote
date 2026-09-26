@@ -120,10 +120,12 @@ export function dispatch(pm, event, payload, source) {
   pm._bus?.dispatch(event, args);
 }
 
-// Route incoming binary file frame to shared file-bin bus.
+// Route incoming binary frames to their lane's bus event (file → file-bin,
+// mobile video → mobile-bin; WS delivers both as file-bin, self-tagged).
 export function onBinary(pm, msg) {
-  if (!msg || msg.channel !== "file") return;
-  pm._bus?.dispatch("file-bin", [msg.buffer]);
+  if (!msg) return;
+  if (msg.channel === "mobile") pm._bus?.dispatch("mobile-bin", [msg.buffer]);
+  else if (msg.channel === "file") pm._bus?.dispatch("file-bin", [msg.buffer]);
 }
 
 // Idempotent read/create requests safe to retry over WS upon RTC ack timeout.

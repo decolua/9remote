@@ -4,7 +4,8 @@
 export const CHANNELS = {
   control: "control",
   binary: "binary",
-  file: "file"
+  file: "file",
+  mobile: "mobile"
 };
 
 // Control payload ceiling, used only when the engine does not report the SCTP
@@ -207,7 +208,8 @@ export const TRANSPORT_PROFILES = {
     channels: {
       control: { strategy: "priority", prefer: "rtc" },
       binary: { strategy: "priority", prefer: "rtc" },
-      file: { strategy: "priority", prefer: "rtc" }
+      file: { strategy: "priority", prefer: "rtc" },
+      mobile: { strategy: "priority", prefer: "rtc" }
     },
     rtc: { enableTurn: true, dcControl: { ordered: true } }
   },
@@ -217,7 +219,8 @@ export const TRANSPORT_PROFILES = {
     channels: {
       control: { strategy: "priority", prefer: "rtc" },
       binary: { strategy: "priority", prefer: "rtc" },
-      file: { strategy: "priority", prefer: "rtc" }
+      file: { strategy: "priority", prefer: "rtc" },
+      mobile: { strategy: "priority", prefer: "rtc" }
     },
     rtc: { enableTurn: true, dcControl: { ordered: true } }
   }

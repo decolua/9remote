@@ -87,6 +87,8 @@ export function setupMobileHandlers(socket) {
   let lastRestartAt = 0;
 
   // Backpressure drops whole frame to prevent undecodable partial units.
+  // Dedicated mobile lane keeps video clear of file-transfer head-of-line
+  // blocking; older peers without that DC fall back to the file lane.
   const sendFrame = (frame) => {
     const total = Math.max(1, Math.ceil(frame.data.length / VIDEO_CHUNK_PAYLOAD));
     const flags = (frame.isKey ? MOBILE_FLAG_KEY : 0) | (frame.isConfig ? MOBILE_FLAG_CONFIG : 0);
@@ -95,7 +97,8 @@ export function setupMobileHandlers(socket) {
     for (let i = 0; i < total; i++) {
       const payload = frame.data.subarray(i * VIDEO_CHUNK_PAYLOAD, (i + 1) * VIDEO_CHUNK_PAYLOAD);
       const chunk = encodeMobileFrame({ frameSeq: seq, chunkIdx: i, chunkCount: total, flags, ptsMs, payload });
-      if (protocol.sendBinary(CHANNELS.file, chunk) === false) return false;
+      if (protocol.sendBinary(CHANNELS.mobile, chunk) === false
+        && protocol.sendBinary(CHANNELS.file, chunk) === false) return false;
     }
     inFlight.add(seq);
     const timer = setTimeout(() => {

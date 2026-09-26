@@ -7,8 +7,8 @@ import { ADAPTER_STATE, CHANNELS } from "../lib/transportConstants.js";
  */
 export class WsProtocol extends BaseProtocol {
   static id = "ws";
-  static capabilities = { control: true, binary: true, file: true, signaling: "ws" };
-  static priority = { control: 100, binary: 10, file: 10 };
+  static capabilities = { control: true, binary: true, file: true, mobile: true, signaling: "ws" };
+  static priority = { control: 100, binary: 10, file: 10, mobile: 10 };
 
   constructor() {
     super();
@@ -55,7 +55,9 @@ export class WsProtocol extends BaseProtocol {
       emit("tiles-bin-v2", payload);
       return true;
     }
-    if (channel === CHANNELS.file) {
+    // No separate lane over WS: mobile video shares the file event, frames are
+    // self-tagged and the client routes them by magic (decodeMobileFrame).
+    if (channel === CHANNELS.file || channel === CHANNELS.mobile) {
       const transport = this._socket.conn?.transport;
       if (transport && transport.writable === false) return false;
       emit("file-bin", payload);

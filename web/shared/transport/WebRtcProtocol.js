@@ -106,6 +106,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcControl = null;
     this._dcBinary = null;
     this._dcFile = null;
+    this._dcMobile = null;
     this._typeDetail = "dc-stun";
     // NAT classification state for natVerdict.
     this._localCandidateTypes = new Set();
@@ -199,12 +200,17 @@ export class WebRtcProtocol extends BaseProtocol {
     const dcControl = pc.createDataChannel("control", { ordered });
     const dcBinary = pc.createDataChannel("binary", { ordered: false, maxPacketLifeTime: 500 });
     const dcFile = pc.createDataChannel("file", { ordered: true });
+    // Mobile video lane: ordered+reliable like file — H.264 chunks must not be
+    // dropped by the transport; freshness is handled at frame granularity.
+    const dcMobile = pc.createDataChannel("mobile", { ordered: true });
     dcBinary.binaryType = "arraybuffer";
     dcControl.binaryType = "arraybuffer";
     dcFile.binaryType = "arraybuffer";
+    dcMobile.binaryType = "arraybuffer";
     this._dcControl = dcControl;
     this._dcBinary = dcBinary;
     this._dcFile = dcFile;
+    this._dcMobile = dcMobile;
 
     const checkOpen = async () => {
       if (dcControl.readyState !== "open" || dcBinary.readyState !== "open") return;
@@ -249,6 +255,7 @@ export class WebRtcProtocol extends BaseProtocol {
     dcControl.onclose = handleClose;
     dcBinary.onclose = handleClose;
     dcFile.onclose = () => { this._dcFile = null; };
+    dcMobile.onclose = () => { this._dcMobile = null; };
 
     dcControl.onerror = (e) => {
       const msg = e.error?.message ?? "unknown";
@@ -299,6 +306,10 @@ export class WebRtcProtocol extends BaseProtocol {
     dcFile.onmessage = ({ data }) => {
       this._lastInboundAt = Date.now();
       if (data instanceof ArrayBuffer) this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
+    };
+    dcMobile.onmessage = ({ data }) => {
+      this._lastInboundAt = Date.now();
+      if (data instanceof ArrayBuffer) this._emit("binary", { channel: "mobile", buffer: data, source: "rtc" });
     };
 
     pc.onicecandidate = ({ candidate }) => {
@@ -625,7 +636,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._connectTimer = null;
     this._stopDeadPathWatch();
     if (this._hbTimer) { clearInterval(this._hbTimer); this._hbTimer = null; }
-    for (const dc of [this._dcControl, this._dcBinary, this._dcFile]) {
+    for (const dc of [this._dcControl, this._dcBinary, this._dcFile, this._dcMobile]) {
       if (!dc) continue;
       dc.onopen = null; dc.onclose = null; dc.onerror = null; dc.onmessage = null;
       try { dc.close(); } catch {}
@@ -633,6 +644,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcControl = null;
     this._dcBinary = null;
     this._dcFile = null;
+    this._dcMobile = null;
     this._isLoopback = false;
     this._typeDetail = "dc-stun";
     if (this._pc) {

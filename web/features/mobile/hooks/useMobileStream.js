@@ -210,11 +210,14 @@ export function useMobileStream({ busRef, connected, canvasRef, meta }) {
 
     const onEnded = () => setStatus("ended");
 
+    // video arrives on its own lane; file-bin stays as the legacy/fallback lane.
+    bus.on("mobile-bin", onBinary);
     bus.on("file-bin", onBinary);
     bus.on("mobile:ended", onEnded);
     requestKeyframe();
 
     return () => {
+      bus.off("mobile-bin", onBinary);
       bus.off("file-bin", onBinary);
       bus.off("mobile:ended", onEnded);
       if (st.raf) cancelAnimationFrame(st.raf);

@@ -3,7 +3,8 @@
 export const CHANNELS = {
   control: "control",
   binary: "binary",
-  file: "file"
+  file: "file",
+  mobile: "mobile"
 };
 
 // Control payload ceiling, used only when the DC cannot report the SCTP limit
@@ -92,7 +93,8 @@ export const TRANSPORT_PROFILES = {
     channels: {
       control: { strategy: "priority", prefer: "rtc" },
       binary: { strategy: "priority", prefer: "rtc" },
-      file: { strategy: "priority", prefer: "rtc" }
+      file: { strategy: "priority", prefer: "rtc" },
+      mobile: { strategy: "priority", prefer: "rtc" }
     }
   },
   remoteDesktop: {
@@ -100,7 +102,8 @@ export const TRANSPORT_PROFILES = {
     channels: {
       control: { strategy: "priority", prefer: "rtc" },
       binary: { strategy: "priority", prefer: "rtc" },
-      file: { strategy: "priority", prefer: "rtc" }
+      file: { strategy: "priority", prefer: "rtc" },
+      mobile: { strategy: "priority", prefer: "rtc" }
     }
   }
 };
