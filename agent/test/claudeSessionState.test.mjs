@@ -185,6 +185,10 @@ await test("hook, queue and reminder attachments are carried, under their own na
   assert.equal(of("hook_success")[0].data.record.attachment.content, "injected context");
   assert.equal(of("queued_command").length, 1);
   assert.equal(of("task_reminder").length, 1, "carried too — whether it is readable is the pane's call");
+  // A body the pane never draws is dropped on the way back — whole attachments evict
+  // real turns from the replay window a reopened pane hydrates from.
+  assert.equal(of("environment").length, 1, "the kind still travels");
+  assert.equal(of("environment")[0].data.record.attachment.snapshot, undefined, "its snapshot does not");
 });
 
 await test("the pane reads a hook's injected context and a queued prompt as lines", async () => {

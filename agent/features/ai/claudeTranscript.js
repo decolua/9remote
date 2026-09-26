@@ -25,10 +25,17 @@ export function isClaudeInjectedTurn(record) {
 
 const readdirOr = (dir) => { try { return fs.readdirSync(dir); } catch { return []; } };
 
-function stripAttachmentBody(record) {
-  if (!record?.attachment || record.attachment.type !== "edited_text_file") return record;
-  const { snippet, ...attachment } = record.attachment;
-  return { ...record, attachment };
+// The pane draws a row from only two kinds (a SessionStart hook's output, a queued
+// prompt); every other attachment body (environment snapshot, listings, instructions)
+// renders nothing. Carried whole, one conversation's attachments evict its real turns
+// from the replay window a reopened pane hydrates from.
+function slimAttachmentRecord(record) {
+  const a = record?.attachment || {};
+  const attachment = {};
+  for (const key of ["type", "hookEvent", "hookName", "filename", "content", "prompt"]) {
+    if (a[key] !== undefined) attachment[key] = a[key];
+  }
+  return { attachment };
 }
 
 function findTranscript(cwd, cliSessionId) {
@@ -194,11 +201,11 @@ export function recoverFromClaudeTranscript(cwd, cliSessionId, startSeq = 1, lea
             }
           }
         } else if (d.type === "attachment") {
-          // Harness-injected context, carried whole — except an edited file's snippet, which is the entire file re-read, not the change.
+          // Harness-injected context, slimmed to what the pane can ever draw (see slimAttachmentRecord).
           events.push({
             seq: seq++,
             event: "cli_event",
-            data: { type: "attachment", subtype: d.attachment?.type || "", record: stripAttachmentBody(d) }
+            data: { type: "attachment", subtype: d.attachment?.type || "", record: slimAttachmentRecord(d) }
           });
         } else if (d.type === "queue-operation") {
           // A notification queued mid-turn is removed at the turn's end, never re-delivered as a user record — this is its only door.
