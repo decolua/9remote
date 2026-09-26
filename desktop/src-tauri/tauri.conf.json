@@ -1,7 +1,7 @@
 {
   "productName": "9Remote",
   "mainBinaryName": "9Remote",
-  "version": "3.0.26",
+  "version": "3.0.27",
   "identifier": "cc.9remote.desktop",
   "build": {
     "frontendDist": "../dist",
