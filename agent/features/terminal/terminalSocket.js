@@ -6,7 +6,7 @@ import { fileURLToPath } from "url";
 import * as daemonClient from "./ptyDaemonClient.js";
 
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
-import { isMobileAvailable, setupMobileHandlers } from "../mobile/mobileSocket.js";
+import { isMobileAvailable, setupMobileHandlers } from "../mobile/mobileBus.js";
 import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, loadWorkspaces, saveWorkspaces, saveSessionMetadata, saveSessionMetadataRaw } from "./ptyHelper.js";

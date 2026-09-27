@@ -386,5 +386,86 @@ test("appends missing hw.lcd keys", () => {
   }
 });
 
+console.log("\nstream flow control (acks are the only brake — carrier-agnostic)");
+
+const { FrameFlow } = await import("../features/mobile/mobileBus.js");
+
+const mkFlow = (over = {}) => {
+  let clock = 1000;
+  // min=max start pins the AIMD window so these tests see pure accounting.
+  const flow = new FrameFlow({
+    ackWindow: 24, winStartBytes: 1000, winMinBytes: 1000, winMaxBytes: 1000,
+    winGrow: 2, winShrink: 0.5, ackTimeoutMs: 100, deadSilenceMs: 10_000,
+    now: () => clock, ...over
+  });
+  return { flow, tick: (ms) => { clock += ms; } };
+};
+
+test("window fills by bytes long before frame count", () => {
+  const { flow } = mkFlow();
+  for (let i = 0; i < 4; i++) flow.register(i, 250);
+  assert.equal(flow.fullForDelta, true, "4 frames of 250B must fill a 1000B window");
+});
+
+test("an ack frees every frame it covers, byte-exact", () => {
+  const { flow } = mkFlow();
+  flow.register(0, 400); flow.register(1, 400); flow.register(2, 400);
+  assert.equal(flow.fullForDelta, true);
+  flow.ack(1); // ordered channel: one ack covers everything before it
+  assert.equal(flow.fullForDelta, false);
+});
+
+test("slot expiry frees the window but is not death", () => {
+  const { flow, tick } = mkFlow();
+  flow.register(0, 1000);
+  tick(101);
+  flow._expire(0);
+  assert.equal(flow.fullForDelta, false);
+  assert.equal(flow.dead, false, "a slow link must not read as a dead viewer");
+});
+
+test("byte window shrinks once per loss episode, grows on clean utilized rounds", () => {
+  const { flow } = mkFlow({ winStartBytes: 1000, winMinBytes: 250, winMaxBytes: 4000 });
+  flow.register(0, 900);
+  flow._expire(0);
+  assert.equal(flow.win, 500, "first loss shrinks the window");
+  flow.register(1, 400);
+  flow._expire(1);
+  assert.equal(flow.win, 500, "a second loss in the same episode does not shrink again");
+  flow.clearLoss();
+  for (let i = 2; i < 8; i++) {
+    flow.register(i, Math.ceil(flow.win * 0.95));
+    flow.ack(i);
+  }
+  assert.equal(flow.win, 4000, "clean utilized rounds grow the window to the cap");
+});
+
+test("only sustained ack silence declares the viewer gone", () => {
+  const { flow, tick } = mkFlow();
+  flow.register(0, 10); flow.ack(0);
+  tick(9_999);
+  assert.equal(flow.dead, false);
+  tick(2);
+  assert.equal(flow.dead, true);
+  flow.ack(0);
+  assert.equal(flow.dead, false, "any ack revives");
+});
+
+test("after a drop, only a keyframe resumes the stream", () => {
+  const { flow } = mkFlow();
+  flow.markDropped();
+  assert.equal(flow.admit({ isKey: false }), false, "deltas reference dropped predecessors");
+  assert.equal(flow.admit({ isConfig: true }), true, "config packets are tiny and needed");
+  assert.equal(flow.waitingKey, true, "config does not clear the wait");
+  assert.equal(flow.admit({ isKey: true }), true);
+  assert.equal(flow.waitingKey, false);
+  assert.equal(flow.admit({ isKey: false }), true);
+});
+
+test("no drops, no gating", () => {
+  const { flow } = mkFlow();
+  assert.equal(flow.admit({ isKey: false }), true);
+});
+
 console.log(`\n${pass} passed, ${fail} failed\n`);
 process.exit(fail ? 1 : 0);

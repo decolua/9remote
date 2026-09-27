@@ -240,6 +240,12 @@ export class ScrcpySession {
       await pushJar(this.serial, JAR_PATH, DEVICE_JAR_PATH);
       this._port = await forwardAbstract(this.serial, socketName);
 
+      // priority/latency: realtime hints so the encoder emits packets as
+      // produced instead of holding a buffer (scrcpy defaults them since #6670;
+      // our pinned 3.1 predates it).
+      const codecOpts = ["priority=0", "latency=1"];
+      if (keyFrameInterval > 0) codecOpts.push(`i-frame-interval=${keyFrameInterval}`);
+
       this._proc = spawnShell(this.serial, [
         `CLASSPATH=${DEVICE_JAR_PATH}`,
         "app_process", "/", "com.genymobile.scrcpy.Server", SCRCPY_VERSION,
@@ -255,7 +261,7 @@ export class ScrcpySession {
         `max_size=${maxSize}`,
         `video_bit_rate=${bitRate}`,
         `max_fps=${maxFps}`,
-        ...(keyFrameInterval > 0 ? [`video_codec_options=i-frame-interval=${keyFrameInterval}`] : []),
+        `video_codec_options=${codecOpts.join(",")}`,
         "cleanup=true"
       ]);
 

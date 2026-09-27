@@ -78,23 +78,44 @@ export const FRAME_HEADER_SIZE = 12;
 export const MAX_FRAME_BYTES = 16 * 1024 * 1024;
 export const MAX_READER_BUFFER_BYTES = 32 * 1024 * 1024;
 
-// Frame flow control tunables. ackWindow bounds frames per RTT: 4 choked
-// throughput to ~100KB/RTT on a tunnel (agent≤web REASSEMBLY_WINDOW must stay larger).
+// Frame flow control tunables. Backpressure is ack-based end-to-end, so the
+// pump never knows which carrier (RTC or WS) is moving the frames. ackWindow
+// bounds frames per RTT (4 choked throughput to ~100KB/RTT on a tunnel;
+// agent≤web REASSEMBLY_WINDOW must stay larger); the byte window is adaptive
+// (AIMD): it grows on clean ack rounds to fill the pipe and shrinks on loss.
+// winMinBytes must exceed the largest keyframe (~8× a delta), else a window
+// smaller than the recovery frame itself saturates forever.
 export const FLOW = {
-  ackWindow: 24,
+  ackWindow: 64,
+  winStartBytes: 256 * 1024,
+  winMinBytes: 384 * 1024,
+  winMaxBytes: 2 * 1024 * 1024,
+  winGrow: 1.3,
+  winShrink: 0.7,
   ackPollMs: 8,
   ackTimeoutMs: 1500,
-  deadAckLimit: 8,
+  // A full window stalls at most this long (throttle to link pace) before
+  // switching to drop-mode: freshness beats completeness — a dropped frame
+  // costs fps, a queued one costs latency.
+  stallMs: 250,
+  // Forced keyframes are rate-limited: every drop wants an IDR, but IDRs are
+  // ~8× a delta — forcing them while congested floods the fat frames exactly
+  // when bandwidth is scarce. The natural 1s i-frame interval covers the rest.
+  keyframeReqMinGapMs: 300,
+  // A viewer is gone only after this long with NO ack at all. Frame timeouts
+  // alone mean a slow link, not a dead viewer — the old per-frame counter
+  // kicked slow-but-alive WS sessions out of the stream.
+  deadSilenceMs: 10_000,
   pausePollMs: 200
 };
 
-// Adaptive bitrate tunables based on frame ack latency.
+// Bitrate adapt driven by measured goodput (acked bytes/s), GCC-style: on
+// congestion target bitrate ← factor × goodput, converging in one step
+// instead of blind ratio thresholds. Sizes couple to scale² (scaled()).
 export const ADAPT = {
-  sampleWindowMs: 4000,
+  sampleWindowMs: 2000,
   minRestartGapMs: 15_000,
-  congestedRatio: 0.5,
-  healthyRatio: 0.1,
-  stepDown: 0.7,
+  goodputFactor: 0.85,
   stepUp: 1.15,
   minScale: 0.35,
   maxScale: 1

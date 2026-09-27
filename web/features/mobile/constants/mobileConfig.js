@@ -61,7 +61,7 @@ export const DECODE_QUEUE_LIMIT = 30;
 // Partial access units held while their chunks arrive. Ordered channel, so a
 // frame older than this many newer ones was truncated and is dropped.
 // Must exceed the agent's FLOW.ackWindow or in-flight frames get culled early.
-export const REASSEMBLY_WINDOW = 32;
+export const REASSEMBLY_WINDOW = 96;
 
 // Re-ask for a keyframe at most this often while waiting to sync.
 export const KEYFRAME_REQUEST_INTERVAL_MS = 1000;
