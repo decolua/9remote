@@ -501,7 +501,7 @@ export default function NewTerminalModal({
               value={shellId}
               onChange={(e) => setShellId(e.target.value)}
               aria-label={t("terminal.shell")}
-              className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+              className="w-full px-3 py-2 bg-surface-2 rounded-brand text-sm text-text focus:outline-none"
             >
               {shells.map((s) => (
                 <option key={s.id} value={s.id}>{s.label}</option>
