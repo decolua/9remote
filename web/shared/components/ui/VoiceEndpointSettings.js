@@ -13,7 +13,7 @@ import { VOICE_ENDPOINT_DEFAULT, VOICE_PRESETS, VOICE_FREE_STT_ENABLED, chat, re
 const FIELD_CLS = "w-full px-2.5 py-1.5 rounded bg-bg border border-border-subtle text-xs font-mono text-text placeholder-text-muted focus:outline-none focus:border-brand-500";
 const BTN_CLS = "px-3 py-1.5 rounded-brand text-xs font-medium transition-colors";
 const CHIP_CLS = "px-2.5 py-1 rounded-brand text-[11px] border transition-colors";
-const CHIP_ON = "border-brand-500 bg-brand-500/10 text-brand-400";
+const CHIP_ON = "border-brand-500 bg-brand-500/10 text-brand-400 dark:border-white/30 dark:bg-white/10 dark:text-white";
 const CHIP_OFF = "border-border-subtle bg-surface-2/30 text-text-muted hover:text-text hover:bg-surface-2";
 
 // One flat engine row — Free (AI, no key) first when enabled, then Browser, then keyed providers.
@@ -291,7 +291,7 @@ export default function VoiceEndpointSettings({ dense = false }) {
   return (
     <>
       <div className={rowCls} onClick={handleOpen}>
-        <Mic size={16} className={`${dense ? "text-text" : "text-brand-500"} flex-shrink-0`} />
+        <Mic size={16} className={`${dense ? "text-text" : "text-brand-500 dark:text-white"} flex-shrink-0`} />
         <div className="flex-1 min-w-0 flex flex-col">
           <span className="truncate">Voice input</span>
           <span className="text-xs text-text-muted truncate">{engine}</span>
@@ -309,9 +309,9 @@ export default function VoiceEndpointSettings({ dense = false }) {
           type="button"
           onClick={(e) => { e.stopPropagation(); vibrate(); setEnabled(!enabled); }}
           aria-label="Toggle voice input"
-          className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${enabled ? "bg-brand-500" : "bg-surface-2"}`}
+          className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors border border-transparent ${enabled ? "bg-brand-500 dark:bg-white" : "bg-surface-2 dark:border-white/15"}`}
         >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`} />
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-4 dark:bg-dark-800" : "translate-x-0.5 dark:bg-white/50"}`} />
         </button>
       </div>
       {open && <VoiceConfigModal onClose={() => setOpen(false)} />}

@@ -51,7 +51,7 @@ export default function VoiceLangModal({ isOpen, value, onSelect, onClose }) {
             <button
               onClick={() => handleSelect("auto")}
               className={`w-full px-2 py-2 mb-2 rounded-brand flex items-center gap-2 transition-all duration-150 ease-out active:scale-[0.97] ${
-                value === "auto" ? "bg-brand-500 text-white" : "text-text hover:bg-surface-2"
+                value === "auto" ? "bg-brand-500 text-white dark:bg-white dark:text-black" : "text-text hover:bg-surface-2"
               }`}
             >
               <span className="w-[17px] text-center flex-shrink-0 text-sm">🌐</span>
@@ -67,7 +67,7 @@ export default function VoiceLangModal({ isOpen, value, onSelect, onClose }) {
                   key={l.code}
                   onClick={() => handleSelect(l.code)}
                   className={`px-2 py-2 rounded-brand flex items-center gap-2 transition-all duration-150 ease-out active:scale-[0.97] min-w-0 ${
-                    active ? "bg-brand-500 text-white" : "text-text hover:bg-surface-2"
+                    active ? "bg-brand-500 text-white dark:bg-white dark:text-black" : "text-text hover:bg-surface-2"
                   }`}
                 >
                   <img src={`https://flagcdn.com/w40/${l.country}.png`} alt={l.label} className="w-[17px] h-[12px] object-cover rounded-[2px] flex-shrink-0" loading="lazy" />
