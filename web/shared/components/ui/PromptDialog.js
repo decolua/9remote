@@ -6,7 +6,7 @@ import { CornerDownLeft } from "@/shared/components/ui/Icon";
 
 // Shared text-prompt modal (rename flows): input + confirm/cancel. autoFocus during
 // commit keeps focus inside the tap's user-gesture window, so mobile keyboards open.
-export default function PromptDialog({ title, value, onChange, onSubmit, onClose, confirmLabel, cancelLabel, placeholder }) {
+export default function PromptDialog({ title, value, onChange, onSubmit, onClose, confirmLabel, cancelLabel, placeholder, hideCancel = false }) {
   const { t } = useI18n();
 
   useEffect(() => {
@@ -27,7 +27,7 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onClose}
     >
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150" />
       <div
         role="dialog"
         aria-modal="true"
@@ -55,10 +55,12 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
               <CornerDownLeft size={10} strokeWidth={2.5} />
             </kbd>
           </button>
-          <button onClick={onClose} className="flex-1 py-2 text-sm text-text-muted bg-surface-2 rounded-brand flex items-center justify-center gap-1.5">
-            <span>{cancelLabel ?? t("common.cancel")}</span>
-            <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>
-          </button>
+          {!hideCancel && (
+            <button onClick={onClose} className="flex-1 py-2 text-sm text-text-muted bg-surface-2 rounded-brand flex items-center justify-center gap-1.5">
+              <span>{cancelLabel ?? t("common.cancel")}</span>
+              <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>
+            </button>
+          )}
         </div>
       </div>
     </div>

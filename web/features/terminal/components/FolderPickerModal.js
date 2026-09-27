@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Folder, FolderOpen, Home, HardDrive, ChevronRight, ArrowUp, Loader2, X, Search } from "@/shared/components/ui/Icon";
+import PromptDialog from "@/shared/components/ui/PromptDialog";
+import { Folder, FolderOpen, FolderPlus, Home, HardDrive, ChevronRight, ArrowUp, Loader2, X, Search } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer";
@@ -428,6 +429,21 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
     onSelect(dirPath);
   };
 
+  // Create a folder inside the browsed dir, then step into it — creating a
+  // workspace and picking it become one motion.
+  const [newFolder, setNewFolder] = useState(null); // { value } | null
+  const createFolder = useCallback(async (name) => {
+    const clean = (name || "").trim().replace(/[\\/:*?"<>|]/g, "");
+    if (!clean || !dirPath) return;
+    const sep = !!systemInfo?.isWindows ? "\\" : "/";
+    const itemPath = `${dirPath.replace(/[\\/]+$/, "")}${sep}${clean}`;
+    const res = await fileBus.createItem(itemPath, "folder");
+    if (!res?.success) return; // agent already rejects sensitive/existing paths
+    listingCacheRef.current.delete(dirPath);
+    setNewFolder(null);
+    void loadDir(itemPath);
+  }, [dirPath, fileBus, systemInfo, loadDir]);
+
   // Single vs double click: a delayed navigate lets dblclick pick the folder itself
   // — navigating immediately would unmount the row before dblclick lands.
   const rowGo = (entry) => {
@@ -471,14 +487,14 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
   const selectDisabled = loading || (!!preview && filter !== "");
 
   return (
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-[2px]" onClick={onClose}>
+    <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("workspaces.newWorkspace")}
         onKeyDown={onDialogKeyDown}
-        className="bg-surface w-full sm:w-[560px] sm:max-w-full h-[min(85%,calc(var(--app-height,85vh)-2rem))] sm:h-[70vh] sm:max-h-[560px] my-auto rounded-[3px] flex flex-col shadow-elev overflow-hidden"
+        className="card-elev w-full sm:w-[560px] sm:max-w-full h-[min(85%,calc(var(--app-height,85vh)-2rem))] sm:h-[70vh] sm:max-h-[560px] my-auto flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Inset from the viewport edges, so no notch/home-bar padding is needed. */}
@@ -490,7 +506,7 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
         </div>
 
         {/* Breadcrumb bar — every segment is a jump target */}
-        <div ref={crumbsRef} className="px-3 pt-2 flex items-center gap-0.5 min-h-[28px] overflow-x-auto flex-shrink-0">
+        <div className="px-3 pt-2 flex items-center gap-0.5 min-h-[28px] flex-shrink-0">
           <button
             onClick={navigateUp}
             disabled={loading || !dirPath || dirPath === "/"}
@@ -507,7 +523,7 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
           >
             <Home size={14} />
           </button>
-          <div className="flex items-center gap-0 text-[11px] text-text-muted ml-1 min-w-0">
+          <div ref={crumbsRef} className="flex-1 flex items-center gap-0 text-[11px] text-text-muted ml-1 min-w-0 overflow-x-auto scrollbar-none">
             {isWindows ? (
               <button
                 type="button"
@@ -643,7 +659,7 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
                     (filter || preview) && idx === hiIdx ? "bg-surface-2 ring-1 ring-brand-500/40" : ""
                   }`}
                 >
-                  <Folder size={16} className="text-orange-500/70 flex-shrink-0" />
+                  <Folder size={16} className="text-text-subtle flex-shrink-0" />
                   <span className="flex-1 min-w-0 truncate text-left" title={f.name}>{f.name}</span>
                   <ChevronRight size={14} className="text-text-subtle flex-shrink-0 opacity-0 group-hover:opacity-100" />
                 </button>
@@ -664,10 +680,13 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
           </p>
           <div className="flex items-center gap-2">
             <button
-              onClick={onClose}
-              className="px-4 py-2 text-sm text-text-muted hover:text-text bg-surface-2 hover:bg-surface-3 rounded-[3px] transition-colors"
+              onClick={() => { vibrate(); setNewFolder({ value: "" }); }}
+              disabled={!dirPath}
+              className="flex items-center gap-1.5 px-4 py-2 text-sm text-text-muted hover:text-text bg-surface-2 hover:bg-surface-3 rounded-[3px] transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              title={t("workspaces.createFolderTitle")}
             >
-              {t("common.cancel")}
+              <FolderPlus size={14} />
+              {t("workspaces.createFolderTitle")}
             </button>
             <button
               onClick={confirm}
@@ -680,6 +699,19 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
           </div>
         </div>
       </div>
+
+      {newFolder && (
+        <PromptDialog
+          title={t("workspaces.createFolderTitle")}
+          confirmLabel={t("workspaces.createFolderTitle")}
+          hideCancel
+          placeholder={t("workspaces.newFolderName")}
+          value={newFolder.value}
+          onChange={(value) => setNewFolder({ value })}
+          onSubmit={() => createFolder(newFolder.value)}
+          onClose={() => setNewFolder(null)}
+        />
+      )}
     </div>
   );
 }
