@@ -66,14 +66,6 @@ const FALLBACK_CODEX_MODELS = [
   { id: "gpt-6-astra", label: "GPT-6-Astra", short: "6 Astra", provider: "openai", desc: "Our most capable model for complex, demanding work" },
 ];
 
-// True when codex routes through a user-declared provider (e.g. 9router) —
-// bare OpenAI slugs have no route there, so the official catalog must stay hidden.
-function codexUsesCustomProvider(text) {
-  const top = (text.split(/^\s*\[/m)[0] || "");
-  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(top)?.[1] || "";
-  return Boolean(provider) && provider !== "openai" && text.includes(`[model_providers.${provider}]`);
-}
-
 // Read custom profiles from ~/.codex/*.config.toml and ~/.codex/config.toml
 function readCodexProfiles() {
   const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
@@ -155,18 +147,10 @@ function readCodexProfiles() {
   return options;
 }
 
-// List Codex model options: custom profiles on top, followed by official OpenAI models
-// (official ones only when codex is NOT routed through a custom provider).
+// List Codex model options: custom profiles on top, followed by official OpenAI models.
 export function listCodexModelOptions() {
   const profileOptions = readCodexProfiles();
   const seenIds = new Set(profileOptions.map((o) => o.id));
-
-  const codexHome = process.env.CODEX_HOME?.trim() || path.join(os.homedir(), ".codex");
-  let configText = "";
-  try {
-    configText = fs.readFileSync(path.join(codexHome, "config.toml"), "utf8");
-  } catch {}
-  if (codexUsesCustomProvider(configText)) return profileOptions;
 
   let liveModels = [];
   try {
@@ -196,12 +180,9 @@ export function listCodexModelOptions() {
     }
   }
 
-  // Ensure all standard Codex models are present
-  for (const m of FALLBACK_CODEX_MODELS) {
-    if (!officialModels.some((o) => o.id === m.id)) {
-      officialModels.push(m);
-    }
-  }
+  // Fallback only covers a failed/timeout `codex debug models` — the live catalog
+  // wins, stale fallback slugs must not ride along.
+  if (officialModels.length === 0) officialModels.push(...FALLBACK_CODEX_MODELS);
 
   const result = [...profileOptions];
   for (const m of officialModels) {

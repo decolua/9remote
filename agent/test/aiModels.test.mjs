@@ -1,9 +1,6 @@
 // Tests for the per-engine default model/effort lookup and the opencode catalog.
 // Run: node agent/test/aiModels.test.mjs
 import assert from "node:assert/strict";
-import fs from "node:fs";
-import os from "node:os";
-import path from "node:path";
 import { resolveDefaultModel, resolveDefaultEffort, listCodexModelOptions, listOpencodeModelOptions, saveAiPreference, readAiPreferences } from "../features/ai/models.js";
 
 let pass = 0, fail = 0;
@@ -27,19 +24,14 @@ await test("codex default is a slug in codex's own catalog", () => {
   assert.ok(!id.includes(" "), `id must not be a display label: ${id}`);
 });
 
-// A host routed through a provider it declared itself (`model_provider` → a
-// [model_providers.*] block) must not be offered OpenAI's catalog — those slugs 404
-// through the gateway. Profiles from its own config are offered either way.
-await test("codex options: profiles always, official catalog only when not custom-routed", () => {
+// Profiles and the official catalog ride along together even when the host routes
+// codex through its own gateway (`model_provider`) — the router decides which slugs
+// resolve; the picker must still show the real catalog.
+await test("codex options: profiles plus official catalog, unique ids", () => {
   const options = listCodexModelOptions();
-  const text = fs.readFileSync(path.join(os.homedir(), ".codex", "config.toml"), "utf8");
-  const provider = /^\s*model_provider\s*=\s*"([^"]+)"/m.exec(text.split(/^\s*\[/m)[0] || "")?.[1] || "";
-  const custom = Boolean(provider) && provider !== "openai" && text.includes(`[model_providers.${provider}]`);
-  if (custom) {
-    assert.ok(options.every((o) => o.provider === "profiles"));
-  } else {
-    assert.ok(options.some((o) => o.id === "gpt-5.6-sol"));
-  }
+  assert.ok(options.some((o) => o.provider === "profiles"));
+  assert.ok(options.some((o) => o.provider === "openai"));
+  assert.equal(new Set(options.map((o) => o.id)).size, options.length);
 });
 
 await test("opencode default is a provider/model id from its own catalog", () => {

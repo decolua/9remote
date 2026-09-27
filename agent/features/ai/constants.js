@@ -67,7 +67,9 @@ export const ORPHAN_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 
 // Conversation CLIs whose process is killed after AI_IDLE_KILL_MS with no
 // activity; the next prompt respawns it, resuming the saved conversation.
-export const IDLE_KILL_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.OMP, AI_ENGINES.DEVIN, AI_ENGINES.HERMES]);
+// Codex rides its persistent app-server: stop() ends the carrier, and the next
+// prompt's sendPrompt hold-branch respawns it via thread/resume.
+export const IDLE_KILL_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OMP, AI_ENGINES.DEVIN, AI_ENGINES.HERMES]);
 export const AI_IDLE_KILL_MS = 30 * 60 * 1000;
 export const AI_IDLE_TICK_MS = 60 * 1000;
 

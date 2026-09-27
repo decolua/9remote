@@ -13,6 +13,10 @@ export const STATES = Object.freeze({
   WORKING: "working",
   BLOCKED: "blocked",
   DONE: "done",
+  // The idle-kill took the CLI process; a prompt respawns it. Terminal-level only
+  // (hook types never produce it) — broadcastAiStatus feeds chat states through
+  // TYPE_TO_STATE, so it must map or "sleep" degrades to idle on the way out.
+  SLEEP: "sleep",
 });
 
 // A working session is considered live while either hook events or PTY output keeps arriving.
@@ -28,6 +32,7 @@ export const TYPE_TO_STATE = Object.freeze({
   done: STATES.DONE,
   blocked: STATES.BLOCKED,
   idle: STATES.IDLE,
+  sleep: STATES.SLEEP,
 });
 
 // How recent a PTY output burst counts as "this terminal is still producing". Read by

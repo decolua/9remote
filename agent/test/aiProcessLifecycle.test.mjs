@@ -196,5 +196,43 @@ await test("engines outside the idle-kill set never qualify", async () => {
   }
 });
 
+await test("a codex pane qualifies too, and its lost server self-heals on prompt", async () => {
+  const { s } = restingSession("idle-codex");
+  try {
+    s.engine = "codex";
+    assert.equal(s.idleKillEligible, true);
+  } finally {
+    s.destroy();
+  }
+  // After idle-kill the app-server is gone; sendPrompt must HOLD the prompt and
+  // kick the respawn (restart() drains the held prompts once the thread is back).
+  const { CodexAdapter } = await import("../features/ai/adapters/codexAdapter.js");
+  const a = new CodexAdapter({ cwd: process.cwd(), onEvent: () => {} });
+  assert.equal(a.persistent, true);
+  let restarts = 0;
+  a.restart = async () => { restarts++; };
+  a.sendPrompt("hello again", []);
+  assert.equal(a._heldPrompts.length, 1, "the prompt waits, never drops");
+  assert.equal(restarts, 1, "the respawn is kicked, not waited on");
+});
+
+await test("sleep survives the status pipeline — not demoted to idle on the wire", async () => {
+  const { applyEvent } = await import("../features/terminal/statusManager.js");
+  const entry = applyEvent({ type: "sleep", sessionId: "idle-sleep-state" });
+  assert.equal(entry?.state, "sleep", "broadcastAiStatus feeds chat states through applyEvent; a miss maps to idle and the dot lies");
+});
+
+await test("a failed codex respawn holds prompts without spinning a loop", async () => {
+  const { CodexAdapter } = await import("../features/ai/adapters/codexAdapter.js");
+  const errors = [];
+  const a = new CodexAdapter({ cwd: process.cwd(), onEvent: (e, d) => { if (e === "error") errors.push(d.message); } });
+  a.start = async () => { throw new Error("spawn failed"); };
+  a._heldPrompts.push({ prompt: "p1", attachments: null });
+  await a.restart();
+  // With the drain-loop bug this test hangs: every drained prompt re-kicks restart.
+  assert.equal(a._heldPrompts.length, 1, "held for the next user prompt — not dropped, not drained");
+  assert.equal(errors.length, 1, "the pane hears why it went quiet");
+});
+
 console.log(fail ? `\n${fail} failed, ${pass} passed` : `\nAll ${pass} passed`);
 process.exitCode = fail ? 1 : 0;

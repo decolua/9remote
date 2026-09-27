@@ -179,6 +179,14 @@ export class CodexAdapter {
       // vanish.
       const held = this._heldPrompts;
       this._heldPrompts = [];
+      // A FAILED respawn must not drain: every drained prompt re-enters sendPrompt,
+      // which kicks restart again — a spawn-failure loop. Hold them for the next
+      // user prompt (whose own kick retries) and say why the pane is quiet.
+      if (!this.appServer) {
+        this._heldPrompts = held;
+        if (held.length) this.onEvent?.("error", { message: `Codex app-server could not be restarted — ${held.length} prompt(s) waiting on your next message.` });
+        return;
+      }
       for (const p of held) {
         try { this.sendPrompt(p.prompt, p.attachments); }
         catch (err) { this.onEvent?.("error", { message: err.message }); }
@@ -394,6 +402,9 @@ export class CodexAdapter {
     // Held, not chained: a chain link that re-runs this method spins microtasks while the restart is in flight (exec here would be a second writer).
     if (this.persistent && (!this.appServer || this._restarting)) {
       this._heldPrompts.push({ prompt, attachments });
+      // The server is gone and nobody is bringing it back (idle-kill, a crash):
+      // restart() respawns on this thread and drains the held prompts itself.
+      if (!this._restarting) this.restart().catch(() => {});
       return;
     }
 
