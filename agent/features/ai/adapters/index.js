@@ -17,6 +17,16 @@ import { HermesAdapter } from "./hermesAdapter.js";
 //   sessionId     the CLI's own conversation id (claude/opencode/omp/devin/hermes)
 //   threadId      codex's spelling of the same
 //   conversationId antigravity's spelling of the same
+
+// bindResume(adapter, session): fill the adapter's resume id from the session AFTER the
+// daemon KV read lands — build() runs before it, and an adapter built without the id
+// respawns a FRESH conversation on its next spawn (sleep recovery, agent restart).
+// One flat-field binding for the engines that keep a plain field; a new engine declares
+// its own here and _startManaged picks it up without further per-engine code.
+const bindFlat = (field, sessionKey) => (adapter, session) => {
+  if (!adapter[field] && session[sessionKey]) adapter[field] = session[sessionKey];
+};
+
 export const ENGINES = Object.freeze({
   claude: {
     Adapter: ClaudeAdapter,
@@ -26,10 +36,17 @@ export const ENGINES = Object.freeze({
       // Set BEFORE start(): setOptions would restart the CLI and spawn a second process.
       if (ctx.model) adapter.metadata.model = ctx.model;
       if (ctx.effort) adapter.effort = ctx.effort;
+      // The id every respawn resumes from. Without it an adapter that never saw an init
+      // (adopted live, or rebuilt after sleep) respawns a FRESH conversation on refusal.
+      if (ctx.sessionId) adapter.metadata.sessionId = ctx.sessionId;
       // adopt() re-seeds from currentMode; without this a re-attach resets the mode to
       // "default" and a Yolo session starts asking for permission.
       adapter.currentMode = ctx.mode;
       return adapter;
+    },
+    // Nested in metadata, not a flat field — spelled out instead of bindFlat.
+    bindResume: (adapter, session) => {
+      if (!adapter.metadata.sessionId && session.cliSessionId) adapter.metadata.sessionId = session.cliSessionId;
     }
   },
   codex: {
@@ -41,7 +58,8 @@ export const ENGINES = Object.freeze({
       if (s.permissionMode || s.options.model || s.options.effort || s.effort || s.options.sandbox || s.options.flags) {
         adapter.setOptions({ ...s.options, effort: s.effort || s.options.effort, mode: s.permissionMode || s.options.mode });
       }
-    }
+    },
+    bindResume: bindFlat("activeThreadId", "threadId")
   },
   opencode: {
     Adapter: OpenCodeAdapter,
@@ -51,7 +69,8 @@ export const ENGINES = Object.freeze({
       if (s.permissionMode || s.options.model || s.options.variant || s.options.flags) {
         adapter.setOptions({ ...s.options, mode: s.permissionMode || s.options.mode });
       }
-    }
+    },
+    bindResume: bindFlat("activeSessionId", "cliSessionId")
   },
   antigravity: {
     Adapter: AntigravityAdapter,
@@ -62,7 +81,8 @@ export const ENGINES = Object.freeze({
       if (s.permissionMode || s.options.model || s.options.flags || s.effort) {
         adapter.setOptions({ ...s.options, effort: s.effort || s.options.effort, mode: s.permissionMode || s.options.mode });
       }
-    }
+    },
+    bindResume: bindFlat("activeConversationId", "cliSessionId")
   },
   omp: {
     Adapter: OmpAdapter,
@@ -72,7 +92,8 @@ export const ENGINES = Object.freeze({
       if (s.permissionMode || s.options.model || s.effort) {
         adapter.setOptions({ ...s.options, effort: s.effort || s.options.effort, mode: s.permissionMode || s.options.mode });
       }
-    }
+    },
+    bindResume: bindFlat("_resumeId", "cliSessionId")
   },
   devin: {
     Adapter: DevinAdapter,
@@ -81,7 +102,8 @@ export const ENGINES = Object.freeze({
     // Mode is read-only on this wire (session/set-mode is absent) — only the model rides setOptions.
     seed: (adapter, s) => {
       if (s.model || s.options.model) adapter.setOptions({ model: s.model || s.options.model });
-    }
+    },
+    bindResume: bindFlat("_resumeId", "cliSessionId")
   },
   hermes: {
     Adapter: HermesAdapter,
@@ -91,7 +113,8 @@ export const ENGINES = Object.freeze({
       if (s.permissionMode || s.model || s.effort) {
         adapter.setOptions({ mode: s.permissionMode || s.options.mode, model: s.model || s.options.model, effort: s.effort || s.options.effort });
       }
-    }
+    },
+    bindResume: bindFlat("_resumeId", "cliSessionId")
   }
 });
 

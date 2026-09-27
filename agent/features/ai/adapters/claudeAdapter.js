@@ -470,10 +470,16 @@ export class ClaudeAdapter {
       Promise.resolve()
         .then(() => this.start(this.currentMode, this.metadata.sessionId || null))
         .then(
-          () => setTimeout(() => {
-            this._respawning = false;
-            this._send(prompt, attachments, true);
-          }, 0),
+          (fetch) => {
+            // start() opened the line hold; commit() feeds what the CLI already printed
+            // AND releases it — skipped, every respawned line sits in the hold and the
+            // pane shows a silent turn end until an F5 rebuilds from the transcript.
+            fetch?.commit?.((line) => this.feed(line));
+            setTimeout(() => {
+              this._respawning = false;
+              this._send(prompt, attachments, true);
+            }, 0);
+          },
           (e) => {
             this._respawning = false;
             // Nothing to recover with. Say so — a silent stop here is the stuck pane again.

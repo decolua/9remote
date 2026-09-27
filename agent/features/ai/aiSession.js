@@ -325,8 +325,18 @@ export class AiSession {
       // The opencode server is shared; a session holds it open, and the LAST one
       // out retires it so deleting chats leaves no `opencode serve` behind.
       if (this.engine === AI_ENGINES.OPENCODE) retainOpencodeServer();
-      this.ready = this.initAdapter();
-      this._restoreFromDaemonKv();
+      // The KV read starts before initAdapter and _startManaged awaits it: the
+      // id/asleep that only the KV still holds (snapshot file gone) must steer
+      // the spawn decision, not race it into a fresh conversation.
+      this._kvPromise = this._restoreFromDaemonKv().catch(() => {});
+      // Phase 2 rides the ready chain, NOT a sibling microtask: a sibling `.then`
+      // on the same promise lands BEFORE _startManaged's await resumes (the await
+      // hops one extra tick), which would restore the gate ahead of adopt's _reset
+      // and lose it again. Sequenced here, it is after the adopt/spawn decision.
+      this.ready = this.initAdapter().then(async (fetch) => {
+        await this._applyKvToAdapter();
+        return fetch;
+      });
     }
   }
 
@@ -361,18 +371,14 @@ export class AiSession {
     }).catch(() => {});
   }
 
-  // The turn marker is a vote, not a verdict — it only counts beside a process the daemon still holds.
+  // Phase 1 of the KV restore, run BEFORE the spawn decision in _startManaged:
+  // identity only (conversation id, asleep, mode/picks) — everything the spawn
+  // consumes. Adapter-side state lands afterwards in _applyKvToAdapter.
   async _restoreFromDaemonKv() {
     if (!daemonClient.isConnected()) return;
     try {
       const saved = await daemonClient.kvGet(kvKey(this.id));
       if (!saved) return;
-      if (saved.stats && this.adapter?.stats) {
-        // Only untouched counters take the value — a late read must not walk back a replayed turn.
-        for (const [k, v] of Object.entries(saved.stats)) {
-          if (typeof v === "number" && !this.adapter.stats[k]) this.adapter.stats[k] = v;
-        }
-      }
       if (saved.lastPrompt && !this.lastPrompt) {
         this.lastPrompt = saved.lastPrompt;
       }
@@ -384,26 +390,66 @@ export class AiSession {
       // mode is still just the engine's default (no snapshot, no explicit pick).
       if (saved.permissionMode && this.permissionMode === (this.options.defaultMode || "default")) {
         this.permissionMode = saved.permissionMode;
-        // Claude holds ONE process and it is already adopted by now, so the mode goes
-        // onto the adapter too or the next respawn speaks the old one. Codex/opencode
-        // keep theirs in a `permissionMode` field instead, read per spawned turn.
-        if (this.adapter?.currentMode === "default") this.adapter.currentMode = saved.permissionMode;
-        if (this.adapter && this.adapter.permissionMode === "default") this.adapter.permissionMode = saved.permissionMode;
-        else this.adapter?.setOptions?.({ mode: saved.permissionMode });
+        this._kvModeFilled = true;
       }
       if (saved.model && !this.model) {
         this.model = saved.model;
-        if (this.adapter?.metadata && !this.adapter.metadata.model) this.adapter.metadata.model = saved.model;
       }
       if (saved.effort && !this.effort) {
         this.effort = saved.effort;
-        if (this.adapter && !this.adapter.effort) this.adapter.effort = saved.effort;
       }
       if (saved.cwd && !this.cwd) this.cwd = saved.cwd;
       if (saved.cliSessionId && !this.cliSessionId) this.cliSessionId = saved.cliSessionId;
       if (saved.threadId && !this.threadId) this.threadId = saved.threadId;
       if (saved.asleep) this.asleep = true;
       if (saved.options) this.options = { ...saved.options, ...this.options };
+      if (Array.isArray(saved.carried) && saved.carried.length) {
+        const existingIds = new Set(this.history.map((e) => e.data?.record?.task_id || e.data?.id).filter(Boolean));
+        const missing = saved.carried
+          .map((item, idx) => (item?.e ? item : { e: item, i: idx }))
+          .filter(({ e }) => {
+            const id = e?.data?.record?.task_id || e?.data?.id;
+            return !id || !existingIds.has(id);
+          });
+        if (missing.length) {
+          this.history = renumber(mergeCarried(missing, this.history));
+          this.seqCounter = this.history.length;
+        }
+      }
+      this._kvSaved = saved;
+    } catch {
+      // The KV is a cache; transcripts remain the authority.
+    }
+  }
+
+  // Phase 2, after initAdapter built and adopted the adapter: state that lives ON the
+  // adapter. Deliberately post-adopt — adopt's _reset() would clear a restored gate,
+  // and the stats belong to whatever process the adopt just bound.
+  async _applyKvToAdapter() {
+    const saved = this._kvSaved;
+    if (!saved || this.destroyed || !this.adapter) return;
+    try {
+      if (saved.stats && this.adapter.stats) {
+        // Only untouched counters take the value — a late read must not walk back a replayed turn.
+        for (const [k, v] of Object.entries(saved.stats)) {
+          if (typeof v === "number" && !this.adapter.stats[k]) this.adapter.stats[k] = v;
+        }
+      }
+      if (this._kvModeFilled) {
+        // Claude holds ONE process and it is already adopted by now, so the mode goes
+        // onto the adapter too or the next respawn speaks the old one. Codex/opencode
+        // keep theirs in a `permissionMode` field instead, read per spawned turn.
+        if (this.adapter.currentMode === "default") this.adapter.currentMode = saved.permissionMode;
+        if (this.adapter.permissionMode === "default") this.adapter.permissionMode = saved.permissionMode;
+        else {
+          // setOptions can restart the CLI; its fetch must be replayed or the new
+          // process's lines sit in the daemon hold and the pane never streams.
+          const fetch = this.adapter.setOptions?.({ mode: saved.permissionMode });
+          if (fetch?.then) fetch.then((f) => this._replay(f));
+        }
+      }
+      if (saved.model && this.adapter.metadata && !this.adapter.metadata.model) this.adapter.metadata.model = saved.model;
+      if (saved.effort && !this.adapter.effort) this.adapter.effort = saved.effort;
       // The line watermark is saved for diagnosis but NOT restored here: it belongs to
       // the adopt path, which owns the process it indexes — a restored one would make
       // the next attach replay lines from a process that no longer exists.
@@ -431,19 +477,6 @@ export class AiSession {
           if (gate?.requestId != null && this.adapter?.pendingRequests && !this.adapter.pendingRequests.size) {
             this.adapter.pendingRequests.set(gate.requestId, { toolName: gate.tool || "", input: gate.input || {} });
           }
-        }
-      }
-      if (Array.isArray(saved.carried) && saved.carried.length) {
-        const existingIds = new Set(this.history.map((e) => e.data?.record?.task_id || e.data?.id).filter(Boolean));
-        const missing = saved.carried
-          .map((item, idx) => (item?.e ? item : { e: item, i: idx }))
-          .filter(({ e }) => {
-            const id = e?.data?.record?.task_id || e?.data?.id;
-            return !id || !existingIds.has(id);
-          });
-        if (missing.length) {
-          this.history = renumber(mergeCarried(missing, this.history));
-          this.seqCounter = this.history.length;
         }
       }
     } catch {
@@ -489,6 +522,19 @@ export class AiSession {
   }
 
   async _startManaged(adapter, mode) {
+    // Identity (conversation id, asleep) may live only in the daemon KV when the
+    // snapshot file is gone — the adopt/spawn decision waits for that read.
+    await this._kvPromise?.catch(() => {});
+    // ctx was built before that read landed; an id it restored must still reach the
+    // adapter, or a refusal-respawn starts a fresh conversation instead of resuming.
+    // Per-engine binding lives in the ENGINES registry — a new engine declares its own.
+    getEngineDef(this.engine)?.bindResume?.(adapter, this);
+    // Same staleness for the mode: the spawn below must speak the KV-restored pick,
+    // and adopt()'s _reset re-seeds from currentMode — fix both or the first respawn
+    // asks permission under "default" while the pane believes otherwise.
+    if (this.engine === AI_ENGINES.CLAUDE && this.permissionMode && this.permissionMode !== mode) {
+      mode = adapter.currentMode = this.permissionMode;
+    }
     // A process already running under this id IS this chat's turn — adopt it, never spawn a second writer.
     if (this.managed) {
       const attached = await adapter.adopt(this.consumedLines, this.consumedEpoch);
@@ -618,6 +664,9 @@ export class AiSession {
     this.emitNormalized("sleep", {});
     await this.adapter?.stop();
     this._saveKvState(false);
+    // The file is the fast rehydrate path; a pane that never ended a turn has none.
+    // Flush here so a restart never leans on the KV read alone.
+    this.flushSaveSnapshot();
     return true;
   }
 
@@ -1226,7 +1275,12 @@ export class AiSession {
     if (this.managed) {
       this.proc = new DaemonProc({ procId: this.id });
     }
-    this.ready = this.initAdapter();
+    // Same ready chain as the constructor — phase 2 rides it there; a bare
+    // initAdapter() here would skip the KV stats/mode pass for this rebuild.
+    this.ready = this.initAdapter().then(async (fetch) => {
+      await this._applyKvToAdapter();
+      return fetch;
+    });
     await this.ready;
 
     this.refreshFromStore();
