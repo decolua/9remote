@@ -8,6 +8,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
+import { RemoteTargets, tailOf } from "@/features/terminal/components/TerminalEmptyState";
 import { Monitor, Zap, ArrowRight, KeyRound, QrCode, Settings } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -16,7 +17,6 @@ import HostTree from "@/features/hosts/components/HostTree";
 import AddHostModal from "@/features/hosts/components/AddHostModal";
 import { orderedHostsOf } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
-import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { isAgentEnvironment } from "@/shared/utils/localOrigin";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
@@ -33,6 +33,7 @@ export default function SessionList({
   carrier: propCarrier,
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   onOpenRemoteHost = null,
+  onOpenMobileHost = null,
   fileBus, homeDir, recentWorkspaces = [], shells = [], onReorderSession,
   onRenameHost = null, onDeleteHost = null, onMainDisconnect = null, onMainReconnect = null
 }) {
@@ -148,7 +149,7 @@ export default function SessionList({
       {/* Translucent bar like the old design; safe-area padding for notched phones, where
           env() is 0 everywhere else. */}
       <header
-        className={`relative z-10 bg-surface/80 backdrop-blur-md px-4 py-3 ${PANEL_HEADER_H_CLASS} flex items-center justify-between gap-2 flex-shrink-0 border-b border-border-subtle`}
+        className={`relative z-10 bg-surface/80 backdrop-blur-md pl-[28px] pr-4 py-3 ${PANEL_HEADER_H_CLASS} flex items-center justify-between gap-2 flex-shrink-0 border-b border-border-subtle`}
         style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -184,7 +185,6 @@ export default function SessionList({
           <div className="absolute inset-0 z-10">
             <WelcomeCards
               onAddWorkspace={onAddWorkspace}
-              onOpenRemote={onOpenRemote}
               recent={recentWorkspaces}
               homeDir={homeDir}
               connected={connected}
@@ -229,6 +229,7 @@ export default function SessionList({
                   onAddWorkspace={onAddWorkspace}
                   menuAddWorkspace={onAddWorkspace}
                   onOpenRemoteHost={onOpenRemoteHost}
+                  onOpenMobileHost={onOpenMobileHost}
                   treeCls="pl-5"
                   rowCls="active:bg-surface-2 active:text-text"
                 />
@@ -243,6 +244,7 @@ export default function SessionList({
                   }}
                   connected={connected}
                   onOpenRemoteHost={onOpenRemoteHost}
+                  onOpenMobileHost={onOpenMobileHost}
                   treeCls="pl-5"
                   rowCls="active:bg-surface-2 active:text-text"
                 />
@@ -287,7 +289,7 @@ export default function SessionList({
 
       {pickerFor && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
           onClick={() => setPickerFor(null)}
         >
           <div
@@ -332,9 +334,11 @@ function HeaderButton({ icon: Icon, label, onClick, disabled, className = "" }) 
 
 // First run: the two things this app can do as naked poster halves on a cinematic
 // stage (same white light as login), split by a hairline + brand dot.
-function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected }) {
+function WelcomeCards({ onAddWorkspace, recent, homeDir, connected }) {
   const { t } = useI18n();
-  const remoteReady = connected && !!onOpenRemote;
+  const pushView = useTerminalStore((s) => s.pushView);
+  // Right half connects another machine into the fleet — meaningful everywhere.
+  const [addHostOpen, setAddHostOpen] = useState(false);
   return (
     <div className="empty-stage w-full h-full">
       <div className="empty-grid" />
@@ -344,14 +348,14 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
         disabled={!connected}
         className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
       >
-        <span className="empty-idx"><b>01</b> / {t("workspaces.emptyTagWorkspace")}</span>
-        <span className="empty-word login-hero-grad">{t("workspaces.emptyWordTerminal")}</span>
+        <span className="empty-idx"><b>01</b> / {t("workspaces.emptyTagVibe")}</span>
+        <span className="empty-word login-hero-grad">{t("workspaces.emptyWordVibe")}</span>
         <span
           className="empty-meta"
-          dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaWorkspace") }}
+          dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaVibe") }}
         />
         <span className="empty-go">
-          {t("workspaces.selectFolder")}
+          {t("workspaces.emptyGoVibe")}
           <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
         </span>
         {!!recent.length && (
@@ -364,37 +368,31 @@ function WelcomeCards({ onAddWorkspace, onOpenRemote, recent, homeDir, connected
                 onClick={(e) => { e.stopPropagation(); vibrate(); onAddWorkspace?.(w.path); }}
                 className="welcome-chip path-tail px-2 py-1 text-[11px] font-mono text-text-muted rounded-full truncate max-w-[46%]"
               >
-                {shortenHomePath(w.path, homeDir)}
+                {tailOf(w.path)}
               </span>
             ))}
           </span>
         )}
       </button>
 
-      {!!onOpenRemote && (
-        <>
-          <div className="empty-hairline" aria-hidden />
+      <>
+        <div className="empty-hairline" aria-hidden />
 
-          <button
-            onClick={() => { vibrate(); onOpenRemote?.(); }}
-            disabled={!remoteReady}
+        <button
+          onClick={() => { vibrate(); setAddHostOpen(true); }}
             className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
           >
-            <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagRemote")}</span>
-            <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>
-            <span
-              className="empty-meta"
-              dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaRemote") }}
-            />
-            {remoteReady && (
-              <span className="empty-go">
-                {t("menu.remoteDesktop")}
-                <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
-              </span>
-            )}
+            <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagPair")}</span>
+            <span className="empty-word login-hero-grad">{t("workspaces.emptyWordPair")}</span>
+            <span className="empty-meta"><RemoteTargets /></span>
+            <span className="empty-go">
+              {t("workspaces.emptyGoPair")}
+              <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
+            </span>
           </button>
-        </>
-      )}
+      </>
+
+      {addHostOpen && <AddHostModal onClose={() => setAddHostOpen(false)} />}
     </div>
   );
 }
