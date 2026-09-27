@@ -567,6 +567,15 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
               </div>
             ))}
           </div>
+          {/* Quick create — icon at the bar's outer right edge (footer keeps the labeled button) */}
+          <button
+            onClick={() => { vibrate(); setNewFolder({ value: "" }); }}
+            disabled={loading || !dirPath}
+            className="ml-1 shrink-0 p-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] disabled:opacity-30 transition-colors"
+            title={t("workspaces.createFolderTitle")}
+          >
+            <FolderPlus size={14} />
+          </button>
         </div>
 
         {/* Dual-mode input — type to filter, or type/paste a path to preview it */}
@@ -607,7 +616,7 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
                       className="flex items-center gap-1.5 px-2 py-1.5 bg-surface-2 hover:bg-surface-3 rounded-[4px] border border-border-subtle text-left transition-colors w-[150px] shrink-0"
                       title={wp}
                     >
-                      <FolderOpen size={13} className="text-brand-500 flex-shrink-0" />
+                      <FolderOpen size={13} className="text-brand-500 dark:text-white flex-shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="block text-xs text-text truncate">{baseName(wp) || wp}</span>
                         <span className="block text-[10px] text-text-subtle truncate">{shortHome(wp, posixHome)}</span>
