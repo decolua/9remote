@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { createLogger } from "../../lib/logger.js";
+import { PATHS } from "../../lib/constants.js";
 import { OPENCODE_SERVER_PORT, OPENCODE_PROMPT_TIMEOUT_MS } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 
@@ -23,7 +24,10 @@ let booting = null;
 // retirable when idle, unlike one the user started by hand.
 let adoptedOurs = null;
 
-const markerFile = () => path.join(os.tmpdir(), `9remote-opencode-serve-${OPENCODE_SERVER_PORT}.pid`);
+// Under NREMOTE_HOME, not os.tmpdir(): the OS purges temp files after a few days,
+// and a marker that vanished while its server lived on turned it into an orphan
+// nobody could adopt — 400MB held forever.
+const markerFile = () => path.join(PATHS.STATE, `opencode-serve-${OPENCODE_SERVER_PORT}.pid`);
 const clearMarker = () => { try { fs.unlinkSync(markerFile()); } catch {} };
 const markerMatches = async (pid) => {
   if (!pid) return false;
@@ -102,13 +106,14 @@ async function portHolder(port) {
   }
 }
 
-// Verify PID is an opencode serve process before terminating.
+// Verify PID is OUR opencode serve — this guards a kill, so the port must match too:
+// a `serve` on another port is the user's own, and it only shares the binary name.
 async function isOurServer(pid) {
   try {
     const { execFile } = await import("node:child_process");
     const cmd = await new Promise((resolve) =>
       execFile("ps", ["-o", "command=", "-p", String(pid)], { timeout: 3000 }, (e, stdout) => resolve(e ? "" : stdout)));
-    return /opencode\s+serve/.test(cmd);
+    return new RegExp(`opencode\\s+serve\\b.*--port\\s+${OPENCODE_SERVER_PORT}\\b`).test(cmd);
   } catch {
     return false;
   }
@@ -126,10 +131,14 @@ export async function ensureServer() {
     // Adopt running server if already answering on port.
     if (await waitForPort(url, Date.now() + 1000)) {
       base = url;
-      // A leftover from an earlier 9remote agent is still ours to retire.
+      // A leftover from an earlier 9remote agent is still ours to retire. The argv
+      // check is the durable half: a purged/missing marker (OS temp cleanup, a
+      // marker lost across agent runs) must not turn our own server into a
+      // permanent orphan — isOurServer only matches our exact serve invocation.
       const holder = await portHolder(port);
-      if (await markerMatches(holder)) {
+      if ((await markerMatches(holder)) || (await isOurServer(holder))) {
         adoptedOurs = Number(holder);
+        try { fs.writeFileSync(markerFile(), String(holder)); } catch {}
         // No session retained it in THIS run — without arming here an adopted
         // leftover outlives the agent forever (nobody opens a chat to release it).
         armIdleStop();
