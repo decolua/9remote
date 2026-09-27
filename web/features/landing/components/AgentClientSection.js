@@ -2,17 +2,8 @@
 
 import { Fragment, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { THEME, HALVES, releaseFor, APP_STORE_URL, PLAY_STORE_URL } from "../constants/landingConfig";
-
-// Enough to pick an installer; iPadOS reports as Mac, which the .dmg does not serve
-function detectOs() {
-  if (typeof navigator === "undefined") return "other";
-  const ua = navigator.userAgent;
-  if (/iPhone|iPad|iPod/.test(ua)) return "other";
-  if (/Mac/.test(ua)) return "macos";
-  if (/Win/.test(ua)) return "windows";
-  return "other";
-}
+import { useDesktopReleases } from "../hooks/useDesktopReleases";
+import { THEME, HALVES, detectOs, DOWNLOADS_PATH, DESKTOP_RELEASES, versionOf, byNewest, APP_STORE_URL, PLAY_STORE_URL } from "../constants/landingConfig";
 
 // Mirror-tabbed cards — both halves get the same segmented control + body row
 const HALF_TABS = {
@@ -28,10 +19,12 @@ const HALF_TABS = {
 };
 const defaultTab = (role) => (role === "Client" ? "browser" : "app");
 const OS_LABEL = { macos: "macOS", windows: "Windows" };
-const OS_EXT = { macos: "9remote.dmg", windows: "9remote.exe" };
+const INSTALLER_EXT = { macos: ".dmg", windows: ".exe" };
 
 export default function AgentClientSection() {
   const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
+  // The desktop build's own version — NEXT_PUBLIC_SERVER_VERSION tracks the web app
+  const desktopVersion = versionOf(byNewest(useDesktopReleases() || DESKTOP_RELEASES)[0].tag);
   // Server + first paint use "other" so hydration matches; real OS swaps in after mount
   const os = useSyncExternalStore(() => () => {}, detectOs, () => "other");
   const [copied, setCopied] = useState(false);
@@ -171,9 +164,7 @@ export default function AgentClientSection() {
                         </div>
                       ) : (
                         <Link
-                          href={activeTab === "browser" ? "/login" : releaseFor(os)}
-                          target={activeTab === "browser" ? undefined : "_blank"}
-                          rel={activeTab === "browser" ? undefined : "noopener noreferrer"}
+                          href={activeTab === "browser" ? "/login" : DOWNLOADS_PATH}
                           className="w-full flex items-center justify-center gap-2 px-4 py-1.5 text-[13px] font-semibold transition-opacity hover:opacity-90"
                           style={{ background: "var(--color-text)", color: "var(--color-bg)" }}
                         >
@@ -190,10 +181,10 @@ export default function AgentClientSection() {
                               <svg className="w-4 h-4 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 3v12m0 0l-4-4m4 4l4-4M4 21h16" />
                               </svg>
-                              {activeTab === "desktop" || os === "other"
-                                ? (version ? `Download v${version}` : "Download")
-                                : (version ? `Download v${version} for ${OS_LABEL[os]}` : `Download for ${OS_LABEL[os]}`)}
-                              {OS_EXT[os] && <span className="ml-auto text-xs font-mono opacity-70">{OS_EXT[os]}</span>}
+                              {OS_LABEL[os] && activeTab !== "desktop"
+                                ? `Download v${desktopVersion} for ${OS_LABEL[os]}`
+                                : `Download v${desktopVersion}`}
+                              {INSTALLER_EXT[os] && <span className="ml-auto text-xs font-mono opacity-70">{INSTALLER_EXT[os]}</span>}
                             </>
                           )}
                         </Link>

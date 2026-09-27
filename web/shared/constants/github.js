@@ -3,6 +3,8 @@
 export const GITHUB_API = "https://api.github.com";
 export const GITHUB_REPO_URL = "https://github.com/decolua/9remote";
 export const GITHUB_REPO_API = `${GITHUB_API}/repos/decolua/9remote`;
+// Public, CORS-enabled (`access-control-allow-origin: *`) — read from the browser, no proxy
+export const GITHUB_RELEASES_API = `${GITHUB_REPO_API}/releases?per_page=100`;
 export const SHOW_GITHUB_STAR = false;
 export const GITHUB_PAT_SCOPES = ["codespace", "repo", "user"];
 export const GITHUB_PAT_DESCRIPTION = "9remote";

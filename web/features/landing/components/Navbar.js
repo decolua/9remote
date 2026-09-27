@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Link from "next/link";
-import { THEME } from "../constants/landingConfig";
+import { THEME, DOWNLOADS_PATH } from "../constants/landingConfig";
 import ThemeToggle from "@/shared/theme/ThemeToggle";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
 
@@ -74,13 +74,13 @@ export default function Navbar() {
 
         <div className="hidden md:flex items-center gap-3">
           <ThemeToggle />
-          <a
-            href="#how-it-works"
+          <Link
+            href={DOWNLOADS_PATH}
             className="px-4 py-2 rounded-lg font-semibold text-sm border transition-transform hover:scale-[1.03]"
             style={{ background: THEME.bgPanel, borderColor: THEME.border, color: THEME.text }}
           >
             <span>Download Host</span>
-          </a>
+          </Link>
           <Link
             href="/login"
             className="btn-cta px-5 py-2 rounded-lg font-semibold text-sm transition-transform hover:scale-[1.03]"
@@ -132,14 +132,14 @@ export default function Navbar() {
                 )}
               </a>
             ))}
-            <a
-              href="#how-it-works"
+            <Link
+              href={DOWNLOADS_PATH}
               onClick={() => setMobileMenuOpen(false)}
               className="px-6 py-2 rounded-lg font-semibold text-sm text-center border"
               style={{ background: THEME.bgPanel, borderColor: THEME.border, color: THEME.text }}
             >
               Download Host
-            </a>
+            </Link>
             <Link
               href="/login"
               className="px-6 py-2 rounded-lg font-semibold text-sm text-center"
