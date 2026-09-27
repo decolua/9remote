@@ -157,6 +157,9 @@ export const DEFAULT_CONFIG = Object.freeze({
   // A cli_event type → { text(record), level } the engine phrases itself; everything
   // undeclared falls to the generic reader in lib/harnessTasks.js (NOTICE_TEXTS).
   notices: Object.freeze({}),
+  // cli_event types this engine raises but a reader should never see — its own chatter
+  // about itself, not about the turn. Dropped whole, whatever text they carry.
+  suppressedNotices: Object.freeze([]),
   // A running question tool renders pinned above the composer on engines whose CLI can
   // be answered through it; elsewhere it stays a plain row (headless engines cannot).
   questionGate: false,
@@ -196,6 +199,7 @@ export class AiEngine {
       features: { ...DEFAULT_CONFIG.features, ...(o.features || {}) },
       slashCommands: o.slashCommands || DEFAULT_CONFIG.slashCommands,
       notices: o.notices || DEFAULT_CONFIG.notices,
+      suppressedNotices: new Set(o.suppressedNotices || DEFAULT_CONFIG.suppressedNotices),
       questionGate: o.questionGate ?? DEFAULT_CONFIG.questionGate,
       headlessQuestions: o.headlessQuestions ?? DEFAULT_CONFIG.headlessQuestions,
     });
@@ -296,6 +300,10 @@ export class CodexEngine extends AiEngine {
       },
       ui: { id: "codex-ui", label: "Codex UI", short: "Codex UI" },
       overrides: {
+        // Codex's `warning` channel is its own bookkeeping — model metadata missing from
+        // its catalog, stream retries — repeated every turn and actionable by nobody.
+        // Its `error` channel (which carries willRetry) is left alone.
+        suppressedNotices: ["warning"],
         tools: {
           command_execution: "bash",
           command: "bash",

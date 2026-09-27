@@ -437,6 +437,16 @@ test("a warning record becomes the row its message asks for", () => {
   assert.equal(n.level, "warning");
 });
 
+test("a codex warning record draws nothing — its own chatter, declared off in the registry", () => {
+  const n = noticeFrom("warning", { threadId: "t-1", message: "Model metadata for `ag/x` not found." }, "codex");
+  assert.equal(n, null);
+});
+
+test("but the suppression is per engine — claude's own warning channel still reads", () => {
+  const n = noticeFrom("warning", { message: "Stream error: retrying" }, "claude");
+  assert.equal(n.level, "warning");
+});
+
 test("a codex error is read one level down, where its message lives", () => {
   const n = noticeFrom("error", { error: { message: "sandbox denied" }, willRetry: false });
   assert.equal(n.content, "sandbox denied");

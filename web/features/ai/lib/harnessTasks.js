@@ -322,9 +322,14 @@ function noticeLevel(type, record) {
 
 export function noticeFrom(type, record, engine = null) {
   if (!record) return null;
+  const config = getEngineConfig(engine);
+  // An engine's own chatter about itself draws nothing — the record still travels, the
+  // reader just never sees a row for it. Dropped before phrasing so neither the declared
+  // notices nor the generic reader below can put one back.
+  if (config.suppressedNotices?.has?.(type)) return null;
   // A notice the engine declared for itself (registry.js overrides.notices) — its own
   // wording for a record the generic reader cannot phrase.
-  const noticesOf = getEngineConfig(engine).notices;
+  const noticesOf = config.notices;
   // Same prototype guard as noticeLevel — the type is a wire string.
   const declared = noticesOf && Object.prototype.hasOwnProperty.call(noticesOf, type) ? noticesOf[type] : null;
   if (declared) {
