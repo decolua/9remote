@@ -9,7 +9,7 @@ import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import { RemoteTargets, tailOf } from "@/features/terminal/components/TerminalEmptyState";
-import { Monitor, Zap, ArrowRight, KeyRound, QrCode, Settings } from "@/shared/components/ui/Icon";
+import { Monitor, ArrowRight, KeyRound, QrCode, Settings } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -154,9 +154,7 @@ export default function SessionList({
         style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
       >
         <div className="flex items-center gap-3 min-w-0">
-          <div className="p-1.5 bg-brand-500/10 rounded-brand flex-shrink-0">
-            <Zap className="text-brand-500 w-5 h-5" />
-          </div>
+          <img src="/icon-192.png" alt="9Remote" draggable={false} className="w-5 h-5 rounded-brand flex-shrink-0" />
           <h1 className="text-text text-lg font-semibold truncate">{t("sessions.headerTitle")}</h1>
           <span
             className={`w-2 h-2 rounded-full flex-shrink-0 ${connected ? "bg-green-500" : "bg-red-500 animate-pulse"}`}
