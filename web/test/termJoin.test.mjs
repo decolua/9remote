@@ -136,7 +136,7 @@ test("join: delegates size negotiation to doResize({join:true}) via rAF", async 
   assert.equal(typeof fireJoinRef.current, "function");
 });
 
-test("join: payload with size only when agent advertises joinSessionSize", async () => {
+test("join: payload with size only when host advertises joinSessionSize", async () => {
   const socket = { emit: spy((_ev, payload, ack) => { setTimeout(() => ack({ success: true, total: 99, seq: 5, cwd: "/x" }), 0); }) };
   const term = makeTerm();
   const refs = makeRefs();

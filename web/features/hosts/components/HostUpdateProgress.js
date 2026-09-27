@@ -5,7 +5,7 @@ import { Loader2 } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 
 // Self-update is opaque from the web: the CLI process does the work while the
-// agent's server dies mid-way, so nothing continuous can flow over the bus.
+// host's server dies mid-way, so nothing continuous can flow over the bus.
 // Progress is a phased estimate over the known timeline instead. Only the bar
 // shows — the phase text rides along as the tooltip.
 const PHASES = [

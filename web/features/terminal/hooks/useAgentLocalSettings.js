@@ -1,17 +1,17 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { isHostEnvironment } from "@/shared/utils/localOrigin";
 
-// Agent-local settings, reachable only on the origin the agent itself serves
-// (same localhost-only APIs the agent dashboard uses). Outside that context
+// Host-local settings, reachable only on the origin the host itself serves
+// (same localhost-only APIs the host dashboard uses). Outside that context
 // every call is skipped and the state stays inert.
-export function useAgentLocalSettings() {
+export function useHostLocalSettings() {
   const [autoStart, setAutoStart] = useState(null); // null = unknown yet
-  const [unlock, setUnlock] = useState(null);       // agent /api/desktop-unlock payload
+  const [unlock, setUnlock] = useState(null);       // host /api/desktop-unlock payload
 
   useEffect(() => {
-    if (!isAgentEnvironment()) return;
+    if (!isHostEnvironment()) return;
     fetch("/api/autostart", { cache: "no-store" }).then((r) => r.json())
       .then((d) => setAutoStart(!!d?.enabled)).catch(() => {});
     fetch("/api/desktop-unlock", { cache: "no-store" }).then((r) => r.json())
@@ -41,13 +41,23 @@ export function useAgentLocalSettings() {
       .catch(refreshUnlock);
   }, [unlock, refreshUnlock]);
 
-  const stopAgent = useCallback(() => {
+  const stopHost = useCallback(() => {
     fetch("/api/ui/stop", { method: "POST" }).catch(() => {});
   }, []);
 
-  const shutdownAgent = useCallback(() => {
+  const shutdownHost = useCallback(() => {
     fetch("/api/ui/shutdown", { method: "POST" }).catch(() => {});
   }, []);
 
-  return { autoStart, unlock, toggleAutoStart, toggleUnlock, stopAgent, shutdownAgent };
+  return {
+    autoStart,
+    unlock,
+    toggleAutoStart,
+    toggleUnlock,
+    stopHost,
+    shutdownHost,
+    stopAgent: stopHost,
+    shutdownAgent: shutdownHost
+  };
 }
+export const useAgentLocalSettings = useHostLocalSettings;

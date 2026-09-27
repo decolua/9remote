@@ -256,7 +256,7 @@ export const useFleetStore = create((set, get) => ({
     const h = get().hosts[head];
     if (!h || h.updating) return;
     // The notice is acted on: drop it now so the pill cannot linger (or take a
-    // second tap) while the agent restarts. Whatever the machine reports on the
+    // second tap) while the host restarts. Whatever the machine reports on the
     // far side of the restart is the truth — the reconnect fills it back in.
     const clearNotice = { updating: true, updateAvailable: null };
     if (h.status === "full") {

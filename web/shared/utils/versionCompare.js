@@ -1,4 +1,4 @@
-// Semver-ish x.y.z comparison (agent's own isNewerVersion mirror). Used to keep
+// Semver-ish x.y.z comparison (host's own isNewerVersion mirror). Used to keep
 // a reported update honest: it only means something when the offered version is
 // actually ahead of the one the host is running.
 export function isNewer(latest, current) {

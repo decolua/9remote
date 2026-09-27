@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef } from "react";
 import { usePendingDeviceStore } from "@/features/session/stores/pendingDeviceStore";
-import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { isHostEnvironment } from "@/shared/utils/localOrigin";
 
 const PENDING_POLL_MS = 3000;
 
@@ -13,8 +13,8 @@ const post = (path, body) => fetch(path, {
 }).catch(() => null);
 
 /**
- * Global approval gate — mounted once at the workspace root (agent env only).
- * Watches the agent's SSE stream + polls for pending approvals, so a new device
+ * Global approval gate — mounted once at the workspace root (host env only).
+ * Watches the host's SSE stream + polls for pending approvals, so a new device
  * asking in shows the approve modal no matter which view is open.
  */
 export default function PendingDeviceApprovalModal() {
@@ -27,7 +27,7 @@ export default function PendingDeviceApprovalModal() {
   useEffect(() => { pendingRef.current = pendingDevice; }, [pendingDevice]);
 
   useEffect(() => {
-    if (!isAgentEnvironment()) return;
+    if (!isHostEnvironment()) return;
     const es = new EventSource("/api/ui/events");
     es.onmessage = (e) => {
       let data;

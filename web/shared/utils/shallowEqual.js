@@ -1,6 +1,6 @@
 "use client";
 
-// The agent re-sends whole lists and maps that are usually identical to what we
+// The host re-sends whole lists and maps that are usually identical to what we
 // already hold. Handing React a fresh object anyway changes the identity it
 // compares on, so an unchanged payload re-renders every tab, the sidebar, the
 // status bar and the bell — and leaves the old one behind as garbage for the GC

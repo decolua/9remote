@@ -25,7 +25,7 @@ const nextConfig = {
   // prerender of error/not-found pages under monorepo root.
   outputFileTracingRoot: monorepoRoot,
   // Turbopack infers the monorepo root from the root lockfile and resolves/watches
-  // the whole tree (agent/, expo/) — pinning to web/ shrinks dev memory (vercel/next.js#94432).
+  // the whole tree (host/, expo/) — pinning to web/ shrinks dev memory (vercel/next.js#94432).
   turbopack: {
     root: __dirname
   },

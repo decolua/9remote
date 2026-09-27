@@ -6,7 +6,7 @@
 /**
  * Build `{ relativePath: status }` from a gitStatus() result, marking every parent
  * directory of a changed file as "folder-changed".
- * Accepts both payload shapes seen from the agent: {path,status} and {file,code}.
+ * Accepts both payload shapes seen from the host: {path,status} and {file,code}.
  * `prefix` re-keys a nested repo's entries under their path relative to the workspace.
  */
 export function buildGitStatusMap(result, prefix = "") {
@@ -42,7 +42,7 @@ export async function buildWorkspaceGitStatus(fileBus, workspace) {
   const scan = await fileBus.gitScanRepos?.(workspace);
   const repos = (scan?.success ? scan.repos : []) || [];
   const maps = await Promise.all(repos.map(async (repo) => {
-    // Windows agents send relPath with backslashes; map keys are forward-slash.
+    // Windows hosts send relPath with backslashes; map keys are forward-slash.
     const rel = String(repo.relPath || "").split("\\").join("/");
     if (!rel) return null; // the root itself — already tried and failed above
     const res = await fileBus.gitStatus(repo.path);

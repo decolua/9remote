@@ -45,7 +45,7 @@ test("closing a terminal invalidates history, which named it as live", () => {
   assert.ok(store().agentHistory["/w"], "seeded");
   store().closeSession("dead3");
   // Invalidated, not discarded: the panel keeps rendering while the next poll
-  // re-asks the agent which terminals are live.
+  // re-asks the host which terminals are live.
   assert.equal(store().agentHistory["/w"].at, 0);
   assert.equal(store().agentHistory["/w"].sessions.length, 1);
 });
@@ -92,7 +92,7 @@ test("invalidated rows are stale enough that the next poll refetches them", () =
 });
 
 test("resuming a row refreshes history, so the new terminal shows as its owner", () => {
-  // The claim happens on the agent; the panel only learns about it by asking
+  // The claim happens on the host; the panel only learns about it by asking
   // again. Without invalidating, the row it was just resumed from stays grey
   // until the poll — the terminal is linked but nothing on screen says so.
   store().setAgentHistory("/w", [{ agent: "claude", sessionId: "conv-1", openSessionId: null }]);

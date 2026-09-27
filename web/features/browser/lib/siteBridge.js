@@ -39,7 +39,7 @@ function onChunk(data) {
     return;
   }
   if (!entry) {
-    // runAgentRequest registers the entry before emitting — a chunk with no
+    // runHostRequest registers the entry before emitting — a chunk with no
     // entry is a late straggler after the reply already resolved. Ignore.
     return;
   }
@@ -53,7 +53,7 @@ function onChunk(data) {
   if (done && entry.resolve) entry.resolve(done);
 }
 
-function runAgentRequest(msg) {
+function runHostRequest(msg) {
   const { reqId } = msg;
   return new Promise((resolve) => {
     const entry = { slots: [], total: null, status: null, headers: null, resolve, timer: null };
@@ -67,14 +67,14 @@ function runAgentRequest(msg) {
 }
 
 function onProxyMessage(event) {
-  // The proxy shell asks this page to reach the agent, so anything arriving
+  // The proxy shell asks this page to reach the host, so anything arriving
   // here speaks with the bus's authority. Only the shell's own origin may.
   if (!isSitesOrigin(event.origin)) return;
   const msg = event.data;
   if (!msg || typeof msg !== "object") return;
 
   if (msg.type === "site:request") {
-    runAgentRequest(msg.payload).then((reply) => {
+    runHostRequest(msg.payload).then((reply) => {
       try {
         event.source?.postMessage({ type: "site:reply", id: msg.id, payload: reply }, SITES_ORIGIN);
       } catch { /* shell gone */ }

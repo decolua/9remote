@@ -163,6 +163,7 @@ function TerminalStatusBar({
   hostKey = null,
   sessionState: propState,
   sessionName = "",
+  hostVersion = "",
   agentVersion = "",
   platform = "",
   homeDir = null,
@@ -243,8 +244,8 @@ function TerminalStatusBar({
         {(conn.platform || platform) && (
           <span className="uppercase tracking-wide">{PLATFORM_LABEL[conn.platform || platform] || conn.platform || platform}</span>
         )}
-        {(conn.version || agentVersion) && (
-          <span className="text-text-subtle">v{conn.version || agentVersion}</span>
+        {(conn.version || hostVersion || agentVersion) && (
+          <span className="text-text-subtle">v{conn.version || hostVersion || agentVersion}</span>
         )}
         {/* Connection: WS / WS·LOCAL / STUN — carrier is "ws" or an RTC detail
             ("dc-stun"/"dc-turn"); anything non-ws is the RTC carrier. Endpoint on hover. */}

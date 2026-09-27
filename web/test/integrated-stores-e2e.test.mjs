@@ -104,7 +104,7 @@ await test("Full cycle: connect -> notifications -> files -> carrier drop -> rec
   assert.equal(newFiles.success, true);
   assert.equal(newFiles.files[0].name, "reconnected.js");
 
-  // 6. User types in session 1 -> notification is cleared, the agent's
+  // 6. User types in session 1 -> notification is cleared, the host's
   // statusCleared broadcast flips the state to idle (tool icon stays)
   useNotificationStore.getState().clearNotification("session-1");
   useFleetStore.getState().applyStatusCleared(HEAD, "session-1");

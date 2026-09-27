@@ -5,7 +5,7 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { tileStatsFrom } from "@/features/remote/lib/tileBinaryHeader";
 import { debugLog } from "@/shared/utils/debugLog";
 
-// Screen-stream lifecycle: agent bus listeners, the (re)stream handshake, and the
+// Screen-stream lifecycle: host bus listeners, the (re)stream handshake, and the
 // keep-alive effects that guarantee a painted canvas (periodic hash sync, dimension
 // recovery, pause while hidden). All of it is keyed on the same bus + connection,
 // so it lives together.
@@ -87,26 +87,26 @@ export function useRemoteStream({
     };
 
     // Fresh handshake: wipe stale client tiles/hashes then request a full frame.
-    // Reused on both mount and remote:ready (fired by agent after it (re)attaches
-    // handlers for a NEW bus post-reconnect — the reliable "agent is ready" signal,
-    // avoiding the race where start-streaming lands before addClient() on the agent).
+    // Reused on both mount and remote:ready (fired by host after it (re)attaches
+    // handlers for a NEW bus post-reconnect — the reliable "host is ready" signal,
+    // avoiding the race where start-streaming lands before addClient() on the host).
     const doRestream = () => {
       cleanupTiles();
       bus.emit("get-screen-dimensions");
-      // Ask the agent to re-emit the current lock state — the initial
+      // Ask the host to re-emit the current lock state — the initial
       // screen-locked event fires before this listener mounts (race).
       bus.emit("get-unlock-state");
-      // start-streaming alone clears agent checksums + pushes a full frame. Do NOT also
-      // emit request-screen-with-hashes: it races the stream loop, fills the agent's
-      // lastTileChecksums without delivering a full frame → agent thinks client is
+      // start-streaming alone clears host checksums + pushes a full frame. Do NOT also
+      // emit request-screen-with-hashes: it races the stream loop, fills the host's
+      // lastTileChecksums without delivering a full frame → host thinks client is
       // synced → only diffs sent → black canvas.
       bus.emit("start-streaming");
     };
 
-    // Agent (re)attached remote handlers on a new bus → reset everything fresh.
+    // Host (re)attached remote handlers on a new bus → reset everything fresh.
     const onRemoteReady = () => doRestream();
 
-    // Host clipboard changed → stash text + badge. Agent seeds baseline on attach
+    // Host clipboard changed → stash text + badge. Host seeds baseline on attach
     // (covers empty clipboard), so every event here is a real change worth showing.
     const onClipboardUpdate = ({ text, hash }) => {
       setClipboardText((prev) => {
@@ -117,12 +117,12 @@ export function useRemoteStream({
       setClipboardNew(true);
     };
 
-    // Multi-monitor list from agent → drives the switcher UI.
+    // Multi-monitor list from host → drives the switcher UI.
     const onMonitors = ({ list, activeIndex }) => {
       setMonitors(Array.isArray(list) ? list : []);
       if (typeof activeIndex === "number") setActiveMonitorIndex(activeIndex);
     };
-    // Agent switched the active display → drop stale tiles + reset pan so the
+    // Host switched the active display → drop stale tiles + reset pan so the
     // next frame paints the new monitor cleanly on a resized canvas. Zoom is
     // kept: it is a ratio, so it stays meaningful across monitor sizes.
     const onFrameMeta = (meta) => {
@@ -147,7 +147,7 @@ export function useRemoteStream({
     const onCursorShape = (data) => setCursorShape(data?.shape ?? null);
     bus.on("cursor-shape", onCursorShape);
 
-    // Initial handshake on mount — agent may have emitted remote:ready before this
+    // Initial handshake on mount — host may have emitted remote:ready before this
     // component mounted (bus already connected via terminal) so listener missed it.
     doRestream();
 
@@ -190,14 +190,14 @@ export function useRemoteStream({
     return () => clearInterval(id);
   }, [streaming, connected, busRef, requestScreenWithHashes, renderedTilesRef]);
 
-  // WS reconnect (new server bus) is handled by the agent's remote:ready event
+  // WS reconnect (new server bus) is handled by the host's remote:ready event
   // → onRemoteReady → doRestream. No bus.id polling needed.
 
   // Canvas has no dimensions → tiles draw into a 0×0 canvas → black screen while input
   // still works (mouse coords use %). Happens on re-entry: a fresh <canvas> mounts with
   // width=0 and the screen-dimensions event may have already fired. Independent of
   // `streaming` (dimensions must be applied regardless). Apply last known size, else ask
-  // the agent. Runs immediately then retries until the canvas is sized.
+  // the host. Runs immediately then retries until the canvas is sized.
   useEffect(() => {
     if (!connected) return;
     const ensureSized = () => {

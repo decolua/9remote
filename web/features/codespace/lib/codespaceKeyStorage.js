@@ -1,4 +1,4 @@
-// Map codespace name -> agent apiKey (kept in localStorage)
+// Map codespace name -> host apiKey (kept in localStorage)
 const STORAGE_KEY = "9remote_codespace_keys";
 
 function read() {

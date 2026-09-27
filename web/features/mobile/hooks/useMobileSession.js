@@ -33,7 +33,7 @@ export function useMobileSession({ busRef, connected, devices, startAvd, stopAvd
     setSession(null);
   }, [busRef, setSession]);
 
-  // Cancel an in-flight open: stops whatever exists now (the agent supersedes
+  // Cancel an in-flight open: stops whatever exists now (the host supersedes
   // a pending mobile:start on mobile:stop), and open() shuts the device down
   // when its boot resolves after the cancel.
   const cancel = useCallback(() => {
@@ -99,7 +99,7 @@ export function useMobileSession({ busRef, connected, devices, startAvd, stopAvd
     return () => clearTimeout(id);
   }, [devices, meta, starting, serial, open, stopping]);
 
-  // The agent restarts the encoder at a smaller size when the link cannot carry
+  // The host restarts the encoder at a smaller size when the link cannot carry
   // the requested one. The canvas and decoder are keyed on meta, so adopting the
   // new meta is what re-sizes them.
   useEffect(() => {
@@ -113,7 +113,7 @@ export function useMobileSession({ busRef, connected, devices, startAvd, stopAvd
     return () => bus.off("mobile:resized", onResized);
   }, [busRef, connected, setSession]);
 
-  // The agent tears the session down on disconnect; forget it here too so a
+  // The host tears the session down on disconnect; forget it here too so a
   // reconnect starts fresh instead of painting into a dead decoder.
   useEffect(() => {
     if (!connected && startedRef.current) {
@@ -123,7 +123,7 @@ export function useMobileSession({ busRef, connected, devices, startAvd, stopAvd
   }, [connected, setSession]);
 
   // No stop-on-unmount: this tree is remounted whenever the desktop dock moves
-  // the mirror, and the agent session is meant to survive that. It is ended by
+  // the mirror, and the host session is meant to survive that. It is ended by
   // the explicit close/stop paths instead.
 
 

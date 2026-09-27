@@ -69,7 +69,7 @@ export function useWorkspaceFileNav({
   const handlePathChange = useCallback((workspacePath, currentPath) => {
     // Persist the last visited folder per workspace so the next open restores it.
     // Do NOT patch viewStack here — FileExplorer's onPathChange fires on every currentPath
-    // change (incl. agent-normalized paths) and writing it back triggers a re-mount loop.
+    // change (incl. host-normalized paths) and writing it back triggers a re-mount loop.
     updateRecentWorkspacePath(workspacePath, currentPath, scope);
   }, []);
 

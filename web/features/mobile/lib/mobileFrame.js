@@ -1,5 +1,5 @@
 // Binary framing for Android video access units over the transport's ordered
-// "file" channel. Mirrored verbatim in agent/features/mobile/mobileFrame.js —
+// "file" channel. Mirrored verbatim in host/features/mobile/mobileFrame.js —
 // change both sides together.
 //
 // An access unit exceeds the SCTP message cap, so it is split into chunks that

@@ -2,7 +2,7 @@
 
 // Device chooser. Running and stopped devices share one list: tapping a row
 // opens it, booting first when it needs booting. "+" adds a device in one
-// tap (the agent handles every install); ⋮ on a stopped AVD deletes or wipes.
+// tap (the host handles every install); ⋮ on a stopped AVD deletes or wipes.
 
 import { useState } from "react";
 import { Smartphone, Monitor, Play, Square, Loader2, RefreshCw, Zap, Plus, Trash2, RotateCw, MoreVertical } from "@/shared/components/ui/Icon";
@@ -60,7 +60,7 @@ export default function DevicePicker({
         </button>
       </div>
 
-      {/* Setup runs agent-side; this banner is the way back to its progress
+      {/* Setup runs host-side; this banner is the way back to its progress
           after the modal was closed (or the view was left and reopened). */}
       {sdkJob && sdkJob.phase !== "done" && sdkJob.phase !== "error" && (
         <button

@@ -38,7 +38,7 @@ import AnimatedBackground from "@/features/landing/components/AnimatedBackground
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
 import { isLoopbackOrigin } from "@/shared/utils/localOrigin";
-import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
+import { AGENT_PORT, LOCAL_HOST_STATE } from "@/shared/constants/API";
 
 import SessionList from "@/features/session/components/SessionList";
 import { useFleetStore, emitWhenReady } from "@/shared/stores/fleetStore";
@@ -183,11 +183,11 @@ export default function WorkspaceLayout({ children }) {
 
   useEffect(() => {
     setHydrated(true);
-    // Only the agent's own port: there the agent serves the page and holds the
+    // Only the host's own port: there the host serves the page and holds the
     // key, so a reload must not dump the user back on the login screen. A page
     // on the web dev server is loopback too — it logs in like any other build.
     if (!auth?.apiKey && isLoopbackOrigin() && window.location.port === String(AGENT_PORT)) {
-      fetch(LOCAL_AGENT_STATE)
+      fetch(LOCAL_HOST_STATE)
         .then((r) => (r.ok ? r.json() : null))
         .then((data) => {
           if (data?.permanentKey) {
@@ -224,7 +224,7 @@ export default function WorkspaceLayout({ children }) {
       window.removeEventListener("contextmenu", onContextMenu);
     };
   }, []);
-  const { bus, busRef, protocolRef, disconnect, reconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, platform, agentVersion, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
+  const { bus, busRef, protocolRef, disconnect, reconnect, connected, connectionMode, carrier, remoteAvailable, mobileAvailable, platform, hostVersion, agentVersion, retryStatus, approvalStatus, admitted, loadSessions, createSession, deleteSession, renameSession, createWorkspace, renameWorkspace, deleteWorkspace, setWorkspaceHiddenRepos, reorderSession } = useAgentBus();
   // Fleet: one background bus per saved host other than the current one; the
   // mobile home shows the fleet overview until the user enters a host (focus).
   const { loadKeys, saveKey, renameKey, removeKey } = useApiKeyStorage();
@@ -872,7 +872,8 @@ export default function WorkspaceLayout({ children }) {
             busRef={busRef}
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
-            agentVersion={agentVersion}
+            hostVersion={hostVersion || agentVersion}
+            agentVersion={hostVersion || agentVersion}
             carrier={carrier}
             workspaces={workspaces}
             onAddWorkspace={openFolderPicker}
@@ -897,7 +898,8 @@ export default function WorkspaceLayout({ children }) {
         {(isDesktop || openedSessions.length > 0) && (
           <TerminalWorkspace
             platform={platform}
-            agentVersion={agentVersion}
+            hostVersion={hostVersion || agentVersion}
+            agentVersion={hostVersion || agentVersion}
             sessions={allSessions}
             workspaces={allWorkspaces}
             onCreateAnyHost={createSessionOnHost}
@@ -1140,7 +1142,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Global Slide Menu — single instance at page level */}
         <SlideMenu />
-        {/* Agent-env approval gate — a new device asking in pops the modal on any view */}
+        {/* Host-env approval gate — a new device asking in pops the modal on any view */}
         <PendingDeviceApprovalModal />
 
         {/* Mod+Shift+P file search — reuses the file explorer's palette in files mode */}

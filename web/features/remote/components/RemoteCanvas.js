@@ -306,7 +306,7 @@ export default function RemoteCanvas({
       {/* Lock-screen overlay — host is on the Winlogon desktop. Win11-style
           bloom background. Two modes:
             ready     → Windows PIN/password input (worker running)
-            not ready → prompt to grant permission on the agent UI first */}
+            not ready → prompt to grant permission on the host UI first */}
       {screenLocked && (
         <div
           className="absolute inset-0 z-10 flex items-center justify-center"

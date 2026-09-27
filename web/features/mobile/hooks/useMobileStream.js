@@ -1,7 +1,7 @@
 "use client";
 
 // Receives chunked H.264 access units off the transport bus, reassembles them,
-// and paints via WebCodecs. The canvas is sized by the agent's stream meta, so
+// and paints via WebCodecs. The canvas is sized by the host's stream meta, so
 // device rotation arrives as a new meta rather than a resize guess.
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -165,7 +165,7 @@ export function useMobileStream({ busRef, connected, canvasRef, meta }) {
       }
     };
 
-    // Tell the agent a frame has fully arrived so it can send the next one. It
+    // Tell the host a frame has fully arrived so it can send the next one. It
     // waits on this: without it the pump runs at encoder speed and a slow
     // tunnel accumulates a backlog instead of simply dropping to fewer frames.
     // Coalesced to one emit per frame, and only for the newest seq — the
@@ -227,7 +227,7 @@ export function useMobileStream({ busRef, connected, canvasRef, meta }) {
     };
   }, [busRef, connected, canvasRef, meta, requestKeyframe]);
 
-  // A hidden tab still holds the bus and still acks, so the agent has no way
+  // A hidden tab still holds the bus and still acks, so the host has no way
   // to tell nobody is watching. Say so explicitly, and ask for a keyframe on the
   // way back since the paused stream left a gap.
   useEffect(() => {
@@ -241,7 +241,7 @@ export function useMobileStream({ busRef, connected, canvasRef, meta }) {
     document.addEventListener("visibilitychange", onVisibility);
     // Always state the current value on mount, never only the hidden case: this
     // effect is re-run whenever the mirror moves between float and pinned, and a
-    // remount that only reported "hidden" would leave the agent paused forever.
+    // remount that only reported "hidden" would leave the host paused forever.
     bus.emit("mobile:visible", { visible: !document.hidden });
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [busRef, connected, meta, requestKeyframe]);

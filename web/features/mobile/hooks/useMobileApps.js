@@ -40,7 +40,7 @@ export function useMobileApps({ busRef, protocolRef, serial, enabled }) {
 
   /**
    * Install an APK the user dropped. The bytes ride the existing file-upload
-   * pipeline into a staging dir, then the agent installs and deletes them.
+   * pipeline into a staging dir, then the host installs and deletes them.
    */
   const install = useCallback(async (file) => {
     if (!file || !serial) return;

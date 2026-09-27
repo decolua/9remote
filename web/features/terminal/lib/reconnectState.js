@@ -34,7 +34,7 @@ export function resetReconnectState(refs) {
 }
 
 // Who owns the recovery lane right now. Exactly one occupant at a time: a peek
-// asking the agent for its newest seq, a gapFetch pulling a missing range, or a
+// asking the host for its newest seq, a gapFetch pulling a missing range, or a
 // join on its way to wiping the pane. The rule was spelled out inline at each of
 // runRecover's two decision points, and the join was missing from both — so a
 // second trigger during one ran straight through and wiped the scrollback the

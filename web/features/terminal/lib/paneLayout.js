@@ -7,7 +7,7 @@ export const STAGGER_MS = 120;
 
 export const UNGROUPED_KEY = "__ungrouped__";
 
-// Session -> workspace id. Falls back to the legacy groupId while agents on older
+// Session -> workspace id. Falls back to the legacy groupId while hosts on older
 // versions still only send that field.
 export const sessionWorkspaceId = (session) => session?.workspaceId ?? session?.groupId ?? null;
 

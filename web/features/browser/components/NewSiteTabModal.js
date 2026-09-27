@@ -151,7 +151,7 @@ export default function NewSiteTabModal({ isOpen, onClose, onOpenSite, busRef, c
         <div className="p-4 overflow-y-auto modal-scrollable" style={{ maxHeight: "45vh" }}>
           {!connected ? (
             <div className="py-8 text-center text-sm text-text-muted">
-              {t("sites.notConnected", { defaultValue: "Not connected to the agent" })}
+              {t("sites.notConnected", { defaultValue: "Not connected to the host" })}
             </div>
           ) : sites === null ? (
             <div className="flex items-center justify-center gap-2 py-8 text-brand-500 text-sm">

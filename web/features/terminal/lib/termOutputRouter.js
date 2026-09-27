@@ -67,12 +67,12 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
     if (payload.sessionId !== sessionId) return;
     // caps.binOut upgrade: WS delivers bytes as a binary attachment (ArrayBuffer).
     // Everything downstream (batcher, mirror, gapFetch) takes Uint8Array — wrap once
-    // at the door. b64-string (old agent / RTC codec) path is untouched below.
+    // at the door. b64-string (old host / RTC codec) path is untouched below.
     if (payload.data instanceof ArrayBuffer) payload = { ...payload, data: new Uint8Array(payload.data) };
     refs.lastOutputAtRef.current = Date.now();
     const dlen = payload.data?.length || 0;
     refs.outputTotalRef.current += dlen;
-    // Live output spams the buffer (agent streams many chunks/sec) — only log anomalies
+    // Live output spams the buffer (host streams many chunks/sec) — only log anomalies
     if (payload.replay || payload.isHistoryPrefix) {
       termLog("recv", `len=${dlen} replay=${!!payload.replay} prefix=${!!payload.isHistoryPrefix} total=${refs.outputTotalRef.current}`);
     }
@@ -147,9 +147,9 @@ export function createOutputRouter({ sessionId, term, writeBatcherRef, gapFetch,
     // so order stays [gap … queued live] without a flash.
     if (gapFetch.queueLive(data, payload.seq)) return;
 
-    // Seq gap detection (plan F): agent stamps seq on live chunks. A gap means output was
+    // Seq gap detection (plan F): host stamps seq on live chunks. A gap means output was
     // lost during a background suspension the warm heuristic missed. No seq field (old
-    // agent) → skip. STALE (duplicate/late/reordered) → drop, the bytes were already rendered.
+    // host) → skip. STALE (duplicate/late/reordered) → drop, the bytes were already rendered.
     if (payload.seq != null) {
       const verdict = classifyLiveChunk(refs.lastSeqRef.current, payload.seq);
       if (verdict === GAP_DETECTED) {

@@ -1,4 +1,4 @@
-// Device trust: pins agent host key and stores key tail per HEAD for E2E security.
+// Device trust: pins host key and stores key tail per HEAD for E2E security.
 
 import { CHANNELS, TAIL_REJECT_REASON, PENDING_SAVE_KEY, WANTS_SAVE_KEY, KEYS_CHANGED_EVENT } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
@@ -7,7 +7,7 @@ import { hostFp2Of } from "./tailSeal";
 const TRUST_KEY = "9remote_device_trust";
 const PENDING_FP2_KEY = "9remote_pending_fp2";
 const ENROLL_RETRY_MS = 2500;
-// Matches the one-time code TTL on the agent (10 minutes)
+// Matches the one-time code TTL on the host (10 minutes)
 const PENDING_FP2_TTL_MS = 10 * 60 * 1000;
 
 function readTrustMap() {
@@ -51,7 +51,7 @@ export async function hostFingerprint(edPubB64, xPubB64) {
 export async function pinHostKeysWithFp2(apiKey, hostKeys) {
   debugLog("auth", "[seal] pin?", { hasEd: !!hostKeys?.ed, hasX: !!hostKeys?.x, pending: getPendingFp2() });
   if (!apiKey || !hostKeys?.ed || !hostKeys?.x) {
-    debugLog("auth", "[seal] pin SKIPPED — agent sent no sealing key (old agent?)");
+    debugLog("auth", "[seal] pin SKIPPED — host sent no sealing key (old host?)");
     return false;
   }
   // Skip if already anchored with both host keys.
@@ -75,7 +75,7 @@ export async function pinHostKeysWithFp2(apiKey, hostKeys) {
   return true;
 }
 
-// Ephemeral fp2 from pairing code with TTL matching agent code expiration.
+// Ephemeral fp2 from pairing code with TTL matching host code expiration.
 export function setPendingFp2(fp2) {
   if (typeof window === "undefined") return;
   sessionStorage.setItem(PENDING_FP2_KEY, JSON.stringify({ fp2, exp: Date.now() + PENDING_FP2_TTL_MS }));
@@ -132,7 +132,7 @@ function upgradeSavedKey(headKey, fullKey) {
   } catch {}
 }
 
-// Commits pending key to storage once agent approves device.
+// Commits pending key to storage once host approves device.
 export function commitPendingKey() {
   if (typeof window === "undefined") return;
   try {
@@ -194,13 +194,13 @@ export function handleDeviceAuthEvent(pm, event, data) {
   if (event === "device:keyIssued") {
     // Pairing complete: every later proof (WS reconnect, RTC re-offer) must
     // present the KEY tail WITHOUT the one-time key — while tempKey is still
-    // attached the agent validates against the RANDOM pairing tail instead,
+    // attached the host validates against the RANDOM pairing tail instead,
     // and the mismatch kills the code and drops the socket. Clear it from
     // this PM's auth, handshake included.
     pm._auth.tempKey = null;
     if (pm._auth.socketOptions?.auth) pm._auth.socketOptions.auth.tempKey = null;
     // And from the session store, or the next page load resurrects it: getAuth
-    // would rebuild the wire with the code attached, the agent (its pairing
+    // would rebuild the wire with the code attached, the host (its pairing
     // window still live) would judge the KEY tail against the CODE tail, and
     // the mismatch burns the code and kicks the user out — with the key itself
     // safely saved, which is exactly as confusing as it sounds.
@@ -237,7 +237,7 @@ export async function maybeSendTailProof(pm) {
   const { freshAuth } = await import("../adapters/freshAuth");
   const auth = await freshAuth({ apiKey, tempKey: pm._auth?.tempKey || null }, "rtc");
   if (!auth.keyTail && !auth.keyTailSealed) return; // v1 key, or no tail held
-  // Pass tempKey so agent validates against pairing code tail instead of API key tail.
+  // Pass tempKey so host validates against pairing code tail instead of API key tail.
   const sent = rtc.send(CHANNELS.control, {
     event: "device:tailProof",
     args: [{ keyTail: auth.keyTail, keyTailSealed: auth.keyTailSealed, tempKey: pm._auth?.tempKey || null }]

@@ -3,18 +3,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
-import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import { HOMEPAGE_URL } from "@/shared/constants/API";
 import { usePendingDeviceStore } from "@/features/session/stores/pendingDeviceStore";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/features/landing/constants/landingConfig";
 import "./agentDashboard.css";
 
-/* Full port of agent/ui's dashboard (MainScreen + App state layer). One home:
-   the workspace's Pair Device view, served by the agent's own origin, so every
+/* Full port of host dashboard (MainScreen + App state layer). One home:
+   the workspace's Pair Device view, served by the host's own origin, so every
    localhost-only API is same-origin here. The whole view collapses to a notice
    outside that context.
    ponytail: labels are English literals like the source screen; localize when
-   the agent-env UI vocabulary stabilizes. */
+   the host-env UI vocabulary stabilizes. */
 
 const LOGIN_URL = `${HOMEPAGE_URL}login`;
 // Every desktop installer, per OS and per version
@@ -548,7 +548,7 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
   );
 }
 
-/* ── Connect-from rows: every client that can reach this agent ──────────── */
+/* ── Connect-from rows: every client that can reach this host ──────────── */
 
 // One connect card = tile + title/sub + arrow, the whole card is the link.
 // hero-card supplies the glass + mirror sheen. icon: Material Symbols name or ReactNode.
@@ -597,7 +597,7 @@ export default function AgentDashboardView() {
   const [permissions, setPermissions] = useState({ screenRecording: false, accessibility: false });
   const [transport, setTransport] = useState(null);
   const [desktopEnabled, setDesktopEnabled] = useState(false);
-  const [agentReachable, setAgentReachable] = useState(true);
+  const [hostReachable, setHostReachable] = useState(true);
   const [updateVersion, setUpdateVersion] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [connections, setConnections] = useState([]);
@@ -618,6 +618,9 @@ export default function AgentDashboardView() {
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
   const [clientsOpen, setClientsOpen] = useState(false);
+  const [logs, setLogs] = useState([]);
+  const [logsOpen, setLogsOpen] = useState(false);
+  const logBoxRef = useRef(null);
 
   const versionRef = useRef("");
 
@@ -641,16 +644,39 @@ export default function AgentDashboardView() {
       .catch(() => {});
   }, []);
 
-  // Initial state + SSE stream — the agent's local event bus.
+  const fetchLogs = useCallback(() => {
+    fetch("/api/logs?lines=200", { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => { if (Array.isArray(d?.logs)) setLogs(d.logs); })
+      .catch(() => {});
+  }, []);
+
+  // Settings' "Host Logs" hops to this view and force-opens the section.
   useEffect(() => {
-    if (!isAgentEnvironment()) return;
+    const onOpenLogs = () => { setLogsOpen(true); fetchLogs(); };
+    window.addEventListener("host:openLogs", onOpenLogs);
+    window.addEventListener("agent:openLogs", onOpenLogs);
+    return () => {
+      window.removeEventListener("host:openLogs", onOpenLogs);
+      window.removeEventListener("agent:openLogs", onOpenLogs);
+    };
+  }, [fetchLogs]);
+
+  // Fresh tail sticks to the bottom while the section is open.
+  useEffect(() => {
+    if (logsOpen && logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
+  }, [logs, logsOpen]);
+
+  // Initial state + SSE stream — the host's local event bus.
+  useEffect(() => {
+    if (!isHostEnvironment()) return;
     let alive = true;
 
     fetch("/api/ui/state", { cache: "no-store" })
       .then((r) => r.json())
       .then((data) => {
         if (!alive || !data) return;
-        setAgentReachable(true);
+        setHostReachable(true);
         setMain({
           step: data.step ?? 0,
           stepDesc: data.stepDesc ?? "",
@@ -665,7 +691,7 @@ export default function AgentDashboardView() {
         if (data.transport) setTransport(data.transport);
         if (data.desktopEnabled !== undefined) setDesktopEnabled(data.desktopEnabled);
       })
-      .catch(() => alive && setAgentReachable(false));
+      .catch(() => alive && setHostReachable(false));
 
     fetch("/api/connections", { cache: "no-store" }).then((r) => r.json())
       .then((d) => alive && setConnections(d.connections ?? [])).catch(() => {});
@@ -684,7 +710,7 @@ export default function AgentDashboardView() {
     es.onmessage = (e) => {
       let data;
       try { data = JSON.parse(e.data); } catch { return; }
-      setAgentReachable(true);
+      setHostReachable(true);
       if (data.type === "state") {
         checkVersion();
         setMain({
@@ -718,10 +744,15 @@ export default function AgentDashboardView() {
         if (Array.isArray(data.presets)) setSleepPresets(data.presets);
       } else if (data.type === "remote") {
         setRemoteEnabled(!!data.enabled);
+      } else if (data.type === "log" && data.message) {
+        setLogs((prev) => {
+          const next = [...prev, data.message];
+          return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
+        });
       }
     };
-    es.onerror = () => setAgentReachable(false);
-    es.onopen = () => { setAgentReachable(true); checkVersion(); };
+    es.onerror = () => setHostReachable(false);
+    es.onopen = () => { setHostReachable(true); checkVersion(); };
 
     return () => { alive = false; es.close(); };
   }, [fetchDevices, checkVersion]);
@@ -797,11 +828,11 @@ export default function AgentDashboardView() {
     if (!d?.mode) setSleepInhibitMode(prev);
   };
 
-  /* ── non-agent env: nothing to show ── */
-  if (!isAgentEnvironment()) {
+  /* ── non-host env: nothing to show ── */
+  if (!isHostEnvironment()) {
     return (
       <div className="h-full grid place-items-center p-6">
-        <p className="text-sm text-text-muted text-center">Device pairing is only available in the agent&apos;s local view.</p>
+        <p className="text-sm text-text-muted text-center">Device pairing is only available in the host&apos;s local view.</p>
       </div>
     );
   }
@@ -818,9 +849,9 @@ export default function AgentDashboardView() {
 
       {/* 50/50 split — pairing left, manage right. Narrow: single column. */}
       <main className="flex-1 min-w-0 grid grid-cols-1 lg:grid-cols-2 overflow-y-auto lg:overflow-hidden">
-        {!agentReachable && (
+        {!hostReachable && (
           <div className="col-span-full px-4 py-2 text-center text-xs font-medium" style={{ background: "var(--danger)", color: "#fff" }}>
-            Agent unreachable — is the server still running?
+            Host unreachable — is the server still running?
           </div>
         )}
 
@@ -917,7 +948,7 @@ export default function AgentDashboardView() {
         >
           <UpdateBanner version={updateVersion} isUpdating={isUpdating} />
 
-          {/* Connect from — every client that can reach this agent. The QR/key on
+          {/* Connect from — every client that can reach this host. The QR/key on
               the left is the credential; these rows are where it gets used. */}
           <Section title="Connect from" first>
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
@@ -969,6 +1000,37 @@ export default function AgentDashboardView() {
                 />
               ))
             )}
+          </Section>
+
+          {/* Logs — collapsed by default; live-appended from the SSE stream. */}
+          <Section
+            title="Logs"
+            open={logsOpen}
+            onToggle={() => setLogsOpen((v) => {
+              if (!v) fetchLogs();
+              return !v;
+            })}
+          >
+            <div className="flex items-center justify-end gap-1.5 mb-2">
+              <IconBtn icon="refresh" onClick={fetchLogs} title="Refresh logs" />
+              <IconBtn
+                icon="delete_sweep"
+                danger
+                onClick={() => { post("/api/logs/clear"); setLogs([]); }}
+                title="Clear logs"
+              />
+            </div>
+            <div
+              ref={logBoxRef}
+              className="rounded-xl max-h-[280px] overflow-y-auto px-3 py-2.5"
+              style={{ background: "var(--row-bg)", border: "1px solid var(--border-subtle)" }}
+            >
+              {logs.length === 0 ? (
+                <p className="text-xs text-center py-3" style={{ color: "var(--text-muted)" }}>No logs</p>
+              ) : logs.map((line, i) => (
+                <p key={i} className="font-mono text-[11px] leading-[1.6] whitespace-pre-wrap break-all" style={{ color: "var(--text-muted)" }}>{line}</p>
+              ))}
+            </div>
           </Section>
         </section>
       </main>

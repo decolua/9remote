@@ -29,7 +29,8 @@ const ERROR_KEYS = {
   "bridge not connected — open the 9Remote app": "sites.errorNoBridge",
   "no-session": "sites.errorNoSession",
   "timeout": "sites.errorTimeout",
-  "no reply from the agent": "sites.errorNoReply"
+  "no reply from the agent": "sites.errorNoReply",
+  "no reply from the host": "sites.errorNoReply"
 };
 const siteErrorKey = (message) => ERROR_KEYS[message] || "sites.errorGeneric";
 

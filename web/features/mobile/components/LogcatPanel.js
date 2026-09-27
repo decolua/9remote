@@ -1,6 +1,6 @@
 "use client";
 
-// Logcat viewer. Filtering runs on the agent, so what arrives here is already
+// Logcat viewer. Filtering runs on the host, so what arrives here is already
 // the subset asked for; this only renders and follows the tail.
 
 import { useLayoutEffect, useRef, useState } from "react";

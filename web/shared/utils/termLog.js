@@ -1,7 +1,7 @@
 // Dev-only terminal/output logger with a ring buffer + UI viewer.
 // Mobile browsers can't open DevTools console, so on dev deploys (dev.*) or when
 // the localStorage flag is set, we collect entries here for the in-app log panel.
-import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { isHostEnvironment } from "@/shared/utils/localOrigin";
 
 const MAX = 800;
 const buffer = [];
@@ -9,9 +9,9 @@ const listeners = new Set();
 
 const isBrowser = typeof window !== "undefined";
 // Auto-enable on dev subdomain (dev.9remote.cc) or explicit opt-in. Production
-// (9remote.cc) and agent workspace are off by default — zero overhead, no buffer growth.
+// (9remote.cc) and host workspace are off by default — zero overhead, no buffer growth.
 const enabled = isBrowser && (
-  (location.hostname.startsWith("dev.") || (location.hostname === "localhost" && !isAgentEnvironment())) ||
+  (location.hostname.startsWith("dev.") || (location.hostname === "localhost" && !isHostEnvironment())) ||
   localStorage.getItem("9remote:termLog") === "1"
 );
 

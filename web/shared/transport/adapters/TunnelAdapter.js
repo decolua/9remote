@@ -21,7 +21,7 @@ export class TunnelAdapter {
 
   connect({ onSocket, onFail }) {
     const url = this._namespace ? `${this._tunnelUrl}${this._namespace}` : this._tunnelUrl;
-    // Mode label follows the ENDPOINT, not this class's name: an agent-served
+    // Mode label follows the ENDPOINT, not this class's name: a host-served
     // page connects to its own origin here, which IS the local carrier.
     const mode = this._tunnelUrl === window.location.origin ? "local" : "tunnel";
     const socket = io(url, {

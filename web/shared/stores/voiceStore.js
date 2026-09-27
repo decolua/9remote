@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { VOICE_LS_KEYS, VOICE_ENDPOINT_DEFAULT } from "@/shared/lib/voiceStt";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 
-// Voice input config, per-device with agent persistence. `enabled` gates the
+// Voice input config, per-device with host persistence. `enabled` gates the
 // mic buttons in every composer; `mode` picks the engine ("browser" Web Speech
 // or "ai"); `preset` picks the AI provider (gemini, openrouter, custom).
 const save = (key, value) => {
@@ -13,7 +13,7 @@ const save = (key, value) => {
   } catch {}
 };
 
-function pushToAgent(s) {
+function pushToHost(s) {
   try {
     const bus = useConnectionStore.getState().bus;
     if (!bus || typeof bus.emit !== "function") return;
@@ -34,6 +34,7 @@ function pushToAgent(s) {
     });
   } catch {}
 }
+const pushToAgent = pushToHost;
 
 export const useVoiceStore = create((set, get) => ({
   enabled: true,
@@ -47,11 +48,11 @@ export const useVoiceStore = create((set, get) => ({
   customModel: "",
   customKey: "",
   opencodeModel: "",
-  setEnabled: (v) => { save("enabled", v); set({ enabled: v }); pushToAgent(get()); },
-  setMode: (m) => { save("mode", m); set({ mode: m }); pushToAgent(get()); },
-  setPreset: (p) => { save("preset", p); set({ preset: p }); pushToAgent(get()); },
-  setField: (k, v) => { save(k, v); set({ [k]: v }); pushToAgent(get()); },
-  syncFromAgent: (remote) => {
+  setEnabled: (v) => { save("enabled", v); set({ enabled: v }); pushToHost(get()); },
+  setMode: (m) => { save("mode", m); set({ mode: m }); pushToHost(get()); },
+  setPreset: (p) => { save("preset", p); set({ preset: p }); pushToHost(get()); },
+  setField: (k, v) => { save(k, v); set({ [k]: v }); pushToHost(get()); },
+  syncFromHost: (remote) => {
     if (!remote || typeof remote !== "object") return;
     set((prev) => {
       const next = { ...prev };
@@ -69,7 +70,9 @@ export const useVoiceStore = create((set, get) => ({
       return next;
     });
   },
-  pushToAgent: () => pushToAgent(get()),
+  syncFromAgent: (remote) => get().syncFromHost(remote),
+  pushToHost: () => pushToHost(get()),
+  pushToAgent: () => pushToHost(get()),
 }));
 
 // Hydrate once in the browser; every consumer is a client component.

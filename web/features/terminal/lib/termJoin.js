@@ -33,7 +33,7 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
     requestAnimationFrame(() => doResizeRef.current?.({ join: true }));
     const fireJoin = (cols, rows) => {
       // Send the measured size in the join so a respawned PTY spawns at the right size
-      // (only when the agent advertises the capability — older agents expect a bare string).
+      // (only when the host advertises the capability — older hosts expect a bare string).
       const joinPayload = useTerminalStore.getState().agentCaps?.joinSessionSize
         ? { sessionId, cols, rows }
         : sessionId;
@@ -91,7 +91,7 @@ export function createJoinSession({ bus, sessionId, term, fitAddon, writeBatcher
             refs.joinClaimedRef.current = false; // the join is done — the recovery lane is free
             refs.setJoining(false);
           }, 0);
-          // total = bytes agent holds; ceiling for scroll-up fetch.
+          // total = bytes host holds; ceiling for scroll-up fetch.
           refs.historyTotalRef.current = res.total || 0;
           if (res.cwd) { refs.cwdRef.current = res.cwd; setCwd(res.cwd); useTerminalStore.getState().setCwd(sessionId, res.cwd); }
           // One-shot agent-CLI startup command (new-terminal modal). Consume-once so

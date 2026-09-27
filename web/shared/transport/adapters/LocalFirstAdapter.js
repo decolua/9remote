@@ -38,7 +38,7 @@ export class LocalFirstAdapter {
 
     const connectTunnel = () => {
       // Mode label follows the ENDPOINT, not the code path: connecting to the
-      // page's own origin (agent-served workspace) IS the local carrier, even
+      // page's own origin (host-served workspace) IS the local carrier, even
       // though it rides this function rather than the localIp probe.
       const mode = this._tunnelUrl === window.location.origin ? "local" : "tunnel";
       const socket = io(mkUrl(this._tunnelUrl), mkOpts(mode));

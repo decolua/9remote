@@ -161,7 +161,7 @@ test("batched packets (one seq per merged packet) complete the range", async () 
   const painted = [];
   const { gf, state } = makeGap({ lastSeq: 10, painted });
   gf.start(20);
-  // The agent merges 11..20 into two packets stamped with their last seq.
+  // The host merges 11..20 into two packets stamped with their last seq.
   state.acks[0]({ hit: true, count: 2 });
   gf.handleGapChunk("first-half", 15);
   gf.handleGapChunk("second-half", 20);

@@ -2,7 +2,7 @@
 // wire: the host must not report async work as `done`, and the client must not settle it
 // when the turn that launched it ends.
 import assert from "node:assert/strict";
-import { asyncHandle } from "../../agent/features/ai/toolEvent.js";
+import { asyncHandle } from "../../host/features/ai/toolEvent.js";
 import { settleRunningTools, runningAgents, runningAsync } from "../features/ai/lib/toolTree.js";
 
 // The real strings, copied off claude 2.1.270's stream-json output.

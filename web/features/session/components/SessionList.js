@@ -18,7 +18,7 @@ import AddHostModal from "@/features/hosts/components/AddHostModal";
 import { orderedHostsOf } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
-import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
 
@@ -29,7 +29,7 @@ export default function SessionList({
   tunnelUrl, apiKey, connectionMode = "tunnel",
   isActive = true, busRef: propBusRef, subscribeToPush, unsubscribeFromPush,
   onResumeAgentSession = null,
-  notifications: propNotifications, sessionStatus: propStatus, agentVersion,
+  notifications: propNotifications, sessionStatus: propStatus, hostVersion, agentVersion,
   carrier: propCarrier,
   workspaces = [], onRenameWorkspace, onDeleteWorkspace, onAddWorkspace,
   onOpenRemoteHost = null,
@@ -64,8 +64,8 @@ export default function SessionList({
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
   const pushView = useTerminalStore((s) => s.pushView);
-  // Pairing QR lives on the agent's own page — hide the entry on the public web.
-  const isAgentUi = isAgentEnvironment();
+  // Pairing QR lives on the host's own page — hide the entry on the public web.
+  const isHostUi = isHostEnvironment();
 
   const [bgTarget, setBgTarget] = useState(null);           // session whose background sheet is open
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
@@ -116,7 +116,8 @@ export default function SessionList({
       subscribeToPush,
       unsubscribeFromPush,
       notifications,
-      agentVersion,
+      hostVersion: hostVersion || agentVersion,
+      agentVersion: hostVersion || agentVersion,
       carrier
     });
     setCallbacks({
@@ -130,7 +131,7 @@ export default function SessionList({
   }, [
     isActive, connected, onOpenRemote, onLogout,
     setContext, setCallbacks, busRef, connectionMode, subscribeToPush,
-    unsubscribeFromPush, agentVersion, carrier, tunnelUrl, apiKey, notifications
+    unsubscribeFromPush, hostVersion, agentVersion, carrier, tunnelUrl, apiKey, notifications
   ]);
 
   // A history row naming a terminal that still exists focuses it instead of resuming a
@@ -167,7 +168,7 @@ export default function SessionList({
           {showButton("remote") && remoteHosts.length > 0 && (
             <HeaderButton icon={Monitor} label={t("menu.remoteDesktop")} onClick={pickHost} disabled={!connected} />
           )}
-          {isAgentUi && (
+          {isHostUi && (
             <HeaderButton icon={QrCode} label={t("connection.pairTab")} onClick={() => { vibrate(); pushView({ type: "pair" }); }} />
           )}
           <HeaderButton icon={KeyRound} label={t("hosts.addHost")} onClick={() => { vibrate(); setAddHostOpen(true); }} />

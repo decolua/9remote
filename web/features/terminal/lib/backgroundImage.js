@@ -1,5 +1,5 @@
 // Downscale an image file in the browser before upload — phone photos (5-12MB)
-// drop to a few hundred KB so the tunnel transfer stays fast; the agent then
+// drop to a few hundred KB so the tunnel transfer stays fast; the host then
 // recompresses and stores the final copy.
 export async function fileToScaledDataUrl(file, maxDim = 1600, quality = 0.8) {
   const bitmap = await createImageBitmap(file);

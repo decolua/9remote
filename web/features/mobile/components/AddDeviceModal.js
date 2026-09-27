@@ -1,7 +1,7 @@
 "use client";
 
 // Add-device modal — the whole setup surface. One tap on a device row and
-// the agent works out everything else (missing tools, image, AVD name);
+// the host works out everything else (missing tools, image, AVD name);
 // the only feedback is a single progress line with cancel.
 
 import { useState, useEffect, useCallback } from "react";
@@ -67,7 +67,7 @@ export default function AddDeviceModal({ isOpen, onClose, presets, sdkJob, onPro
 
   // Portaled to the body so the mobile view's stacking context cannot sink
   // the modal under sibling layers. Closing mid-download is always allowed:
-  // the job runs on the agent, and the picker's banner leads back to it.
+  // the job runs on the host, and the picker's banner leads back to it.
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-[2px] fade-in" onClick={close}>
       <div

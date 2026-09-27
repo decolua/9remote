@@ -1,6 +1,6 @@
 "use client";
 
-// Logcat tail. Filtering happens agent-side; this holds a bounded ring so a
+// Logcat tail. Filtering happens host-side; this holds a bounded ring so a
 // long session can't grow the tab's memory without bound.
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -68,7 +68,7 @@ export function useMobileLogcat({ busRef, serial, active, foregroundPackage }) {
     };
     bus.on("mobile:logcat", onLines);
     // packageName is omitted, not sent as null, until the user has chosen: that
-    // lets the agent scope to the foreground app immediately instead of
+    // lets the host scope to the foreground app immediately instead of
     // streaming everything until the app list arrives here.
     emitAck(bus, "mobile:logcatStart", {
       serial, minLevel, search, includeNoise,

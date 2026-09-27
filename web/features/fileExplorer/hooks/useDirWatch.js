@@ -5,7 +5,7 @@ import { FILE_WATCH } from "../constants/fileExplorer.js";
 
 const parentOf = (p) => p.slice(0, p.lastIndexOf("/")) || "/";
 
-// Keeps the agent watching exactly the directories the tree has open, and turns the
+// Keeps the host watching exactly the directories the tree has open, and turns the
 // resulting events into "reload these directories" callbacks.
 //
 // Four things keep this off the user's machine: only open directories are watched, never
@@ -46,7 +46,7 @@ export function useDirWatch({ dirs, fileBus, onDirsChanged, enabled = true, debo
 
     const handler = ({ type, path }) => {
       if (!path) return;
-      // "flooded" names the directory itself: the agent muzzled it and one reload of that
+      // "flooded" names the directory itself: the host muzzled it and one reload of that
       // directory stands in for the events it swallowed.
       const dir = type === "flooded" ? path : parentOf(path);
       if (!keep.has(dir)) return;
@@ -64,7 +64,7 @@ export function useDirWatch({ dirs, fileBus, onDirsChanged, enabled = true, debo
         if (watched.has(dir)) continue;
         watched.add(dir);
         const res = await watchDir(dir);
-        // Refused (agent at its own cap) or the bus dropped mid-call: forget it so a
+        // Refused (host at its own cap) or the bus dropped mid-call: forget it so a
         // later sync can try again rather than believing it is covered.
         if (!alive || res?.watching === false) watched.delete(dir);
       }

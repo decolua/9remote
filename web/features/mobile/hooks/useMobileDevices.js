@@ -18,14 +18,14 @@ export function useMobileDevices({ busRef, connected }) {
   const [devices, setDevices] = useState([]);
   const [canManage, setCanManage] = useState(false);
   const [booting, setBooting] = useState(null);   // { avdName, phase }
-  // Serials on their way down: agent stop takes up to 20s, and the row must
+  // Serials on their way down: host stop takes up to 20s, and the row must
   // say so — a stop button that looks idle reads as "did nothing".
   const [stopping, setStopping] = useState(() => new Set());
   const [error, setError] = useState(null);
   // Rendered (empty list vs. not asked yet), so it has to be state, not a ref.
   const [loaded, setLoaded] = useState(false);
   // Live setup/download job { component, step, phase, received, total, … }.
-  // Null between jobs; survives panel close because the job runs on the agent.
+  // Null between jobs; survives panel close because the job runs on the host.
   const [sdkJob, setSdkJob] = useState(null);
   const lowPower = useTerminalStore((s) => s.mobileLowPower);
   const setLowPower = useTerminalStore((s) => s.setMobileLowPower);
@@ -38,7 +38,7 @@ export function useMobileDevices({ busRef, connected }) {
     setLoaded(true);
     setCanManage(!!res.canManageEmulators);
     if (res.env) {
-      // The job lives on the agent; a null here means it is gone (agent restart
+      // The job lives on the host; a null here means it is gone (host restart
       // or settled) — the UI must not keep showing a stale spinner.
       setSdkJob(res.env.job || null);
     }
@@ -112,7 +112,7 @@ export function useMobileDevices({ busRef, connected }) {
     if (res?.success) setPresets(Array.isArray(res.presets) ? res.presets : []);
   }, [busRef]);
 
-  /** Tap a device row → agent installs what's missing and creates the AVD. */
+  /** Tap a device row → host installs what's missing and creates the AVD. */
   const provision = useCallback(async (presetId) => {
     setError(null);
     const res = await emitAck(busRef?.current, "mobile:provision", { presetId });
@@ -145,7 +145,7 @@ export function useMobileDevices({ busRef, connected }) {
     refresh, startAvd, stopAvd, stopping,
     lowPower, setLowPower,
     sdkJob, presets, refreshPresets, provision, cancelSetup, deleteAvd, wipeAvd,
-    // Distinguishes "still asking the agent" from "asked, and there are none".
+    // Distinguishes "still asking the host" from "asked, and there are none".
     loaded
   };
 }

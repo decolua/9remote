@@ -1,4 +1,4 @@
-// The client seals on WebCrypto, the agent opens on node:crypto. Two
+// The client seals on WebCrypto, the host opens on node:crypto. Two
 // implementations of the same construction, which is exactly where this kind of
 // thing breaks: a different HKDF salt, a tag appended instead of separate, a
 // key exported in the wrong form — each produces code that passes its own tests
@@ -8,7 +8,7 @@
 // Run: node --import ./test/loader-alias.mjs web/test/tailSealInterop.test.mjs
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import { sealTailFor as sealNode, unsealTail, hostFp2Of as fp2Node } from "../../agent/lib/tailSeal.js";
+import { sealTailFor as sealNode, unsealTail, hostFp2Of as fp2Node } from "../../host/lib/tailSeal.js";
 import { sealTail as sealWeb, hostFp2Of as fp2Web } from "../shared/transport/lib/tailSeal.js";
 
 let pass = 0, fail = 0;
@@ -23,9 +23,9 @@ const ED_PUB = crypto.generateKeyPairSync("ed25519").publicKey
   .export({ type: "spki", format: "der" }).subarray(-32).toString("base64");
 const TAIL = "mnpqrstu";
 
-console.log("Suite 1: what the browser seals, the agent opens");
+console.log("Suite 1: what the browser seals, the host opens");
 
-await test("a tail sealed on WebCrypto is recovered by the agent", async () => {
+await test("a tail sealed on WebCrypto is recovered by the host", async () => {
   const sealed = await sealWeb(TAIL, HOST_PUB);
   assert.notEqual(sealed, null, "the web side refused to seal");
   assert.equal(unsealTail(sealed, host.privateKey), TAIL);
@@ -62,7 +62,7 @@ await test("the tail is not readable in what the browser sends", async () => {
   assert.ok(!JSON.stringify(sealed).includes(TAIL));
 });
 
-await test("a wrong agent key does not open the browser's seal", async () => {
+await test("a wrong host key does not open the browser's seal", async () => {
   const other = crypto.generateKeyPairSync("x25519");
   const sealed = await sealWeb(TAIL, HOST_PUB);
   assert.equal(unsealTail(sealed, other.privateKey), null);
@@ -76,8 +76,8 @@ await test("the browser refuses an unusable key rather than sealing to nothing",
 
 console.log("Suite 2: both sides compute the same fingerprint");
 
-await test("fp2 agrees between agent and browser", async () => {
-  // The user reads this off the agent's screen and the browser compares it. A
+await test("fp2 agrees between host and browser", async () => {
+  // The user reads this off the host's screen and the browser compares it. A
   // mismatch here would reject every legitimate pairing.
   assert.equal(await fp2Web(ED_PUB, HOST_PUB), fp2Node(ED_PUB, HOST_PUB));
 });

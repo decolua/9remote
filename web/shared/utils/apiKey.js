@@ -1,6 +1,6 @@
 /**
  * Parse API key format: sk-{machineId8}-{rand8}-{rand8}, full or HEAD.
- * The HEAD (first two segments) is what the agent registers and clients
+ * The HEAD (first two segments) is what the host registers and clients
  * present for routing — both shapes are valid at every trust boundary.
  */
 export function parseApiKey(apiKey) {
@@ -17,7 +17,7 @@ export function parseApiKey(apiKey) {
 }
 
 /** A v1 key: sk-{machineId8}-{keyId4}-{crc6}. Shape-only — enough to tell its
- *  holder to update the agent, which is all it is good for now. */
+ *  holder to update the host, which is all it is good for now. */
 export function isLegacyApiKey(apiKey) {
   if (typeof apiKey !== "string" || !apiKey) return false;
   return /^sk-[a-z0-9]{8}-[a-z0-9]{4}-[0-9a-f]{6}$/.test(apiKey.trim().toLowerCase());
@@ -43,7 +43,7 @@ export function normalizeApiKey(apiKey) {
 }
 
 /** Accepted at every API trust boundary: a v2 key, full or HEAD.
- *  v1 is retired — an agent still holding one must update to connect. */
+ *  v1 is retired — a host still holding one must update to connect. */
 export function isAcceptedApiKey(apiKey) {
   return parseApiKey(apiKey)?.version === 2;
 }

@@ -33,7 +33,7 @@ export const THEME_PALETTE = {
 };
 
 // Terminal palettes — herdr-style token map per theme. RGB values mirror
-// .source/herdr/src/app/state.rs so the agent UI stays visually consistent.
+// .source/herdr/src/app/state.rs so the host UI stays visually consistent.
 // Each token object is compiled to an xterm.js theme via toXterm().
 const TERMINAL_TOKENS = {
   // Default = Vesper (minimal high-contrast monochrome, peach + mint accents)

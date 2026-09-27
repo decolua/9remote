@@ -45,7 +45,7 @@ export function streamOptionsFor(presetName, cssLongEdge, dpr = 1) {
   const preset = STREAM_PRESETS[presetName] || STREAM_PRESETS[DEFAULT_PRESET];
   const maxSize = fitEncodeSize(cssLongEdge, dpr, preset.edgeScale);
   // The device keeps its own aspect ratio; assume a tall 9:20 phone for the
-  // estimate — the agent's real frame is close enough for a bitrate target.
+  // estimate — the host's real frame is close enough for a bitrate target.
   const pixels = maxSize * Math.round(maxSize * 0.45);
   const bitRate = Math.min(preset.maxBitRate, Math.round(pixels * preset.maxFps * preset.bitsPerPixel));
   return { maxSize, bitRate, maxFps: preset.maxFps };
@@ -60,7 +60,7 @@ export const DECODE_QUEUE_LIMIT = 30;
 
 // Partial access units held while their chunks arrive. Ordered channel, so a
 // frame older than this many newer ones was truncated and is dropped.
-// Must exceed the agent's FLOW.ackWindow or in-flight frames get culled early.
+// Must exceed the host's FLOW.ackWindow or in-flight frames get culled early.
 export const REASSEMBLY_WINDOW = 96;
 
 // Re-ask for a keyframe at most this often while waiting to sync.
@@ -99,5 +99,5 @@ export const LOG_LEVEL_CLASS = {
   F: "text-red-500 font-semibold"
 };
 
-// Boot phases reported by the agent, in the order they occur.
+// Boot phases reported by the host, in the order they occur.
 export const BOOT_PHASES = ["launching", "booting", "ready"];

@@ -4,7 +4,7 @@
 // one has already caused a user-visible bug:
 //   • a listener subscribed and never removed → duplicate tile writes after re-entry
 //   • request-screen-with-hashes inside the handshake → races the stream loop, the
-//     agent marks the client synced and only sends diffs → black canvas
+//     host marks the client synced and only sends diffs → black canvas
 //   • widening the socket effect's deps → re-subscribe storm → dropped frames
 //
 // Run: node --import ./test/loader-alias.mjs web/test/remoteStreamContract.test.mjs
@@ -32,7 +32,7 @@ test("no listener is subscribed twice", () => {
   assert.equal(new Set(on).size, on.length, `duplicates: ${on.filter((e, i) => on.indexOf(e) !== i)}`);
 });
 
-test("the full agent event set is still handled", () => {
+test("the full host event set is still handled", () => {
   // Losing any of these silently breaks a feature (tiles, lock overlay, clipboard,
   // monitor switch, cursor) with no error surfaced.
   for (const ev of [

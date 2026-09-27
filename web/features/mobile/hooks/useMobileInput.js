@@ -1,11 +1,11 @@
 "use client";
 
 // Pointer → scrcpy input events. Coordinates leave as unit floats so the client
-// never tracks device resolution; the agent scales them.
+// never tracks device resolution; the host scales them.
 //
 // No keyboard path: Android raises its own on-screen keyboard when a text field
 // in the app takes focus, which tapping through the mirror already does, and
-// there is no way to force it from outside. The agent still accepts key and
+// there is no way to force it from outside. The host still accepts key and
 // text messages if a caller ever needs them.
 
 import { useCallback, useRef } from "react";

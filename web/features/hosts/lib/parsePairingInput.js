@@ -1,4 +1,4 @@
-// One-time pairing input → { tempKey, tail }. A 6-char code routes to the agent's
+// One-time pairing input → { tempKey, tail }. A 6-char code routes to the host's
 // temp key; the optional 2-char TAIL is the device's proof of the key it holds.
 // Shared by the login page and the in-app "add host" modal.
 export function parsePairingInput(raw) {

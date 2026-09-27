@@ -51,14 +51,14 @@ export function flushBuffer(pm) {
 
 // Dispatch incoming message from RTC or WS carrier.
 export function dispatch(pm, event, payload, source) {
-  // Cache agent capabilities on PM and forward to RTC adapter.
+  // Cache host capabilities on PM and forward to RTC adapter.
   if (event === "srvCaps") {
     const caps = source === "rtc" ? payload?.args?.[0] : payload;
-    debugLog("transport", `[pm] srvCaps from agent via ${source}: ${JSON.stringify(caps)}`);
+    debugLog("transport", `[pm] srvCaps from host via ${source}: ${JSON.stringify(caps)}`);
     pm._srvCaps = caps || {};
     pm._adapters.get("rtc")?.setPeerCaps?.(pm._srvCaps);
   }
-  // Resolve ack reply — may arrive via RTC or WS (agent falls back to WS when RTC dies)
+  // Resolve ack reply — may arrive via RTC or WS (host falls back to WS when RTC dies)
   if (event === "__ack") {
     const { ackId, args } = payload || {};
     const cb = pm._pendingAcks.get(ackId);
@@ -78,11 +78,11 @@ export function dispatch(pm, event, payload, source) {
       pm._restartRtc("device-approved");
     }
   }
-  // Agent test-toggle re-enabled RTC → clear the stop-retry flag and renegotiate.
+  // Host test-toggle re-enabled RTC → clear the stop-retry flag and renegotiate.
   if (event === "rtc:enabled") {
     if (pm._rtcTestDisabled) {
       pm._rtcTestDisabled = false;
-      termLog("switch", "rtc:enabled by agent → clear flag + restart RTC");
+      termLog("switch", "rtc:enabled by host → clear flag + restart RTC");
       pm._restartRtc("rtc-enabled");
     }
     return;
@@ -91,7 +91,7 @@ export function dispatch(pm, event, payload, source) {
     const data = source === "rtc" ? payload?.args?.[0] : payload;
     if (data) {
       const { tunnelUrl, localIp, status } = data;
-      // Ignore tunnel update when current page origin is the agent workspace.
+      // Ignore tunnel update when current page origin is the host workspace.
       if (typeof window !== "undefined" && pm._auth.tunnelUrl === window.location?.origin) {
         termLog("switch", `tunnel:updated ignored (carrier is the page origin; got url=${tunnelUrl || "none"})`);
         return;

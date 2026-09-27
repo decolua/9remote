@@ -199,7 +199,7 @@ test("with no task set the row scan still answers, for engines that keep no mode
 });
 
 test("the transcript reader emits the CLI's own record, not a name of its own", () => {
-  const src = readFileSync(new URL("../../agent/features/ai/claudeTranscript.js", import.meta.url), "utf8");
+  const src = readFileSync(new URL("../../host/features/ai/claudeTranscript.js", import.meta.url), "utf8");
   assert.match(src, /subtype: "task_notification"/, "the replay must emit the harness's own subtype");
   assert.doesNotMatch(src, /event: "task_done"/, "not a name invented for the replay");
 });

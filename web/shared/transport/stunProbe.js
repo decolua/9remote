@@ -1,5 +1,5 @@
 // Standalone STUN probe — asks a public STUN server "what is my public IP?"
-// without touching the DO signaling relay or the agent. Used to decide whether a
+// without touching the DO signaling relay or the host. Used to decide whether a
 // resume happened on a DIFFERENT network than the one that made us give up on
 // RTC: a give-up must only be lifted on evidence (new public IP), never on a
 // timer, or every app switch re-spams the DO with offers the NAT will refuse.

@@ -77,7 +77,7 @@ const InputDraftGhost = memo(function InputDraftGhost({ sessionId, placeholder }
 
 // Terminal view shell: sidebar + header + multi-pane row + editor/tree panels + status bar.
 function TerminalWorkspace({
-  bus, busRef, connected, carrier, platform, agentVersion,
+  bus, busRef, connected, carrier, platform, hostVersion, agentVersion,
   sessions, workspaces, activeSessionId, activeSession, activeWorkspaceId,
   openedSessions, livePanes, mountedWorkspaces, cwdBySession,
   sessionStatus, notifications,
@@ -637,7 +637,8 @@ function TerminalWorkspace({
             connectionMode={connectionMode}
             subscribeToPush={subscribeToPush}
             unsubscribeFromPush={unsubscribeFromPush}
-            agentVersion={agentVersion}
+            hostVersion={hostVersion || agentVersion}
+            agentVersion={hostVersion || agentVersion}
             busRef={activeBusRef}
             carrier={activeCarrier}
             shells={shells}
@@ -872,7 +873,8 @@ function TerminalWorkspace({
           sessionId={activeSessionId}
           hostKey={activeSession?.hostKey || null}
           sessionName={activeSession ? activeSession?.name : ""}
-          agentVersion={agentVersion}
+          hostVersion={hostVersion || agentVersion}
+          agentVersion={hostVersion || agentVersion}
           platform={platform}
           homeDir={homeDir}
         />

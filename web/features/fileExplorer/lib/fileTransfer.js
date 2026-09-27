@@ -139,7 +139,7 @@ function streamFile(bus, protocolRef, uploadId, file, onProgress) {
 }
 
 /**
- * Download a file/folder from agent → client, assembling into a Blob.
+ * Download a file/folder from host → client, assembling into a Blob.
  * Folder downloads arrive as a streamed .zip (size unknown up front).
  * @param {object} ctx - { bus, protocolRef, filePath, onSave(blob, meta), onProgress(ratio), onError(err) }
  * onSave receives a Blob + { size, fileName }; caller triggers the browser save.
@@ -200,7 +200,7 @@ export function downloadFile({ bus, protocolRef: _protocolRef, filePath, onSave,
  * Stream a media file for progressive playback via MediaSource Extensions.
  * Frames arrive ordered (file DC is ordered, reliable) but may land before the
  * caller's SourceBuffer is open — caller must queue onChunk until ready.
- * Images: the agent streams a server-scaled JPEG and the ack carries its dims
+ * Images: the host streams a server-scaled JPEG and the ack carries its dims
  * (width/height + originalWidth/originalHeight/scaled) alongside mime/size.
  * @param {object} ctx - { bus, filePath, onMeta(meta), onChunk(Uint8Array), onDone(), onError(err) }
  * @returns {Function} cancel()

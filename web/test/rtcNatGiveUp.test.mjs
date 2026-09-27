@@ -19,7 +19,7 @@ const test = (name, fn) => {
 // Deliberately NOT keyed on ICE "failed": _connectTimer closes the peer after
 // RTC_CONNECT_TIMEOUT_MS (4s) while the browser needs 15-30s to declare failure,
 // so an ice-failed-based verdict would never fire and symmetric NAT would probe
-// the DO forever. The real signal is "agent answered, yet the DC never opened".
+// the DO forever. The real signal is "host answered, yet the DC never opened".
 const natVerdict = (types, { answered = false, opened = false } = {}) => {
   const s = new Set(types);
   if (opened || s.has("relay")) return "ok";
@@ -40,7 +40,7 @@ test("answered but DC never opened, srflx present → hard (symmetric NAT)", () 
   assert.equal(natVerdict(["host", "srflx"], { answered: true }), "hard");
 });
 
-test("no answer yet → unknown (agent offline / DO drop, retry may work)", () => {
+test("no answer yet → unknown (host offline / DO drop, retry may work)", () => {
   assert.equal(natVerdict(["host", "srflx"], { answered: false }), "unknown");
 });
 
@@ -58,8 +58,8 @@ test("prflx only → hard (peer-reflexive without srflx means no STUN path)", ()
   assert.equal(natVerdict(["prflx"], { answered: true }), "hard");
 });
 
-test("agent-offline loop is never mistaken for hard NAT", () => {
-  // The common case that must stay retryable: agent not yet in the DO room, so
+test("host-offline loop is never mistaken for hard NAT", () => {
+  // The common case that must stay retryable: host not yet in the DO room, so
   // no answer arrives. Verdict must be unknown so RTC keeps trying.
   for (let i = 0; i < 5; i++) {
     assert.equal(natVerdict(["host", "srflx"], { answered: false }), "unknown");

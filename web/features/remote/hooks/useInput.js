@@ -187,7 +187,7 @@ export function useInput(socketEmitFunctions) {
   }, [textInputValue, socketEmitFunctions, textInputRef, addCommand]);
 
   // Direct mode (real mobile keyboard): Android IMEs insert chars via input events,
-  // not keydown (event.key="Unidentified"), so onChange fires per keystroke. The agent
+  // not keydown (event.key="Unidentified"), so onChange fires per keystroke. The host
   // throttles "type-text" to one event / 100ms and DROPS the rest, so sending each
   // char immediately loses fast typing. Buffer chars and flush the whole batch after
   // a short idle so a burst becomes a single emit.
@@ -289,7 +289,7 @@ export function useInput(socketEmitFunctions) {
   }, [selectionMode, selectionStart, socketEmitFunctions]);
 
   // Handle keydown from native keyboard input field.
-  // - directMode=true (keyboardOn + no text panel): send every key directly to agent, don't buffer.
+  // - directMode=true (keyboardOn + no text panel): send every key directly to host, don't buffer.
   // - directMode=false (Aa text panel): buffer plain text, only emit on Enter or modifier combos.
   const handleModifiedTextInput = useCallback((event, streaming, directMode = false) => {
     if (!streaming || !socketEmitFunctions?.emitTypeText || !socketEmitFunctions?.emitKeyPress) return;
@@ -306,7 +306,7 @@ export function useInput(socketEmitFunctions) {
     const hasUIModifiers = activeModifiers.length > 0;
     const hasKeyboardModifiers = event.ctrlKey || event.metaKey || event.altKey || event.shiftKey;
 
-    // Direct mode: every key goes to agent immediately, input value stays empty.
+    // Direct mode: every key goes to host immediately, input value stays empty.
     if (directMode) {
       event.preventDefault();
 

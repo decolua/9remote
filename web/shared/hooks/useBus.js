@@ -8,8 +8,8 @@ import { ProtocolManager } from "@/shared/transport/ProtocolManager";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import { debugLog } from "@/shared/utils/debugLog";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { isLoopbackOrigin, isLocalAgentNetwork } from "@/shared/utils/localOrigin";
-import { AGENT_PORT, LOCAL_AGENT_STATE } from "@/shared/constants/API";
+import { isLoopbackOrigin, isLocalHostNetwork } from "@/shared/utils/localOrigin";
+import { AGENT_PORT, LOCAL_HOST_STATE } from "@/shared/constants/API";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
 import { setTrust } from "@/shared/transport/lib/deviceTrust";
 
@@ -68,19 +68,19 @@ export function useBus(config = {}) {
 
     const start = async () => {
       let auth = getAuth();
-      // Agent-served page on the agent's own port: the loopback carrier always
+      // Host-served page on the host's own port: the loopback carrier always
       // wins over any stored remote auth (a stale tunnel login), so the key is
-      // read straight from the agent.
+      // read straight from the host.
       //
       // Deliberately NOT done on the web dev server, which is loopback too but
-      // is not the agent: auto-minting a session there would skip the login
+      // is not the host: auto-minting a session there would skip the login
       // screen entirely, which is exactly what a build must not do.
       const isLoopback = isLoopbackOrigin();
       // `!authKey` guards a re-key: once the user has deliberately switched the
-      // workspace onto another host, that intent outranks the local agent's key.
+      // workspace onto another host, that intent outranks the local host's key.
       if (isLoopback && window.location.port === String(AGENT_PORT) && !authKey && auth?.tunnelUrl !== window.location.origin) {
         try {
-          const res = await fetch(LOCAL_AGENT_STATE);
+          const res = await fetch(LOCAL_HOST_STATE);
           const data = res.ok ? await res.json() : null;
           if (res.ok) {
             if (data?.permanentKey) {
@@ -168,7 +168,7 @@ export function useBus(config = {}) {
         }
       };
 
-      // The carrier IS the page's own origin (agent-served workspace): the
+      // The carrier IS the page's own origin (host-served workspace): the
       // direct WS beats every other carrier, so RTC (and its DO signaling) is
       // pure overhead — skip both. A dev server on localhost whose carrier is
       // a remote tunnelUrl keeps the full RTC stack.

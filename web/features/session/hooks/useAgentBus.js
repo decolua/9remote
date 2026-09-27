@@ -31,7 +31,7 @@ export function useAgentBus() {
   const [remoteAvailable, setRemoteAvailable] = useState(false);
   const [mobileAvailable, setMobileAvailable] = useState(false);
   const [platform, setPlatform] = useState(null);
-  const [agentVersion, setAgentVersion] = useState(null);
+  const [hostVersion, setHostVersion] = useState(null);
   // Admission state is store-owned (connectionStore): it belongs to the
   // connection, and a re-key resets it there — not to the component.
   const approvalStatus = useConnectionStore((s) => s.approvalStatus);
@@ -223,16 +223,16 @@ export function useAgentBus() {
       setRemoteAvailable(info.remoteAvailable);
       setMobileAvailable(!!info.mobileAvailable);
       setPlatform(info.platform);
-      setAgentVersion(info.version || null);
+      setHostVersion(info.version || null);
       useTerminalStore.getState().setAgentCaps(info.caps || {});
       useTerminalStore.getState().setArtifactEnabled(info.artifactEnabled);
       useTerminalStore.getState().setMcpClients(info.mcpClients);
       if (info.voiceConfig) {
-        useVoiceStore.getState().syncFromAgent(info.voiceConfig);
+        useVoiceStore.getState().syncFromHost(info.voiceConfig);
       } else {
         const s = useVoiceStore.getState();
         const hasConfig = s.geminiKeys.some((k) => k.trim()) || s.openrouterKey || s.customKey || s.customEndpoint;
-        if (hasConfig) s.pushToAgent();
+        if (hasConfig) s.pushToHost();
       }
     });
 
@@ -430,7 +430,8 @@ export function useAgentBus() {
     remoteAvailable,
     mobileAvailable,
     platform,
-    agentVersion,
+    hostVersion,
+    agentVersion: hostVersion,
     workspaces,
     loadSessions,
     createSession,

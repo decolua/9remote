@@ -37,7 +37,7 @@ export function buildConfig(wsConfig, rtcConfig) {
   // Signaling identity — per PM instance, so two tabs of the same browser
   // (same deviceId, shared localStorage) get independent RTC sessions.
   const peerId = `${wsConfig.deviceId}:${randomTag()}`;
-  // Socket.io carries the peerId so the agent can match a tunnel connection to
+  // Socket.io carries the peerId so the host can match a tunnel connection to
   // an existing RTC-only session instead of building a second PM.
   if (auth.socketOptions?.auth) auth.socketOptions.auth.peerId = peerId;
 
@@ -66,8 +66,8 @@ export function initialState() {
     _rejoinDebounceTimer: null,
     // Public IP last seen via STUN — identity of the network we negotiated on.
     _netFingerprint: null,
-    // Set when the agent answers "not approved" — pauses RTC recovery until the
-    // host acts, so we don't spin offers the agent will only refuse again.
+    // Set when the host answers "not approved" — pauses RTC recovery until the
+    // host acts, so we don't spin offers the host will only refuse again.
     _awaitingApproval: false,
     _ackTimeoutMs: RTC_RESTART.ackTimeoutMs,
 

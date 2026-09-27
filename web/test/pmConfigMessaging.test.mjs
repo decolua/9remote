@@ -45,7 +45,7 @@ test("config: peerId is unique per instance and injected into socket auth", () =
   const opts = { auth: { token: "t" } };
   const a = buildConfig({ ...WS_CFG, socketOptions: opts }, null);
   assert.match(a.peerId, /^dev1:[a-z0-9]+$/);
-  assert.equal(opts.auth.peerId, a.peerId, "agent matches a tunnel connection by peerId");
+  assert.equal(opts.auth.peerId, a.peerId, "host matches a tunnel connection by peerId");
   const b = buildConfig({ ...WS_CFG }, null);
   assert.notEqual(a.peerId, b.peerId, "two tabs must get independent RTC sessions");
 });

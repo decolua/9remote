@@ -213,9 +213,9 @@ test("the address still rides in the fragment", () => {
   assert.ok(!beforeHash.includes("3000"), "port leaked into the request URL");
 });
 
-// ── The loopback names the agent is reached on ──────────────────────────────
+// ── The loopback names the host is reached on ──────────────────────────────
 
-console.log("Suite 6: every name the agent answers on gets a sites origin");
+console.log("Suite 6: every name the host answers on gets a sites origin");
 
 const at = (hostname, protocol = "http:", port = "2208") => resolveSitesOrigin({ hostname, protocol, port });
 

@@ -1,11 +1,11 @@
-// Client half of tail sealing — mirror of agent/lib/tailSeal.js.
+// Client half of tail sealing — mirror of host/lib/tailSeal.js.
 //
-// The key TAIL is what admits a device to the agent, and it goes in the connect
+// The key TAIL is what admits a device to the host, and it goes in the connect
 // handshake. Over RTC that is peer to peer; over the WS carrier it is a
 // Cloudflare tunnel, and whoever controls that path reads it. Encrypting to the
-// agent's X25519 key closes that path without moving the tail anywhere new.
+// host's X25519 key closes that path without moving the tail anywhere new.
 //
-// Every constant here has a counterpart on the agent — the HKDF info string,
+// Every constant here has a counterpart on the host — the HKDF info string,
 // the salt, the IV size, the tag appended to the ciphertext. Change one and the
 // other side stops decrypting; web/test/tailSealInterop.test.mjs runs both
 // implementations against each other for exactly that reason.
@@ -73,7 +73,7 @@ async function deriveKey(privateKey, publicKey, epkRaw, hostPubRaw) {
 }
 
 /**
- * Seal a tail for the agent holding hostX25519PubB64.
+ * Seal a tail for the host holding hostX25519PubB64.
  * @returns {Promise<{epk: string, iv: string, ct: string}|null>} null when either input is unusable
  */
 export async function sealTail(tail, hostX25519PubB64) {
@@ -91,7 +91,7 @@ export async function sealTail(tail, hostX25519PubB64) {
     const key = await deriveKey(eph.privateKey, hostPub, epkRaw, hostPubRaw);
     const iv = crypto.getRandomValues(new Uint8Array(IV_BYTES));
     // WebCrypto appends the GCM tag to the ciphertext, which is the layout the
-    // agent expects — it takes the last 16 bytes as the tag.
+    // host expects — it takes the last 16 bytes as the tag.
     const ct = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, new TextEncoder().encode(tail));
 
     return { epk: bytesToB64(epkRaw), iv: bytesToB64(iv), ct: bytesToB64(ct) };
@@ -105,7 +105,7 @@ export async function sealTail(tail, hostX25519PubB64) {
 // fp2 — 2 chars of sha256 over BOTH host keys, on a 32-char alphabet (10 bits,
 // no confusables, bias-free since 256 % 32 === 0). One fingerprint anchors the
 // signing key and the sealing key together, so the user still reads two
-// characters off the agent's screen and both are covered.
+// characters off the host's screen and both are covered.
 const FP2_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
 export async function hostFp2Of(ed25519PubB64, x25519PubB64) {

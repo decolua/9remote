@@ -30,7 +30,7 @@ export const RTC_RESTART = {
 // Standalone STUN probe used to lift an RTC give-up. A resume only re-arms RTC
 // when the public IP actually changed (real network handover) — a timer would
 // re-spam the DO on every long app switch even though the NAT never moved.
-// This talks to public STUN only: no DO call, no agent involvement.
+// This talks to public STUN only: no DO call, no host involvement.
 export const STUN_PROBE = {
   urls: ["stun:stun.l.google.com:19302", "stun:stun1.l.google.com:19302"],
   timeoutMs: 2500,
@@ -51,21 +51,21 @@ export const RETRY_MODAL_MIN_ATTEMPT = 3;
 
 // Control-DC liveness (ttyd pattern: periodic ping, hang up after interval+grace
 // of silence). SCTP can stay "open" while an app-level stall blackholes every
-// message. Agent pings, web pongs; each side also measures the other direction.
-// Mirrored in agent/lib/transportConstants.js.
+// message. Host pings, web pongs; each side also measures the other direction.
+// Mirrored in host/lib/transportConstants.js.
 export const RTC_HEARTBEAT_INTERVAL_MS = 10_000;
 export const RTC_HEARTBEAT_TIMEOUT_MS = 25_000;
 
 // Max time RTC stays "connecting" before we give up. Without this, an offer that
-// reached the DO before the agent joined its room is silently dropped — no answer
+// reached the DO before the host joined its room is silently dropped — no answer
 // ever arrives, ICE never runs, and the adapter hangs in "connecting" forever
 // (only "ice failed" closes it, and ICE never starts without an answer). On
 // timeout, close → PM._scheduleRtcRestart fires → re-offer; by retry 2-3 the
-// agent has usually joined the signaling room and RTC opens.
+// host has usually joined the signaling room and RTC opens.
 export const RTC_CONNECT_TIMEOUT_MS = 4000;
 // Armed once the answer lands, replacing the connect timer: that one measures
-// "did the agent reply", this one measures ICE itself. Keeping a single budget
-// meant a slow answer (the agent gathers against seven STUN servers) left ICE
+// "did the host reply", this one measures ICE itself. Keeping a single budget
+// meant a slow answer (the host gathers against seven STUN servers) left ICE
 // almost no time and the peer died on timeout every round.
 // ICE normally completes in well under a second once both sides have candidates
 // (89ms measured on a working path). The long tail is a dual-stack client that
@@ -89,7 +89,7 @@ export const RTC_DEFER_MAX_MS = 12000;
 // actually dead. On resume we sample getStats() across this window and check
 // whether the selected ICE pair's responsesReceived grew (STUN keepalives flow
 // on a live DC). No growth → zombie → force a full restart without waiting the
-// ~30s for ICE "failed". Browser-only — no agent cooperation needed. Keep
+// ~30s for ICE "failed". Browser-only — no host cooperation needed. Keep
 // short: WS carries data during the probe.
 export const RESUME_PROBE_TIMEOUT_MS = 2000;
 // Hiding a phone app suspends WebRTC within seconds, so a peer that stayed
@@ -105,7 +105,7 @@ export const SIGNALING_CONFIG = {
   pingMs: 25000 // Hibernation auto-response — never wakes the DO, never billed
 };
 
-// Signaling errors that mean "the agent heard you, but the device isn't cleared"
+// Signaling errors that mean "the host heard you, but the device isn't cleared"
 // — a policy answer, not a transport failure. Mirrored in agent/lib/transportConstants.js.
 // The client must show the approval UI instead of retrying/falling back.
 export const SIGNALING_ERRORS = {
@@ -113,7 +113,7 @@ export const SIGNALING_ERRORS = {
   rejected: "device-rejected"
 };
 
-// Why the agent refused this device's key TAIL (device:tailRejected).
+// Why the host refused this device's key TAIL (device:tailRejected).
 // Wire format — mirrored in agent/lib/transportConstants.js.
 export const TAIL_REJECT_REASON = {
   mismatch: "mismatch",              // wrong key — final, stop retrying
@@ -132,21 +132,21 @@ export const APPROVAL_STATUS = {
 };
 
 // A one-time pairing code: six characters of code plus two of tail, shown
-// together on the agent's screen and typed back as one string. Anything longer
+// together on the host's screen and typed back as one string. Anything longer
 // is an API key — which is all the login field needs to tell them apart.
 export const ONE_TIME_CODE_LENGTH = 8;
 
-// A key the user asked to remember, held until the agent accepts it.
+// A key the user asked to remember, held until the host accepts it.
 //
 // The Worker clears a v2 key by its HEAD alone, so login succeeds before
 // anything has checked the TAIL. Saving at that point meant a wrong key landed
 // in the saved list and had to be deleted again on refusal — which is how a
 // mistyped tail could take a GOOD saved key with it. Nothing is written until
-// the agent says yes.
+// the host says yes.
 export const PENDING_SAVE_KEY = "9remote_pending_save";
 
 // "Remember this key" was ticked for a login that has no key to park yet.
-// A one-time code only becomes a lasting key when the agent issues one, which
+// A one-time code only becomes a lasting key when the host issues one, which
 // happens after acceptance — so the intent is recorded here and acted on then.
 export const WANTS_SAVE_KEY = "9remote_wants_save";
 
@@ -156,7 +156,7 @@ export const WANTS_SAVE_KEY = "9remote_wants_save";
 export const KEYS_CHANGED_EVENT = "9remote:keys-changed";
 
 // Handoff for a rejection that only becomes known after login: the Worker
-// clears a key by its HEAD, but the TAIL is proven later, to the agent. The
+// clears a key by its HEAD, but the TAIL is proven later, to the host. The
 // login page reads this on mount and shows it like any bad-key error.
 export const LOGIN_ERROR_KEY = "9remote_login_error";
 
@@ -174,7 +174,7 @@ export const NET_RECOVERY = {
 
 // WS zombie recovery — detect a socket.io bus that still reports connected
 // after OS background suspension froze its pings (data never flows again).
-// Sized at ~2 missed cycles of the agent's pingInterval (12s), with room for a
+// Sized at ~2 missed cycles of the host's pingInterval (12s), with room for a
 // mobile stall: shorter than that and a phone waking up would be torn down for
 // a heartbeat it was always going to send late.
 export const WS_ZOMBIE_MS = 30000;

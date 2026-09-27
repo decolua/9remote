@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { KANBAN_STATUSES } from "@/shared/lib/jarvisConstants";
 
-// The web mirror of the Jarvis kanban board. The agent owns the truth (daemon KV);
+// The web mirror of the Jarvis kanban board. The host owns the truth (daemon KV);
 // applyBoard is what its broadcasts and getState replies land in. Hand moves are
 // optimistic here and relayed through the sink the view wires to the bus, so the
 // conductor and the user never edit two different boards.

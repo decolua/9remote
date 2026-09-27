@@ -1,6 +1,6 @@
 "use client";
 
-// Keeps every host's device count in step with its agent, for the whole
+// Keeps every host's device count in step with its host, for the whole
 // session — per-host entries, no main/fleet branch. Separate from
 // useMobileDevices, which only lives while a mirror panel is open: the header
 // buttons have to show whether a device is up even when the panel is closed.
@@ -29,7 +29,7 @@ export function useMobileDeviceWatch() {
       if (!bus) continue;
       const apply = ({ count }) => useFleetStore.getState()._patchHost(key, { mobileDeviceCount: Number(count) || 0 });
       bus.on("mobile:devicesChanged", apply);
-      // The agent pushes its first count when the bus connects, which is before
+      // The host pushes its first count when the bus connects, which is before
       // this listener exists, and then only speaks up on change — so ask once
       // for the value already missed.
       bus.emit("mobile:deviceCount", {}, (res) => {

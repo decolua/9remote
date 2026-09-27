@@ -21,7 +21,7 @@ import { useInputMode } from "@/shared/hooks/useInputMode";
 import { withHint } from "../constants/shortcuts";
 import AgentHistoryPanel from "./AgentHistoryPanel";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
-import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import { isChatEngine, SWITCHABLE_STATES } from "./TerminalHeader";
 import SessionBackgroundModal from "./SessionBackgroundModal";
 import HostTreeRow from "@/features/hosts/components/HostTreeRow";
@@ -31,10 +31,10 @@ import IconMenu from "@/shared/components/ui/IconMenu";
 import { orderedHostsOf, activeWsForHost } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 
-// Inside the agent environment (Tauri shell, agent-served page, or the
+// Inside the host environment (Tauri shell, host-served page, or the
 // NEXT_PUBLIC_DEV_AGENT dev flag) the sidebar's brand row becomes the
 // pair-device button instead. The public web keeps the brand.
-const SHOW_PAIR_DEVICE = isAgentEnvironment();
+const SHOW_PAIR_DEVICE = isHostEnvironment();
 
 // Second line of a terminal row lives in SessionMeta.js — shared with the mobile
 // session list so both screens render a terminal the same way.

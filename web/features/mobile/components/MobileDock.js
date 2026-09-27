@@ -5,7 +5,7 @@
 //
 // Each mode portals into a different host, and React recreates a portal's
 // content when its container changes — so switching modes DOES remount the view
-// and its decoder. The agent-side session is kept in the store instead, so the
+// and its decoder. The host-side session is kept in the store instead, so the
 // remount rejoins an already-running stream rather than restarting one.
 
 import { useCallback } from "react";
@@ -47,7 +47,7 @@ export default function MobileDock({ busRef, protocolRef, connected, pinSlot = n
     enabled: mobileMode === "float"
   });
 
-  // Closing the dock ends the mirror for real: hiding the UI while the agent
+  // Closing the dock ends the mirror for real: hiding the UI while the host
   // kept encoding would burn host CPU and bandwidth for nobody.
   const handleClose = useCallback(() => {
     busRef?.current?.emit("mobile:stop");

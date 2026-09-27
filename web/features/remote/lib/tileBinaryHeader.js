@@ -1,5 +1,5 @@
 // Tile frame binary header (12 bytes): tileCount (u32 LE) + timestamp (f64 BE).
-// The mixed endianness is the wire format the agent writes — do not "fix" it.
+// The mixed endianness is the wire format the host writes — do not "fix" it.
 // Shared by the v1 (tiles-data-binary) and v2 (tiles-bin-v2) listeners.
 const HEADER_BYTES = 12;
 

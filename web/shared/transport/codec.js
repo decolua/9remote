@@ -10,7 +10,7 @@
 // attachment), so both carriers now serialize an envelope the same way.
 // v2 is used only after both sides announce it (caps.env2) — the DataChannel
 // distinguishes text from binary frames, so v1 and v2 coexist with no ambiguity.
-// Mirrors agent/transport/codec.js — change both together.
+// Mirrors host/transport/codec.js — change both together.
 
 const HEADER_LEN_BYTES = 4;
 

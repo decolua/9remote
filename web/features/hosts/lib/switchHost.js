@@ -13,7 +13,7 @@ import { WANTS_SAVE_KEY } from "@/shared/constants/transport";
 // slower one landing LAST would re-key onto the wrong host. Last intent wins.
 let switchSeq = 0;
 
-// Core of MenuItems.handleSwitchAgent, shared with the fleet view: verify the
+// Core of MenuItems.handleSwitchHost, shared with the fleet view: verify the
 // target host is reachable before leaving the current one, then re-key the
 // workspace connection IN PLACE (setAuthData bumps authKey; useBus rebuilds the
 // transport without a page reload). Throws on failure.
@@ -51,9 +51,9 @@ export async function switchHost(newKey, { currentKey: passedCurrent } = {}) {
 }
 
 /**
- * Flag that the key the agent is about to issue must be saved.
+ * Flag that the key the host is about to issue must be saved.
  *
- * Call BEFORE attempting the pairing connection: the agent hands the key over
+ * Call BEFORE attempting the pairing connection: the host hands the key over
  * on the first connect, which can beat a flag set afterwards.
  */
 export function armPairingSave(remember) {
@@ -64,11 +64,11 @@ export function armPairingSave(remember) {
   } catch {}
 }
 
-// One-time pairing keys cannot join the fleet directly: the agent issues the
+// One-time pairing keys cannot join the fleet directly: the host issues the
 // real key (TAIL included) only over an enrollment connection that presents the
 // tempKey, so this path logs INTO the host once. One door shared by the login
 // page and the in-app add-host modal — WANTS_SAVE_KEY defers the save until the
-// agent hands the key over (commitPendingKey → PENDING_SAVE_KEY).
+// host hands the key over (commitPendingKey → PENDING_SAVE_KEY).
 //
 // Call AFTER a successful authenticateWithToken. `navigate` is for callers that
 // are already inside the workspace: the re-key (setAuthData → authKey) rebuilds

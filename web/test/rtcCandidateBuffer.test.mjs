@@ -3,7 +3,7 @@
 //
 // addIceCandidate before setRemoteDescription completes throws InvalidStateError,
 // and the handler swallowed it — so candidates landing in that window vanished.
-// The agent sends its answer and its candidates back-to-back (they crossed
+// The host sends its answer and its candidates back-to-back (they crossed
 // within 6ms in the field log), so whether the host candidate survived was a
 // coin flip per attempt: lose it and the only remaining pair was srflx through
 // a carrier NAT that never connects — flaky "sometimes works, sometimes not" RTC.

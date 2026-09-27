@@ -12,7 +12,7 @@ export function tailOf(path, segments = 2) {
     : `…/${parts.slice(-segments).join("/")}`;
 }
 
-/** What "Remote This PC" unlocks — one row per capability the agent actually
+/** What "Remote This PC" unlocks — one row per capability the host actually
  *  serves (terminal, screen, files, git, editor, android mirror, ai, local
  *  sites). Color follows the theme's text tokens (bright on dark). Shared with
  *  the mobile WelcomeCards. */

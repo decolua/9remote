@@ -44,7 +44,7 @@ export class WsProtocol extends BaseProtocol {
   get connectionMode() { return this._connectionMode; }
   get blocked() { return this._blocked; }
 
-  /** Widen retry window during agent self-update; auto-clears on next successful connect. */
+  /** Widen retry window during host self-update; auto-clears on next successful connect. */
   setUpdating(updating) {
     this._updating = updating;
     if (updating) {

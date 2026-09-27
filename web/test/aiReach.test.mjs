@@ -3,8 +3,8 @@
 import assert from "node:assert/strict";
 import {
   aiTailStart, aiHistoryChunk, windowBytes, replayWindow
-} from "../../agent/features/ai/aiEventSlice.js";
-import { AI_REPLAY_BYTES } from "../../agent/features/ai/constants.js";
+} from "../../host/features/ai/aiEventSlice.js";
+import { AI_REPLAY_BYTES } from "../../host/features/ai/constants.js";
 import {
   PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn, estimateMessageBytes
 } from "../features/ai/lib/messageWindow.js";

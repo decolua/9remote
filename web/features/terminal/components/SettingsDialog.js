@@ -27,8 +27,8 @@ import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPick
 import { JarvisConfigPanel } from "@/features/jarvis/components/JarvisConfigPanel";
 import { useJarvisStore } from "@/shared/stores/jarvisStore";
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
-import { useAgentLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
-import { isAgentEnvironment } from "@/shared/utils/localOrigin";
+import { useHostLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
+import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
 const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor };
@@ -46,11 +46,11 @@ export default function SettingsDialog({
   const { theme: appTheme, setTheme } = useTheme();
   // The dialog mounts only after the desktop check (post-mount), so the env
   // probe is stable here — no SSR/hydration split to worry about.
-  const agentEnv = isAgentEnvironment();
-  const [section, setSection] = useState(agentEnv ? "agent" : "general");
+  const hostEnv = isHostEnvironment();
+  const [section, setSection] = useState(hostEnv ? "host" : "general");
   const [reloading, setReloading] = useState(false);
   const [confirmShutdown, setConfirmShutdown] = useState(false);
-  const agentLocal = useAgentLocalSettings();
+  const hostLocal = useHostLocalSettings();
 
   const [languageOpen, setLanguageOpen] = useState(false);
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
@@ -64,13 +64,13 @@ export default function SettingsDialog({
 
   const push = usePushToggle(context.subscribeToPush, context.unsubscribeFromPush);
   const artifact = useArtifactToggle(context.busRef, context.connected);
-  // Local (per-device) switch — no agent round-trip, so it works even offline.
+  // Local (per-device) switch — no host round-trip, so it works even offline.
   const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const artifactSupported = artifact.supported;
   // Plugins tab is not gated on MCP support: it also hosts the client-side voice config.
 
   const webVersion = process.env.NEXT_PUBLIC_SERVER_VERSION;
-  const agentVersion = context.agentVersion;
+  const hostVersion = context.hostVersion || context.agentVersion;
   const hideActions = useMemo(() => context.hideActions || [], [context.hideActions]);
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || !!window.ReactNativeWebView
@@ -80,12 +80,12 @@ export default function SettingsDialog({
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
     if (c.id === "codespace") return false;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
-    // Agent-env only tab; General is client-web only (push/install/logout are
-    // meaningless on the origin the agent itself serves).
-    if (c.id === "agent") return agentEnv;
-    if (c.id === "general") return !agentEnv;
+    // Host-env only tab; General is client-web only (push/install/logout are
+    // meaningless on the origin the host itself serves).
+    if (c.id === "host" || c.id === "agent") return hostEnv;
+    if (c.id === "general") return !hostEnv;
     return true;
-  }), [hideActions, agentEnv]);
+  }), [hideActions, hostEnv]);
   // "install" is a drill-in from the install row, not a nav entry — it has no category
   const activeCategory = categories.find((c) => c.id === section);
 
@@ -152,7 +152,7 @@ export default function SettingsDialog({
               <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-green-500/15 text-green-400">LAN</span>
             )}
             <p className="text-text-muted text-xs truncate">
-              {webVersion}{agentVersion ? ` / ${agentVersion}` : ""}
+              {webVersion}{hostVersion ? ` / ${hostVersion}` : ""}
             </p>
           </div>
         </nav>
@@ -333,29 +333,29 @@ export default function SettingsDialog({
               </div>
             )}
 
-            {section === "agent" && (
+            {(section === "host" || section === "agent") && (
               <div className="space-y-6">
                 <Group title={t("menu.agentSystem")}>
                   <ToggleRow
                     icon={Power}
                     label={t("menu.agentAutoStart")}
                     hint={t("menu.agentAutoStartHint")}
-                    value={!!agentLocal.autoStart}
-                    loading={agentLocal.autoStart === null}
-                    onChange={agentLocal.toggleAutoStart}
+                    value={!!hostLocal.autoStart}
+                    loading={hostLocal.autoStart === null}
+                    onChange={hostLocal.toggleAutoStart}
                   />
-                  {agentLocal.unlock?.supported && (
+                  {hostLocal.unlock?.supported && (
                     <ToggleRow
                       icon={Lock}
                       label={t("menu.agentUnlock")}
-                      hint={agentLocal.unlock.stale
+                      hint={hostLocal.unlock.stale
                         ? t("menu.agentUnlockStale")
-                        : agentLocal.unlock.enabled
+                        : hostLocal.unlock.enabled
                           ? t("menu.agentUnlockReady")
                           : t("menu.agentUnlockHint")}
-                      value={!!agentLocal.unlock.enabled}
-                      disabled={!!agentLocal.unlock.busy}
-                      onChange={agentLocal.toggleUnlock}
+                      value={!!hostLocal.unlock.enabled}
+                      disabled={!!hostLocal.unlock.busy}
+                      onChange={hostLocal.toggleUnlock}
                     />
                   )}
                 </Group>
@@ -364,9 +364,15 @@ export default function SettingsDialog({
                   <ActionRow
                     icon={FileText}
                     label={t("menu.agentLogsOpen")}
-                    // Open inside the click — a deferred window.open loses user
-                    // activation and popup blockers eat it.
-                    onClick={() => { vibrate(); window.open("/logs", "_blank"); onClose(); }}
+                    // Hops to the Pair Device view and force-opens its Logs section —
+                    // the viewer lives there now, not on the old agent dashboard.
+                    onClick={() => {
+                      vibrate();
+                      useTerminalStore.getState().pushView({ type: "pair" });
+                      window.dispatchEvent(new CustomEvent("host:openLogs"));
+                      window.dispatchEvent(new CustomEvent("agent:openLogs"));
+                      onClose();
+                    }}
                   />
                 </Group>
 
@@ -381,7 +387,7 @@ export default function SettingsDialog({
                   <ActionRow
                     icon={RotateCw}
                     label={t("menu.agentRestart")}
-                    onClick={() => run(agentLocal.stopAgent)}
+                    onClick={() => run(hostLocal.stopHost)}
                   />
                   <ActionRow
                     icon={PowerOff}
@@ -439,7 +445,7 @@ export default function SettingsDialog({
       <ConfirmDialog
         isOpen={confirmShutdown}
         onClose={() => setConfirmShutdown(false)}
-        onConfirm={() => { setConfirmShutdown(false); run(agentLocal.shutdownAgent); }}
+        onConfirm={() => { setConfirmShutdown(false); run(hostLocal.shutdownHost); }}
         title={t("menu.agentShutdownConfirmTitle")}
         message={t("menu.agentShutdownConfirmMsg")}
       />

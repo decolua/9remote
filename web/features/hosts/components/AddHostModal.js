@@ -15,7 +15,7 @@ import { parsePairingInput } from "../lib/parsePairingInput";
 
 // Add another machine: a pasted access key, or a pairing code read off the host's
 // screen. An access key carries its own TAIL, so it joins the fleet as a sibling
-// bus with no reload. A one-time key does NOT — the agent only issues the key
+// bus with no reload. A one-time key does NOT — the host only issues the key
 // (tail included) over an enrollment connection carrying the tempKey, so that
 // path logs into the host once, exactly like the login page.
 export default function AddHostModal({ onClose }) {
@@ -55,7 +55,7 @@ export default function AddHostModal({ onClose }) {
     setBusy(true);
     setError("");
     // The same two shapes the login page accepts: a pairing code routes through the
-    // agent's temp key, anything else is an access key.
+    // host's temp key, anything else is an access key.
     const parsed = parsePairingInput(raw);
     const isOneTime = !!parsed?.tempKey;
     try {

@@ -55,7 +55,7 @@ await test("handleStatusChange for 'working' does not add a badge", () => {
   assert.equal(statusOf("s2")?.state, "working");
 });
 
-await test("clearNotification clears the badge and emits clear once; idle arrives via the agent's statusCleared", () => {
+await test("clearNotification clears the badge and emits clear once; idle arrives via the host's statusCleared", () => {
   const emits = [];
   const fakeBus = { emit: (event, arg) => emits.push({ event, arg }) };
   useConnectionStore.getState().setConnection({ bus: fakeBus, busRef: { current: fakeBus }, connected: true });
@@ -67,12 +67,12 @@ await test("clearNotification clears the badge and emits clear once; idle arrive
   useNotificationStore.getState().clearNotification("s1");
   assert.equal(useNotificationStore.getState().notifications.s1, undefined, "badge should be removed");
 
-  // One emit only: clearStatus is the single door (the agent's own broadcast covers the
+  // One emit only: clearStatus is the single door (the host's own broadcast covers the
   // notification side), so this does not fetch state twice per clear.
   assert.equal(emits.length, 1);
   assert.deepEqual(emits[0], { event: "clearStatus", arg: "s1" });
 
-  // The agent's broadcast flips the state to idle, preserving the tool icon.
+  // The host's broadcast flips the state to idle, preserving the tool icon.
   useFleetStore.getState().applyStatusCleared(HEAD, "s1");
   assert.equal(statusOf("s1")?.state, "idle");
   assert.equal(statusOf("s1")?.tool, "bash");

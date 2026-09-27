@@ -49,7 +49,7 @@ export function useFileDocument({ filePath, fileBus }) {
     }
 
     let text = result.content;
-    // Over ~64KB the agent cannot answer inline (SCTP message limit) and asks us to
+    // Over ~64KB the host cannot answer inline (SCTP message limit) and asks us to
     // stream the file instead.
     if (result.streamInstead) {
       try {

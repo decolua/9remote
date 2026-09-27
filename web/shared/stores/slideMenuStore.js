@@ -28,6 +28,7 @@ export const useSlideMenuStore = create((set, get) => ({
     apiKey: null,
     hideActions: [],
     connectionMode: "tunnel",
+    hostVersion: null,
     agentVersion: null,
     transport: "ws"
   },

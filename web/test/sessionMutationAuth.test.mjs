@@ -5,9 +5,9 @@
 // could repoint the victim's tunnelUrl at a host of their own, and the clients
 // that followed it would present their key tail to whatever answered.
 //
-// The agent signs those mutations now with the Ed25519 host key it already owns
+// The host signs those mutations now with the Ed25519 host key it already owns
 // (hostKey.js, the same key that signs SDP answers). The rules below are the
-// whole contract, including the part that lets agents predating this keep
+// whole contract, including the part that lets hosts predating this keep
 // working.
 // Run: node --import ./test/loader-alias.mjs web/test/sessionMutationAuth.test.mjs
 import assert from "node:assert/strict";
@@ -20,7 +20,7 @@ const test = async (name, fn) => {
   catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
 };
 
-// A stand-in for the agent's host key: same curve, same raw-32 wire format.
+// A stand-in for the host's key: same curve, same raw-32 wire format.
 function makeHostKey() {
   const { privateKey, publicKey } = crypto.generateKeyPairSync("ed25519");
   const spki = publicKey.export({ type: "spki", format: "der" });
@@ -42,12 +42,12 @@ const signed = (fields, key = HOST, at = NOW) => ({
   sig: key.sign(mutationPayload({ ...fields, ts: at }))
 });
 
-// ── Agents that predate the change ──────────────────────────────────────────
+// ── Hosts that predate the change ──────────────────────────────────────────
 
 console.log("Suite 1: a session with no registered key behaves as before");
 
 await test("an unsigned mutation is accepted", async () => {
-  // An agent running the previous release cannot sign. Refusing it would take
+  // A host running the previous release cannot sign. Refusing it would take
   // its tunnel offline on the next sync, which is a worse outcome than the
   // exposure this closes — it upgrades into protection on its own.
   const verdict = await checkMutationAuth({
@@ -59,7 +59,7 @@ await test("an unsigned mutation is accepted", async () => {
 });
 
 await test("a signed mutation is accepted too", async () => {
-  // The agent registers its key and signs in the same release, but the two
+  // The host registers its key and signs in the same release, but the two
   // reach the Worker as separate requests — an update can land first.
   const verdict = await checkMutationAuth({
     storedPublicKey: null,
@@ -73,7 +73,7 @@ await test("a signed mutation is accepted too", async () => {
 
 console.log("Suite 2: a registered key makes the signature mandatory");
 
-await test("the agent's own signature passes", async () => {
+await test("the host's own signature passes", async () => {
   const verdict = await checkMutationAuth({
     storedPublicKey: HOST.publicKeyB64,
     body: signed({ apiKey: KEY, tunnelUrl: "https://real.example" }),
@@ -174,7 +174,7 @@ await test("a timestamp from the future is refused", async () => {
 });
 
 await test("a modest clock difference still works", async () => {
-  // Agents run on laptops that sleep; the window has to tolerate real drift.
+  // Hosts run on laptops that sleep; the window has to tolerate real drift.
   for (const drift of [-60_000, 60_000]) {
     const verdict = await checkMutationAuth({
       storedPublicKey: HOST.publicKeyB64,
@@ -273,7 +273,7 @@ await test("the same input always produces the same payload", async () => {
 console.log("Suite 6: when a machine legitimately gets a new host key");
 
 await test("a new key does not silently replace the stored one", async () => {
-  // Reinstalling the agent loses hostKey.json and generates a fresh pair. If
+  // Reinstalling the host loses hostKey.json and generates a fresh pair. If
   // session/create simply took the newest key, anyone holding the HEAD could
   // register their own and sign whatever they liked — the escape hatch has to
   // cost something only the real owner can pay.
@@ -286,7 +286,7 @@ await test("re-registering the same key is not a replacement", async () => {
 });
 
 await test("a live pairing code authorises the replacement", async () => {
-  // The user read a code off the agent's own screen — out-of-band proof that
+  // The user read a code off the host's own screen — out-of-band proof that
   // they are at the machine, which is exactly what a reinstall can offer.
   assert.equal(canReplaceHostKey({ stored: HOST.publicKeyB64, presented: OTHER.publicKeyB64, pairedNow: true }), true);
 });

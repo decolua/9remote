@@ -45,7 +45,7 @@ export default function MenuItems({
   const inputMode = useInputMode();
   const openShortcuts = useShortcutsModalStore((s) => s.open);
   const closeMenu = useSlideMenuStore((s) => s.close);
-  const { connectionMode = "tunnel", agentVersion } = useSlideMenuStore((s) => s.context);
+  const { connectionMode = "tunnel", hostVersion, agentVersion } = useSlideMenuStore((s) => s.context);
   const buttonToggles = useButtonToggles();
   const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
@@ -463,7 +463,7 @@ export default function MenuItems({
           </span>
         )}
         <p className="text-text-muted text-sm">
-          {t("menu.version")} {webVersion}{agentVersion ? ` / 9Remote ${agentVersion}` : ""}
+          {t("menu.version")} {webVersion}{(hostVersion || agentVersion) ? ` / 9Remote ${hostVersion || agentVersion}` : ""}
         </p>
       </div>
 

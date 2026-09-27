@@ -2,9 +2,9 @@
 //
 // These reproduce a failure seen in the field: a cold load took ~8.5s to bring
 // the DO relay up, but the RTC connect timer starts when the offer is CREATED.
-// The first offers only reached the outbound buffer — the agent never saw
+// The first offers only reached the outbound buffer — the host never saw
 // them — yet each burned a full 4s budget and closed the peer. When the relay
-// finally opened, the whole buffer flushed and the agent answered every stale
+// finally opened, the whole buffer flushed and the host answered every stale
 // offer at once, which the client discarded as duplicates.
 //
 // Each test states the behaviour, then asserts against the real module.
@@ -41,7 +41,7 @@ console.log("\nRTC start is gated on the relay being up");
 
 test("relay not ready at connect → RTC is deferred, not started", () => {
   // connect() must not create an offer that can only reach _sigBuffer: the
-  // agent never receives it, but the connect timer runs anyway.
+  // host never receives it, but the connect timer runs anyway.
   const pm = makePm({ sigReady: false });
   const started = pm._canSignal();
   assert.equal(started, false, "a cold PM should not report the relay ready");
@@ -92,7 +92,7 @@ console.log("\nStale offers are not queued behind each other");
 
 test("a new offer drops the superseded offer and its ICE", () => {
   // Each RTC retry builds a fresh peer, so a queued offer describes one the
-  // client already threw away. Flushing them all made the agent rebuild its
+  // client already threw away. Flushing them all made the host rebuild its
   // peer once per stale offer and answer into the void.
   const pm = makePm({ sigReady: false });
   sendSignaling(pm, { type: "offer", n: 1 });

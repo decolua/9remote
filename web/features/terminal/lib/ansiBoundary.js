@@ -1,5 +1,5 @@
 // Align a byte/string slice boundary to a clean ANSI escape edge so we never split a trailing
-// escape sequence (or UTF-8 codepoint). Used by scroll-up prefix splice on both web + agent UI.
+// escape sequence (or UTF-8 codepoint). Used by scroll-up prefix splice on both web + host UI.
 
 // Trim the END of a Uint8Array down to `keep` bytes, then walk back to the last ESC (0x1b) so the
 // retained prefix ends on a complete sequence. Bounded so we never discard a large chunk.

@@ -176,7 +176,7 @@ export class ProtocolManager {
     }
   }
 
-  // Stop renegotiating and surface approval UI when agent refuses connection.
+  // Stop renegotiating and surface approval UI when host refuses connection.
   _handleApprovalSignal(msg) {
     return handleApprovalSignal(this, msg);
   }

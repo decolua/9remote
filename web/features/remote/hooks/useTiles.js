@@ -6,7 +6,7 @@ import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 // Detect Chromium for createImageBitmap(blob) non-blocking path
 const _isChromium = typeof window !== "undefined" && Boolean(window.chrome);
 
-// No MIME type — browser sniffs magic bytes → decodes JPEG (old agent) or WebP (new agent)
+// No MIME type — browser sniffs magic bytes → decodes JPEG (old host) or WebP (new host)
 const makeTileBlob = (buf) => new Blob([buf]);
 
 const makeInvalidate = (ref, tileIndex) => () => { ref.current[tileIndex] = null; };
@@ -126,7 +126,7 @@ export function useTiles(busRef, streaming, canvasRef) {
       }
     }
     rafQueueRef.current.clear();
-    // App-level flow control: ack the newest painted frame so the agent releases
+    // App-level flow control: ack the newest painted frame so the host releases
     // its window=1 slot and sends the next frame (caps hidden SCTP queue at ~1).
     if (maxTs > 0) busRef?.current?.emit("tile-ack", { ts: maxTs });
   }, [canvasRef, busRef]);
@@ -396,7 +396,7 @@ export function useTiles(busRef, streaming, canvasRef) {
     if (!busRef?.current || !streamingRef.current) return;
     if (isRequestingRef.current) return;
 
-    // No baseline yet → don't request. Empty hashes hit the agent's first-request path,
+    // No baseline yet → don't request. Empty hashes hit the host's first-request path,
     // which fills lastTileChecksums and races start-streaming's full frame → black canvas.
     // start-streaming is responsible for the initial full frame; this is verify-only.
     if (clientTileHashesRef.current.length === 0) return;

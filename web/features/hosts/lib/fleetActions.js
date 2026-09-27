@@ -9,8 +9,8 @@ import { scopedWsId } from "./fleetTree";
 /**
  * The same action set the main host gets from nav/useAgentBus, implemented over a
  * fleet background bus — the DRY seam: a tree never learns which kind of host it
- * draws, it just consumes these. Emits use the host's RAW ids (the agent knows its
- * own); optimistic patches keep the tree responsive until the agent's
+ * draws, it just consumes these. Emits use the host's RAW ids (the host knows its
+ * own); optimistic patches keep the tree responsive until the host's
  * sessionsChanged broadcast refetch lands.
  */
 export function makeFleetActions(host, { onSelectSession = null, onSelectWorkspace = null } = {}) {
@@ -48,7 +48,7 @@ export function makeFleetActions(host, { onSelectSession = null, onSelectWorkspa
       // The modal hands the picked OPTION object; the wire and the tree want its id.
       const agentOpt = typeof agent === "string" ? null : agent;
       const agentId = typeof agent === "string" ? agent : (agent?.id || null);
-      // The agent stores the id but never launches the CLI — the client types the
+      // The host stores the id but never launches the CLI — the client types the
       // startup line on join, exactly like the main host's create flows do.
       const startupCmd = agentLaunchCommand(agentOpt, yolo);
       // Deferred when the lazy bus is still opening — fires on connect, never dropped.

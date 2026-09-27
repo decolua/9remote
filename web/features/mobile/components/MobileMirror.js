@@ -59,7 +59,7 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
   const isPanel = variant === "panel";
 
   // The row for whatever is being mirrored, so the rail knows whether this
-  // device is one the agent may shut down.
+  // device is one the host may shut down.
   const currentDevice = devices.find((d) => d.serial === serial) || null;
 
   // Shutting the device down loses whatever is running on it and costs ~25s to
@@ -298,7 +298,7 @@ export default function MobileMirror({ onClose, busRef, protocolRef, connected, 
             not something to hit while reaching for the nav keys. */}
         <div className="flex-1 min-h-2" />
         <RailButton icon={<Smartphone size={15} />} label={t("mobile.switchDevice")} onClick={stop} />
-        {/* Only for emulators the agent can stop: a phone on USB is not ours to
+        {/* Only for emulators the host can stop: a phone on USB is not ours to
             power off, and neither is an emulator someone else started. */}
         {currentDevice?.canStop && (
           <button

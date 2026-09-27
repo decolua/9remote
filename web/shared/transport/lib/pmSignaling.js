@@ -25,11 +25,11 @@ export function initSignalingClient(pm) {
       pingMs: SIGNALING_CONFIG.pingMs
     });
     pm._sig.on((msg) => {
-      // Agent test-toggle: RTC refused. Stop retrying so the client stays on WS
+      // Host test-toggle: RTC refused. Stop retrying so the client stays on WS
       // instead of looping offer→refuse→close→restart. Cleared by reload.
       if (msg.type === "error" && msg.message === "rtc-disabled") {
         pm._rtcTestDisabled = true;
-        termLog("switch", "rtc-disabled by agent → stop RTC retry (use WS)");
+        termLog("switch", "rtc-disabled by host → stop RTC retry (use WS)");
         return;
       }
       if (handleApprovalSignal(pm, msg)) return;
@@ -39,7 +39,7 @@ export function initSignalingClient(pm) {
   }).catch((err) => debugLog("transport", `[pm] SignalingClient load failed: ${err?.message || err}`));
 }
 
-/** The agent answered "not approved" rather than failing to connect. Surface it
+/** The host answered "not approved" rather than failing to connect. Surface it
  * as approval UI and stop renegotiating — retrying can't change a policy answer,
  * and letting it reach the RTC adapter would tear the peer down and fall back to
  * the tunnel, hiding the approval screen behind a connection error.
@@ -81,7 +81,7 @@ export function sendSignaling(pm, msg) {
   // DO is the sole signaling carrier — the tunnel carries data only.
   if (pm._sig?.ready && pm._sig.send(msg)) return;
   // A queued offer describes a peer this client has already thrown away: each
-  // RTC retry builds a new one. Flushing the whole queue made the agent tear
+  // RTC retry builds a new one. Flushing the whole queue made the host tear
   // down and rebuild its peer once per stale offer, and the answers to those
   // went nowhere — so only the newest offer, plus the ICE gathered for it,
   // is worth keeping.
@@ -103,7 +103,7 @@ export function flushSigBuffer(pm) {
  * URL). Re-fetch the latest from the Worker before connecting. */
 export async function refreshTunnelUrl(pm) {
   // The page-origin carrier cannot go stale — only a remote tunnel URL can.
-  // Skipping also keeps the agent-served tab from calling the Worker at all.
+  // Skipping also keeps the host-served tab from calling the Worker at all.
   if (pm._auth.tunnelUrl === (typeof window !== "undefined" ? window.location.origin : "")) return;
   try {
     debugLog("transport", `[pm] refreshTunnelUrl: fetching from ${WORKER_API}/api/connect`);

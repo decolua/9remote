@@ -76,8 +76,8 @@ test("the root path is refused", () => {
 
 // ── frame-ancestors names every loopback spelling ───────────────────────────
 
-test("the agent's shell is framable through any loopback name", () => {
-  // The agent serves its workspace on localhost and 127.0.0.1 alike, and the
+test("the host's shell is framable through any loopback name", () => {
+  // The host serves its workspace on localhost and 127.0.0.1 alike, and the
   // policy is checked against the ancestor actually used. Naming only one leaves
   // the site unframable for the other — which renders as a blank frame.
   const csp = appOriginsFor("sites.localhost", "2208");

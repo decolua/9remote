@@ -65,6 +65,7 @@ function TerminalHeader({
   connectionMode,
   subscribeToPush,
   unsubscribeFromPush,
+  hostVersion,
   agentVersion,
   busRef,
   carrier = "ws",
@@ -315,7 +316,8 @@ function TerminalHeader({
       connectionMode,
       subscribeToPush,
       unsubscribeFromPush,
-      agentVersion,
+      hostVersion: hostVersion || agentVersion,
+      agentVersion: hostVersion || agentVersion,
       carrier,
     });
 
@@ -324,7 +326,7 @@ function TerminalHeader({
       onFiles: onOpenFiles,
       onLogout,
             });
-  }, [isActive, connected, onOpenRemote, onOpenFiles, onLogout, tunnelUrl, apiKey, connectionMode, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
+  }, [isActive, connected, onOpenRemote, onOpenFiles, onLogout, tunnelUrl, apiKey, connectionMode, hostVersion, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
     <div className={`h-9 ${PANEL_HEADER_H_CLASS} px-2 sm:pl-0 sm:pr-2 flex items-stretch gap-0 flex-shrink-0 bg-bg border-b border-border-subtle`}>

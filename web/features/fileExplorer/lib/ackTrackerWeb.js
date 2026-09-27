@@ -1,4 +1,4 @@
-// Browser mirror of agent AckTracker — cumulative high-watermark for assembling
+// Browser mirror of host AckTracker — cumulative high-watermark for assembling
 // out-of-order download chunks. Pure logic, no DOM.
 export class AckTracker {
   constructor(totalSize) {

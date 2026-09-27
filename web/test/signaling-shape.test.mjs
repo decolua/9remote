@@ -40,7 +40,7 @@ function sentBy(SignalingClient, role, msg) {
 }
 
 const web = (await import("../shared/transport/SignalingClient.js")).SignalingClient;
-const agent = (await import("../../agent/transport/SignalingClient.js")).SignalingClient;
+const agent = (await import("../../host/transport/SignalingClient.js")).SignalingClient;
 
 test("offer: both sides put the sdp in payload, addressed to the other role", () => {
   const w = sentBy(web, "client", { type: "offer", sdp: "SDP" });

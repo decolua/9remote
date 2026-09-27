@@ -3,8 +3,8 @@
 // through to the Worker, and a dead tunnel then blocks a machine the LAN could
 // reach. Run: node --import ./test/loader-alias.mjs test/localAgentOrigin.test.mjs
 import assert from "node:assert/strict";
-import { agentOriginFrom, isSameMachine } from "../shared/utils/localOrigin.js";
-import { LOCAL_AGENT_ORIGIN, AGENT_PORT } from "../shared/constants/API.js";
+import { agentOriginFrom, hostOriginFrom, isSameMachine, isHostEnvironment } from "../shared/utils/localOrigin.js";
+import { LOCAL_AGENT_ORIGIN, LOCAL_HOST_ORIGIN, AGENT_PORT } from "../shared/constants/API.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -22,6 +22,7 @@ const payload = { permanentKey: "sk-abc", loopbackOrigin: LOCAL_AGENT_ORIGIN, lo
 test("dev-server page is pointed at the agent, not at itself", () => {
   at("http://localhost:3000/login");
   assert.equal(agentOriginFrom(payload), LOCAL_AGENT_ORIGIN);
+  assert.equal(hostOriginFrom(payload), LOCAL_HOST_ORIGIN);
 });
 
 test("dev server on 127.0.0.1 is pointed at the agent", () => {
@@ -92,6 +93,16 @@ test("isSameMachine returns false on remote origin", () => {
 test("isSameMachine returns false on LAN IP", () => {
   at("http://192.168.1.50:2208/workspace");
   assert.equal(isSameMachine(), false);
+});
+
+test("isHostEnvironment returns true on 127.0.0.1 agent port", () => {
+  at(`http://127.0.0.1:${AGENT_PORT}/workspace`);
+  assert.equal(isHostEnvironment(), true);
+});
+
+test("isHostEnvironment returns false on remote origin", () => {
+  at("https://dev.9remote.cc/workspace");
+  assert.equal(isHostEnvironment(), false);
 });
 
 delete global.window;

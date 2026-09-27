@@ -66,7 +66,7 @@ export function useNotification(busRef, connected) {
     if (typeof window === "undefined" || !isExpoWebView) return;
     window.handleAppStateChange = (hidden) => {
       eachOnlineBus((b) => b.emit("visibilityChange", !!hidden));
-      // PM recovery listens on DOM — bus.emit only travels over the wire to the agent
+      // PM recovery listens on DOM — bus.emit only travels over the wire to the host
       document.dispatchEvent(new CustomEvent("app-visibility", { detail: { hidden: !!hidden } }));
     };
     return () => {
@@ -166,7 +166,7 @@ export function useNotification(busRef, connected) {
   }, [busRef, connected, isExpoWebView]);
 
   // A fleet bus that comes online mid-session must hear the subscription too —
-  // the agent side is idempotent (addPushSubscription overwrites), and hosts
+  // the host side is idempotent (addPushSubscription overwrites), and hosts
   // never went through the subscribe flow themselves.
   useEffect(() => {
     if (!subscriptionRef.current) return;

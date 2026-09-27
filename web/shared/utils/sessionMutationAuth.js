@@ -7,22 +7,22 @@
 // your own, and their clients would then hand their key tail to whatever
 // answered there.
 //
-// The agent already keeps an Ed25519 host key for signing SDP answers. It signs
+// The host already keeps an Ed25519 host key for signing SDP answers. It signs
 // these mutations with the same key and registers the public half on the session
 // row, so the Worker can tell the owner from anyone who merely knows the HEAD.
 //
 // A row with no key on file accepts unsigned mutations. That is what keeps
-// agents released before this from losing their tunnel on the next sync; a row
-// gains its protection the first time an updated agent registers, and does not
+// hosts released before this from losing their tunnel on the next sync; a row
+// gains its protection the first time an updated host registers, and does not
 // give it up afterwards.
 
-// Agents run on laptops that suspend and resume with drifted clocks, so the
+// Hosts run on laptops that suspend and resume with drifted clocks, so the
 // window is wide enough to survive that and narrow enough that a captured
 // signature stops working long before anyone could use it.
 export const MUTATION_MAX_SKEW_MS = 5 * 60 * 1000;
 
 /**
- * The exact bytes the agent signs.
+ * The exact bytes the host signs.
  *
  * Length-prefixed rather than concatenated: "sk-a" + "bc" and "sk-ab" + "c"
  * produce identical strings otherwise, so one signature would cover two
@@ -68,12 +68,12 @@ async function verify(publicKeyB64, message, sigB64) {
 /**
  * May session/create write this host key onto the row?
  *
- * A reinstalled agent loses hostKey.json and comes back with a new pair, so the
+ * A reinstalled host loses hostKey.json and comes back with a new pair, so the
  * row cannot be sealed forever — but taking whichever key arrives last would
  * undo the whole thing, since anyone holding the HEAD could register their own.
  *
  * `pairedNow` is a live pairing code presented with the request: the user read
- * six characters off the agent's own screen, which is a claim only someone at
+ * six characters off the host's own screen, which is a claim only someone at
  * the machine can make, and the same claim the pairing flow already rests on.
  */
 export function canReplaceHostKey({ stored, presented, pairedNow }) {

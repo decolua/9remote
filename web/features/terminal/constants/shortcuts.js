@@ -44,7 +44,7 @@ export const SHORTCUT_ROWS = [
 const DIGIT_CODE = /^Digit([1-9])$/;
 
 // Which modifier the VIEWING device's keyboard actually has — this is a browser-level
-// chord, so it follows the machine in front of the user, never the agent's platform.
+// chord, so it follows the machine in front of the user, never the host's platform.
 // iPadOS Safari reports platform "MacIntel" but its keyboards carry Ctrl, not Cmd, so
 // userAgentData (which says "iOS"/"Windows"/…) wins wherever it exists.
 let macCache = null;

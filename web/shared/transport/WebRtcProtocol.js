@@ -568,6 +568,7 @@ export class WebRtcProtocol extends BaseProtocol {
     const pinned = trust?.hostPubKey ? trust : null;
     const fp2Usable = !!trust?.hostSealKey;
     debugLog("auth", "[seal] verify answer:", {
+      hostSentXpub: !!msg.xpub,
       agentSentXpub: !!msg.xpub,
       pinned: !!pinned,
       stalePin: !!(trust?.hostPubKey && !fp2Usable),
