@@ -92,8 +92,6 @@ web/graphify-out/*
 host/graphify-out/*
 .devloop/
 
-.handoff/
-host/tester/*
 # Bench output: logs + dump images with local machine paths
 host/remote-bench/out/*
 # Former submodule, kept locally only
