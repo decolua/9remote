@@ -90,7 +90,7 @@ export default function SessionBackgroundModal({ sessionId, title, onClose, busR
         )}
 
         <span className={`pointer-events-none absolute inset-0 rounded-2xl ${
-          isSelected ? "ring-1 ring-inset ring-brand-500" : "ring-1 ring-inset ring-white/15"
+          isSelected ? "ring-1 ring-inset ring-brand-500 dark:ring-white/60" : "ring-1 ring-inset ring-white/15"
         }`} />
 
         {/* Pool turn — the panes round-robin in this order */}
@@ -110,7 +110,7 @@ export default function SessionBackgroundModal({ sessionId, title, onClose, busR
       <div className="relative w-full max-w-lg max-h-[80vh] card-elev flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle">
           <div className="flex items-center gap-2 min-w-0">
-            <span className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-brand-500/15 text-brand-500">
+            <span className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-brand-500/15 text-brand-500 dark:bg-white/10 dark:text-white">
               <ImageOff size={13} />
             </span>
             <div className="min-w-0">

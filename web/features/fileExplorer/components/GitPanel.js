@@ -387,7 +387,7 @@ export default function GitPanel({ workspace, fileBus, onBack, onOpenFile }) {
                       loadDiff(file.path, file.status);
                     }
                   }}
-                  className="flex-1 min-w-0 px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out"
+                  className="flex-1 min-w-0 px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none transition-all duration-150 ease-out"
                 >
                   {statusFiles.map(file => (
                     <option key={file.path} value={file.path}>

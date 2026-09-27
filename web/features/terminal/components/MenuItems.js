@@ -291,7 +291,7 @@ export default function MenuItems({
                 <select
                   value={fontSize ?? (isMobile ? 12 : 14)}
                   onChange={(e) => { vibrate(); setFontSize(Number(e.target.value)); }}
-                  className="ml-auto bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  className="ml-auto bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none"
                 >
                   {Array.from({ length: isMobile ? 7 : 9 }, (_, i) => i + 10).map((n) => (
                     <option key={n} value={n}>{n}px</option>
@@ -304,7 +304,7 @@ export default function MenuItems({
                 <select
                   value={terminalTheme}
                   onChange={(e) => { vibrate(); setTerminalTheme(e.target.value); }}
-                  className="ml-auto bg-surface-2 text-text text-xs rounded-brand px-2 py-1 max-w-[55%] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                  className="ml-auto bg-surface-2 text-text text-xs rounded-brand px-2 py-1 max-w-[55%] focus:outline-none"
                 >
                   <option value="default">Vesper (Default)</option>
                   {TERMINAL_THEME_OPTIONS

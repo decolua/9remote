@@ -105,7 +105,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
           </>
         ) : (
           <span className={`absolute inset-0 flex flex-col items-center justify-center gap-2 transition-colors ${
-            selected ? "bg-brand-500/10 text-brand-500" : "bg-surface-2 text-text-muted group-hover:text-text"
+            selected ? "bg-brand-500/10 text-brand-500 dark:bg-white/10 dark:text-white" : "bg-surface-2 text-text-muted group-hover:text-text"
           }`}>
             <ImageOff size={24} strokeWidth={1.75} />
             <span className="text-xs font-medium">{label}</span>
@@ -115,7 +115,7 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
             would paint under it and get clipped at the scroll edge */}
         <span className={`pointer-events-none absolute inset-0 rounded-2xl transition-shadow duration-200 ${
           selected
-            ? "ring-1 ring-inset ring-brand-500"
+            ? "ring-1 ring-inset ring-brand-500 dark:ring-white/60"
             : "ring-1 ring-inset ring-white/15 group-hover:ring-brand-500/60"
         }`} />
         {selected && !isNone && (

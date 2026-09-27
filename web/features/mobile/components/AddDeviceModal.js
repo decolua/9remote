@@ -75,7 +75,7 @@ export default function AddDeviceModal({ isOpen, onClose, presets, sdkJob, onPro
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border flex-shrink-0">
-          <Smartphone size={15} className="text-brand-500 flex-shrink-0" />
+          <Smartphone size={15} className="text-brand-500 dark:text-white flex-shrink-0" />
           <span className="text-sm text-text flex-1">{t("mobile.addDevice")}</span>
           <button onClick={() => { vibrate(); close(); }} className="p-1 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand">
             <X size={15} />
@@ -91,7 +91,7 @@ export default function AddDeviceModal({ isOpen, onClose, presets, sdkJob, onPro
                   <p className="text-red-400 text-xs">{jobError}</p>
                   <div className="flex items-center gap-2">
                     {lastPreset && (
-                      <button onClick={() => pick(lastPreset)} className="px-3 py-1.5 text-xs text-brand-500 bg-brand-500/10 rounded-brand">
+                      <button onClick={() => pick(lastPreset)} className="px-3 py-1.5 text-xs text-brand-500 bg-brand-500/10 dark:text-white dark:bg-white/10 rounded-brand">
                         {t("common.retry")}
                       </button>
                     )}
@@ -125,7 +125,7 @@ export default function AddDeviceModal({ isOpen, onClose, presets, sdkJob, onPro
                 onClick={() => pick(p)}
                 className="w-full flex items-center gap-2.5 px-3 py-2.5 bg-surface rounded-brand-lg hover:bg-surface-2 transition-colors text-left"
               >
-                {p.id === "tablet" ? <Monitor size={16} className="text-brand-500 flex-shrink-0" /> : <Smartphone size={16} className="text-brand-500 flex-shrink-0" />}
+                {p.id === "tablet" ? <Monitor size={16} className="text-brand-500 dark:text-white flex-shrink-0" /> : <Smartphone size={16} className="text-brand-500 dark:text-white flex-shrink-0" />}
                 <div className="flex flex-col min-w-0 flex-1">
                   <span className="text-sm text-text truncate">{p.label}</span>
                   <span className="text-[10px] text-text-muted">

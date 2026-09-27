@@ -122,8 +122,8 @@ export default function AddHostModal({ onClose }) {
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 pt-4 pb-3 flex items-center gap-2.5 border-b border-border-subtle">
-          <div className="p-1.5 bg-brand-500/10 rounded-brand flex-shrink-0">
-            <KeyRound className="text-brand-500 w-4 h-4" />
+          <div className="p-1.5 bg-brand-500/10 dark:bg-white/10 rounded-brand flex-shrink-0">
+            <KeyRound className="text-brand-500 dark:text-white w-4 h-4" />
           </div>
           <h2 className="flex-1 text-sm font-semibold text-text truncate">{t("hosts.addHost")}</h2>
           <button

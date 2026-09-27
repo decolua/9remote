@@ -138,7 +138,7 @@ export default function SettingsDialog({
                   key={cat.id}
                   onClick={() => { vibrate(); setSection(cat.id); }}
                   className={`w-full px-3 py-2 rounded-brand text-left flex items-center gap-2.5 text-sm transition-colors ${
-                    active ? "bg-brand-500/15 text-brand-500" : "text-text-muted hover:bg-surface-2 hover:text-text"
+                    active ? "bg-brand-500/15 text-brand-500 dark:bg-white/10 dark:text-white" : "text-text-muted hover:bg-surface-2 hover:text-text"
                   }`}
                 >
                   <CatIcon size={16} />
@@ -242,7 +242,7 @@ export default function SettingsDialog({
                     onClick={() => { vibrate(); setLanguageOpen(true); }}
                     className="w-full px-3 py-2 rounded-brand text-left flex items-center gap-2.5 text-sm text-text hover:bg-surface-2 transition-colors"
                   >
-                    <Globe size={16} className="text-brand-500 flex-shrink-0" />
+                    <Globe size={16} className="text-brand-500 dark:text-white flex-shrink-0" />
                     <span className="flex-1 min-w-0 truncate">{t("menu.language")}</span>
                     {currentLocale && (
                       <span className="flex items-center gap-1.5 flex-shrink-0 text-text-muted">
@@ -269,7 +269,7 @@ export default function SettingsDialog({
                     <select
                       value={fontSize ?? 14}
                       onChange={(e) => { vibrate(); setFontSize(Number(e.target.value)); }}
-                      className="bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                      className="bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none"
                     >
                       {Array.from({ length: 9 }, (_, i) => i + 10).map((n) => (
                         <option key={n} value={n}>{n}px</option>
@@ -280,7 +280,7 @@ export default function SettingsDialog({
                     <select
                       value={terminalTheme}
                       onChange={(e) => { vibrate(); setTerminalTheme(e.target.value); }}
-                      className="bg-surface-2 text-text text-sm rounded-brand px-2 py-1 max-w-[220px] focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+                      className="bg-surface-2 text-text text-sm rounded-brand px-2 py-1 max-w-[220px] focus:outline-none"
                     >
                       <option value="default">Vesper (Default)</option>
                       {TERMINAL_THEME_OPTIONS.filter((opt) => opt.mode === appTheme).map((opt) => (
@@ -469,7 +469,7 @@ function ActionRow({ icon: RowIcon, iconClass = "", label, badge, danger, disabl
           : "text-text hover:bg-surface-2"
       }`}
     >
-      <RowIcon size={16} className={`${danger ? "text-red-400" : "text-brand-500"} ${iconClass}`} />
+      <RowIcon size={16} className={`${danger ? "text-red-400" : "text-brand-500 dark:text-white"} ${iconClass}`} />
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {badge && <span className="flex-shrink-0 px-2 py-0.5 bg-brand-500 text-white text-xs font-medium rounded-full">{badge}</span>}
     </button>
@@ -483,7 +483,7 @@ function ToggleRow({ icon: RowIcon, label, hint, value, loading, disabled, onCha
       disabled={loading || disabled}
       className="w-full px-3 py-2 rounded-brand text-left flex items-center gap-2.5 text-sm text-text hover:bg-surface-2 transition-colors disabled:opacity-60"
     >
-      <RowIcon size={16} className="text-brand-500 flex-shrink-0" />
+      <RowIcon size={16} className="text-brand-500 dark:text-white flex-shrink-0" />
       <div className="flex-1 min-w-0">
         <span className="block truncate">{label}</span>
         {hint && <span className="block text-xs text-text-muted truncate">{hint}</span>}
@@ -491,8 +491,8 @@ function ToggleRow({ icon: RowIcon, label, hint, value, loading, disabled, onCha
       {loading ? (
         <Loader2 size={16} className="animate-spin text-text-muted" />
       ) : (
-        <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${value ? "bg-brand-500" : "bg-surface-2"}`}>
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${value ? "translate-x-4" : "translate-x-0.5"}`} />
+        <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors border border-transparent flex-shrink-0 ${value ? "bg-brand-500 dark:bg-white" : "bg-surface-2 dark:border-white/15"}`}>
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${value ? "translate-x-4 dark:bg-dark-800" : "translate-x-0.5 dark:bg-white/50"}`} />
         </span>
       )}
     </button>
@@ -502,7 +502,7 @@ function ToggleRow({ icon: RowIcon, label, hint, value, loading, disabled, onCha
 function SelectRow({ icon: RowIcon, label, children }) {
   return (
     <div className="w-full px-3 py-2 rounded-brand flex items-center gap-2.5 text-sm text-text">
-      <RowIcon size={16} className="text-brand-500 flex-shrink-0" />
+      <RowIcon size={16} className="text-brand-500 dark:text-white flex-shrink-0" />
       <span className="flex-1 min-w-0 truncate">{label}</span>
       {children}
     </div>
@@ -514,7 +514,7 @@ function ThemeCard({ icon: CardIcon, label, active, onClick }) {
     <button
       onClick={onClick}
       className={`px-3 py-3 rounded-brand flex items-center gap-2.5 text-sm border transition-colors ${
-        active ? "border-brand-500 bg-brand-500/10 text-brand-500" : "border-border text-text hover:bg-surface-2"
+        active ? "border-brand-500 bg-brand-500/10 text-brand-500 dark:border-white/30 dark:bg-white/10 dark:text-white" : "border-border text-text hover:bg-surface-2"
       }`}
     >
       <CardIcon size={16} />

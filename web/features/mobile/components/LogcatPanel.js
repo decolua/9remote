@@ -42,7 +42,7 @@ export default function LogcatPanel({ logcat, apps }) {
         <select
           value={packageName || ""}
           onChange={(e) => { vibrate(); setPackageName(e.target.value || null); refollow(); }}
-          className="bg-surface-2 text-text text-xs rounded-brand px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/40 max-w-[40%]"
+          className="bg-surface-2 text-text text-xs rounded-brand px-1.5 py-1 focus:outline-none max-w-[40%]"
           title={t("mobile.filterByApp")}
         >
           <option value="">{t("mobile.allApps")}</option>
@@ -52,7 +52,7 @@ export default function LogcatPanel({ logcat, apps }) {
         <select
           value={minLevel}
           onChange={(e) => { vibrate(); setMinLevel(e.target.value); refollow(); }}
-          className="bg-surface-2 text-text text-xs rounded-brand px-1.5 py-1 focus:outline-none focus:ring-2 focus:ring-brand-500/40"
+          className="bg-surface-2 text-text text-xs rounded-brand px-1.5 py-1 focus:outline-none"
           title={t("mobile.minLevel")}
         >
           {LOG_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}

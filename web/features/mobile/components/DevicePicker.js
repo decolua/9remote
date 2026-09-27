@@ -110,8 +110,8 @@ export default function DevicePicker({
                   className="flex items-center gap-2.5 flex-1 min-w-0 text-left disabled:opacity-60 transition-all duration-150 ease-out active:scale-[0.99]"
                 >
                   {device.kind === "physical"
-                    ? <Smartphone size={16} className="text-brand-500 flex-shrink-0" />
-                    : <Monitor size={16} className="text-brand-500 flex-shrink-0" />}
+                    ? <Smartphone size={16} className="text-brand-500 dark:text-white flex-shrink-0" />
+                    : <Monitor size={16} className="text-brand-500 dark:text-white flex-shrink-0" />}
                   <div className="flex flex-col min-w-0 flex-1">
                     <span className="text-sm text-text truncate">{device.name}</span>
                     <span className="text-xs text-text-muted truncate">
@@ -190,13 +190,13 @@ export default function DevicePicker({
           onClick={() => { vibrate(); onLowPowerChange?.(!lowPower); }}
           className="w-full bg-surface rounded-brand-lg px-3 py-2 flex items-center gap-2.5 text-left hover:bg-surface-2 transition-colors"
         >
-          <Zap size={15} className={lowPower ? "text-brand-500 flex-shrink-0" : "text-text-muted flex-shrink-0"} />
+          <Zap size={15} className={lowPower ? "text-brand-500 dark:text-white flex-shrink-0" : "text-text-muted flex-shrink-0"} />
           <div className="flex flex-col min-w-0 flex-1">
             <span className="text-sm text-text">{t("mobile.lowPower")}</span>
             <span className="text-xs text-text-muted">{t("mobile.lowPowerHint")}</span>
           </div>
-          <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors flex-shrink-0 ${lowPower ? "bg-brand-500" : "bg-surface-2"}`}>
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${lowPower ? "translate-x-4" : "translate-x-0.5"}`} />
+          <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors border border-transparent flex-shrink-0 ${lowPower ? "bg-brand-500 dark:bg-white" : "bg-surface-2 dark:border-white/15"}`}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${lowPower ? "translate-x-4 dark:bg-dark-800" : "translate-x-0.5 dark:bg-white/50"}`} />
           </span>
         </button>
       )}

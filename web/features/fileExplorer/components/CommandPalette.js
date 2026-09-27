@@ -180,7 +180,7 @@ export default function CommandPalette({
                       onMouseEnter={() => setSelected(idx)}
                       onClick={() => handleSelect(idx)}
                       className={`flex items-center gap-3 px-4 py-2 cursor-pointer ${
-                        isSelected ? "bg-brand-500/20 text-text" : "text-text-muted hover:bg-surface-2"
+                        isSelected ? "bg-brand-500/20 dark:bg-white/10 text-text" : "text-text-muted hover:bg-surface-2"
                       }`}
                     >
                       <Icon name={item.icon} size={16} />
@@ -201,7 +201,7 @@ export default function CommandPalette({
                     onMouseEnter={() => setSelected(idx)}
                     onClick={() => handleSelect(idx)}
                     className={`flex items-center gap-3 px-4 py-2 cursor-pointer ${
-                      isSelected ? "bg-brand-500/20 text-text" : "text-text-muted hover:bg-surface-2"
+                      isSelected ? "bg-brand-500/20 dark:bg-white/10 text-text" : "text-text-muted hover:bg-surface-2"
                     }`}
                   >
                     <Icon name="File" size={16} />

@@ -107,19 +107,19 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
           <div className="flex gap-2">
             <button
               onClick={() => { vibrate(); onTypeChange("file"); }}
-              className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${type === "file" ? "bg-brand-500 text-white" : "bg-surface-2 text-text"}`}
+              className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${type === "file" ? "bg-brand-500 text-white dark:bg-white dark:text-black" : "bg-surface-2 text-text"}`}
             >
               <File size={16} className="text-text-subtle" /> {t("files.file")}
             </button>
             <button
               onClick={() => { vibrate(); onTypeChange("folder"); }}
-              className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${type === "folder" ? "bg-brand-500 text-white" : "bg-surface-2 text-text"}`}
+              className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${type === "folder" ? "bg-brand-500 text-white dark:bg-white dark:text-black" : "bg-surface-2 text-text"}`}
             >
               <Folder size={16} className="text-orange-500/70" /> {t("files.folder")}
             </button>
             <button
               onClick={() => { vibrate(); onTypeChange("upload"); }}
-              className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${isUpload ? "bg-brand-500 text-white" : "bg-surface-2 text-text"}`}
+              className={`flex-1 py-2 rounded-brand transition flex items-center justify-center gap-2 ${isUpload ? "bg-brand-500 text-white dark:bg-white dark:text-black" : "bg-surface-2 text-text"}`}
             >
               <Upload size={16} className="text-brand-500" /> {t("common.upload")}
             </button>
