@@ -395,7 +395,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
     <div className="flex flex-col w-full">
       {/* Paste Input Fallback */}
       {showPasteInput && (
-        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-[60]" onClick={() => setShowPasteInput(false)}>
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-[60]" onClick={() => setShowPasteInput(false)}>
           <input
             ref={pasteInputRef}
             placeholder={t("mobileKeyboard.pasteHere")}

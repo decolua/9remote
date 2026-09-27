@@ -92,9 +92,10 @@ export default function WorkspaceSwitcher({ currentWorkspace, onSelect, onOpenBr
           isCurrent ? "bg-surface-2" : "hover:bg-surface-2"
         }`}
       >
-        <Folder size={18} className="text-orange-500/70 flex-shrink-0" />
+        <Folder size={18} className="text-text-subtle flex-shrink-0" />
         <div className="flex-1 min-w-0">
-          <div className="text-text text-sm font-medium truncate">
+          <div className="text-text text-sm font-medium truncate flex items-center gap-1.5">
+            {isCurrent && <span className="w-1.5 h-1.5 rounded-full bg-brand-500 flex-shrink-0" />}
             {w.name || getBasename(w.path)}
           </div>
           <div className="text-text-muted text-xs truncate" title={w.path}>{shortPath(w.path)}</div>
@@ -128,7 +129,7 @@ export default function WorkspaceSwitcher({ currentWorkspace, onSelect, onOpenBr
 
   return (
     <>
-      <div className="fixed inset-0 z-50 bg-black/40" onClick={onClose}>
+      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
         <div
           className="card-elev w-[480px] max-w-[90vw] absolute top-20 left-1/2 -translate-x-1/2 flex flex-col"
           onClick={(e) => e.stopPropagation()}

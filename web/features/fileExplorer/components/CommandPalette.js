@@ -148,9 +148,9 @@ export default function CommandPalette({
   };
 
   return (
-    <div className="fixed inset-0 z-50 bg-black/40" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" onMouseDown={onClose}>
       <div
-        className="absolute top-20 left-1/2 -translate-x-1/2 w-[640px] max-w-[90vw] card-elev bg-surface border border-border rounded-brand overflow-hidden"
+        className="absolute top-20 left-1/2 -translate-x-1/2 w-[640px] max-w-[90vw] card-elev overflow-hidden"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">

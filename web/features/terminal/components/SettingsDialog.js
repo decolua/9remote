@@ -117,7 +117,7 @@ export default function SettingsDialog({
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] fade-in" onClick={onClose} />
 
       <div
-        className="relative w-full max-w-4xl h-[85vh] max-h-[640px] bg-surface border border-border rounded-brand-lg shadow-2xl flex overflow-hidden"
+        className="relative w-full max-w-4xl h-[85vh] max-h-[640px] card-elev flex overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label={t("menu.settings")}

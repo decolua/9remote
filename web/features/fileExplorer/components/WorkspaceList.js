@@ -187,7 +187,7 @@ export default function WorkspaceList({ onSelect, onBrowse, onBack, isCodespaces
                   onClick={() => { vibrate(); onSelect(workspace.path); }}
                   className="w-full bg-surface hover:bg-surface-2 rounded-brand-lg p-4 flex items-center gap-3 transition-all duration-150 ease-out active:scale-[0.99] text-left"
                 >
-                  <Folder size={24} className="text-orange-500/70 flex-shrink-0" />
+                  <Folder size={24} className="text-text-subtle flex-shrink-0" />
                   <div className="flex-1 min-w-0">
                     <div className="text-text font-medium truncate">
                       {getWorkspaceName(workspace.path)}

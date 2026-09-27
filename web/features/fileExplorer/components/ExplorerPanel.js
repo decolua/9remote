@@ -686,7 +686,7 @@ export default function ExplorerPanel({
 
       {newItemModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
+          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
           <div className="relative card-elev p-4 w-full max-w-sm animate-in zoom-in-95 duration-150">
             <h3 className="text-sm font-semibold text-text mb-2">
               {newItemModal.type === "folder" ? "New Folder" : "New File"}

@@ -107,7 +107,7 @@ export default function SessionBackgroundModal({ sessionId, title, onClose, busR
     <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={onClose} />
 
-      <div className="relative w-full max-w-lg max-h-[80vh] rounded-brand-lg border border-border-subtle bg-surface shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
+      <div className="relative w-full max-w-lg max-h-[80vh] card-elev flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle">
           <div className="flex items-center gap-2 min-w-0">
             <span className="w-6 h-6 rounded-full flex items-center justify-center flex-shrink-0 bg-brand-500/15 text-brand-500">

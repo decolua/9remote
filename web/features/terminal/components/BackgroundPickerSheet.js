@@ -219,10 +219,10 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
 
   return createPortal(
     <div className={isDesktop ? "fixed inset-0 z-[60] flex items-center justify-center p-4" : "fixed inset-0 z-[60] flex flex-col justify-end"}>
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={handleClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={handleClose} />
 
       <div className={isDesktop
-        ? "relative w-full max-w-lg max-h-[80vh] rounded-brand-lg border border-border-subtle bg-surface shadow-2xl flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
+        ? "relative w-full max-w-lg max-h-[80vh] card-elev flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
         : "relative rounded-t-3xl border-t border-border bg-surface/95 backdrop-blur-xl shadow-2xl max-h-[88dvh] flex flex-col animate-in slide-in-from-bottom duration-300 ease-out"}>
         {/* Drag handle */}
         {!isDesktop && (

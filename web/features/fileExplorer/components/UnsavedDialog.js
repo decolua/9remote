@@ -52,7 +52,7 @@ export default function UnsavedDialog({ isOpen, fileName, onSave, onDiscard, onC
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onCancel}
     >
-      <div className="absolute inset-0 bg-black/60" />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" />
       <div
         role="dialog"
         aria-modal="true"

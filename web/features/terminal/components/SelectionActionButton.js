@@ -35,7 +35,7 @@ export default function SelectionActionButton({
 
   return (
     <div 
-      className="fixed inset-0 bg-black/30 flex items-center justify-center z-[60]"
+      className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-[60]"
       onMouseDown={(e) => {
         // Prevent focus loss when clicking backdrop
         e.preventDefault();

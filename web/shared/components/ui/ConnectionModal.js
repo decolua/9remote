@@ -43,7 +43,7 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // Device approval: pending
   if (approvalStatus === APPROVAL_STATUS.pending) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
         <div className="card-elev p-6 max-w-sm w-full mx-4">
           <div className="text-center">
             <Spinner size="lg" />
@@ -71,7 +71,7 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // Device approval: rejected
   if (approvalStatus === APPROVAL_STATUS.rejected) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
         <div className="card-elev p-6 max-w-sm w-full mx-4">
           <div className="text-center">
             <div className="w-16 h-16 mx-auto bg-red-500/20 rounded-full flex items-center justify-center">
@@ -111,7 +111,7 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   if (retryStatus?.isRetrying && retryStatus.attempt < RETRY_MODAL_MIN_ATTEMPT) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
       <div className="card-elev p-6 max-w-sm w-full mx-4">
         {retryStatus.isRetrying ? (
           // Retrying state

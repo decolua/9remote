@@ -101,7 +101,7 @@ export default function NewSiteTabModal({ isOpen, onClose, onOpenSite, busRef, c
       className="fixed inset-0 z-[100] flex items-center justify-center px-4"
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
     >
-      <div className="absolute inset-0 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={onClose} />
 
       <div
         role="dialog"

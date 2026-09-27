@@ -301,7 +301,7 @@ export default function NewTerminalModal({
   return (
     <>
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/50 backdrop-blur-[4px] animate-in fade-in duration-150"
+      className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onClose}
     >

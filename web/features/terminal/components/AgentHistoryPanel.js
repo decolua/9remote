@@ -88,10 +88,10 @@ export default function AgentHistoryPanel({
         style={asList ? undefined : { maxHeight: collapsed ? undefined : AGENT_HISTORY_MAX_HEIGHT }}
       >
         {!asList && (
-          <div className="w-full pl-1 pr-1 py-0.5 flex items-center justify-between text-text-subtle">
+          <div className="w-full pl-0 pr-1 py-0.5 flex items-center justify-between text-text-subtle">
             <button
               onClick={() => { vibrate(); setCollapsed((c) => !c); }}
-              className="flex items-center gap-1 hover:text-text transition-colors flex-1 min-w-0"
+              className="flex items-center gap-1.5 hover:text-text transition-colors flex-1 min-w-0"
             >
               <ChevronRight size={12} className={`flex-shrink-0 transition-transform duration-150 ${collapsed ? "" : "rotate-90"}`} />
               <History size={11} className="flex-shrink-0" />
@@ -125,7 +125,7 @@ export default function AgentHistoryPanel({
                 <div
                   key={`${row.agent}:${row.sessionId}`}
                   className={`group relative w-full flex items-center gap-1 text-left transition-colors rounded-brand hover:bg-text/5 ${
-                    asList ? "gap-2 px-2.5 py-1.5" : "pl-3 pr-1 py-px"
+                    asList ? "gap-2 px-2.5 py-1.5" : "pl-7 pr-1 py-px"
                   } ${isActive ? "bg-text/8" : ""}`}
                 >
                   <button
