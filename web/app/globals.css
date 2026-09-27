@@ -2,6 +2,9 @@
 @import url('https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,300..400,0..1,0&display=block');
 @import "tailwindcss";
 
+/* Theme is class-based on <html> (see ThemeProvider); Tailwind's default dark: variant follows the OS instead */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   /* Brand Colors (light mode — saturated orange) */
   --color-brand-50: #fff2ec;
