@@ -1,11 +1,11 @@
 "use client";
 
-import { useState, useEffect, useCallback, useMemo } from "react";
+import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
   Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot,
-  Power, PowerOff, Lock, FileText
+  Power, PowerOff, Lock, FileText, Bug, Copy, Trash2
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -29,9 +29,10 @@ import { useJarvisStore } from "@/shared/stores/jarvisStore";
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useHostLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
+import { useLogStore } from "@/shared/stores/logStore";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Bug };
 
 
 /**
@@ -364,15 +365,8 @@ export default function SettingsDialog({
                   <ActionRow
                     icon={FileText}
                     label={t("menu.agentLogsOpen")}
-                    // Hops to the Pair Device view and force-opens its Logs section —
-                    // the viewer lives there now, not on the old agent dashboard.
-                    onClick={() => {
-                      vibrate();
-                      useTerminalStore.getState().pushView({ type: "pair" });
-                      window.dispatchEvent(new CustomEvent("host:openLogs"));
-                      window.dispatchEvent(new CustomEvent("agent:openLogs"));
-                      onClose();
-                    }}
+                    // The viewer is the Debug tab of this dialog — just switch to it.
+                    onClick={() => { vibrate(); setSection("debug"); }}
                   />
                 </Group>
 
@@ -418,6 +412,8 @@ export default function SettingsDialog({
                 <JarvisConfigPanel busRef={context.busRef} />
               </div>
             )}
+            {section === "debug" && <DebugLogs />}
+
             {section === "shortcuts" && (
               <ul className="flex flex-col divide-y divide-border-subtle/40">
                 {SHORTCUT_ROWS.map((entry) => (
@@ -526,5 +522,88 @@ function ThemeCard({ icon: CardIcon, label, active, onClick }) {
       <CardIcon size={16} />
       <span>{label}</span>
     </button>
+  );
+}
+
+const LEVEL_CLS = {
+  debug: "text-text-muted",
+  info: "text-blue-400",
+  warn: "text-amber-400",
+  error: "text-red-400"
+};
+
+/** DebugLogs — unified host + web log viewer (Settings → Debug). */
+function DebugLogs() {
+  const { t } = useI18n();
+  const entries = useLogStore((s) => s.entries);
+  const [source, setSource] = useState("all");
+  const [level, setLevel] = useState("all");
+  const boxRef = useRef(null);
+
+  // Host tail: load the file's history, then live-append while this pane is open.
+  useEffect(() => {
+    useLogStore.getState().loadHostTail();
+    useLogStore.getState().startHostTail();
+    return () => useLogStore.getState().stopHostTail();
+  }, []);
+
+  // Fresh tail sticks to the bottom.
+  useEffect(() => { if (boxRef.current) boxRef.current.scrollTop = boxRef.current.scrollHeight; }, [entries]);
+
+  const filtered = entries.filter((e) =>
+    (source === "all" || e.source === source) && (level === "all" || e.level === level)
+  );
+
+  const copyAll = () => {
+    const text = filtered.map((e) => `${e.ts} ${e.level.toUpperCase()} [${e.source}:${e.domain}] ${e.msg}`).join("\n");
+    navigator.clipboard?.writeText(text)?.catch(() => {});
+  };
+
+  const clearAll = () => {
+    useLogStore.getState().clear();
+    if (isHostEnvironment()) fetch("/api/logs/clear", { method: "POST" }).catch(() => {});
+  };
+
+  const selCls = "bg-surface-2 text-text text-xs rounded-brand px-2 py-1 focus:outline-none";
+
+  return (
+    <div>
+      <div className="flex items-center gap-2 mb-2 flex-wrap">
+        <span className="text-xs text-text-muted">{t("menu.debugSource")}</span>
+        <select value={source} onChange={(e) => setSource(e.target.value)} className={selCls} aria-label={t("menu.debugSource")}>
+          <option value="all">{t("menu.debugAll")}</option>
+          <option value="host">{t("menu.debugHost")}</option>
+          <option value="web">{t("menu.debugWeb")}</option>
+        </select>
+        <span className="text-xs text-text-muted ml-2">{t("menu.debugLevel")}</span>
+        <select value={level} onChange={(e) => setLevel(e.target.value)} className={selCls} aria-label={t("menu.debugLevel")}>
+          <option value="all">{t("menu.debugAll")}</option>
+          <option value="debug">DEBUG</option>
+          <option value="info">INFO</option>
+          <option value="warn">WARN</option>
+          <option value="error">ERROR</option>
+        </select>
+        <span className="flex-1" />
+        <button onClick={() => useLogStore.getState().loadHostTail()} className="p-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand" aria-label={t("menu.debugRefresh")}><RefreshCw size={14} /></button>
+        <button onClick={copyAll} className="p-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand" aria-label={t("menu.debugCopy")}><Copy size={14} /></button>
+        <button onClick={clearAll} className="p-1.5 text-text-muted hover:text-red-400 hover:bg-surface-2 rounded-brand" aria-label={t("menu.debugClear")}><Trash2 size={14} /></button>
+      </div>
+
+      <div
+        ref={boxRef}
+        className="h-[420px] overflow-y-auto rounded-brand px-3 py-2 modal-scrollable bg-surface-2 border border-border"
+      >
+        {filtered.length === 0 ? (
+          <p className="text-xs text-center py-3 text-text-muted">{t("menu.debugEmpty")}</p>
+        ) : filtered.map((e) => (
+          <p key={e.id} className="font-mono text-[11px] leading-[1.7] whitespace-pre-wrap break-all">
+            <span className="text-text-muted">{new Date(e.ts).toLocaleTimeString([], { hour12: false })}</span>{" "}
+            <span className={`font-semibold ${LEVEL_CLS[e.level] || ""}`}>{e.level.toUpperCase()}</span>{" "}
+            <span className="text-text-muted">{e.source}:{e.domain}</span>{" "}
+            <span className="text-text">{e.msg}</span>
+          </p>
+        ))}
+      </div>
+    </div>
   );
 }

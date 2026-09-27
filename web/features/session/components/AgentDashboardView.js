@@ -20,7 +20,6 @@ const LOGIN_URL = `${HOMEPAGE_URL}login`;
 // Every desktop installer, per OS and per version
 const DOWNLOADS_URL = `${HOMEPAGE_URL}download`;
 const UPDATE_UI = { startDelayMs: 3000, pollMs: 2000, timeoutMs: 90000 };
-const MAX_LOGS = 200;
 const STEP_READY = 5;
 const BUSY_TIMEOUT_MS = 15000;
 
@@ -618,9 +617,6 @@ export default function AgentDashboardView() {
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
   const [clientsOpen, setClientsOpen] = useState(false);
-  const [logs, setLogs] = useState([]);
-  const [logsOpen, setLogsOpen] = useState(false);
-  const logBoxRef = useRef(null);
 
   const versionRef = useRef("");
 
@@ -643,29 +639,6 @@ export default function AgentDashboardView() {
       })
       .catch(() => {});
   }, []);
-
-  const fetchLogs = useCallback(() => {
-    fetch("/api/logs?lines=200", { cache: "no-store" })
-      .then((r) => r.json())
-      .then((d) => { if (Array.isArray(d?.logs)) setLogs(d.logs); })
-      .catch(() => {});
-  }, []);
-
-  // Settings' "Host Logs" hops to this view and force-opens the section.
-  useEffect(() => {
-    const onOpenLogs = () => { setLogsOpen(true); fetchLogs(); };
-    window.addEventListener("host:openLogs", onOpenLogs);
-    window.addEventListener("agent:openLogs", onOpenLogs);
-    return () => {
-      window.removeEventListener("host:openLogs", onOpenLogs);
-      window.removeEventListener("agent:openLogs", onOpenLogs);
-    };
-  }, [fetchLogs]);
-
-  // Fresh tail sticks to the bottom while the section is open.
-  useEffect(() => {
-    if (logsOpen && logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
-  }, [logs, logsOpen]);
 
   // Initial state + SSE stream — the host's local event bus.
   useEffect(() => {
@@ -744,11 +717,6 @@ export default function AgentDashboardView() {
         if (Array.isArray(data.presets)) setSleepPresets(data.presets);
       } else if (data.type === "remote") {
         setRemoteEnabled(!!data.enabled);
-      } else if (data.type === "log" && data.message) {
-        setLogs((prev) => {
-          const next = [...prev, data.message];
-          return next.length > MAX_LOGS ? next.slice(-MAX_LOGS) : next;
-        });
       }
     };
     es.onerror = () => setHostReachable(false);
@@ -1000,37 +968,6 @@ export default function AgentDashboardView() {
                 />
               ))
             )}
-          </Section>
-
-          {/* Logs — collapsed by default; live-appended from the SSE stream. */}
-          <Section
-            title="Logs"
-            open={logsOpen}
-            onToggle={() => setLogsOpen((v) => {
-              if (!v) fetchLogs();
-              return !v;
-            })}
-          >
-            <div className="flex items-center justify-end gap-1.5 mb-2">
-              <IconBtn icon="refresh" onClick={fetchLogs} title="Refresh logs" />
-              <IconBtn
-                icon="delete_sweep"
-                danger
-                onClick={() => { post("/api/logs/clear"); setLogs([]); }}
-                title="Clear logs"
-              />
-            </div>
-            <div
-              ref={logBoxRef}
-              className="rounded-xl max-h-[280px] overflow-y-auto px-3 py-2.5"
-              style={{ background: "var(--row-bg)", border: "1px solid var(--border-subtle)" }}
-            >
-              {logs.length === 0 ? (
-                <p className="text-xs text-center py-3" style={{ color: "var(--text-muted)" }}>No logs</p>
-              ) : logs.map((line, i) => (
-                <p key={i} className="font-mono text-[11px] leading-[1.6] whitespace-pre-wrap break-all" style={{ color: "var(--text-muted)" }}>{line}</p>
-              ))}
-            </div>
           </Section>
         </section>
       </main>

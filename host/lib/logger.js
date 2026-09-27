@@ -45,25 +45,17 @@ function fmt(args) {
   }).join(" ");
 }
 
-function shortTs() {
-  const d = new Date();
-  const p = (n, w = 2) => String(n).padStart(w, "0");
-  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}.${p(d.getMilliseconds(), 3)}`;
-}
-
-// eslint-disable-next-line no-control-regex
 const ANSI_REGEX = /\x1b\[[0-9;]*m/g;
 const URL_REGEX = /https?:\/\/[^\s]+/g;
 function sanitize(s) {
   return String(s).replace(ANSI_REGEX, "").replace(URL_REGEX, "").replace(/\s+$/g, "");
 }
 
-// Tag format: [domain] for info, [domain:level] for warn/error/crash
+// Line format: RFC 3339 timestamp + uppercase syslog level + [domain]
 function emit(domain, level, msg) {
   const clean = sanitize(msg);
   if (!clean) return;
-  const tag = level === "info" ? domain : `${domain}:${level}`;
-  const line = `${shortTs()} [${tag}] ${clean}`;
+  const line = `${new Date().toISOString()} ${level.toUpperCase()} [${domain}] ${clean}`;
   writeLine(line);
   if (sseEmitter) { try { sseEmitter(line); } catch {} }
 }
@@ -74,7 +66,7 @@ function setupCrashHandlers() {
     const r = reason instanceof Error ? (reason.stack || reason.message) : String(reason);
     emit("crash", "error", `unhandledRejection: ${r}`);
   });
-  process.on("exit", (code) => writeLine(`${shortTs()} [exit] code=${code} pid=${process.pid}`));
+  process.on("exit", (code) => writeLine(`${new Date().toISOString()} INFO [exit] code=${code} pid=${process.pid}`));
 }
 
 export function initLogger() {

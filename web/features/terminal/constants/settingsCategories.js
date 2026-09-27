@@ -12,5 +12,6 @@ export const SETTINGS_CATEGORIES = [
   // host's own origin can serve.
   { id: "host", labelKey: "menu.settingsAgent", icon: "Monitor" },
   ...(JARVIS_ENABLED ? [{ id: "jarvis", labelKey: "menu.settingsJarvis", icon: "Bot" }] : []),
+  { id: "debug", labelKey: "menu.settingsDebug", icon: "Bug" },
   { id: "shortcuts", labelKey: "shortcuts.menuLabel", icon: "Keyboard" },
 ];
