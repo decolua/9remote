@@ -22,6 +22,11 @@ export const VIEW_TO_PATH = {
 // out of history is the only way Back stays predictable.
 export const OVERLAY_VIEWS = ["site"];
 
+// Fullscreen views that replace the current history entry instead of pushing one:
+// the OS back gesture animates between entries, and a pushed /workspace/remote made
+// it slide the screen onto a duplicate of itself mid-transition.
+export const NO_HISTORY_VIEWS = ["remote", "mobile"];
+
 // First path segment after base -> view type
 export const SEGMENT_TO_TYPE = {
   "": "list",

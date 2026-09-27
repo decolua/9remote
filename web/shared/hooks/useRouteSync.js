@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useShallow } from "zustand/react/shallow";
-import { pathToView, viewToPath, stackForUrl, OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
+import { pathToView, viewToPath, stackForUrl, OVERLAY_VIEWS, NO_HISTORY_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 // URL is the single source of truth for navigation. Browser history drives the
 // viewStack (URL -> store). Store changes from in-app forward actions (open
@@ -25,6 +25,7 @@ export function useRouteSync(hydrated) {
     : currentView;
   const lastSyncedPath = useRef(null);
   const prevViewRef = useRef(null);
+  const prevStackLenRef = useRef(null);
   const navSourceRef = useRef(null); // "url" | "store"
 
   // URL -> store: apply view parsed from URL when it differs from current
@@ -60,11 +61,15 @@ export function useRouteSync(hydrated) {
     // Collapsing the whole stack back to its root is "leave this section", not a forward
     // move: pushing would leave the section behind a Back press that re-enters it.
     const toRoot = currentView?.type === "list" && viewStack.length === 1;
+    // Fullscreen views ride the current entry, and a stack that shrank is a pop —
+    // growing history here strands duplicate /workspace entries behind the OS back gesture.
+    const replaceOnly = NO_HISTORY_VIEWS.includes(currentView?.type) || viewStack.length < prevStackLenRef.current;
     navSourceRef.current = "store";
     lastSyncedPath.current = target;
     prevViewRef.current = currentView;
+    prevStackLenRef.current = viewStack.length;
     if (fromUrl || target === currentUrlPath) return;
-    if (sameLevelTerminal || toRoot) router.replace(target);
+    if (sameLevelTerminal || toRoot || replaceOnly) router.replace(target);
     else router.push(target);
   }, [hydrated, currentView, pathname, searchParams]);
 }

@@ -64,6 +64,7 @@ function TerminalSidebar({
   onRenameWorkspace = null,
   onOpenSettings,
   onOpenRemoteHost = null,
+  onOpenMobileHost = null,
   onRenameHost = null,
   onDeleteHost = null,
   onMainDisconnect = null, onMainReconnect = null,
@@ -224,7 +225,7 @@ function TerminalSidebar({
     >
       <div
         style={{ height: PANEL_HEADER_HEIGHT }}
-        className="px-1 flex items-center justify-between flex-shrink-0 border-b border-border-subtle relative z-10"
+        className="pl-[18px] pr-1 flex items-center justify-between flex-shrink-0 border-b border-border-subtle relative z-10"
       >
         {/* Brand doubles as the welcome-stage launcher — the fresh-machine screen
             stays reachable once workspaces exist. No hover/active background: the
@@ -267,13 +268,15 @@ function TerminalSidebar({
         {SHOW_PAIR_DEVICE && (
           <button
             onClick={() => { vibrate(); pushView({ type: "pair" }); }}
-            className={`-ml-3.5 w-[calc(100%+0.875rem)] flex items-center gap-2 px-3 py-1.5 rounded-brand text-left transition-colors ${
-              pairActive ? "bg-brand-500/15 text-brand-500" : "text-text-muted hover:text-text hover:bg-surface-2"
+            aria-label="Pair Device"
+            className={`-ml-3.5 w-[calc(100%+0.875rem)] flex items-center gap-2 pl-[17px] pr-3 py-1 rounded-[6px] text-left transition-colors duration-150 ${
+              pairActive ? "bg-brand-500/10 text-brand-500" : "text-text-muted hover:text-text hover:bg-surface-2"
             }`}
             title="Pair Device"
           >
-            <QrCode size={14} className="flex-shrink-0 opacity-80" />
-            <span className="text-[12.5px] font-medium truncate">Pair Device</span>
+            {/* Icon follows text color (nav-item spec) — reads as a tree row, not a button */}
+            <QrCode size={15} className="flex-shrink-0" />
+            <span className="text-xs font-medium truncate">Pair Device</span>
           </button>
         )}
         {orderedHosts.map((h, i) => (
@@ -315,6 +318,7 @@ function TerminalSidebar({
               onAddWorkspace={onAddWorkspace}
               menuAddWorkspace={onAddWorkspace}
               onOpenRemoteHost={onOpenRemoteHost}
+              onOpenMobileHost={onOpenMobileHost}
               onRowContextMenu={openContext}
               onRowTouch={{ start: handleTouchStart, move: clearLongPress, end: clearLongPress }}
               onRowMenu={(sessionId, name, rect) => setCtxMenu({ sessionId, left: rect.left, top: rect.bottom + 2, name })}
@@ -333,6 +337,7 @@ function TerminalSidebar({
               connected={connected}
               hiddenPaneSessionIds={hiddenPaneSessionIds}
               onOpenRemoteHost={onOpenRemoteHost}
+              onOpenMobileHost={onOpenMobileHost}
               onUnhidePane={unhidePane}
               treeCls="pl-3.5"
             />
@@ -363,7 +368,7 @@ function TerminalSidebar({
           {showInstall && (
             <button
               onClick={() => { vibrate(); install(); }}
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] transition-colors"
+              className="w-full flex items-center gap-2 pl-3 pr-2 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] transition-colors"
               title={t("menu.installApp")}
             >
               <Download size={14} />
@@ -373,7 +378,7 @@ function TerminalSidebar({
           {onOpenSettings && (
           <button
             onClick={() => { vibrate(); onOpenSettings(); }}
-            className="w-full flex items-center gap-2 px-2 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] transition-colors"
+            className="w-full flex items-center gap-2 pl-3 pr-2 py-1.5 text-xs text-text-muted hover:text-text hover:bg-surface-2 rounded-[3px] transition-colors"
             title={t("menu.settings")}
           >
             <Settings size={14} />

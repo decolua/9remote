@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ChevronRight, Folder, KeyRound, Loader2, Monitor, Pencil, Plug, Power, Trash2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, Folder, Globe, KeyRound, Loader2, Monitor, Pencil, Plug, Power, Smartphone, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
@@ -42,6 +42,8 @@ export default function HostTreeRow({
   hostUpdating = false,
   // Per-host feature doors — rendered only when the host reports the capability.
   onOpenRemote = null,
+  onOpenSites = null,
+  onOpenMobile = null,
   // Mobile draws this row bigger (fonts on the standard scale, touch-sized
   // buttons); desktop keeps its compact sizes.
   mobile = false,
@@ -156,6 +158,14 @@ export default function HostTreeRow({
               onOpenRemote && !hostUpdating && {
                 icon: Monitor, label: t("menu.remoteDesktop"),
                 onClick: () => { setMenuAt(null); vibrate(); onOpenRemote(); }
+              },
+              onOpenSites && {
+                icon: Globe, label: t("menu.sites"),
+                onClick: () => { setMenuAt(null); vibrate(); onOpenSites(); }
+              },
+              onOpenMobile && !hostUpdating && {
+                icon: Smartphone, label: t("mobile.androidDevice"),
+                onClick: () => { setMenuAt(null); vibrate(); onOpenMobile(); }
               },
               onDelete && hostKey && {
                 icon: Trash2, label: t("hosts.removeHost"), danger: true,

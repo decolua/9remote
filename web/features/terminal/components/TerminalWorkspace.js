@@ -30,6 +30,7 @@ import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
 import { vibrate } from "@/shared/utils/vibration";
+import { PanelLeft } from "@/shared/components/ui/Icon";
 
 // Per-pane wrapper positioning terminal directly above the bottom input bar
 const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
@@ -567,6 +568,20 @@ function TerminalWorkspace({
         )}
 
         <div className="relative flex-1 min-w-0 min-h-0 flex flex-col">
+          {/* Collapsed-sidebar reopen — only where the header's own toggle is
+              unreachable (the pair/welcome overlays cover it); the terminal view
+              keeps using its header button. */}
+          {isDesktop && sidebarCollapsed && (pairDashboard || welcomeActive) && (
+            <button
+              onClick={() => { vibrate(); toggleSidebar(); }}
+              title={withHint(t("menu.toggleSidebar") || "Show sidebar", "toggleSidebar")}
+              aria-label="Show sidebar"
+              className="absolute top-2 left-2 z-30 p-1.5 rounded-brand bg-surface/90 backdrop-blur border border-border-subtle text-text-muted hover:text-text shadow-md transition-colors"
+            >
+              <PanelLeft size={14} />
+            </button>
+          )}
+
           {/* Agent dashboard fills the content area (desktop pair view) — the
               sidebar sibling stays visible and interactive beside it. */}
           {pairDashboard && (
@@ -809,7 +824,7 @@ function TerminalWorkspace({
             backdrop — otherwise there is no way to dismiss it by tapping away. */}
         {rightPanel?.open && !isDesktop && (
           <div
-            className="absolute inset-0 z-20 bg-black/50 animate-in fade-in duration-200"
+            className="absolute inset-0 z-20 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
             onClick={rightPanel.onToggle}
           />
         )}

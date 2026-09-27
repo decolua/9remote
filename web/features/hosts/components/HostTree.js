@@ -20,6 +20,7 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import IconMenu from "@/shared/components/ui/IconMenu";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
+import SitesList from "@/features/terminal/components/SitesList";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import HostTreeRow from "./HostTreeRow";
 import HostUpdateProgress from "./HostUpdateProgress";
@@ -49,6 +50,7 @@ export default function HostTree({
   // Per-host feature doors: open remote desktop / the Android mirror ON THIS
   // host's conn. Callers gate by the capability flags; a null prop hides it.
   onOpenRemoteHost = null,
+  onOpenMobileHost = null,
   // Main-host extras. When present they take over: the rich context menu replaces
   // the built-in ⋯, per-session agent map outranks the session's own field, and
   // live cwd map feeds SessionMeta.
@@ -72,6 +74,7 @@ export default function HostTree({
   const [wsPicker, setWsPicker] = useState(false);        // fleet add-workspace folder picker
   const [shells, setShells] = useState([]);
   const [updateConfirm, setUpdateConfirm] = useState(false);
+  const [sitesOpen, setSitesOpen] = useState(false);
 
   const status = host.status || "full";
   const connecting = status === "connecting";
@@ -155,6 +158,10 @@ export default function HostTree({
         meta={connecting ? <Loader2 size={12} className="animate-spin text-text-subtle" /> : null}
         hostUpdating={!!host.updating}
         onOpenRemote={online && host.remoteAvailable && onOpenRemoteHost ? () => onOpenRemoteHost(host.key) : null}
+        // Same per-host doors as remote desktop; sites ride this host's bus,
+        // the mirror rides the capability flag the header button uses.
+        onOpenSites={actionable ? () => setSitesOpen(true) : null}
+        onOpenMobile={online && host.mobileAvailable && onOpenMobileHost && !host.updating ? () => onOpenMobileHost(host.key) : null}
         onToggleCollapse={expandable ? () => {
           vibrate();
           if (!open) useFleetStore.getState().ensureHost(host.key); // expanding opens the bus
@@ -436,6 +443,10 @@ export default function HostTree({
           confirmText={t("common.delete")}
         />
       )}
+
+      {/* Local sites of THIS host — same sheet the header raises, bound to this
+          host's bus. Stays mounted so its close path can revoke proxy sessions. */}
+      <SitesList busRef={busTag} siteHostKey={host.key} isOpen={sitesOpen} onClose={() => setSitesOpen(false)} />
 
       <ConfirmDialog
         isOpen={updateConfirm}
