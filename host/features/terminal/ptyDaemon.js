@@ -156,6 +156,8 @@ const PROC_BUFFER_SIZE = 512 * 1024;
 // Bound max stream line length before flushing as-is.
 const PROC_MAX_LINE = 256 * 1024;
 const PROC_KILL_GRACE_MS = 3000;
+// An exited proc keeps its buffered lines for a late re-attach, then frees them.
+const PROC_EXIT_GRACE_MS = 60 * 60 * 1000;
 
 function procLinesSince(proc, from = 0) {
   const f = typeof from === "object" && from !== null ? from.from ?? 0 : Number(from) || 0;
@@ -224,11 +226,13 @@ function createProc(procId, { bin, args = [], cwd, env } = {}) {
 
   child.on("error", (err) => {
     proc.exited = true;
+    proc.exitedAt = Date.now();
     broadcast({ type: "procExit", procId, epoch: proc.epoch, code: null, error: err.message });
   });
   child.on("close", (code, signal) => {
     if (proc.tail) { emitLine(proc.tail); proc.tail = ""; }
     proc.exited = true;
+    proc.exitedAt = Date.now();
     proc.exitCode = code;
     proc.child = null;
     broadcast({ type: "procExit", procId, epoch: proc.epoch, code, signal: signal || null });
@@ -305,6 +309,14 @@ function stopProc(procId) {
   procs.delete(procId);
   return { success: true };
 }
+
+// Free exited procs' buffers after the grace window — one sweeper, no per-proc timers to leak.
+setInterval(() => {
+  const now = Date.now();
+  for (const [id, proc] of procs) {
+    if (proc.exited && proc.exitedAt && now - proc.exitedAt >= PROC_EXIT_GRACE_MS) procs.delete(id);
+  }
+}, 10 * 60 * 1000).unref?.();
 
 function createSession(sessionId, name, cols = 80, rows = 24, shellId = null, cwd = null) {
   if (sessions.has(sessionId)) {

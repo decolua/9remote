@@ -1,5 +1,5 @@
 // Daemon protocol/code version — bump when daemon behavior changes.
-export const DAEMON_VERSION = "71";
+export const DAEMON_VERSION = "72";
 
 // Staging directory for pasted/attached files before handing to CLI.
 export const UPLOAD_DIR = "/tmp/9remote-uploads";
