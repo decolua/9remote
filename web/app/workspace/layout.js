@@ -60,6 +60,7 @@ import ShortcutsModal from "@/shared/components/ui/ShortcutsModal";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
+import PendingDeviceApprovalModal from "@/features/session/components/PendingDeviceApprovalModal";
 import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
 import { useLastRoute } from "@/shared/hooks/useLastRoute";
@@ -863,6 +864,7 @@ export default function WorkspaceLayout({ children }) {
             onLogout={handleLogoutWithConfirm}
             onOpenRemote={remoteEntry}
             onOpenRemoteHost={handleOpenRemote}
+            onOpenMobileHost={handleOpenMobile}
             tunnelUrl={auth?.tunnelUrl}
             apiKey={auth?.apiKey}
             connectionMode={connectionMode}
@@ -1138,6 +1140,8 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Global Slide Menu — single instance at page level */}
         <SlideMenu />
+        {/* Agent-env approval gate — a new device asking in pops the modal on any view */}
+        <PendingDeviceApprovalModal />
 
         {/* Mod+Shift+P file search — reuses the file explorer's palette in files mode */}
         {quickOpen && paletteWorkspace && (

@@ -3,9 +3,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
-import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { isAgentEnvironment } from "@/shared/utils/localOrigin";
 import { HOMEPAGE_URL } from "@/shared/constants/API";
+import { usePendingDeviceStore } from "@/features/session/stores/pendingDeviceStore";
+import { APP_STORE_URL, PLAY_STORE_URL, releaseFor } from "@/features/landing/constants/landingConfig";
 import "./agentDashboard.css";
 
 /* Full port of agent/ui's dashboard (MainScreen + App state layer). One home:
@@ -17,7 +18,6 @@ import "./agentDashboard.css";
 
 const LOGIN_URL = `${HOMEPAGE_URL}login`;
 const UPDATE_UI = { startDelayMs: 3000, pollMs: 2000, timeoutMs: 90000 };
-const PENDING_POLL_MS = 3000;
 const MAX_LOGS = 200;
 const STEP_READY = 5;
 const BUSY_TIMEOUT_MS = 15000;
@@ -122,9 +122,6 @@ function RemoteDesktopRow({ desktopEnabled, onDesktopToggle, permissions, onRequ
             </span>
           )}
         </div>
-        <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-          {!canEnableDesktop ? "Grant permissions to allow screen & control access" : "Control screen, mouse & keyboard"}
-        </p>
         {permEntries.length > 0 && (
           <div className="flex flex-wrap items-center gap-2 mt-2.5">
             {permEntries.map(([type, meta]) => (
@@ -155,7 +152,6 @@ function SleepInhibitRow({ mode, presets = [], onChange }) {
       </div>
       <div className="flex-1 min-w-0">
         <p className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>Prevent Sleep</p>
-        <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>Keep this machine awake</p>
       </div>
       <select
         value={mode || "never"}
@@ -169,17 +165,25 @@ function SleepInhibitRow({ mode, presets = [], onChange }) {
   );
 }
 
-function Section({ title, count, first, children }) {
+// onToggle present → collapsible section (header is the toggle); open defaults true.
+function Section({ title, count, first, open = true, onToggle, children }) {
+  const Header = onToggle ? "button" : "div";
   return (
     <div className={first ? "" : "mt-10"}>
-      <div
-        className="flex items-center gap-2.5 font-mono text-[11px] uppercase tracking-[0.12em] pb-2.5 mb-1"
+      <Header
+        onClick={onToggle}
+        className="w-full flex items-center gap-2.5 font-mono text-[11px] uppercase tracking-[0.12em] pb-2.5 mb-1 text-left"
         style={{ color: "var(--text-subtle)", borderBottom: "1px solid var(--border-subtle)" }}
       >
         {title}
+        {onToggle && (
+          <span className="material-symbols-outlined tracking-normal" style={{ fontSize: 16, color: "var(--text-muted)", transform: open ? "rotate(180deg)" : "none", transition: "transform 0.15s ease" }}>
+            expand_more
+          </span>
+        )}
         {count != null && <span className="ml-auto tracking-normal" style={{ color: "var(--text-muted)" }}>{count}</span>}
-      </div>
-      {children}
+      </Header>
+      {open && children}
     </div>
   );
 }
@@ -542,11 +546,48 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
   );
 }
 
+/* ── Connect-from rows: every client that can reach this agent ──────────── */
+
+// Same row anatomy as Services/Clients rows — one aligned rhythm down the pane.
+function ConnectRow({ icon, iconClass, title, children }) {
+  return (
+    <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
+      <div
+        className={`w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0 ${iconClass || ""}`}
+        style={iconClass ? undefined : { background: "var(--row-bg)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)" }}
+      >
+        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>
+      </div>
+      <p className="text-[13.5px] font-semibold flex-1 min-w-0" style={{ color: "var(--text-main)" }}>{title}</p>
+      <div className="flex items-center gap-2 flex-shrink-0">{children}</div>
+    </div>
+  );
+}
+
+function ConnectLink({ label, href }) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="btn-primary inline-flex items-center justify-center h-9 px-4 text-xs"
+    >
+      {label}
+    </a>
+  );
+}
+
+// Store-badge look per Apple/Google guidelines: black pill, App Store first,
+// badges share one height (40px — Apple's onscreen minimum).
+function StoreBadge({ label, href }) {
+  return (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="ad-store-badge">{label}</a>
+  );
+}
+
 /* ── Main view ─────────────────────────────────────────────────────────── */
 
 export default function AgentDashboardView() {
-  const pushView = useTerminalStore((s) => s.pushView);
-
   const [main, setMain] = useState({
     step: 0, stepDesc: "", tunnelUrl: "",
     oneTimeKey: "", oneTimeKeyExpiresAt: null, pairingUsed: false,
@@ -555,14 +596,16 @@ export default function AgentDashboardView() {
   const [permissions, setPermissions] = useState({ screenRecording: false, accessibility: false });
   const [transport, setTransport] = useState(null);
   const [desktopEnabled, setDesktopEnabled] = useState(false);
-  const [version, setVersion] = useState("");
   const [agentReachable, setAgentReachable] = useState(true);
   const [updateVersion, setUpdateVersion] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
   const [connections, setConnections] = useState([]);
   const [approvedDevices, setApprovedDevices] = useState([]);
   const [rejectedDevices, setRejectedDevices] = useState([]);
-  const [pendingDevice, setPendingDevice] = useState(null);
+  // Approval is global (PendingDeviceApprovalModal at the layout root); the view
+  // only reads it to force-open Clients, and refetches on every settle (bump).
+  const pendingDevice = usePendingDeviceStore((s) => s.pendingDevice);
+  const settleBump = usePendingDeviceStore((s) => s.bump);
   const [autoApprove, setAutoApprove] = useState(false);
   const [sleepInhibitMode, setSleepInhibitMode] = useState("never");
   const [sleepPresets, setSleepPresets] = useState([]);
@@ -573,9 +616,9 @@ export default function AgentDashboardView() {
   const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
+  const [clientsOpen, setClientsOpen] = useState(false);
 
   const versionRef = useRef("");
-  const pendingRef = useRef(null);
 
   const fetchDevices = useCallback(async () => {
     try {
@@ -593,7 +636,6 @@ export default function AgentDashboardView() {
         if (!v) return;
         if (versionRef.current && versionRef.current !== v) { window.location.reload(); return; }
         versionRef.current = v;
-        setVersion(v);
       })
       .catch(() => {});
   }, []);
@@ -666,8 +708,6 @@ export default function AgentDashboardView() {
       } else if (data.type === "connections") {
         setConnections(data.connections ?? []);
         fetchDevices(); // online/offline stays in sync with the new list
-      } else if (data.type === "deviceApproval" && data.action === "pending") {
-        setPendingDevice({ socketId: data.socketId, deviceId: data.deviceId, ip: data.ip });
       } else if (data.type === "deviceApproval" && data.action === "refresh") {
         fetchDevices();
       } else if (data.type === "autostart") {
@@ -682,22 +722,8 @@ export default function AgentDashboardView() {
     es.onerror = () => setAgentReachable(false);
     es.onopen = () => { setAgentReachable(true); checkVersion(); };
 
-    // Fallback poll: recover a pending approval if its SSE event was missed.
-    const pollId = setInterval(async () => {
-      if (pendingRef.current) return;
-      try {
-        const r = await fetch("/api/device/pending");
-        if (!r.ok) return;
-        const d = await r.json();
-        const first = d?.pending?.[0];
-        if (first) setPendingDevice((cur) => cur ?? { socketId: first.socketId, deviceId: first.deviceId, ip: first.ip });
-      } catch {}
-    }, PENDING_POLL_MS);
-
-    return () => { alive = false; clearInterval(pollId); es.close(); };
+    return () => { alive = false; es.close(); };
   }, [fetchDevices, checkVersion]);
-
-  useEffect(() => { pendingRef.current = pendingDevice; }, [pendingDevice]);
 
   // Auto-mint a one-time key so the QR renders immediately (dashboard parity).
   const autoKeyRef = useRef(false);
@@ -740,18 +766,6 @@ export default function AgentDashboardView() {
     await post(endpoint, { deviceId: client.deviceId });
     fetchDevices();
   };
-  const handleDeviceApprove = async () => {
-    if (!pendingDevice) return;
-    await post("/api/device/approve", { socketId: pendingDevice.socketId });
-    setPendingDevice(null);
-    fetchDevices();
-  };
-  const handleDeviceReject = async () => {
-    if (!pendingDevice) return;
-    await post("/api/device/reject", { socketId: pendingDevice.socketId });
-    setPendingDevice(null);
-    fetchDevices();
-  };
   const handleAutoApproveToggle = async () => {
     const next = !autoApprove;
     setAutoApprove(next);
@@ -781,17 +795,6 @@ export default function AgentDashboardView() {
     const d = await r?.json().catch(() => null);
     if (!d?.mode) setSleepInhibitMode(prev);
   };
-
-  // Keyboard nav for the pending-device modal: Enter approves, Escape rejects.
-  useEffect(() => {
-    if (!pendingDevice) return;
-    const onKey = (e) => {
-      if (e.key === "Escape") { e.preventDefault(); handleDeviceReject(); }
-      else if (e.key === "Enter") { e.preventDefault(); handleDeviceApprove(); }
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  });
 
   /* ── non-agent env: nothing to show ── */
   if (!isAgentEnvironment()) {
@@ -850,117 +853,87 @@ export default function AgentDashboardView() {
             )}
           </div>
 
-          {/* Remote master switch — pinned to the bottom of the pairing pane */}
+          {/* Remote master switch — same row anatomy as Services; status speaks
+              only when something needs attention (connecting/offline). */}
           <div
-            className="hero-card group relative z-[1] mt-6 w-full p-4 flex items-center gap-3 flex-shrink-0 cursor-pointer"
-            onClick={() => (remoteEnabled ? setShowRemoteOffConfirm(true) : handleRemoteToggle())}
+            className="row-hover relative z-[1] mt-5 w-full flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl flex-shrink-0"
           >
             <div
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 relative z-[1] transition-transform group-hover:scale-105"
-              style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)", color: remoteEnabled ? "var(--success)" : "var(--text-muted)" }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 22 }}>{remoteEnabled ? "cloud_done" : "cloud_off"}</span>
-            </div>
-            <div className="flex-1 min-w-0 relative z-[1]">
-              <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>
-                {remoteEnabled ? "Remote is on" : "Remote is off"}
-              </h3>
-              <p className="text-xs mt-0.5 font-normal line-clamp-1 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
-                {remoteEnabled ? (
-                  <>
-                    <span
-                      className={`w-[6px] h-[6px] rounded-full flex-shrink-0 ${status.blink ? "chip-blink" : ""}`}
-                      style={{ background: status.color, boxShadow: status.color === "var(--success)" ? "0 0 8px rgba(var(--success-rgb),0.9)" : undefined }}
-                    />
-                    <span className="font-mono truncate">{status.text}</span>
-                  </>
-                ) : (
-                  <span className="truncate">Turn remote access back on to pair devices.</span>
-                )}
-              </p>
-            </div>
-            <span
-              className="flex-shrink-0 relative z-[1] px-3.5 py-2 rounded-xl text-xs font-semibold transition-all"
+              className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
               style={{
-                background: remoteEnabled ? "var(--surface-2)" : "var(--brand-500)",
-                color: remoteEnabled ? "var(--text-main)" : "#fff",
-                border: remoteEnabled ? "1px solid var(--border-subtle)" : "none"
+                background: remoteEnabled ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
+                border: `1px solid ${remoteEnabled ? "rgba(var(--brand-rgb),0.25)" : "var(--border-subtle)"}`,
+                color: remoteEnabled ? "var(--brand-400)" : "var(--text-muted)"
               }}
             >
-              {remoteEnabled ? "Turn off" : "Turn on"}
-            </span>
-            {remoteEnabled && main.step === 0 && (
-              <span
-                role="button"
-                title="Retry remote connection"
-                onClick={(e) => { e.stopPropagation(); post("/api/ui/start"); }}
-                className="flex-shrink-0 relative z-[1] w-9 h-9 grid place-items-center rounded-xl card-act"
-                style={{ background: "var(--surface-2)", border: "1px solid var(--border-subtle)", color: "var(--text-main)" }}
-              >
-                <span className="material-symbols-outlined" style={{ fontSize: 18 }}>refresh</span>
-              </span>
-            )}
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{remoteEnabled ? "cloud_done" : "cloud_off"}</span>
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 min-w-0">
+                <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--text-main)" }}>Remote</p>
+                {remoteEnabled && status.color === "var(--success)" && (
+                  <span className="w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ background: status.color, boxShadow: "0 0 8px rgba(var(--success-rgb),0.9)" }} />
+                )}
+              </div>
+              {(!remoteEnabled || status.color !== "var(--success)") && (
+                <p className="text-[11.5px] mt-0.5 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
+                  {remoteEnabled ? (
+                    <>
+                      <span className={`w-[6px] h-[6px] rounded-full flex-shrink-0 ${status.blink ? "chip-blink" : ""}`} style={{ background: status.color }} />
+                      <span className="font-mono truncate">{status.text}</span>
+                      {main.step === 0 && (
+                        <span
+                          role="button"
+                          title="Retry remote connection"
+                          onClick={(e) => { e.stopPropagation(); post("/api/ui/start"); }}
+                          className="material-symbols-outlined flex-shrink-0 cursor-pointer"
+                          style={{ fontSize: 15, color: "var(--text-muted)" }}
+                        >
+                          refresh
+                        </span>
+                      )}
+                    </>
+                  ) : (
+                    <span className="truncate">Turn on to pair devices.</span>
+                  )}
+                </p>
+              )}
+            </div>
+            <Toggle
+              on={remoteEnabled}
+              onClick={() => (remoteEnabled ? setShowRemoteOffConfirm(true) : handleRemoteToggle())}
+              title={remoteEnabled ? "Turn off remote access" : "Turn on remote access"}
+            />
           </div>
         </section>
 
         {/* ═══ RIGHT — manage ═══ */}
-        <section className="relative min-w-0 pt-10 pb-11 pr-8 pl-6 lg:pl-14 lg:pr-12 lg:overflow-y-auto" style={{ background: "var(--pane-right-bg)" }}>
-          {/* Brand row — logo + version */}
-          <div className="flex items-center gap-3 mb-8">
-            <div className="logo-glass w-10 h-10 rounded-[11px] grid place-items-center flex-shrink-0">
-              <span className="material-symbols-outlined" style={{ fontSize: 21, color: "var(--text-main)" }}>terminal</span>
-            </div>
-            <div className="flex flex-col leading-none min-w-0">
-              <span className="brand-grad-text text-[20px] font-bold tracking-[-0.02em]">9Remote</span>
-              {version && <span className="font-mono text-[11px] mt-[5px]" style={{ color: "var(--text-subtle)" }}>v{version}</span>}
-            </div>
-            <div className="flex-1" />
-            {/* Power actions — settings lives in the workspace settings modal */}
-            <IconBtn icon="restart_alt" title="Restart agent" onClick={() => post("/api/ui/stop")} />
-            <IconBtn icon="power_settings_new" title="Shutdown agent" danger onClick={() => setShowShutdownConfirm(true)} />
-          </div>
-
+        {/* Remote off → nothing on this pane can be used: dim + lock it, so the
+            one switch that matters stays obvious. */}
+        <section
+          className={`relative min-w-0 pt-10 pb-11 pr-8 pl-6 lg:pl-14 lg:pr-12 lg:overflow-y-auto transition-opacity duration-300 ${remoteEnabled ? "" : "opacity-40 pointer-events-none select-none"}`}
+          style={{ background: "var(--pane-right-bg)" }}
+        >
           <UpdateBanner version={updateVersion} isUpdating={isUpdating} />
 
-          {/* Hero Workspace Cards */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5 mb-8">
-            <button onClick={() => pushView({ type: "workspaces" })} className="hero-card group text-left p-4 flex flex-col justify-between">
-              <div className="flex items-start justify-between w-full mb-3 relative z-[1]">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105" style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border-subtle)" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>computer</span>
-                </div>
-                <span className="material-symbols-outlined opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" style={{ fontSize: 16, color: "var(--text-muted)" }}>open_in_new</span>
-              </div>
-              <div className="relative z-[1]">
-                <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>This Workspace</h3>
-                <p className="text-xs mt-0.5 font-normal line-clamp-1" style={{ color: "var(--text-muted)" }}>Terminal & files on this machine</p>
-              </div>
-            </button>
-
-            <button
-              onClick={() => {
-                try { sessionStorage.setItem("9remote_manual_disconnect", "1"); } catch {}
-                const url = "/login?mode=remote";
-                if (window.__TAURI__) { window.location.href = url; return; }
-                window.open(url, "_blank");
-              }}
-              className="hero-card group text-left p-4 flex flex-col justify-between"
-            >
-              <div className="flex items-start justify-between w-full mb-3 relative z-[1]">
-                <div className="w-10 h-10 rounded-xl flex items-center justify-center transition-transform group-hover:scale-105" style={{ background: "var(--surface-2)", color: "var(--text-main)", border: "1px solid var(--border-subtle)" }}>
-                  <span className="material-symbols-outlined" style={{ fontSize: 22 }}>hub</span>
-                </div>
-                <span className="material-symbols-outlined opacity-60 group-hover:opacity-100 group-hover:translate-x-0.5 group-hover:-translate-y-0.5 transition-all" style={{ fontSize: 16, color: "var(--text-muted)" }}>open_in_new</span>
-              </div>
-              <div className="relative z-[1]">
-                <h3 className="text-[15px] font-bold tracking-tight" style={{ color: "var(--text-main)" }}>Remote Workspace</h3>
-                <p className="text-xs mt-0.5 font-normal line-clamp-1" style={{ color: "var(--text-muted)" }}>Connect to a remote agent</p>
-              </div>
-            </button>
-          </div>
+          {/* Connect from — every client that can reach this agent. The QR/key on
+              the left is the credential; these rows are where it gets used. */}
+          <Section title="Connect from" first>
+            <ConnectRow icon="language" iconClass="ad-tile-brand" title="Web">
+              <ConnectLink label="9remote.cc" href={LOGIN_URL} />
+            </ConnectRow>
+            <ConnectRow icon="smartphone" title="Mobile">
+              <StoreBadge label="App Store" href={APP_STORE_URL} />
+              <StoreBadge label="Google Play" href={PLAY_STORE_URL} />
+            </ConnectRow>
+            <ConnectRow icon="computer" title="PC">
+              {/* Generic releases page — the connecting machine's OS is unknown from here. */}
+              <ConnectLink label="Download" href={releaseFor(null)} />
+            </ConnectRow>
+          </Section>
 
           {/* Services */}
-          <Section title="Services" first>
+          <Section title="Services">
             <RemoteDesktopRow
               desktopEnabled={desktopEnabled}
               onDesktopToggle={handleDesktopToggle}
@@ -970,8 +943,13 @@ export default function AgentDashboardView() {
             <SleepInhibitRow mode={sleepInhibitMode} presets={sleepPresets} onChange={handleSleepInhibitChange} />
           </Section>
 
-          {/* Clients */}
-          <Section title="Clients" count={clients.length > 0 ? `${onlineCount}/${clients.length}` : null}>
+          {/* Clients — collapsed by default; a pending approval forces it open. */}
+          <Section
+            title="Clients"
+            count={clients.length > 0 ? `${onlineCount}/${clients.length}` : null}
+            open={clientsOpen || !!pendingDevice}
+            onToggle={() => setClientsOpen((v) => !v)}
+          >
             <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
               <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: autoApprove ? "var(--brand-400)" : "var(--text-muted)" }}>
                 {autoApprove ? "lock_open" : "lock"}
@@ -1049,35 +1027,6 @@ export default function AgentDashboardView() {
         />
       )}
 
-      {/* Pending device approval modal */}
-      {pendingDevice && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
-          <div className="card-elev p-5 flex flex-col gap-4 w-80">
-            <div className="flex items-center gap-2">
-              <span className="material-symbols-outlined" style={{ color: "var(--brand-500)", fontSize: 24 }}>devices</span>
-              <span className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>New Device Connection</span>
-            </div>
-            <div className="flex flex-col gap-1 text-xs" style={{ color: "var(--text-muted)" }}>
-              <span>Device: <span style={{ color: "var(--text-main)" }}>{pendingDevice.deviceId?.slice(0, 8)}...</span></span>
-              <span>IP: <span style={{ color: "var(--text-main)" }}>{pendingDevice.ip}</span></span>
-            </div>
-            <div className="flex gap-2">
-              <button onClick={handleDeviceReject} className="glass-btn flex-1 py-2 text-sm flex items-center justify-center gap-1.5" style={{ color: "var(--text-muted)" }}>
-                <span>Reject</span>
-                <kbd className="text-[10px] font-mono px-1 py-0.5 rounded opacity-70 leading-none" style={{ background: "var(--glass-bg)" }}>Esc</kbd>
-              </button>
-              <button
-                onClick={handleDeviceApprove}
-                className="flex-1 py-2 text-sm font-semibold rounded-lg flex items-center justify-center gap-1.5"
-                style={{ background: "var(--brand-500)", color: "#fff" }}
-              >
-                <span>Approve</span>
-                <kbd className="text-[10px] font-mono px-1 py-0.5 rounded bg-white/20 text-white leading-none">↵</kbd>
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   );
 }
