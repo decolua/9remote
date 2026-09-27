@@ -95,6 +95,7 @@ function TerminalSidebar({
   const setFullMode = useTerminalStore((s) => s.setFullMode);
   const pushView = useTerminalStore((s) => s.pushView);
   const viewStack = useTerminalStore((s) => s.viewStack);
+  const setViewStack = useTerminalStore((s) => s.setViewStack);
   const topViewType = viewStack[viewStack.length - 1]?.type;
   const pairActive = topViewType === "pair";
   const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
@@ -231,7 +232,7 @@ function TerminalSidebar({
             stays reachable once workspaces exist. No hover/active background: the
             logo must read as static chrome, not a row button. */}
         <button
-          onClick={() => { vibrate(); pushView({ type: "welcome" }); }}
+          onClick={() => { vibrate(); setViewStack([{ type: "list" }]); }}
           title="9Remote"
           className="flex items-center gap-2 min-w-0 flex-shrink-0"
         >

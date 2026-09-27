@@ -3,7 +3,7 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { DESKTOP_BREAKPOINT, PERSIST_DEBOUNCE_MS } from "@/features/terminal/constants/terminalConfig";
-import { OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
+import { OVERLAY_VIEWS, WORKSPACE_BASE } from "@/features/terminal/constants/routeConfig";
 import { createLayoutSlice } from "./terminalSlices/createLayoutSlice";
 import { createThemeSlice } from "./terminalSlices/createThemeSlice";
 import { createAgentSlice } from "./terminalSlices/createAgentSlice";
@@ -103,6 +103,14 @@ export const useTerminalStore = create(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         if (!Array.isArray(state.viewStack) || state.viewStack.length === 0) {
+          state.viewStack = [{ type: "list" }];
+        }
+        // Root /workspace is the welcome home now. A persisted stack with a
+        // terminal on top is restored before route-sync settles, and store→URL
+        // would then rewrite the address bar to that terminal — coerce here,
+        // before any effect runs. Deep links (…/workspace/terminal/x) keep the stack.
+        if (typeof window !== "undefined"
+          && window.location.pathname.replace(/\/+$/, "") === WORKSPACE_BASE) {
           state.viewStack = [{ type: "list" }];
         }
         state.viewStack = state.viewStack.filter((v) => !OVERLAY_VIEWS.includes(v?.type));
