@@ -4,7 +4,7 @@ Run 9Remote as a native, zero-friction desktop application on macOS and Windows.
 
 ## What It Does
 
-While the 9Remote CLI runs in your terminal, the **9Remote Desktop App** wraps the host agent and web interface in a lightweight native wrapper built with **Tauri**. It lives quietly in your system tray, boots on startup, and eliminates the need to keep a terminal window open.
+While the 9Remote CLI runs in your terminal, the **9Remote Desktop App** wraps the host and web interface in a lightweight native wrapper built with **Tauri**. It lives quietly in your system tray, boots on startup, and eliminates the need to keep a terminal window open.
 
 ---
 
@@ -17,7 +17,7 @@ While the 9Remote CLI runs in your terminal, the **9Remote Desktop App** wraps t
   - Click to display your permanent access QR code and key.
   - Toggle device auto-approval.
   - Open the local dashboard or web workspace instantly.
-  - Gracefully restart or shut down the agent.
+  - Gracefully restart or shut down the host.
 
 ### Auto-Start on Boot
 - Configurable to launch automatically when you turn on your computer:

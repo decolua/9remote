@@ -18,7 +18,7 @@ const ELEVATE_EXE = "desktop-elevate.exe";
 const BRIDGE_CS = "desktop-bridge.cs";
 const ELEVATE_CS = "desktop-elevate.cs";
 
-// C# sources ship inside package: dev layout agent/lib/bin/, dist agent/dist/bin/.
+// C# sources ship inside package: dev layout host/lib/bin/, dist host/dist/bin/.
 const SOURCE_DIR = (() => {
   const primary = path.join(__dirname, "bin");
   if (existsSync(path.join(primary, BRIDGE_CS))) return primary;

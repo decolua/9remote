@@ -18,7 +18,7 @@ Run from repo root unless noted.
 
 ```bash
 npm run dev                # host + web together (run-p)
-npm run host:dev           # host only, TUI mode (alias: agent:dev)
+npm run host:dev           # host only, TUI mode
 npm run host:dev:ui        # host only, web-UI mode at localhost:2208
 npm run web:dev            # web only (Next dev)
 

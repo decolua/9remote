@@ -6,7 +6,7 @@ import { CLAUDE_SCROLLBACK_ENV } from "./constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// Search order: explicit process.env (win) > ~/.9remote/.env > agent/.env (dev)
+// Search order: explicit process.env (win) > ~/.9remote/.env > host/.env (dev)
 const ENV_FILES = [
   join(os.homedir(), ".9remote", ".env"),
   join(__dirname, "..", ".env")

@@ -99,7 +99,7 @@ export function createRouter(routes, { fallback } = {}) {
     const isTunnel = !!req.headers["cf-connecting-ip"];
     const ra = req.socket.remoteAddress;
     // Include ::ffff:127.0.0.1 (IPv4-mapped IPv6) — Node reports this for some
-    // localhost connections and it would otherwise 403 the agent UI intermittently.
+    // localhost connections and it would otherwise 403 the host UI intermittently.
     const isLocal = ra === "127.0.0.1" || ra === "::1" || ra === "::ffff:127.0.0.1" || ra === "::ffff:0:0:0:1";
     if (!routeIsPublic && (isTunnel || !isLocal)) {
       jsonErr(res, 403, "Forbidden");
@@ -108,7 +108,7 @@ export function createRouter(routes, { fallback } = {}) {
 
     // The address check above cannot see this case: a page in the user's own
     // browser IS the loopback peer. Only the Origin header distinguishes the
-    // agent's UI from any other site the user happens to have open.
+    // host's UI from any other site the user happens to have open.
     if (!routeIsPublic && !isAllowedOrigin(origin)) {
       jsonErr(res, 403, "Forbidden origin");
       return;

@@ -1,6 +1,6 @@
 // Atomic JSON file helpers.
 //
-// The agent runs as two processes (CLI + spawned server) that share files under
+// The host runs as two processes (CLI + spawned server) that share files under
 // ~/.9remote. writeFileSync truncates and then fills, so a reader in the other
 // process can observe a half-written file — measured at ~5% of reads under
 // concurrent load. rename(2) is atomic within a filesystem, so writing to a

@@ -4,7 +4,7 @@ Keep 9Remote running 24/7 as an unattended background service on Linux, macOS, a
 
 ## Overview
 
-When using 9Remote for remote development or server management, you typically want the agent running permanently in the background, starting automatically on boot and recovering from crashes without keeping a terminal open.
+When using 9Remote for remote development or server management, you typically want the host running permanently in the background, starting automatically on boot and recovering from crashes without keeping a terminal open.
 
 ---
 
@@ -17,7 +17,7 @@ Create a new service file at `/etc/systemd/system/9remote.service`:
 
 ```ini
 [Unit]
-Description=9Remote Agent Service
+Description=9Remote Host Service
 After=network.target
 
 [Service]

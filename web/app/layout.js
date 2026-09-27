@@ -71,7 +71,7 @@ export default function RootLayout({ children }) {
   return (
     <html lang="en" className="scroll-smooth scroll-pt-20" suppressHydrationWarning>
       <head>
-        {/* Material Symbols — icon font of the agent dashboard port. A <link> so
+        {/* Material Symbols — icon font of the host dashboard port. A <link> so
             the load never depends on CSS-bundler @import ordering. */}
         <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,300..400,0..1,0&display=block" />
       </head>

@@ -19,7 +19,7 @@ const NODE_DOWNLOAD_URL: &str = "https://nodejs.org/en/download";
 // N-API 10 lands in v22.14 — @julusian/jpeg-turbo@3 is built against it and segfaults
 // (not a catchable throw) on anything older, so an older Node counts as no Node at all.
 const MIN_NODE: (u32, u32) = (22, 14);
-// Pinned: the app must never swap the runtime under a running agent. Node 24 is the
+// Pinned: the app must never swap the runtime under a running host. Node 24 is the
 // active LTS, so one download lasts until 2028.
 const NODE_LTS_VERSION: &str = "v24.19.0";
 const NODE_DIST_BASE: &str = "https://nodejs.org/dist";
@@ -36,9 +36,9 @@ fn get_agent_pid() -> &'static std::sync::Arc<std::sync::Mutex<Option<u32>>> {
     AGENT_PID.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
 }
 
-// TERM the agent. `group` targets the whole process group — our own spawn is a
+// TERM the host. `group` targets the whole process group — our own spawn is a
 // session leader, so its children die with it. The respawned (post-update)
-// agent is not a group leader; plain TERM is enough there because its exit
+// host is not a group leader; plain TERM is enough there because its exit
 // handler tears down server/tunnel itself.
 fn kill_agent(pid: u32, group: bool) {
     #[cfg(unix)]
@@ -86,8 +86,8 @@ fn is_9remote_process(pid: u32) -> bool {
     }
 }
 
-// Kill agent process group so server.cjs + cloudflared children don't leak.
-// After a remote self-update the agent respawns itself, so our stored PID goes
+// Kill host process group so server.cjs + cloudflared children don't leak.
+// After a remote self-update the host respawns itself, so our stored PID goes
 // stale — the respawn publishes its own PID in ~/.9remote/pids/agent.pid.
 fn kill_agent_tree() {
     let spawned = match get_agent_pid().lock() {
@@ -440,7 +440,7 @@ fn show_notif(app: AppHandle, title: String, body: String) -> Result<(), String>
         .map_err(|e| e.to_string())
 }
 
-// Opens http(s) links in the user's default browser. The agent UI calls this for
+// Opens http(s) links in the user's default browser. The host UI calls this for
 // target="_blank" / window.open — Tauri's webview swallows those without it.
 #[tauri::command]
 fn open_external(app: AppHandle, url: String) -> Result<(), String> {
@@ -883,7 +883,7 @@ fn download_node(app: &AppHandle) -> Result<(), String> {
     }
 }
 
-// Guarantees a usable Node before anything tries to run npm or the agent.
+// Guarantees a usable Node before anything tries to run npm or the host.
 fn ensure_node(app: &AppHandle) -> bool {
     if !node_missing() {
         let node = find_node_binary();
@@ -1058,10 +1058,10 @@ fn ensure_9remote_installed(app: &AppHandle) -> bool {
     }
 }
 
-// Silent background update; runs after agent is up so user is never blocked
+// Silent background update; runs after host is up so user is never blocked
 fn spawn_background_update(app: AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
-        // A global install updates itself (agent's own updateChecker) — don't shadow it with a private copy
+        // A global install updates itself (host's own updateChecker) — don't shadow it with a private copy
         if global_cli_path().is_some_and(|g| g == cli_path()) {
             eprintln!("[Desktop] Using global install — skipping private update");
             return;
@@ -1128,7 +1128,7 @@ fn check_desktop_update(app: AppHandle, notify_if_latest: bool) {
     });
 }
 
-// Spawn agent directly via node (skip npm exec overhead) + new process group
+// Spawn host directly via node (skip npm exec overhead) + new process group
 fn spawn_9remote_ui(app: AppHandle) {
     tauri::async_runtime::spawn_blocking(move || {
         use std::process::{Command, Stdio};
@@ -1143,9 +1143,9 @@ fn spawn_9remote_ui(app: AppHandle) {
         cmd.arg(&cli).arg("ui").arg("--start") // --start: open the tunnel without waiting for a click
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .stdin(Stdio::null()); // GUI apps have no usable stdin — don't let the agent inherit it
+            .stdin(Stdio::null()); // GUI apps have no usable stdin — don't let the host inherit it
 
-        // The agent respawns its server as bare `node`, resolved via PATH. A Finder-launched
+        // The host respawns its server as bare `node`, resolved via PATH. A Finder-launched
         // GUI only inherits /usr/bin:/bin:/usr/sbin:/sbin, so nvm/fnm/volta installs are invisible
         // and the child dies with ENOENT. Put our resolved node dir first.
         if let Some(dir) = std::path::Path::new(&node).parent() {
@@ -1164,7 +1164,7 @@ fn spawn_9remote_ui(app: AppHandle) {
             cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
         }
 
-        // Mark the agent as shell-hosted: it must never spawn its own tray icon
+        // Mark the host as shell-hosted: it must never spawn its own tray icon
         // (this shell owns one). Inherited through its self-update restart.
         cmd.env("NREMOTE_DESKTOP", "1");
 
@@ -1224,7 +1224,7 @@ fn spawn_9remote_ui(app: AppHandle) {
                     if let Some(win) = app.get_webview_window("main") {
                         let _ = win.eval(&format!("window.location.href = 'http://localhost:{SERVER_PORT}'"));
                     }
-                    // Update only once the agent is serving — never overwrite files it is reading
+                    // Update only once the host is serving — never overwrite files it is reading
                     spawn_background_update(app.clone());
                     check_desktop_update(app.clone(), false);
                     break;
@@ -1264,11 +1264,11 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_updater::Builder::new().build())
         .on_page_load(|webview, payload| {
-            // The agent UI opens login/docs links via window.open + target="_blank", which
+            // The host UI opens login/docs links via window.open + target="_blank", which
             // Tauri's webview swallows. Reroute them to the OS browser. Only act inside the
             // Tauri shell — the same UI served standalone in a regular browser is untouched.
             if payload.event() != tauri::webview::PageLoadEvent::Finished { return; }
-            // http://localhost = agent UI; tauri://localhost = splash, skip it
+            // http://localhost = host UI; tauri://localhost = splash, skip it
             let url = payload.url();
             if url.scheme() != "http" || url.host_str() != Some("localhost") { return; }
             // window.open() is not covered by opener's click handler, so route it
@@ -1281,7 +1281,7 @@ pub fn run() {
                     var openExt = function(url){ if(url) invoke('open_external', { url: String(url) }); };
                     window.open = function(url){
                         if (url) { openExt(url); return null; }
-                        // Agent uses window.open("") then .location.href = X to dodge popup
+                        // Host uses window.open("") then .location.href = X to dodge popup
                         // blockers — proxy the href setter so the URL still reaches the browser.
                         var loc = {};
                         Object.defineProperty(loc, 'href', {
@@ -1350,7 +1350,7 @@ pub fn run() {
                 ],
             )?;
 
-            // Embedded agent tray PNG (terminal glyph) — same icon as CLI tray
+            // Embedded host tray PNG (terminal glyph) — same icon as CLI tray
             let tray_icon = Image::from_bytes(include_bytes!("../icons/trayIcon.png"))?;
             TrayIconBuilder::new()
                 .icon(tray_icon)
@@ -1436,7 +1436,7 @@ pub fn run() {
             open_external,
         ])
         .on_window_event(|window, event| {
-            // Close button → hide window (keep agent alive in tray)
+            // Close button → hide window (keep host alive in tray)
             if let tauri::WindowEvent::CloseRequested { api, .. } = event {
                 api.prevent_close();
                 let _ = window.hide();
@@ -1446,9 +1446,9 @@ pub fn run() {
         .expect("error while running tauri application")
         .run(|app_handle, event| match event {
             // Every exit path that Tauri sees lands here: Cmd+Q, dock quit, logout.
-            // The tray menu's own handler kills the agent, but its CmdOrCtrl+Q
+            // The tray menu's own handler kills the host, but its CmdOrCtrl+Q
             // accelerator only works while that menu is open — so Cmd+Q used to
-            // exit the shell and leave the agent and cloudflared running, with the
+            // exit the shell and leave the host and cloudflared running, with the
             // machine still reachable after the user believed they had quit.
             // kill_agent_tree() takes the stored pid, so a second call is a no-op.
             tauri::RunEvent::ExitRequested { .. } => kill_agent_tree(),

@@ -8,7 +8,7 @@ const RECONNECT_MAX_MS = 30000;
 // Cap failures before the first successful open — a misconfigured/unreachable DO
 // (bad apiKey → 401) never opens; without this cap we'd retry forever.
 const MAX_PRE_OPEN_FAILURES = 5;
-// After giving up, retryNow() is the only way back — the agent has no
+// After giving up, retryNow() is the only way back — the host has no
 // visibilitychange to lean on, so callers (a client connecting over the
 // tunnel) drive it. Throttled so a burst of connections costs one attempt.
 const RETRY_NOW_THROTTLE_MS = 3000;
@@ -25,7 +25,7 @@ function sigData(msg) {
   return msg; // error → {message}
 }
 
-// Agent-side mirror of web/shared/transport/SignalingClient.js.
+// Host-side mirror of web/shared/transport/SignalingClient.js.
 // Uses Node 22 global WebSocket. DO runtime auto-replies to "ping" (Hibernation).
 export class SignalingClient {
   static id = "sig";
@@ -165,7 +165,7 @@ export class SignalingClient {
   _scheduleReconnect() {
     if (this._closed) return;
     this._attempt++;
-    // Jitter de-syncs a fleet of agents retrying after the same outage (thundering herd)
+    // Jitter de-syncs a fleet of hosts retrying after the same outage (thundering herd)
     const delay = Math.min(RECONNECT_BASE_MS * 2 ** (this._attempt - 1), RECONNECT_MAX_MS) + Math.random() * RECONNECT_BASE_MS;
     logger.debug(`${this._role} reconnect in ${delay}ms (attempt ${this._attempt})`);
     this._reconnectTimer = setTimeout(() => { if (!this._closed) this._open(); }, delay);

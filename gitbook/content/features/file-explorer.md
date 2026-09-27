@@ -65,7 +65,7 @@ Browse directories, edit code, transfer files, and manage Git repositories and w
 
 ## Security: Path Jail (`pathGuard`)
 
-9Remote enforces strict path-jail boundaries on the host machine. Directory traversal attacks (`../`) and unauthorized system paths are automatically rejected by the agent's security guard, ensuring client sessions can only access explicitly configured workspaces.
+9Remote enforces strict path-jail boundaries on the host machine. Directory traversal attacks (`../`) and unauthorized system paths are automatically rejected by the host's security guard, ensuring client sessions can only access explicitly configured workspaces.
 
 ---
 

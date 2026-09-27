@@ -86,7 +86,7 @@ Once deployment finishes, Wrangler will output your live URL (e.g., `https://9re
 
 ---
 
-## Connecting the Agent CLI to Your Backend
+## Connecting the Host CLI to Your Backend
 
 On your host computer (where you run terminal/desktop access), configure the 9Remote CLI to communicate with your custom backend:
 

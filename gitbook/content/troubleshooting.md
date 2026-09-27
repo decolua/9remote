@@ -99,9 +99,9 @@ Common issues and solutions when setting up and using 9Remote.
 
 ## 6. Logs & Diagnostics
 
-- **View Agent Logs:**
-  - File: Look for `agent.log` in your 9Remote installation or working directory.
-  - Web UI: If web mode is active, visit `http://localhost:2208/logs`.
+- **View Host Logs:**
+  - Web UI: In web workspace → view "Pair Device" → section Logs.
+  - File: Look for `agent.log` in your 9Remote installation or working directory (or `~/.9remote/logs/agent.log`).
 - **Check Server Status:**
   ```bash
   9remote devices    # Verifies server is active and responding to API calls

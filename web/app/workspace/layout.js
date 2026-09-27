@@ -249,7 +249,7 @@ export default function WorkspaceLayout({ children }) {
   const connScope = scopeOf(currentFleetKey || null);
   useEffect(() => {
     if (!hydrated) return;
-    // Logged out — drop every fleet bus so agent data stops flowing to a session
+    // Logged out — drop every fleet bus so host data stops flowing to a session
     // that just signed out (the buses are module-level and survive unmount).
     if (!currentFleetKey) { useFleetStore.getState().closeAll(); return; }
     useFleetStore.getState().sync(savedKeys, currentFleetKey);
@@ -303,7 +303,7 @@ export default function WorkspaceLayout({ children }) {
   const everConnected = useConnectionStore((s) => s.everConnected);
   const mainHostUpdating = !!mainHost?.updating;
   // Self-update aftermath for the ACTIVE host: reconnect with a new version
-  // reloads once (loopback serves the web from the agent — fresh agent means a
+  // reloads once (loopback serves the web from the host — fresh host means a
   // fresh bundle); a plain restart just clears the row's progress.
   const updateSnapRef = useRef({ armed: false, version: null, dropped: false });
   useEffect(() => {
@@ -327,7 +327,7 @@ export default function WorkspaceLayout({ children }) {
   const [confirmDialog, setConfirmDialog] = useState({ isOpen: false, title: "", message: "", onConfirm: null, confirmText: null });
 
   // Hardcoded Windows shell picker: Command Prompt + PowerShell only.
-  // Non-Windows hides the picker. Override the agent-reported list intentionally.
+  // Non-Windows hides the picker. Override the host-reported list intentionally.
   useEffect(() => {
     if (!connected) return;
     if (platform === "win32") {
@@ -1137,7 +1137,7 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Connection Modal — overlay when retrying/failed (suppressed during self-update) */}
-        {/* Not admitted yet = the agent has not accepted this device: the
+        {/* Not admitted yet = the host has not accepted this device: the
             carrier can be open while the key TAIL is still being proven, and
             the workspace must not show through that window. An in-flight
             self-update of the active host keeps the page usable — its row

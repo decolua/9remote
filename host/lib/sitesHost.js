@@ -1,13 +1,13 @@
 /**
- * The sites host, for the agent's own (embedded) copy of the web app.
+ * The sites host, for the host's own (embedded) copy of the web app.
  *
- * When the workspace is served by the agent on localhost:2208, the browsed site
+ * When the workspace is served by the host on localhost:2208, the browsed site
  * gets its own origin too — http://sites.localhost:<port> — for the same reason
  * the hosted deploy uses sites.9remote.cc: a dev server rendering content the
  * developer did not write must not land on the origin holding the api key or the
  * device-trust tail. Loopback does not make a page trustworthy, only local.
  *
- * This is the agent-side twin of the branch web/scripts/injectSitesHost.mjs
+ * This is the host-side twin of the branch web/scripts/injectSitesHost.mjs
  * injects into the Cloudflare worker, and it serves the same files and the same
  * browse scope. The difference is the surface it must keep out: here the whole
  * local API is on the same port, one request away, so an unknown host gets a 404
@@ -58,7 +58,7 @@ export function appOriginsFor(hostname, protocol = "http:") {
   if (!appHost) return [];
   const port = portSuffix(hostname) || `:${SERVER_PORT}`;
   const scheme = protocol === "https:" ? "https:" : "http:";
-  // The agent answers on any loopback name, and the shell cannot know which one
+  // The host answers on any loopback name, and the shell cannot know which one
   // the app was opened on — so all of them are named. A single fixed name would
   // leave a page opened on another loopback spelling unable to frame the shell.
   // No [::1]: frame-ancestors rejects an IPv6 literal as a source expression,

@@ -101,7 +101,7 @@ export function clearRecentLogs() {
 }
 
 // Verbose transport/lifecycle logs (broadcast routing, daemon output, RTC timing)
-// auto-enable in dev (NODE_ENV=development, set by the agent:dev scripts) and stay
+// auto-enable in dev (NODE_ENV=development, set by the host:dev scripts) and stay
 // quiet in production builds. warn/error always log. AGENT_DEBUG=1 opts back in.
 export const IS_DEBUG = process.env.NODE_ENV === "development" || process.env.AGENT_DEBUG === "1";
 

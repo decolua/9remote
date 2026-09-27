@@ -26,7 +26,7 @@ No. Cloudflare tunnel handles all the networking automatically. You don't need p
 ## Architecture & Features
 
 ### What makes 9Remote different from standard SSH or VNC?
-1. **Persistent Daemon (`ptyDaemon`):** Shell sessions stay alive even if the agent restarts or your device disconnects.
+1. **Persistent Daemon (`ptyDaemon`):** Shell sessions stay alive even if the host restarts or your device disconnects.
 2. **AI Coding Agent Integration:** First-class chat UI, transcript visualization, and turn rewinds for tools like Claude Code, OpenCode, and Codex.
 3. **Site Browser:** Preview your local web servers (`localhost:3000`) directly on your phone via a Service Worker proxy without opening ports.
 4. **Resilient File Transfers:** Chunked streaming file upload and download with resume capabilities.

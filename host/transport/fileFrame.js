@@ -1,6 +1,6 @@
 // Binary framing for file transfer over DataChannel / WS binary.
 // Layout: [uploadId u32 LE][offset u32 LE][payload bytes]. No base64/JSON.
-// Environment-agnostic (Uint8Array/DataView) so agent + browser share identical bytes.
+// Environment-agnostic (Uint8Array/DataView) so host + browser share identical bytes.
 export const FRAME_HEADER_SIZE = 8;
 
 // payload: Uint8Array | Buffer | ArrayBuffer → Uint8Array with header prepended.

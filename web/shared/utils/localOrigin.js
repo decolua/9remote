@@ -29,7 +29,8 @@ export function isHostEnvironment() {
     process.env.NEXT_PUBLIC_STATIC_EXPORT === "1" ||
     // Dev escape hatch for hot-reload work on host-env UI (tab/data are proxied
     // to a local host by next.config rewrites). No build pipeline sets this.
-    process.env.NEXT_PUBLIC_DEV_AGENT === "1"
+    // NEXT_PUBLIC_DEV_AGENT is the legacy spelling, kept so old shells still work.
+    process.env.NEXT_PUBLIC_DEV_HOST === "1" || process.env.NEXT_PUBLIC_DEV_AGENT === "1"
   );
 }
 export const isAgentEnvironment = isHostEnvironment;

@@ -49,14 +49,16 @@ const nextConfig = {
     NEXT_PUBLIC_STATIC_EXPORT: process.env.STATIC_EXPORT || "0",
   },
   ...(isStaticExport ? {} : {
-    // Dev-only proxy for agent-env UI work (NEXT_PUBLIC_DEV_AGENT=1): the
-    // agent-local APIs live on the agent's own server, so the dev server
-    // forwards them there — the page stays same-origin from the browser's view.
+    // Dev-only proxy for host-env UI work (NEXT_PUBLIC_DEV_HOST=1; the legacy
+    // NEXT_PUBLIC_DEV_AGENT spelling still works): the host-local APIs live on
+    // the host's own server, so the dev server forwards them there — the page
+    // stays same-origin from the browser's view.
     // Paths the web app owns itself (/api/version, /api/session, /api/webrtc,
     // ...) are deliberately NOT listed. Never active in production builds.
-    ...(process.env.NODE_ENV === "development" && process.env.NEXT_PUBLIC_DEV_AGENT === "1" ? {
+    ...(process.env.NODE_ENV === "development"
+      && (process.env.NEXT_PUBLIC_DEV_HOST === "1" || process.env.NEXT_PUBLIC_DEV_AGENT === "1") ? {
       async rewrites() {
-        const agentOrigin = process.env.DEV_AGENT_ORIGIN || "http://localhost:2208";
+        const hostOrigin = process.env.DEV_HOST_ORIGIN || process.env.DEV_AGENT_ORIGIN || "http://localhost:2208";
         const agentApi = [
           "/api/ui/:path*",
           "/api/key/:path*",
@@ -72,7 +74,7 @@ const nextConfig = {
           "/api/logs",
           "/api/sessions/:path*",
           "/api/connections"
-        ].map((p) => ({ source: p, destination: `${agentOrigin}${p}` }));
+        ].map((p) => ({ source: p, destination: `${hostOrigin}${p}` }));
         return agentApi;
       },
     } : {}),

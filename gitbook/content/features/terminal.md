@@ -4,13 +4,13 @@ Full-featured remote terminal access with persistent daemon sessions, Git worktr
 
 ## What It Does
 
-9Remote Terminal delivers complete command-line access through any browser or mobile device. Unlike standard SSH or web terminals, sessions run on a persistent daemon on your computer so your processes stay alive even across network drops or agent restarts.
+9Remote Terminal delivers complete command-line access through any browser or mobile device. Unlike standard SSH or web terminals, sessions run on a persistent daemon on your computer so your processes stay alive even across network drops or host restarts.
 
 ## Core Features
 
 ### Persistent PTY Daemon
 - **Session Persistence:** Terminal processes run via an independent background daemon (`ptyDaemon`).
-- **Survive Disconnects:** Long-running builds, tests, or Docker processes continue executing even if your browser disconnects, your phone locks, or the agent restarts.
+- **Survive Disconnects:** Long-running builds, tests, or Docker processes continue executing even if your browser disconnects, your phone locks, or the host restarts.
 - **Instant Reattachment:** Reconnecting returns you immediately to your active session and command history.
 
 ### Multiple Sessions & Workspace Tabs

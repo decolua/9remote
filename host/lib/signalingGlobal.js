@@ -1,4 +1,4 @@
-// Process-wide signaling client — agent joins the DO room ONCE at server start
+// Process-wide signaling client — host joins the DO room ONCE at server start
 // (room = apiKey), independent of any socket.io connection. This breaks the
 // circular dep where signaling only worked after a tunnel carried socket.io.
 //
@@ -40,7 +40,7 @@ export function onSignalingReady(fn) {
 }
 
 // Idempotent for the same key. When the key CHANGES (user regenerated it) the
-// old room is abandoned and we rejoin under the new one — otherwise the agent
+// old room is abandoned and we rejoin under the new one — otherwise the host
 // keeps listening on the retired room while clients that hold the new key sit
 // in a room nobody answers, spinning forever.
 let _roomKey = null;

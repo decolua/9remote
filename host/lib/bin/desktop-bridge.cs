@@ -29,7 +29,7 @@ class DesktopBridge {
   const ushort VK_RETURN = 0x0D;
   const ushort VK_SHIFT = 0x10;
   const string PIPE = "9remote-desktop";
-  // Bump on every change to this file. The agent reads the same constant out of
+  // Bump on every change to this file. The host reads the same constant out of
   // the shipped .cs and compares it against what the running worker reports, so
   // a stale worker is detected without relying on file mtimes. Same contract as
   // DAEMON_VERSION for the pty daemon.
@@ -82,7 +82,7 @@ class DesktopBridge {
     if (h != IntPtr.Zero) { SetThreadDesktop(h); CloseDesktop(h); }
   }
 
-  // Log to worker.log beside the exe — tailed by the agent so SendInput failures
+  // Log to worker.log beside the exe — tailed by the host so SendInput failures
   // (wrong session, wrong desktop, UIPI block) surface without a console.
   // NOTE: csc v4.0.30319 is C# 5.0 — no string interpolation ($""), no expression-bodied members.
   static string LOG = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "worker.log");
@@ -156,7 +156,7 @@ class DesktopBridge {
       bool isNew;
       _instanceLock = new Mutex(true, MUTEX_NAME, out isNew);
       if (!isNew) {
-        // The previous worker may be shutting down right now (agent issued STOP,
+        // The previous worker may be shutting down right now (host issued STOP,
         // then relaunched us via the task). Wait for it to release rather than
         // exiting into a gap where no worker is running at all.
         if (!_instanceLock.WaitOne(HANDOFF_WAIT_MS)) { L("another worker still holds the lock — exiting"); return; }
@@ -164,7 +164,7 @@ class DesktopBridge {
       }
     } catch (Exception e) { L("mutex guard unavailable: " + e.Message); }
     try { L("start session=" + Process.GetCurrentProcess().SessionId + " pid=" + Process.GetCurrentProcess().Id + " user=" + WindowsIdentity.GetCurrent().Name); } catch {}
-    // ACL: SYSTEM + Administrators + Authenticated Users so the user-scope agent can connect.
+    // ACL: SYSTEM + Administrators + Authenticated Users so the user-scope host can connect.
     var sec = new PipeSecurity();
     sec.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
     sec.AddAccessRule(new PipeAccessRule(new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null), PipeAccessRights.ReadWrite, AccessControlType.Allow));
@@ -195,7 +195,7 @@ class DesktopBridge {
           } else if (line == "STOP") {
             sw.WriteLine("OK");
             // Clean exit: STOP is an intentional shutdown (user toggled Off, or
-            // the agent is freeing the locked exe for a rebuild). Restarting here
+            // the host is freeing the locked exe for a rebuild). Restarting here
             // would defeat both. The boot task brings it back next reboot.
             try { srv.Dispose(); } catch { }
             Environment.Exit(0);

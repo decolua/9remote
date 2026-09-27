@@ -1,6 +1,6 @@
 {
   "name": "9remote-monorepo",
-  "version": "3.0.27",
+  "version": "3.0.29",
   "private": true,
   "type": "module",
   "workspaces": [
@@ -12,14 +12,9 @@
   "scripts": {
     "host:dev": "NODE_ENV=development node host/cli/index.js",
     "host:build": "node scripts/syncVersion.js && node scripts/buildPkg.js",
+    "host:sync": "node scripts/syncVersion.js && NO_PACK=1 node scripts/buildPkg.js && node scripts/syncLocalAgent.mjs",
     "host:publish": "npm run host:build && cd host && npm publish",
     "host:publish:local": "npm run host:build && cd host && npm publish --registry http://localhost:4873",
-    "host:test": "NREMOTE_REGISTRY=http://localhost:4873/9remote/latest 9remote",
-    "agent:dev": "npm run host:dev",
-    "agent:build": "npm run host:build",
-    "agent:publish": "npm run host:publish",
-    "agent:publish:local": "npm run host:publish:local",
-    "agent:test": "npm run host:test",
     "web:dev": "npm run dev --workspace=web",
     "web:deploy": "npm run deploy --workspace=web",
     "web:deploy:dev": "npm run deploy:dev --workspace=web",
@@ -28,8 +23,7 @@
     "docs:dev": "npm run dev --workspace=gitbook",
     "docs:deploy": "npm run build --workspace=gitbook && cd gitbook && npx wrangler pages deploy out --project-name=9remote-docs",
     "_pc:tauri": "NINEREMOTE_ENV=development npm run tauri dev --prefix desktop",
-    "_host:start": "npm run dev:ui:start --prefix host",
-    "_agent:start": "npm run _host:start"
+    "_host:start": "npm run dev:ui:start --prefix host"
   },
   "devDependencies": {
     "@napi-rs/image": "^1.12.0",

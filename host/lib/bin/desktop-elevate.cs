@@ -129,7 +129,7 @@ class DesktopElevate {
     if (!CreateEnvironmentBlock(out env, dup, false)) { CloseHandle(dup); CloseHandle(ht); CloseHandle(hp); return; }
 
     // Worker lives beside this launcher exe, named desktop-bridge-<version>.exe.
-    // Version-stamped so the agent can build a new one without overwriting (and
+    // Version-stamped so the host can build a new one without overwriting (and
     // locking) the copy currently running — this boot then picks up the newest.
     string app = PickNewestWorker(AppDomain.CurrentDomain.BaseDirectory);
     if (app == null) { DestroyEnvironmentBlock(env); CloseHandle(dup); CloseHandle(ht); CloseHandle(hp); return; }

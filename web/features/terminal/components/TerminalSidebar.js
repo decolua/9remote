@@ -123,7 +123,7 @@ function TerminalSidebar({
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || !!window.ReactNativeWebView
   );
-  const showInstall = canInstall && !isApp && !isInstalled && !isAgentEnvironment();
+  const showInstall = canInstall && !isApp && !isInstalled && !isHostEnvironment();
 
   // Resize handle
   const startResize = (e) => {
