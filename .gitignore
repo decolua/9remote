@@ -67,12 +67,12 @@ desktop/src-tauri/target-linux/*
 worker/wrangler.toml
 .bin/*
 web/.open-next/*
-agent/dist/*
+host/dist/*
 web/.wrangler/*
 expo/ios/*
-agent/ui/dist/*
-agent/ui/dist/index.html
-agent/ui/dist/*
+host/ui/dist/*
+host/ui/dist/index.html
+host/ui/dist/*
 .seeding/*
 gitbook/.wrangler/*
 .source/*
@@ -89,13 +89,13 @@ web/wrangler.toml
 .loop/*
 ./source
 web/graphify-out/*
-agent/graphify-out/*
+host/graphify-out/*
 .devloop/
 
 .handoff/
-agent/tester/*
+host/tester/*
 # Bench output: logs + dump images with local machine paths
-agent/remote-bench/out/*
+host/remote-bench/out/*
 # Former submodule, kept locally only
 9remote_public/
 # OTA code signing certificate — public, must be committed (referenced by expo/app.json)

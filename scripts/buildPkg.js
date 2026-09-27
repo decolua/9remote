@@ -15,10 +15,10 @@ import { buildWebStatic } from "./buildWebStatic.mjs";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const SERVER_DIR = path.join(ROOT, "agent");
+const SERVER_DIR = path.join(ROOT, "host");
 const DIST_DIR = path.join(SERVER_DIR, "dist");
 
-// Read version from agent/package.json
+// Read version from host/package.json
 const VERSION = JSON.parse(
   fs.readFileSync(path.join(SERVER_DIR, "package.json"), "utf-8")
 ).version;
@@ -69,7 +69,7 @@ async function buildCli() {
     outfile,
     external: ["node-pty", "sharp", "cloudflared", "@hurdlegroup/robotjs", "node-datachannel", "node-screenshots", "koffi", "systray", "fsevents", "@julusian/jpeg-turbo"],
   });
-  console.log(`✅ CLI → agent/dist/cli.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
+  console.log(`✅ CLI → host/dist/cli.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
 
 async function buildServer() {
@@ -82,7 +82,7 @@ async function buildServer() {
     outfile,
     external: ["node-pty", "sharp", "@hurdlegroup/robotjs", "node-datachannel", "node-screenshots", "koffi", "fsevents", "@julusian/jpeg-turbo"],
   });
-  console.log(`✅ Server → agent/dist/server.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
+  console.log(`✅ Server → host/dist/server.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
 
 async function buildDaemon() {
@@ -95,7 +95,7 @@ async function buildDaemon() {
     outfile,
     external: ["node-pty"],
   });
-  console.log(`✅ Daemon → agent/dist/ptyDaemon.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
+  console.log(`✅ Daemon → host/dist/ptyDaemon.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
 
 async function buildInstall() {
@@ -108,14 +108,14 @@ async function buildInstall() {
     outfile,
     external: ["@hurdlegroup/robotjs"],
   });
-  console.log(`✅ Install → agent/dist/install.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
+  console.log(`✅ Install → host/dist/install.cjs (${(fs.statSync(outfile).size / 1024).toFixed(1)} KB)`);
 }
 
 function buildUi() {
   console.log("\n🎨 Building Preact UI...");
-  // vite outDir is "../dist/ui" (relative to agent/ui/) → outputs directly to agent/dist/ui/
+  // vite outDir is "../dist/ui" (relative to host/ui/) → outputs directly to host/dist/ui/
   run("npm run build:ui", SERVER_DIR);
-  console.log("✅ UI → agent/dist/ui/");
+  console.log("✅ UI → host/dist/ui/");
 }
 
 function buildWeb() {
@@ -127,7 +127,7 @@ function buildWeb() {
   }
   ensureDir(destDir);
   fs.cpSync(outDir, destDir, { recursive: true });
-  console.log("✅ Web → agent/dist/web/");
+  console.log("✅ Web → host/dist/web/");
 }
 
 function copyAssets() {
@@ -139,7 +139,7 @@ function copyAssets() {
   for (const file of fs.readdirSync(srcDir)) {
     fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
   }
-  console.log(`✅ Assets → agent/dist/assets/`);
+  console.log(`✅ Assets → host/dist/assets/`);
 }
 
 // Ship C# sources for the Windows desktop-unlock bridge. .exe are compiled at
@@ -154,11 +154,11 @@ function copyDesktopBridge() {
     if (!file.endsWith(".cs")) continue;
     fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
   }
-  console.log(`✅ desktop-bridge .cs → agent/dist/bin/`);
+  console.log(`✅ desktop-bridge .cs → host/dist/bin/`);
 }
 
 // Ship the scrcpy server jar for Android mirroring: dev layout
-// agent/features/mobile/vendor/, dist agent/dist/vendor/.
+// host/features/mobile/vendor/, dist host/dist/vendor/.
 function copyMobileVendor() {
   console.log("\n📱 Copying scrcpy server...");
   const srcDir = path.join(SERVER_DIR, "features/mobile/vendor");
@@ -168,7 +168,7 @@ function copyMobileVendor() {
   for (const file of fs.readdirSync(srcDir)) {
     fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
   }
-  console.log(`✅ scrcpy-server → agent/dist/vendor/`);
+  console.log(`✅ scrcpy-server → host/dist/vendor/`);
 }
 
 async function build() {

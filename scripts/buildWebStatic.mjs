@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Build web app as static HTML/CSS/JS export for embedding into agent.
+ * Build web app as static HTML/CSS/JS export for embedding into host.
  * Temporarily moves app/api out of the way so Next.js static export succeeds without Cloudflare worker routes.
  */
 

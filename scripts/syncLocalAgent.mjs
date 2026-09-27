@@ -8,10 +8,10 @@ import { fileURLToPath } from "url";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(__dirname, "..");
-const DIST_SRC = path.join(ROOT, "agent", "dist");
+const DIST_SRC = path.join(ROOT, "host", "dist");
 
 if (!fs.existsSync(DIST_SRC)) {
-  console.error("❌ agent/dist not found. Run npm run agent:build first.");
+  console.error("❌ host/dist not found. Run npm run host:build first.");
   process.exit(1);
 }
 
@@ -48,7 +48,7 @@ for (const targetPkg of targets) {
   const targetDist = path.join(targetPkg, "dist");
   try {
     fs.cpSync(DIST_SRC, targetDist, { recursive: true, force: true });
-    console.log(`✅ Synced agent/dist → ${targetDist}`);
+    console.log(`✅ Synced host/dist → ${targetDist}`);
   } catch (err) {
     console.warn(`⚠️ Could not sync to ${targetDist}: ${err.message}`);
   }

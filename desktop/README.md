@@ -1,14 +1,14 @@
 # 9Remote Desktop
 
-Tauri wrapper around the `9remote` agent. The app launches the agent (`cli.cjs ui --start`) at `localhost:2208` and loads it in a webview window, plus a system tray. It uses the system webview (WKWebView on macOS, WebView2 on Windows), so the bundle stays ~11MB.
+Tauri wrapper around the `9remote` host. The app launches the host (`cli.cjs ui --start`) at `localhost:2208` and loads it in a webview window, plus a system tray. It uses the system webview (WKWebView on macOS, WebView2 on Windows), so the bundle stays ~11MB.
 
-The agent runs on Node, which the app provisions itself. It first looks for an existing install (nvm, fnm, Volta, Homebrew, `Program Files\nodejs`) and uses it when it is **v22.14 or newer** — the floor is set by `@julusian/jpeg-turbo@3`, which is built against Node-API 10 and *segfaults* on older runtimes rather than throwing. Anything older counts as missing.
+The host runs on Node, which the app provisions itself. It first looks for an existing install (nvm, fnm, Volta, Homebrew, `Program Files\nodejs`) and uses it when it is **v22.14 or newer** — the floor is set by `@julusian/jpeg-turbo@3`, which is built against Node-API 10 and *segfaults* on older runtimes rather than throwing. Anything older counts as missing.
 
 When no usable Node is found, the app downloads the pinned Node LTS into `~/.9remote/node/`, verifies its SHA256 against the release's `SHASUMS256.txt`, and reports progress on the splash screen. It then runs `npm install` into `~/.9remote/npm`.
 
 Official builds exist for macOS (arm64/x64), Windows (x64/arm64) and Linux glibc (x64/arm64). On anything else — Linux armv7, or musl distros like Alpine — the download is skipped and the app asks the user to install Node manually.
 
-- `npm run pc:dev` — dev mode (agent + Vite + Tauri).
+- `npm run pc:dev` — dev mode (host + Vite + Tauri).
 - `npm run pc:build` — macOS build **+ sign + notarize** (see below).
 - `npm run pc:build:win` — Windows x64 portable exe + NSIS installer, cross-compiled from macOS (see below).
 
@@ -70,7 +70,7 @@ The script (`desktop/scripts/build-macos-signed.sh`):
 - First notarization can take 5–15 min.
 - Verify: `spctl -a -vvv -t exec path/to/9Remote.app` should print `accepted`.
 - Builds a **universal** binary (Intel + Apple Silicon) — `pc:build` passes `--target universal-apple-darwin`.
-- The agent core (`9remote` npm package) auto-updates on its own. The desktop shell does **not** auto-update yet — to ship a new shell you rebuild + redistribute.
+- The host core (`9remote` npm package) auto-updates on its own. The desktop shell does **not** auto-update yet — to ship a new shell you rebuild + redistribute.
 
 ## Windows
 
@@ -87,4 +87,4 @@ One-time setup: `rustup target add x86_64-pc-windows-msvc`, `cargo install cargo
 
 ## Versioning
 
-`node scripts/syncVersion.js` (run by `agent:build`) propagates the root `package.json` version to `agent/package.json`, `desktop/package.json`, `tauri.conf.json`, and `Cargo.toml`.
+`node scripts/syncVersion.js` (run by `host:build`) propagates the root `package.json` version to `host/package.json`, `desktop/package.json`, `tauri.conf.json`, and `Cargo.toml`.

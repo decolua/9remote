@@ -36,7 +36,7 @@ npm i -g 9remote
 - **iOS / iPadOS:** [Download on the App Store](https://apps.apple.com/us/app/9remote/id6796664210)
 - **Android:** [Get it on Google Play](https://play.google.com/store/apps/details?id=cc.remote9.app&pli=1)
 
-Scan the QR code from a phone (or open the URL) and you're on your machine's shell — over WebRTC or WebSocket, through an encrypted tunnel that closes when you stop the agent.
+Scan the QR code from a phone (or open the URL) and you're on your machine's shell — over WebRTC or WebSocket, through an encrypted tunnel that closes when you stop the host.
 
 ---
 
@@ -78,7 +78,7 @@ sequenceDiagram
     autonumber
     participant Client as Mobile / Web Client
     participant Server as 9Remote Signaling Relay
-    participant Host as Host Machine (Agent)
+    participant Host as Host Machine
 
     Host->>Server: 1. Register HEAD (TAIL stays private on Host)
     Client->>Server: 2. Request Host lookup with HEAD
@@ -95,12 +95,12 @@ sequenceDiagram
 
 ## 📂 What's in here (Monorepo)
 
-- **`agent/`** — the Node.js CLI that runs on the machine you want to reach. Serves PTY terminals (daemonized), streams the screen over WebRTC with dirty-tile diffing, and exposes a jailed file explorer. Published to npm as `9remote`.
-- **`web/`** — the Next.js client UI + signaling/session API, deployed to Cloudflare Workers (OpenNext) backed by D1. Terminal data does not flow through it — clients connect to the agent directly.
-- **`desktop/`** — Tauri wrapper around the agent for native macOS and Windows desktop apps.
+- **`host/`** — the Node.js CLI that runs on the machine you want to reach. Serves PTY terminals (daemonized), streams the screen over WebRTC with dirty-tile diffing, and exposes a jailed file explorer. Published to npm as `9remote`.
+- **`web/`** — the Next.js client UI + signaling/session API, deployed to Cloudflare Workers (OpenNext) backed by D1. Terminal data does not flow through it — clients connect to the host directly.
+- **`desktop/`** — Tauri wrapper around the host for native macOS and Windows desktop apps.
 - **`gitbook/`** — the docs site.
 
-The transport protocol (`agent/transport/` and `web/shared/transport/`) is implemented twice, mirrored on both sides — change one, change the other.
+The transport protocol (`host/transport/` and `web/shared/transport/`) is implemented twice, mirrored on both sides — change one, change the other.
 
 ---
 
@@ -123,7 +123,7 @@ npm run secrets:sync
 npm run web:deploy
 ```
 
-The agent itself runs anywhere Node runs — no Cloudflare dependency.
+The host itself runs anywhere Node runs — no Cloudflare dependency.
 
 ---
 

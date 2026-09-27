@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * Sync version from root package.json to agent + desktop manifests
+ * Sync version from root package.json to host + desktop manifests
  */
 
 import fs from "fs";
@@ -16,7 +16,7 @@ const { version } = rootPkg;
 
 // JSON manifests carrying a top-level "version"
 const JSON_TARGETS = [
-  "agent/package.json",
+  "host/package.json",
   "desktop/package.json",
   "desktop/src-tauri/tauri.conf.json",
 ];

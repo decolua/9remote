@@ -3,7 +3,7 @@
 .codegraph/
 
 # Workspaces the mobile build never needs
-agent/
+host/
 web/
 gitbook/
 desktop/
