@@ -1,7 +1,7 @@
 import fs from "node:fs";
 import path from "node:path";
 import { spawn } from "node:child_process";
-import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT, AI_TASK_RECORDS_BYTES, IDLE_KILL_ENGINES, AI_IDLE_KILL_MS } from "./constants.js";
+import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT, AI_TASK_RECORDS_BYTES, IDLE_KILL_ENGINES, AI_IDLE_KILL_MS, AI_VETO_MAX_MS } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";
 import { readClaudeSessionState, readNewAttachments } from "./claudeTranscript.js";
@@ -62,7 +62,7 @@ const AI_SESSIONS_DIR = PATHS.AI_SESSIONS;
 try { if (!fs.existsSync(AI_SESSIONS_DIR)) fs.mkdirSync(AI_SESSIONS_DIR, { recursive: true }); } catch {}
 
 // Every engine owns its snapshot here; ponytail: legacy prefix-less daemon snapshots are left behind for a later cleanup.
-function aiSnapshotFile(sessionId, engine) {
+export function aiSnapshotFile(sessionId, engine) {
   const safe = String(sessionId).replace(/[^a-zA-Z0-9_-]/g, "_");
   return path.join(AI_SESSIONS_DIR, `${engine}-${safe}.json`);
 }
@@ -648,10 +648,14 @@ export class AiSession {
   // what is provably resting. A gate, a queued prompt, a live async row or a
   // running turn each veto the kill.
   get idleKillEligible() {
-    return !this.destroyed && !this.asleep && IDLE_KILL_ENGINES.has(this.engine)
-      && Boolean(this.adapter) && !this.proc?.dead && !this.isTurnRunning
-      && !(this.promptQueue?.length) && !this.pendingPermission()
-      && !this._runningAsync() && Date.now() - this.lastActivityAt >= AI_IDLE_KILL_MS;
+    const base = !this.destroyed && !this.asleep && IDLE_KILL_ENGINES.has(this.engine)
+      && Boolean(this.adapter) && !this.proc?.dead
+      && !(this.promptQueue?.length) && !this._runningAsync();
+    if (!base) return false;
+    const silentMs = Date.now() - this.lastActivityAt;
+    // Silence past the cap proves a held turn or gate is stuck, not working — kill anyway.
+    if (silentMs >= AI_VETO_MAX_MS) return true;
+    return !this.isTurnRunning && !this.pendingPermission() && silentMs >= AI_IDLE_KILL_MS;
   }
 
   // Kill the idle CLI process; the next prompt respawns it resuming the saved

@@ -1,5 +1,5 @@
 import { AI_SOCKET_EVENTS } from "./constants.js";
-import { globalAiManager } from "./aiManager.js";
+import { globalAiManager, destroyDetachedChat } from "./aiManager.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
@@ -525,7 +525,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   socket.on(AI_SOCKET_EVENTS.DESTROY, async ({ sessionId }, cb) => {
     try {
-      manager.destroySession(sessionId);
+      // A chat this run never loaded still owns a daemon proc + snapshot — clean both.
+      if (sessionId && !manager.destroySession(sessionId)) await destroyDetachedChat(sessionId);
       cb?.({ ok: true });
     } catch (err) {
       cb?.({ ok: false, error: err.message });

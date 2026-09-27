@@ -1,10 +1,8 @@
 // Manages all active AI sessions across Claude, Codex, and OpenCode
 import fs from "node:fs";
-import path from "node:path";
-import { AI_ENGINES, ORPHAN_SWEEP_INTERVAL_MS, AI_IDLE_TICK_MS } from "./constants.js";
-import { AiSession } from "./aiSession.js";
+import { AI_ENGINES, ORPHAN_SWEEP_INTERVAL_MS, AI_IDLE_TICK_MS, STALE_CHAT_MS } from "./constants.js";
+import { AiSession, aiSnapshotFile } from "./aiSession.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
-import { PATHS } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
 import { registerDoneReleaser } from "../terminal/statusManager.js";
 
@@ -93,14 +91,25 @@ export const globalAiManager = new AiManager();
 
 // Daemon-held CLI procs are keyed by chat id; a proc whose chat no longer exists (a
 // stop RPC that never landed, a snapshot pruned while the agent was down) is RAM held
-// forever — the daemon has no owner of its own. Owner = a live session or a snapshot
-// file on disk; anything else in the daemon's proc map is an orphan.
-function chatExists(procId) {
+// forever — the daemon has no owner of its own. A chat owns its proc only while live
+// in memory or with a snapshot touched within STALE_CHAT_MS (snapshots are rewritten
+// on every turn event, so an active chat's file is always fresh); anything else in
+// the daemon's proc map is reclaimable — a prompt respawns it via --resume.
+function chatActive(procId) {
   if (globalAiManager.sessions.has(procId)) return true;
-  // Same sanitize as aiSnapshotFile(): id -> `<engine>-<safe>.json`.
-  const safe = String(procId).replace(/[^a-zA-Z0-9_-]/g, "_");
-  return Object.values(AI_ENGINES).some((engine) =>
-    fs.existsSync(path.join(PATHS.AI_SESSIONS, `${engine}-${safe}.json`)));
+  const now = Date.now();
+  return Object.values(AI_ENGINES).some((engine) => {
+    try { return now - fs.statSync(aiSnapshotFile(procId, engine)).mtimeMs < STALE_CHAT_MS; } catch { return false; }
+  });
+}
+
+// Delete a chat this host run never loaded (the delete arrived before any open):
+// destroySession alone cannot reach it, so stop its daemon proc and drop its snapshots.
+export async function destroyDetachedChat(chatId, client = daemonClient) {
+  await client.procStop(chatId).catch(() => {});
+  for (const engine of Object.values(AI_ENGINES)) {
+    try { fs.unlinkSync(aiSnapshotFile(chatId, engine)); } catch {}
+  }
 }
 
 export async function sweepOrphanProcs(client = daemonClient) {
@@ -110,11 +119,11 @@ export async function sweepOrphanProcs(client = daemonClient) {
     const procs = Array.isArray(held) ? held : held?.procs || [];
     for (const proc of procs) {
       const id = proc?.procId || proc?.id;
-      if (!id || chatExists(id)) continue;
+      if (!id || chatActive(id)) continue;
       // Re-check at kill time: a chat created after the list was fetched is in the map
       // before its first proc RPC can land.
       await new Promise((resolve) => setImmediate(resolve));
-      if (chatExists(id)) continue;
+      if (chatActive(id)) continue;
       await client.procStop(id);
       logger.info(`[proc-sweep] stopped orphan daemon proc ${id} (${proc.total || 0} lines buffered)`);
     }

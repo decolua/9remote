@@ -73,6 +73,14 @@ export const IDLE_KILL_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, A
 export const AI_IDLE_KILL_MS = 30 * 60 * 1000;
 export const AI_IDLE_TICK_MS = 60 * 1000;
 
+// A chat owns its daemon proc only while live in memory or with a snapshot
+// touched this recently; past it the orphan sweep may reclaim the process
+// (a prompt respawns it, resuming the saved conversation).
+export const STALE_CHAT_MS = 6 * 60 * 60 * 1000;
+
+// Silence past this cap proves a held turn or permission gate is stuck, not
+// working — idle-kill fires anyway (queued prompts and async rows stay exempt).
+export const AI_VETO_MAX_MS = 24 * 60 * 60 * 1000;
 
 
 // OpenCode's mode IS its agent (build = full access, plan = read-only); the v2
