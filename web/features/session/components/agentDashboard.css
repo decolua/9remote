@@ -10,6 +10,10 @@
   --brand-600: #cc4e24;
   --brand-400: #f2711c;
   --brand-rgb: 232, 90, 44;
+  /* Accent for icons/active states: brand orange in light, near-white in dark */
+  --accent: var(--brand-400);
+  --accent-rgb: 232, 90, 44;
+  --toggle-knob: #ffffff;
   --ring: rgba(232, 90, 44, 0.42);
   --bg-body: #FCFBF9;
   --surface-2: rgba(255, 255, 255, 0.9);
@@ -45,6 +49,9 @@
   --brand-600: #e5572c;
   --brand-400: #ff8155;
   --brand-rgb: 255, 106, 61;
+  --accent: #f5f5f5;
+  --accent-rgb: 255, 255, 255;
+  --toggle-knob: #1c1c1e;
   --ring: rgba(255, 106, 61, 0.55);
   --bg-body: #0a0a0a;
   --surface-2: #262626;
@@ -107,33 +114,34 @@
 }
 .agent-dashboard .hero-card:hover { transform: translateY(-1px); }
 
-/* Brand-tinted icon tile — accent for the primary connect tile */
-.agent-dashboard .ad-tile-brand {
-  background: rgba(var(--brand-rgb), 0.10);
-  color: var(--brand-400);
-  border: 1px solid rgba(var(--brand-rgb), 0.25);
+/* Platform-tinted icon tiles — brand colors stay fixed across themes */
+.agent-dashboard .ad-tile-web {
+  background: rgba(34, 211, 238, 0.12);
+  color: #22d3ee;
+  border: 1px solid rgba(34, 211, 238, 0.25);
+}
+.agent-dashboard .ad-tile-apple {
+  background: rgba(10, 132, 255, 0.12);
+  color: #0a84ff;
+  border: 1px solid rgba(10, 132, 255, 0.25);
+}
+.agent-dashboard .ad-tile-play {
+  background: rgba(52, 211, 153, 0.12);
+  color: #34d399;
+  border: 1px solid rgba(52, 211, 153, 0.25);
+}
+.agent-dashboard .ad-tile-pc {
+  background: rgba(167, 139, 250, 0.12);
+  color: #a78bfa;
+  border: 1px solid rgba(167, 139, 250, 0.25);
 }
 
-/* Store badge — per Apple/Google guidelines: black pill, 40px tall (Apple's
-   onscreen minimum), gray border ring, App Store placed first. */
-.agent-dashboard .ad-store-badge {
-  display: inline-flex;
+/* Connect card — the hero-card base supplies the glass + mirror sheen */
+.agent-dashboard .ad-connect-card {
+  display: flex;
   align-items: center;
-  height: 40px;
-  padding: 0 1.1rem;
-  border-radius: 8px;
-  background: #000;
-  color: #fff;
-  font-size: 12.5px;
-  font-weight: 600;
-  letter-spacing: 0.01em;
-  border: 1px solid rgba(255, 255, 255, 0.25);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: filter 0.15s ease, transform 0.2s ease;
-}
-.agent-dashboard .ad-store-badge:hover {
-  filter: brightness(1.25);
-  transform: translateY(-1px);
+  gap: 12px;
+  padding: 13px 14px;
 }
 .agent-dashboard .hero-card::before {
   content: "";
@@ -245,6 +253,9 @@
   background: linear-gradient(150deg, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0.6));
   border: 1px solid rgba(20, 30, 60, 0.10);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.9), 0 0 22px -8px rgba(var(--brand-rgb), 0.35);
+}
+:root.dark .agent-dashboard .logo-glass {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.10), 0 0 22px -6px rgba(255, 255, 255, 0.28);
 }
 
 .agent-dashboard .row-hover { transition: background-color 0.15s ease; }

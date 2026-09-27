@@ -6,7 +6,7 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import { isAgentEnvironment } from "@/shared/utils/localOrigin";
 import { HOMEPAGE_URL } from "@/shared/constants/API";
 import { usePendingDeviceStore } from "@/features/session/stores/pendingDeviceStore";
-import { APP_STORE_URL, PLAY_STORE_URL, releaseFor } from "@/features/landing/constants/landingConfig";
+import { APP_STORE_URL, PLAY_STORE_URL } from "@/features/landing/constants/landingConfig";
 import "./agentDashboard.css";
 
 /* Full port of agent/ui's dashboard (MainScreen + App state layer). One home:
@@ -17,6 +17,8 @@ import "./agentDashboard.css";
    the agent-env UI vocabulary stabilizes. */
 
 const LOGIN_URL = `${HOMEPAGE_URL}login`;
+// Every desktop installer, per OS and per version
+const DOWNLOADS_URL = `${HOMEPAGE_URL}download`;
 const UPDATE_UI = { startDelayMs: 3000, pollMs: 2000, timeoutMs: 90000 };
 const MAX_LOGS = 200;
 const STEP_READY = 5;
@@ -38,15 +40,15 @@ function Toggle({ on, onClick, title, disabled }) {
       title={title}
       className="flex-shrink-0 w-[46px] h-[26px] rounded-full transition-all relative"
       style={{
-        background: on ? "linear-gradient(135deg, var(--brand-500), var(--brand-400))" : "rgba(140,145,160,0.35)",
+        background: on ? "var(--accent)" : "rgba(140,145,160,0.35)",
         border: on ? "1px solid transparent" : "1px solid rgba(140,145,160,0.55)",
         opacity: disabled ? 0.5 : 1,
         cursor: disabled ? "not-allowed" : "pointer"
       }}
     >
       <span
-        className="absolute top-0.5 w-5 h-5 rounded-full bg-white transition-all"
-        style={{ left: on ? "calc(100% - 22px)" : "2px", boxShadow: "0 2px 6px rgba(0,0,0,0.4)" }}
+        className="absolute top-0.5 w-5 h-5 rounded-full transition-all"
+        style={{ left: on ? "calc(100% - 22px)" : "2px", background: "var(--toggle-knob)", boxShadow: "0 2px 6px rgba(0,0,0,0.4)" }}
       />
     </button>
   );
@@ -104,9 +106,9 @@ function RemoteDesktopRow({ desktopEnabled, onDesktopToggle, permissions, onRequ
       <div
         className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0 mt-0.5"
         style={{
-          background: !canEnableDesktop ? "rgba(var(--warn-rgb),0.12)" : desktopEnabled ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
-          border: `1px solid ${!canEnableDesktop ? "rgba(var(--warn-rgb),0.3)" : desktopEnabled ? "rgba(var(--brand-rgb),0.25)" : "var(--border-subtle)"}`,
-          color: !canEnableDesktop ? "var(--warn)" : desktopEnabled ? "var(--brand-400)" : "var(--text-muted)"
+          background: !canEnableDesktop ? "rgba(var(--warn-rgb),0.12)" : desktopEnabled ? "rgba(var(--accent-rgb),0.08)" : "var(--row-bg)",
+          border: `1px solid ${!canEnableDesktop ? "rgba(var(--warn-rgb),0.3)" : desktopEnabled ? "rgba(var(--accent-rgb),0.25)" : "var(--border-subtle)"}`,
+          color: !canEnableDesktop ? "var(--warn)" : desktopEnabled ? "var(--accent)" : "var(--text-muted)"
         }}
       >
         <span className="material-symbols-outlined" style={{ fontSize: 18 }}>
@@ -143,9 +145,9 @@ function SleepInhibitRow({ mode, presets = [], onChange }) {
       <div
         className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
         style={{
-          background: active ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
-          border: `1px solid ${active ? "rgba(var(--brand-rgb),0.25)" : "var(--border-subtle)"}`,
-          color: active ? "var(--brand-400)" : "var(--text-muted)"
+          background: active ? "rgba(var(--accent-rgb),0.08)" : "var(--row-bg)",
+          border: `1px solid ${active ? "rgba(var(--accent-rgb),0.25)" : "var(--border-subtle)"}`,
+          color: active ? "var(--accent)" : "var(--text-muted)"
         }}
       >
         <span className="material-symbols-outlined" style={{ fontSize: 18 }}>coffee</span>
@@ -156,8 +158,8 @@ function SleepInhibitRow({ mode, presets = [], onChange }) {
       <select
         value={mode || "never"}
         onChange={(e) => onChange?.(e.target.value)}
-        className="text-xs px-3 py-1.5 rounded-lg flex-shrink-0"
-        style={{ background: "var(--row-bg)", color: "var(--text-main)", border: "1px solid var(--border-subtle)", cursor: "pointer" }}
+        className="text-xs px-3 py-1.5 rounded-lg flex-shrink-0 focus:outline-none"
+        style={{ background: "var(--row-bg)", color: "var(--text-main)", border: "1px solid var(--border-subtle)", cursor: "pointer", outline: "none" }}
       >
         {presets.map((m) => <option key={m} value={m}>{sleepLabels[m] || m}</option>)}
       </select>
@@ -501,8 +503,8 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
           <span className="text-[11.5px] leading-4" style={{ color: "var(--text-muted)" }}>Scan to sign in</span>
           <a href={LOGIN_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:underline transition-opacity">
             <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
-            <span className="text-sm font-bold" style={{ color: "var(--brand-400)" }}>{LOGIN_URL.replace(/^https?:\/\//, "")}</span>
-            <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 14, color: "var(--brand-400)" }}>open_in_new</span>
+            <span className="text-sm font-bold" style={{ color: "var(--accent)" }}>{LOGIN_URL.replace(/^https?:\/\//, "")}</span>
+            <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 14, color: "var(--accent)" }}>open_in_new</span>
           </a>
         </div>
 
@@ -512,7 +514,7 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
             <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 16, color: "var(--text-muted)" }}>timer</span>
             <span
               className="flex-1 font-mono font-bold tracking-[0.18em] text-base truncate"
-              style={{ color: oneTimeKey && !expired ? "var(--brand-400)" : "var(--border)" }}
+              style={{ color: oneTimeKey && !expired ? "var(--accent)" : "var(--border)" }}
             >
               {oneTimeKey && !expired ? oneTimeKey : "• • • • • •"}
             </span>
@@ -548,40 +550,39 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
 
 /* ── Connect-from rows: every client that can reach this agent ──────────── */
 
-// Same row anatomy as Services/Clients rows — one aligned rhythm down the pane.
-function ConnectRow({ icon, iconClass, title, children }) {
+// One connect card = tile + title/sub + arrow, the whole card is the link.
+// hero-card supplies the glass + mirror sheen. icon: Material Symbols name or ReactNode.
+function ConnectCard({ icon, iconClass, title, sub, href }) {
   return (
-    <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
-      <div
-        className={`w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0 ${iconClass || ""}`}
-        style={iconClass ? undefined : { background: "var(--row-bg)", border: "1px solid var(--border-subtle)", color: "var(--text-muted)" }}
-      >
-        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>
+    <a href={href} target="_blank" rel="noopener noreferrer" className="hero-card ad-connect-card">
+      <div className={`w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0 ${iconClass}`}>
+        {typeof icon === "string"
+          ? <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>
+          : icon}
       </div>
-      <p className="text-[13.5px] font-semibold flex-1 min-w-0" style={{ color: "var(--text-main)" }}>{title}</p>
-      <div className="flex items-center gap-2 flex-shrink-0">{children}</div>
-    </div>
-  );
-}
-
-function ConnectLink({ label, href }) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="btn-primary inline-flex items-center justify-center h-9 px-4 text-xs"
-    >
-      {label}
+      <div className="flex-1 min-w-0">
+        <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--text-main)" }}>{title}</p>
+        {sub && <p className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{sub}</p>}
+      </div>
+      <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 15, color: "var(--text-subtle)" }}>open_in_new</span>
     </a>
   );
 }
 
-// Store-badge look per Apple/Google guidelines: black pill, App Store first,
-// badges share one height (40px — Apple's onscreen minimum).
-function StoreBadge({ label, href }) {
+// Material Symbols has no Apple/Play logos — inline SVG, currentColor fill
+function AppleIcon() {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="ad-store-badge">{label}</a>
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M12.152 6.896c-.948 0-2.415-1.078-3.96-1.04-2.04.027-3.91 1.183-4.961 3.014-2.117 3.675-.546 9.103 1.519 12.09 1.013 1.454 2.208 3.09 3.792 3.03 1.52-.065 2.09-.987 3.935-.987 1.831 0 2.35.987 3.96.948 1.637-.026 2.676-1.48 3.676-2.948 1.156-1.688 1.636-3.325 1.662-3.415-.039-.013-3.182-1.221-3.22-4.857-.026-3.04 2.48-4.494 2.597-4.559-1.429-2.09-3.623-2.324-4.39-2.376-2-.156-3.675 1.09-4.61 1.09zM15.53 3.83c.843-1.012 1.4-2.427 1.245-3.83-1.207.052-2.662.805-3.532 1.818-.78.896-1.454 2.338-1.273 3.714 1.338.104 2.715-.688 3.559-1.701" />
+    </svg>
+  );
+}
+
+function PlayIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+      <path d="M22.018 13.298l-3.919 2.218-3.515-3.493 3.543-3.521 3.891 2.202a1.49 1.49 0 0 1 0 2.594zM1.337.924a1.486 1.486 0 0 0-.112.568v21.017c0 .217.045.419.124.6l11.155-11.087L1.337.924zm12.207 10.065l3.258-3.238L3.45.195a1.661 1.661 0 0 0-.394-.109l10.688 10.803zm0 2.067l-10.83 10.776c.088-.018.172-.047.254-.09l13.317-7.54-2.741-3.146z" />
+    </svg>
   );
 }
 
@@ -861,9 +862,9 @@ export default function AgentDashboardView() {
             <div
               className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
               style={{
-                background: remoteEnabled ? "rgba(var(--brand-rgb),0.08)" : "var(--row-bg)",
-                border: `1px solid ${remoteEnabled ? "rgba(var(--brand-rgb),0.25)" : "var(--border-subtle)"}`,
-                color: remoteEnabled ? "var(--brand-400)" : "var(--text-muted)"
+                background: remoteEnabled ? "rgba(var(--accent-rgb),0.08)" : "var(--row-bg)",
+                border: `1px solid ${remoteEnabled ? "rgba(var(--accent-rgb),0.25)" : "var(--border-subtle)"}`,
+                color: remoteEnabled ? "var(--accent)" : "var(--text-muted)"
               }}
             >
               <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{remoteEnabled ? "cloud_done" : "cloud_off"}</span>
@@ -919,17 +920,12 @@ export default function AgentDashboardView() {
           {/* Connect from — every client that can reach this agent. The QR/key on
               the left is the credential; these rows are where it gets used. */}
           <Section title="Connect from" first>
-            <ConnectRow icon="language" iconClass="ad-tile-brand" title="Web">
-              <ConnectLink label="9remote.cc" href={LOGIN_URL} />
-            </ConnectRow>
-            <ConnectRow icon="smartphone" title="Mobile">
-              <StoreBadge label="App Store" href={APP_STORE_URL} />
-              <StoreBadge label="Google Play" href={PLAY_STORE_URL} />
-            </ConnectRow>
-            <ConnectRow icon="computer" title="PC">
-              {/* Generic releases page — the connecting machine's OS is unknown from here. */}
-              <ConnectLink label="Download" href={releaseFor(null)} />
-            </ConnectRow>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+              <ConnectCard icon={<AppleIcon />} iconClass="ad-tile-apple" title="iPhone & iPad" sub="App Store" href={APP_STORE_URL} />
+              <ConnectCard icon={<PlayIcon />} iconClass="ad-tile-play" title="Android" sub="Google Play" href={PLAY_STORE_URL} />
+              <ConnectCard icon="computer" iconClass="ad-tile-pc" title="PC & Mac" sub="All downloads" href={DOWNLOADS_URL} />
+              <ConnectCard icon="language" iconClass="ad-tile-web" title="Web" sub="9remote.cc" href={LOGIN_URL} />
+            </div>
           </Section>
 
           {/* Services */}
@@ -951,7 +947,7 @@ export default function AgentDashboardView() {
             onToggle={() => setClientsOpen((v) => !v)}
           >
             <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
-              <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: autoApprove ? "var(--brand-400)" : "var(--text-muted)" }}>
+              <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: autoApprove ? "var(--accent)" : "var(--text-muted)" }}>
                 {autoApprove ? "lock_open" : "lock"}
               </span>
               <div className="flex-1 min-w-0">
