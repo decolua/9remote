@@ -8,6 +8,7 @@ export const SHORTCUTS = [
   { id: "sessionNext", key: "ArrowRight", label: "Next terminal", mac: "⌥→", pc: "Ctrl+Shift+→" },
   { id: "workspacePrev", key: "ArrowUp", label: "Previous workspace", mac: "⌥↑", pc: "Ctrl+Shift+↑" },
   { id: "workspaceNext", key: "ArrowDown", label: "Next workspace", mac: "⌥↓", pc: "Ctrl+Shift+↓" },
+  { id: "attentionNext", code: "KeyA", label: "Next waiting terminal", mac: "⌥A", pc: "Alt+A" },
   { id: "closeTerminal", code: "KeyW", label: "Close terminal", mac: "⌥W", pc: "Alt+W" },
   { id: "fitPanes", key: "=", code: "Equal", label: "Auto-fit panes", mac: "⌥=", pc: "Ctrl+Shift+=" },
   { id: "toggleFocus", code: "Backquote", label: "Toggle terminal / input focus", mac: "⌃`", pc: "Ctrl+`" },
@@ -101,7 +102,7 @@ export function matchShortcut(event) {
   const mac = isMac();
 
   // On macOS:
-  // 1. Single Option: tabs, navigation, panes (⌥1..9, ⌥←, ⌥→, ⌥↑, ⌥↓, ⌥W, ⌥=, ⌥`)
+  // 1. Single Option: tabs, navigation, panes (⌥1..9, ⌥←, ⌥→, ⌥↑, ⌥↓, ⌥A, ⌥W, ⌥=, ⌥`)
   // Note: Option+W produces "∑" and Option+= produces "≠" on macOS keyboard layout
   if (mac && event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey) {
     const digit = DIGIT_CODE.exec(event.code) || (/^[1-9]$/.test(event.key) ? [null, event.key] : null);
@@ -119,6 +120,9 @@ export function matchShortcut(event) {
     }
     if (event.code === "KeyW" || event.key === "∑" || event.key?.toLowerCase() === "w") {
       return { id: "closeTerminal" };
+    }
+    if (event.code === "KeyA" || event.key === "å" || event.key?.toLowerCase() === "a") {
+      return { id: "attentionNext" };
     }
     return null;
   }
@@ -160,6 +164,9 @@ export function matchShortcut(event) {
     }
     if (event.code === "KeyW" || event.key?.toLowerCase() === "w") {
       return { id: "closeTerminal" };
+    }
+    if (event.code === "KeyA" || event.key?.toLowerCase() === "a") {
+      return { id: "attentionNext" };
     }
   }
 

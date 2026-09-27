@@ -43,7 +43,8 @@ import { AGENT_PORT, LOCAL_HOST_STATE } from "@/shared/constants/API";
 import SessionList from "@/features/session/components/SessionList";
 import { useFleetStore, emitWhenReady } from "@/shared/stores/fleetStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { connOf } from "@/shared/transport/hostConn";
+import { connOf, useAllSessionStatus } from "@/shared/transport/hostConn";
+import { useAttentionCycle } from "@/features/terminal/hooks/useAttentionCycle";
 import { useApiKeyStorage, KEYS_CHANGED_EVENT } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
@@ -535,6 +536,10 @@ export default function WorkspaceLayout({ children }) {
     });
   }, [currentView, sessions, nav, t]);
 
+  // ⌥A round-robin through waiting sessions; the mobile badge taps the same hook.
+  const sessionStatus = useAllSessionStatus();
+  const jumpToNextWaiting = useAttentionCycle(sessionStatus, allSessions, nav.handleSelectSession);
+
   // Gated on the terminal view too: remote desktop forwards every keystroke to the host
   // machine, and the full-screen file explorer runs its own chord set — neither may be
   // shadowed by a capture-phase listener sitting above them.
@@ -551,6 +556,7 @@ export default function WorkspaceLayout({ children }) {
     toggleSidebar,
     toggleRightPanel,
     palette: () => { if (paletteWorkspace) setQuickOpen(true); },
+    attentionNext: jumpToNextWaiting,
     help: openShortcutsModal
   }, isDesktop && isTerminalView);
 

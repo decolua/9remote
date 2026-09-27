@@ -7,7 +7,10 @@ import { AGENT_LABELS, AGENT_ICONS } from "../constants/agentLabels";
 import { AGENT_ICON_CLS } from "../constants/agentCli";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { statusItems, attentionSummary } from "../lib/sessionStatusSummary";
+import { SHORTCUTS, SHORTCUT_KEY_CLS, shortcutKeys } from "../constants/shortcuts";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
+
+const ATTENTION_NEXT = SHORTCUTS.find((s) => s.id === "attentionNext");
 
 // Compact relative time (e.g. "now", "3m", "2h", "1d")
 const timeAgo = (ts) => {
@@ -28,8 +31,11 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
   const storeStatus = useAllSessionStatus();
   const sessionStatus = propStatus || storeStatus;
 
-  // All sessions surface; state from sessionStatus (idle if none). Non-idle first (by since), idle last.
-  const items = statusItems(sessionStatus, allSessions);
+  // Waiting-on-user sessions only — blocked (asking) and done (finished turn) —
+  // the same two states the badge counts; everything else stays in the sidebar.
+  const items = statusItems(sessionStatus, allSessions).filter(
+    (it) => it.state === "blocked" || it.state === "done"
+  );
   const { total: count } = attentionSummary(sessionStatus, allSessions);
 
   // Resolve name from the full session list so cross-group notifications show
@@ -138,22 +144,17 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
                     <span className="truncate" title={grp.name}>{grp.name}</span>
                   </div>
                   {grp.items.map((it) => {
-                    const isIdle = it.state === "idle";
                     const v = statusVisual(it.state);
                     const stateLabel = t(v.label);
                     return (
                       <button
                         key={it.id}
                         onClick={() => handlePick(it.id)}
-                        className={`w-full flex items-center gap-2 px-3 py-1 hover:bg-surface-3 text-left transition-colors ${isIdle ? "opacity-50" : ""}`}
+                        className="w-full flex items-center gap-2 px-3 py-1 hover:bg-surface-3 text-left transition-colors"
                         title={nameOf(it.id)}
                       >
-                        {isIdle ? (
-                          <span className="w-2 h-2 rounded-full flex-shrink-0 border border-text-muted/60" />
-                        ) : (
-                          <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
-                        )}
-                        {AGENT_ICONS[it.tool] && !isIdle ? (
+                        <span className={`w-2 h-2 rounded-full flex-shrink-0 term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`} style={{ background: v.dot }} />
+                        {AGENT_ICONS[it.tool] ? (
                           <img src={AGENT_ICONS[it.tool]} alt={it.tool} draggable={false} className={`w-5 h-5 flex-shrink-0 ${AGENT_ICON_CLS}`} />
                         ) : (
                           <Terminal size={18} className="text-text-muted flex-shrink-0" />
@@ -174,6 +175,12 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
               ))}
             </div>
           )}
+          <div className="flex items-center gap-1 px-3 py-2 border-t border-border-subtle flex-shrink-0">
+            {shortcutKeys(ATTENTION_NEXT).map((k) => (
+              <kbd key={k} className={SHORTCUT_KEY_CLS}>{k}</kbd>
+            ))}
+            <span className="ml-1 text-[11px] text-text-muted">{ATTENTION_NEXT.label}</span>
+          </div>
         </div>
         </div>
       )}

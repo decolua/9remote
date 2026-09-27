@@ -4,16 +4,18 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { statusVisual } from "@/shared/utils/statusVisual";
 import { attentionSummary } from "../lib/sessionStatusSummary";
+import { useAttentionCycle } from "../hooks/useAttentionCycle";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
 
 // Mobile counterpart to NotificationsBell: the phone has no room for the dropdown,
-// so the count itself is the whole signal and a tap goes straight to the terminal
-// that needs the user. Hidden on desktop, where the bell already says this.
+// so the count itself is the whole signal and a tap cycles to the next terminal
+// waiting on the user (same round-robin as ⌥A). Hidden on desktop, where the bell already says this.
 export default function SessionStatusBadge({ sessionStatus: propStatus, allSessions = [], onSwitchSession }) {
   const { t } = useI18n();
   const storeStatus = useAllSessionStatus();
   const sessionStatus = propStatus || storeStatus;
-  const { blocked, done, total, targetId } = attentionSummary(sessionStatus, allSessions);
+  const { blocked, done, total } = attentionSummary(sessionStatus, allSessions);
+  const jump = useAttentionCycle(sessionStatus, allSessions, onSwitchSession);
   if (!total) return null;
 
   const parts = [
@@ -23,7 +25,7 @@ export default function SessionStatusBadge({ sessionStatus: propStatus, allSessi
 
   return (
     <button
-      onClick={() => { vibrate(); if (targetId) onSwitchSession?.(targetId); }}
+      onClick={() => { vibrate(); jump(); }}
       className="sm:hidden flex items-center gap-1.5 px-2 py-1.5 rounded-brand bg-surface-2 text-text transition-all duration-150 ease-out active:scale-[0.94] flex-shrink-0"
       title={t("notifications.badgeTitle", { blocked, done })}
     >
