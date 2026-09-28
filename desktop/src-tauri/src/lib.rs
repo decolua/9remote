@@ -23,7 +23,13 @@ const MIN_NODE: (u32, u32) = (22, 14);
 // active LTS, so one download lasts until 2028.
 const NODE_LTS_VERSION: &str = "v24.19.0";
 const NODE_DIST_BASE: &str = "https://nodejs.org/dist";
+// Fallback sources when nodejs.org / npmjs.org are unreachable
+const NODE_MIRROR_DIST_BASE: &str = "https://registry.npmmirror.com/-/binary/node";
+const NPM_MIRROR_REGISTRY: &str = "https://registry.npmmirror.org";
 const NODE_DOWNLOAD_TIMEOUT_SECS: u64 = 600;
+// Two shots per source: transient AV file locks and flaky links usually clear on retry
+const NODE_DOWNLOAD_ATTEMPTS: u32 = 2;
+const SETUP_LOG_FILE: &str = ".9remote/setup.log";
 // Keep spawned children from allocating a console window in this GUI-subsystem app
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x0800_0000;
@@ -460,6 +466,26 @@ fn home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| std::env::var("USERPROFILE").unwrap_or_default())
 }
 
+// Setup trail: a GUI-subsystem binary has no visible stderr on Windows, so every
+// setup decision also lands in ~/.9remote/setup.log for support to read back
+fn note(msg: &str) {
+    eprintln!("[Desktop] {msg}");
+    let file = std::path::PathBuf::from(home_dir()).join(SETUP_LOG_FILE);
+    let _ = std::fs::create_dir_all(file.parent().unwrap_or(std::path::Path::new("")));
+    let Ok(mut f) = std::fs::OpenOptions::new().create(true).append(true).open(&file) else { return };
+    use std::io::Write;
+    let ts = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = f.write_all(format!("[{ts}] {msg}\n").as_bytes());
+}
+
+// Agent honoring HTTP(S)_PROXY/ALL_PROXY env — corporate egress otherwise blackholes the download
+fn http_agent() -> ureq::Agent {
+    ureq::AgentBuilder::new().build()
+}
+
 fn npm_prefix() -> String {
     format!("{}/{}", home_dir(), NPM_PREFIX_DIR)
 }
@@ -715,10 +741,10 @@ fn node_archive_ext() -> &'static str {
     if cfg!(windows) { "zip" } else { "tar.gz" }
 }
 
-// SHA256 of the archive, read from the release's SHASUMS256.txt
-fn fetch_expected_sha(file_name: &str) -> Option<String> {
-    let url = format!("{NODE_DIST_BASE}/{NODE_LTS_VERSION}/SHASUMS256.txt");
-    let body = ureq::get(&url).call().ok()?.into_string().ok()?;
+// SHA256 of the archive, read from the release's SHASUMS256.txt on the same base
+fn fetch_expected_sha(base: &str, file_name: &str) -> Option<String> {
+    let url = format!("{base}/{NODE_LTS_VERSION}/SHASUMS256.txt");
+    let body = http_agent().get(&url).call().ok()?.into_string().ok()?;
     body.lines().find_map(|line| {
         let (sha, name) = line.split_once("  ")?;
         (name.trim() == file_name).then(|| sha.to_string())
@@ -727,7 +753,7 @@ fn fetch_expected_sha(file_name: &str) -> Option<String> {
 
 fn download_with_progress(url: &str, app: &AppHandle) -> Result<Vec<u8>, String> {
     use std::io::Read;
-    let resp = ureq::get(url)
+    let resp = http_agent().get(url)
         .timeout(std::time::Duration::from_secs(NODE_DOWNLOAD_TIMEOUT_SECS))
         .call()
         .map_err(|e| format!("download failed: {e}"))?;
@@ -840,14 +866,35 @@ fn download_node(app: &AppHandle) -> Result<(), String> {
     }
 
     let file_name = format!("node-{NODE_LTS_VERSION}-{slug}.{}", node_archive_ext());
-    let url = format!("{NODE_DIST_BASE}/{NODE_LTS_VERSION}/{file_name}");
-    eprintln!("[Desktop] Downloading Node from {url}");
+    let sources = [("nodejs.org", NODE_DIST_BASE), ("npmmirror", NODE_MIRROR_DIST_BASE)];
+    let mut last_err = String::new();
+    for (label, base) in sources {
+        for attempt in 1..=NODE_DOWNLOAD_ATTEMPTS {
+            if attempt > 1 { std::thread::sleep(std::time::Duration::from_secs(1)); }
+            note(&format!("Node download attempt {attempt}/{NODE_DOWNLOAD_ATTEMPTS} from {label}"));
+            match download_node_archive(base, &file_name, app) {
+                Ok(()) => return Ok(()),
+                Err(e) => {
+                    note(&format!("Node download attempt {attempt} from {label} failed: {e}"));
+                    last_err = format!("{label}: {e}");
+                }
+            }
+        }
+    }
+    Err(format!("All Node download sources failed — last error from {last_err}"))
+}
+
+// Fetch from one base, verify, extract, and prove the binary runs here
+fn download_node_archive(base: &str, file_name: &str, app: &AppHandle) -> Result<(), String> {
+    let url = format!("{base}/{NODE_LTS_VERSION}/{file_name}");
+    note(&format!("Downloading {url}"));
     let _ = app.emit("setup_progress", "Downloading Node.js...");
 
     let data = download_with_progress(&url, app)?;
 
-    // A corrupt or tampered archive must never reach extraction
-    match fetch_expected_sha(&file_name) {
+    // A corrupt or tampered archive must never reach extraction.
+    // Same-base checksum: TLS guards transport, SHA guards corruption.
+    match fetch_expected_sha(base, file_name) {
         Some(expected) => {
             let actual = sha256_hex(&data);
             if actual != expected {
@@ -873,7 +920,7 @@ fn download_node(app: &AppHandle) -> Result<(), String> {
     let node = cached_node_path();
     match node_version(&node) {
         Some(v) if v >= MIN_NODE => {
-            eprintln!("[Desktop] Node {}.{} ready at {node}", v.0, v.1);
+            note(&format!("Node {}.{} ready at {node}", v.0, v.1));
             Ok(())
         }
         _ => {
@@ -888,14 +935,14 @@ fn ensure_node(app: &AppHandle) -> bool {
     if !node_missing() {
         let node = find_node_binary();
         let v = node_version(&node).unwrap_or((0, 0));
-        eprintln!("[Desktop] Using Node {}.{} at {node}", v.0, v.1);
+        note(&format!("Using Node {}.{} at {node}", v.0, v.1));
         return true;
     }
-    eprintln!("[Desktop] No Node >= {}.{} found — downloading", MIN_NODE.0, MIN_NODE.1);
+    note(&format!("No Node >= {}.{} found — downloading", MIN_NODE.0, MIN_NODE.1));
     match download_node(app) {
         Ok(()) => true,
         Err(e) => {
-            eprintln!("[Desktop] Node download failed: {e}");
+            note(&format!("Node download failed: {e}"));
             let _ = app.emit("setup_error", e);
             false
         }
@@ -925,14 +972,9 @@ fn is_9remote_installed() -> bool {
 // Streams npm output so the UI shows live progress; kills the run past the timeout.
 // `progress` None = silent (background update).
 fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
-    use std::io::{BufRead, BufReader};
-    use std::process::{Command, Stdio};
-    use std::sync::atomic::{AtomicBool, Ordering};
-    use std::sync::Arc;
-
     let prefix = npm_prefix();
     if let Err(e) = std::fs::create_dir_all(&prefix) {
-        eprintln!("[Desktop] mkdir prefix failed: {e}");
+        note(&format!("mkdir prefix failed: {e}"));
         if let Some(app) = progress {
             let _ = app.emit("setup_error", format!("Cannot create {prefix}: {e}"));
         }
@@ -942,7 +984,7 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
     // ensure_node() runs first in the startup path; this only guards the background
     // update, which has no AppHandle to download through.
     if node_missing() {
-        eprintln!("[Desktop] No usable Node.js — skipping npm run");
+        note("No usable Node.js — skipping npm run");
         if let Some(app) = progress {
             let _ = app.emit("setup_error", format!("Node.js not found. Install it from {NODE_DOWNLOAD_URL}, then reopen 9Remote."));
         }
@@ -951,16 +993,47 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
 
     let node = find_node_binary();
     let Some(npm_cli) = find_npm_cli() else {
-        eprintln!("[Desktop] npm not found next to node ({node})");
+        note(&format!("npm not found next to node ({node})"));
         if let Some(app) = progress {
             let _ = app.emit("setup_error", format!("npm not found. Reinstall Node.js from {NODE_DOWNLOAD_URL}."));
         }
         return false;
     };
-    let mut npm = Command::new(&node);
-    npm.args([&npm_cli, "install", "--prefix", &prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
+
+    // Registry None = npm default. Retries clear transient AV file locks (EBUSY/EPERM);
+    // the mirror covers networks npmjs.org can't reach.
+    for (i, registry) in [None, None, Some(NPM_MIRROR_REGISTRY)].into_iter().enumerate() {
+        note(&format!("npm install {target}: attempt {} ({})", i + 1, registry.unwrap_or("registry.npmjs.org")));
+        if npm_install_once(&node, &npm_cli, &prefix, target, registry, progress) {
+            return true;
+        }
+    }
+    if let Some(app) = progress {
+        let _ = app.emit("setup_error", "Install failed. Check that you are online, then reopen 9Remote.");
+    }
+    false
+}
+
+fn npm_install_once(
+    node: &str,
+    npm_cli: &str,
+    prefix: &str,
+    target: &str,
+    registry: Option<&str>,
+    progress: Option<&AppHandle>,
+) -> bool {
+    use std::io::{BufRead, BufReader};
+    use std::process::{Command, Stdio};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
+
+    let mut npm = Command::new(node);
+    npm.args([npm_cli, "install", "--prefix", prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if let Some(registry) = registry {
+        npm.args(["--registry", registry]);
+    }
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
@@ -969,7 +1042,7 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
     let mut child = match npm.spawn() {
         Ok(c) => c,
         Err(e) => {
-            eprintln!("[Desktop] npm spawn failed ({npm_cli}): {e}");
+            note(&format!("npm spawn failed ({npm_cli}): {e}"));
             if let Some(app) = progress {
                 let _ = app.emit("setup_error", format!("Cannot run npm: {e}"));
             }
@@ -1014,8 +1087,18 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
             std::thread::sleep(std::time::Duration::from_secs(1));
             if killer.load(Ordering::Relaxed) { return; }
         }
-        eprintln!("[Desktop] npm install timed out after {NPM_INSTALL_TIMEOUT_SECS}s, killing {pid}");
+        note(&format!("npm install timed out after {NPM_INSTALL_TIMEOUT_SECS}s, killing {pid}"));
+        // taskkill /T takes the whole npm→node tree, matching the unix process-group kill
+        #[cfg(not(windows))]
         let _ = std::process::Command::new("kill").arg("-9").arg(pid.to_string()).status();
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            let _ = std::process::Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(CREATE_NO_WINDOW)
+                .status();
+        }
     });
 
     let status = child.wait();
@@ -1024,17 +1107,11 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
     match status {
         Ok(s) if s.success() => true,
         Ok(s) => {
-            eprintln!("[Desktop] npm install {target} failed: {s}");
-            if let Some(app) = progress {
-                let _ = app.emit("setup_error", "Install failed. Check that you are online, then reopen 9Remote.");
-            }
+            note(&format!("npm install {target} exited with {s}"));
             false
         }
         Err(e) => {
-            eprintln!("[Desktop] npm wait failed: {e}");
-            if let Some(app) = progress {
-                let _ = app.emit("setup_error", format!("Install failed: {e}"));
-            }
+            note(&format!("npm wait failed: {e}"));
             false
         }
     }
@@ -1044,13 +1121,13 @@ fn ensure_9remote_installed(app: &AppHandle) -> bool {
     if is_9remote_installed() {
         let path = cli_path();
         let source = if global_cli_path().as_deref() == Some(path.as_str()) { "global" } else { "private" };
-        eprintln!("[Desktop] Found cli.cjs ({source}) at {path}");
+        note(&format!("Found cli.cjs ({source}) at {path}"));
         return true;
     }
-    eprintln!("[Desktop] Installing {NPM_PACKAGE} to {} ...", npm_prefix());
+    note(&format!("Installing {NPM_PACKAGE} to {} ...", npm_prefix()));
     let _ = app.emit("setup_progress", "Installing 9Remote (first time)...");
     if run_npm_install(NPM_PACKAGE, Some(app)) {
-        eprintln!("[Desktop] Install OK");
+        note("Install OK");
         let _ = app.emit("setup_progress", "Install complete, starting...");
         is_9remote_installed()
     } else {
