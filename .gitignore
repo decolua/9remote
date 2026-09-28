@@ -108,3 +108,7 @@ expo/
 
 # Local-only marketing notes
 .marketing/
+
+# CodeGraph dev tool
+codegraph.json
+.codegraph/
