@@ -180,6 +180,7 @@ export const Composer = memo(function Composer({
     el.style.height = "auto";
     const nextH = Math.min(el.scrollHeight, 140);
     el.style.height = `${Math.max(nextH, 26)}px`;
+    if (el.selectionEnd === el.value.length) el.scrollTop = el.scrollHeight;
   }, [text]);
 
   useEffect(() => {
@@ -496,6 +497,11 @@ export const Composer = memo(function Composer({
 
     if (e.key === "ArrowUp" && !submenuCmd && !menuOpen && atFirstLine && promptHistory.length > 0) {
       e.preventDefault();
+      // zsh up-line-or-beginning-search: home first, history only from pos 0
+      if (caret > 0) {
+        el?.setSelectionRange(0, 0);
+        return;
+      }
       if (historyIdx === -1) draftRef.current = text;
       const nextIdx = Math.min(historyIdx + 1, promptHistory.length - 1);
       if (nextIdx === historyIdx) return;
@@ -505,6 +511,11 @@ export const Composer = memo(function Composer({
     }
     if (e.key === "ArrowDown" && !submenuCmd && !menuOpen && atLastLine && historyIdx !== -1) {
       e.preventDefault();
+      // mirror: end of text first, next history only from the end
+      if (caret < value.length) {
+        el?.setSelectionRange(value.length, value.length);
+        return;
+      }
       const nextIdx = historyIdx - 1;
       if (nextIdx < 0) {
         setHistoryIdx(-1);
