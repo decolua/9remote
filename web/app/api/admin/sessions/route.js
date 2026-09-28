@@ -28,7 +28,7 @@ export async function GET(request) {
     const db = readDb(env);
     const totalRow = await withD1Retry(() => db.prepare(`SELECT COUNT(*) AS c FROM sessions ${where}`).bind(...params).first());
     const rows = await withD1Retry(() => db.prepare(`
-      SELECT machineId, apiKey, tunnelUrl, publicIp, localIp, createdAt, lastAccessAt, expiresAt
+      SELECT machineId, publicIp, localIp, createdAt, lastAccessAt, expiresAt
       FROM sessions ${where}
       ORDER BY ${sortBy} ${order.toUpperCase()}
       LIMIT ? OFFSET ?

@@ -5,18 +5,16 @@ import AdminShell from "@/features/admin/components/AdminShell";
 import StatsCards from "@/features/admin/components/StatsCards";
 import SessionTable from "@/features/admin/components/SessionTable";
 import Pagination from "@/features/admin/components/Pagination";
-import LoginActivity from "@/features/admin/components/LoginActivity";
 import { Search, RefreshCw } from "@/shared/components/ui/Icon";
 import { useAdminApi } from "@/features/admin/hooks/useAdminApi";
 import { useAdminAuth } from "@/features/admin/hooks/useAdminAuth";
 import { ADMIN_API, PAGE_SIZE_DEFAULT, PERMISSIONS } from "@/features/admin/constants";
 
 export default function AdminDashboardPage() {
-  const { can } = useAdminAuth();
+  const { can, me, loading: authLoading } = useAdminAuth();
   const { get, del } = useAdminApi();
 
   const [stats, setStats] = useState(null);
-  const [logins, setLogins] = useState([]);
   const [items, setItems] = useState([]);
   const [total, setTotal] = useState(0);
   const [search, setSearch] = useState("");
@@ -30,24 +28,23 @@ export default function AdminDashboardPage() {
     setLoading(true);
     try {
       const params = new URLSearchParams({ search, sortBy, order, page: String(page), pageSize: String(pageSize) });
-      const requests = [
+      const [sessionsData, statsData] = await Promise.all([
         get(`${ADMIN_API.sessions}?${params.toString()}`),
         get(ADMIN_API.stats)
-      ];
-      if (can(PERMISSIONS.logView)) requests.push(get(ADMIN_API.logins));
-      const [sessionsData, statsData, loginsData] = await Promise.all(requests);
+      ]);
       setItems(sessionsData.items || []);
       setTotal(sessionsData.total || 0);
       setStats(statsData);
-      if (loginsData) setLogins(loginsData.items || []);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
-  }, [can, get, search, sortBy, order, page, pageSize]);
+  }, [get, search, sortBy, order, page, pageSize]);
 
-  useEffect(() => { load(); }, [load]);
+  // Wait for auth: firing data requests before /me resolves answers 401
+  // on an expired session and dumps "Unauthorized" into the console.
+  useEffect(() => { if (!authLoading && me) load(); }, [authLoading, me, load]);
 
   const handleDelete = async (id) => {
     if (!confirm(`Delete session ${id}?`)) return;
@@ -63,7 +60,7 @@ export default function AdminDashboardPage() {
         {/* Header section */}
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
-            <h1 className="text-2xl font-bold tracking-tight text-text login-hero-grad">System Overview</h1>
+            <h1 className="text-xl font-bold tracking-tight text-text">System Overview</h1>
             <p className="text-xs text-text-muted mt-1">Real-time telemetry and active host instances</p>
           </div>
           <button
@@ -81,13 +78,11 @@ export default function AdminDashboardPage() {
           <StatsCards stats={stats} />
         </section>
 
-        {can(PERMISSIONS.logView) && <LoginActivity items={logins} />}
-
         {/* Sessions Section */}
         <section className="space-y-4">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
             <div>
-              <h2 className="text-lg font-bold tracking-tight text-text">Active Sessions</h2>
+              <h2 className="text-base font-bold tracking-tight text-text">User Activity</h2>
               <p className="text-xs text-text-muted">Connected and registered client sessions</p>
             </div>
             <div className="relative w-full sm:w-80">

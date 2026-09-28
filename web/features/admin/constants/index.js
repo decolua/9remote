@@ -14,6 +14,30 @@ export const PERMISSIONS = {
 
 export const PERMISSION_LIST = Object.values(PERMISSIONS);
 
+// Human-readable labels + domain grouping for the admin UI — raw keys
+// ("ota.manage") are for the wire, people read these.
+export const PERMISSION_META = {
+  "session.view": "View sessions",
+  "session.delete": "Delete sessions",
+  "admin.view": "View admins",
+  "admin.manage": "Create/edit admins",
+  "mode.view": "View modes",
+  "mode.manage": "Create/edit modes",
+  "ota.view": "View OTA updates",
+  "ota.manage": "Manage OTA updates",
+  "turn.view": "View TURN keys",
+  "turn.manage": "Manage TURN keys",
+  "log.view": "View login audit"
+};
+
+export const PERMISSION_GROUPS = [
+  { label: "Sessions", keys: ["session.view", "session.delete"] },
+  { label: "Admins", keys: ["admin.view", "admin.manage"] },
+  { label: "Modes", keys: ["mode.view", "mode.manage"] },
+  { label: "OTA & TURN", keys: ["ota.view", "ota.manage", "turn.view", "turn.manage"] },
+  { label: "Audit", keys: ["log.view"] }
+];
+
 // Login lockout tiers for the ip:<addr> key, checked in order — first tier whose
 // fails threshold is reached wins, so list the harshest first. Cumulative since
 // the last successful login, which resets the counter.

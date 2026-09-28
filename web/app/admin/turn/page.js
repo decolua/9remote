@@ -18,7 +18,7 @@ const SCOPES = ["both", "dev", "prod"];
 const HINT = "Up to 1,000 keys. 1,000 GB/month free per Cloudflare account (shared with SFU) — more keys do not add quota.";
 
 export default function TurnKeysPage() {
-  const { can } = useAdminAuth();
+  const { can, me, loading: authLoading } = useAdminAuth();
   const { get, post, patch, del } = useAdminApi();
   const [items, setItems] = useState([]);
   const [form, setForm] = useState(EMPTY_FORM);
@@ -41,7 +41,7 @@ export default function TurnKeysPage() {
     }
   }, [get]);
 
-  useEffect(() => { load(); }, [load]);
+  useEffect(() => { if (!authLoading && me) load(); }, [authLoading, me, load]);
 
   const handleAdd = async () => {
     setError("");

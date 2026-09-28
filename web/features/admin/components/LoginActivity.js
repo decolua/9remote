@@ -31,7 +31,8 @@ export default function LoginActivity({ items }) {
         <span className="text-xs text-text-subtle font-mono">last {items.length}</span>
       </div>
       <div className="card-glass overflow-hidden">
-        <table className="w-full text-sm text-left">
+        <div className="max-h-64 overflow-y-auto">
+          <table className="w-full text-sm text-left">
           <thead className="bg-surface-2/60 border-b border-border-subtle text-[11px] font-mono uppercase tracking-wider text-text-muted">
             <tr>
               <th className="px-4 py-2.5">Time</th>
@@ -65,7 +66,8 @@ export default function LoginActivity({ items }) {
               </tr>
             ))}
           </tbody>
-        </table>
+          </table>
+        </div>
       </div>
     </section>
   );

@@ -60,19 +60,19 @@ export default function StatsCards({ stats }) {
         return (
           <div
             key={c.key}
-            className="card-glass p-4 relative overflow-hidden transition-all duration-200 hover:-translate-y-0.5 group"
+            className="card-glass p-4 relative overflow-hidden"
           >
             <div className="flex items-center justify-between mb-2">
               <span className="text-[11px] font-mono tracking-wider uppercase text-text-muted truncate">
                 {c.label}
               </span>
-              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${c.iconColor} transition-transform group-hover:scale-110`}>
+              <div className={`w-7 h-7 rounded-lg flex items-center justify-center ${c.iconColor}`}>
                 <Icon size={14} />
               </div>
             </div>
 
             <div className="flex items-baseline gap-1.5 mt-1">
-              <div className={`text-2xl sm:text-3xl font-bold tracking-tight font-mono ${c.color}`}>
+              <div className={`text-xl sm:text-2xl font-bold tracking-tight font-mono ${c.color}`}>
                 {val ?? "-"}
               </div>
               {val != null && c.suffix && (

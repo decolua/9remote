@@ -10,7 +10,7 @@ import { Package, RefreshCw, CheckCircle2, ArrowUpRight } from "@/shared/compone
 const PLATFORMS = ["", "ios", "android"];
 
 export default function OtaPage() {
-  const { can } = useAdminAuth();
+  const { can, me, loading: authLoading } = useAdminAuth();
   const { get, post } = useAdminApi();
   const [items, setItems] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -38,7 +38,7 @@ export default function OtaPage() {
   }, [get, filters.runtimeVersion, filters.platform, filters.channel]);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { load(); }, []);
+  useEffect(() => { if (!authLoading && me) load(); }, [authLoading, me]);
 
   const handlePromote = async (item) => {
     if (!confirm(`Promote #${item.buildNumber} to serving for channel "${item.channel}" (${item.platform}, ${item.runtimeVersion})?`)) return;
