@@ -1,11 +1,6 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/desktop-ide.webp" alt="9Remote desktop workspace: terminal, editor and AI agent panes side by side" width="900"/>
+  <!-- TODO: hero screenshot + phone strip -->
 
-  <p align="center">
-    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-1.webp" width="32%" alt="Claude Code on Phone"/>
-    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-2.webp" width="32%" alt="File Explorer on Phone"/>
-    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-3.webp" width="32%" alt="System Dashboard on Phone"/>
-  </p>
 
   # 9Remote — Remote Everything, Vibecode Everywhere
 
@@ -17,7 +12,7 @@
 
   [![npm version](https://img.shields.io/npm/v/9remote.svg)](https://www.npmjs.com/package/9remote)
   [![Downloads](https://img.shields.io/npm/dm/9remote.svg)](https://www.npmjs.com/package/9remote)
-  [![License](https://img.shields.io/badge/license-BSL--1.1-blue.svg)](#-license)
+  [![License](https://img.shields.io/badge/license-Apache--2.0-blue.svg)](#-license)
 
   [🚀 Quick Start](#-quick-start) • [📱 Platforms](#-supported-platforms) • [✨ 8 Superpowers](#-8-remote-superpowers) • [🛡️ Security](#-zero-trust-security-architecture) • [📊 Comparison](#-how-9remote-compares) • [🌐 Website](https://9remote.cc) • [📖 Docs](https://docs.9remote.cc)
 </div>
@@ -201,4 +196,4 @@ Works with any CLI AI tool: **Claude Code**, Codex, Gemini CLI, Cursor CLI, Aide
 
 ## 📄 License
 
-Business Source License 1.1 — see [LICENSE](https://github.com/decolua/9remote/blob/main/LICENSE). Free for personal, internal, and commercial use.
+Apache License 2.0 — see [LICENSE](https://github.com/decolua/9remote/blob/main/LICENSE). Free to use, modify, and distribute, including commercially.

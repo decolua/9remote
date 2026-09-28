@@ -5,13 +5,7 @@ Your entire dev workstation in your pocket. A remote IDE, 60fps desktop stream, 
 > **Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them.** Same agents, one UI you'll actually love.
 
 <div align="center">
-  <img src="./images/screen.png" alt="9Remote Workspace" width="900"/>
-
-  <p align="center">
-    <img src="./images/mobile-1.webp" width="280" alt="Claude Code on Phone"/>
-    <img src="./images/mobile-2.webp" width="280" alt="File Explorer on Phone"/>
-    <img src="./images/mobile-3.webp" width="280" alt="System Dashboard on Phone"/>
-  </p>
+  <!-- TODO: hero screenshot + phone strip -->
 </div>
 
 ---
@@ -129,8 +123,4 @@ The host itself runs anywhere Node runs — no Cloudflare dependency.
 
 ## 📄 License
 
-Business Source License 1.1 — see [LICENSE](LICENSE). In short:
-
-- Use it, build it, modify it, run it for yourself or inside your organization (including at work) — freely, including production.
-- Don't offer it (or derivatives) to others as a hosted/managed service, and don't strip its license-key/entitlement/billing mechanism.
-- On **2028-08-29** the code automatically becomes Apache-2.0.
+Apache License 2.0 — see [LICENSE](LICENSE). Free to use, modify, and distribute, including commercially. The "9remote" name and branding are not covered by the license.

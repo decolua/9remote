@@ -3,7 +3,7 @@
   "version": "3.0.29",
   "type": "module",
   "description": "Remote terminal access from anywhere",
-  "license": "BSL-1.1",
+  "license": "Apache-2.0",
   "main": "dist/server.cjs",
   "bin": {
     "9remote": "./dist/cli.cjs"
