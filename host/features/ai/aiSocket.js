@@ -253,8 +253,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   if (io && !broadcastAttached) {
     broadcastAttached = true;
     manager.onEvent((sessionId, event, data, seq) => {
-      // Streaming events fire per chunk — logging them drowns the file.
-      if (event !== "delta" && event !== "thinking") logger.debug(`[ai] event: ${event} session: ${sessionId}`);
+      // Streaming events fire per chunk and cli_event fires per CLI notification —
+      // logging them drowns the file (cli_event alone was 94% of ai:debug lines).
+      if (event !== "delta" && event !== "thinking" && event !== "cli_event") logger.debug(`[ai] event: ${event} session: ${sessionId}`);
       // Failures also get a line here — the pane's error cannot be traced back otherwise.
       if (event === "exit" && (data?.error || (data?.code != null && data.code !== 0))) {
         logger.warn(`[ai] exit: session=${sessionId} engine=${manager.getSession(sessionId)?.engine || "claude"} code=${data.code ?? "-"} error=${data.error || "-"}`);
