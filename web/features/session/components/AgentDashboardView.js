@@ -6,6 +6,7 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import { HOMEPAGE_URL } from "@/shared/constants/API";
 import { usePendingDeviceStore } from "@/features/session/stores/pendingDeviceStore";
+import { useHostLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/features/landing/constants/landingConfig";
 import "./agentDashboard.css";
 
@@ -610,6 +611,7 @@ export default function AgentDashboardView() {
   const [sleepInhibitMode, setSleepInhibitMode] = useState("never");
   const [sleepPresets, setSleepPresets] = useState([]);
   const [remoteEnabled, setRemoteEnabled] = useState(true);
+  const hostLocal = useHostLocalSettings();
 
   const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showRemoteOffConfirm, setShowRemoteOffConfirm] = useState(false);
@@ -936,6 +938,44 @@ export default function AgentDashboardView() {
               onRequestPermission={handleRequestPermission}
             />
             <SleepInhibitRow mode={sleepInhibitMode} presets={sleepPresets} onChange={handleSleepInhibitChange} />
+
+            {/* Host-machine toggles moved from the settings dialog's thin Host tab. */}
+            <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
+              <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: hostLocal.autoStart ? "var(--accent)" : "var(--text-muted)" }}>
+                rocket_launch
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--text-main)" }}>Launch on startup</p>
+              </div>
+              <Toggle
+                on={!!hostLocal.autoStart}
+                onClick={() => hostLocal.toggleAutoStart(!hostLocal.autoStart)}
+                title="Start 9Remote when the machine logs in"
+              />
+            </div>
+            {hostLocal.unlock?.supported && (
+              <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
+                <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: hostLocal.unlock.enabled ? "var(--accent)" : "var(--text-muted)" }}>
+                  lock_open
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--text-main)" }}>Remote unlock</p>
+                  <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>
+                    {hostLocal.unlock.stale
+                      ? "Status unknown — toggle to reinstall and refresh"
+                      : hostLocal.unlock.enabled
+                        ? "Unlock worker running"
+                        : "Unlock the login screen before a session starts"}
+                  </p>
+                </div>
+                <Toggle
+                  on={!!hostLocal.unlock.enabled}
+                  disabled={!!hostLocal.unlock.busy}
+                  onClick={hostLocal.toggleUnlock}
+                  title="Install the Windows unlock worker"
+                />
+              </div>
+            )}
           </Section>
 
           {/* Clients — collapsed by default; a pending approval forces it open. */}
@@ -968,6 +1008,27 @@ export default function AgentDashboardView() {
                 />
               ))
             )}
+          </Section>
+
+          {/* Power — manage-surface actions (the confirms below are already wired);
+              moved out of the settings dialog where they were buried too deep. */}
+          <Section title="Power">
+            <div className="flex flex-wrap gap-2.5 pt-1">
+              <button
+                onClick={() => setShowDisconnectConfirm(true)}
+                className="glass-btn flex-shrink-0 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg"
+                style={{ color: "var(--text-muted)" }}
+              >
+                Reset connection
+              </button>
+              <button
+                onClick={() => setShowShutdownConfirm(true)}
+                className="glass-btn flex-shrink-0 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg"
+                style={{ color: "var(--danger)" }}
+              >
+                Shut down
+              </button>
+            </div>
           </Section>
         </section>
       </main>

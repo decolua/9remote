@@ -3,9 +3,9 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
-  Download, RefreshCw, RotateCw, LogOut, Loader2, Monitor, Type,
+  Download, RefreshCw, LogOut, Loader2, Monitor, Type,
   Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot,
-  Power, PowerOff, Lock, FileText, Bug, Copy, Trash2
+  Bug, Copy, Trash2
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -27,12 +27,10 @@ import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPick
 import { JarvisConfigPanel } from "@/features/jarvis/components/JarvisConfigPanel";
 import { useJarvisStore } from "@/shared/stores/jarvisStore";
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
-import { useHostLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import { useLogStore } from "@/shared/stores/logStore";
-import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Bug };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Bug };
 
 
 /**
@@ -48,10 +46,8 @@ export default function SettingsDialog({
   // The dialog mounts only after the desktop check (post-mount), so the env
   // probe is stable here — no SSR/hydration split to worry about.
   const hostEnv = isHostEnvironment();
-  const [section, setSection] = useState(hostEnv ? "host" : "general");
+  const [section, setSection] = useState("general");
   const [reloading, setReloading] = useState(false);
-  const [confirmShutdown, setConfirmShutdown] = useState(false);
-  const hostLocal = useHostLocalSettings();
 
   const [languageOpen, setLanguageOpen] = useState(false);
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
@@ -81,9 +77,8 @@ export default function SettingsDialog({
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
     if (c.id === "codespace") return false;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
-    // Host-env only tab; General is client-web only (push/install/logout are
-    // meaningless on the origin the host itself serves).
-    if (c.id === "host" || c.id === "agent") return hostEnv;
+    // General is client-web only (push/install/logout are meaningless on the
+    // origin the host itself serves); machine toggles live in the dashboard.
     if (c.id === "general") return !hostEnv;
     return true;
   }), [hideActions, hostEnv]);
@@ -96,7 +91,7 @@ export default function SettingsDialog({
     // single Escape would reach both and close the dialog underneath it. The
     // innermost layer wins: skip while a child modal is up.
     const onKey = (e) => {
-      if (e.key === "Escape" && !languageOpen && !confirmShutdown) {
+      if (e.key === "Escape" && !languageOpen) {
         e.preventDefault();
         e.stopPropagation();
         onClose();
@@ -108,7 +103,7 @@ export default function SettingsDialog({
       window.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = "";
     };
-  }, [onClose, languageOpen, confirmShutdown]);
+  }, [onClose, languageOpen]);
 
   // Actions that navigate away close the dialog first
   const run = useCallback((fn) => { vibrate(); onClose(); setTimeout(() => fn?.(), 50); }, [onClose]);
@@ -181,7 +176,11 @@ export default function SettingsDialog({
             </button>
           </div>
 
-          <div className={`flex-1 overflow-y-auto modal-scrollable px-6 ${section === "background" ? "py-4" : "py-5"}`}>
+          <div className={
+            section === "debug"
+              ? "flex-1 min-w-0 flex flex-col overflow-hidden px-6 py-4"
+              : `flex-1 min-w-0 flex flex-col overflow-y-auto modal-scrollable px-6 ${section === "background" ? "py-4" : "py-5"}`
+          }>
             {section === "background" && <BackgroundPickerSheet inline busRef={context.busRef} />}
             {section === "general" && (
               <div className="space-y-6">
@@ -334,65 +333,6 @@ export default function SettingsDialog({
               </div>
             )}
 
-            {(section === "host" || section === "agent") && (
-              <div className="space-y-6">
-                <Group title={t("menu.agentSystem")}>
-                  <ToggleRow
-                    icon={Power}
-                    label={t("menu.agentAutoStart")}
-                    hint={t("menu.agentAutoStartHint")}
-                    value={!!hostLocal.autoStart}
-                    loading={hostLocal.autoStart === null}
-                    onChange={hostLocal.toggleAutoStart}
-                  />
-                  {hostLocal.unlock?.supported && (
-                    <ToggleRow
-                      icon={Lock}
-                      label={t("menu.agentUnlock")}
-                      hint={hostLocal.unlock.stale
-                        ? t("menu.agentUnlockStale")
-                        : hostLocal.unlock.enabled
-                          ? t("menu.agentUnlockReady")
-                          : t("menu.agentUnlockHint")}
-                      value={!!hostLocal.unlock.enabled}
-                      disabled={!!hostLocal.unlock.busy}
-                      onChange={hostLocal.toggleUnlock}
-                    />
-                  )}
-                </Group>
-
-                <Group title={t("menu.agentLogs")}>
-                  <ActionRow
-                    icon={FileText}
-                    label={t("menu.agentLogsOpen")}
-                    // The viewer is the Debug tab of this dialog — just switch to it.
-                    onClick={() => { vibrate(); setSection("debug"); }}
-                  />
-                </Group>
-
-                <Group title={t("menu.agentPower")}>
-                  <ActionRow
-                    icon={RefreshCw}
-                    iconClass={reloading ? "animate-spin" : ""}
-                    label={t("menu.reload")}
-                    disabled={reloading}
-                    onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
-                  />
-                  <ActionRow
-                    icon={RotateCw}
-                    label={t("menu.agentRestart")}
-                    onClick={() => run(hostLocal.stopHost)}
-                  />
-                  <ActionRow
-                    icon={PowerOff}
-                    label={t("menu.agentShutdown")}
-                    danger
-                    onClick={() => setConfirmShutdown(true)}
-                  />
-                </Group>
-              </div>
-            )}
-
             {section === "jarvis" && (
               <div className="space-y-6">
                 <ToggleRow
@@ -438,13 +378,6 @@ export default function SettingsDialog({
       </div>
 
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
-      <ConfirmDialog
-        isOpen={confirmShutdown}
-        onClose={() => setConfirmShutdown(false)}
-        onConfirm={() => { setConfirmShutdown(false); run(hostLocal.shutdownHost); }}
-        title={t("menu.agentShutdownConfirmTitle")}
-        message={t("menu.agentShutdownConfirmMsg")}
-      />
     </div>
   );
 }
@@ -567,7 +500,7 @@ function DebugLogs() {
   const selCls = "bg-surface-2 text-text text-xs rounded-brand px-2 py-1 focus:outline-none";
 
   return (
-    <div>
+    <div className="flex-1 min-h-0 flex flex-col">
       <div className="flex items-center gap-2 mb-2 flex-wrap">
         <span className="text-xs text-text-muted">{t("menu.debugSource")}</span>
         <select value={source} onChange={(e) => setSource(e.target.value)} className={selCls} aria-label={t("menu.debugSource")}>
@@ -591,7 +524,7 @@ function DebugLogs() {
 
       <div
         ref={boxRef}
-        className="h-[420px] overflow-y-auto rounded-brand px-3 py-2 modal-scrollable bg-surface-2 border border-border"
+        className="flex-1 min-h-0 select-text overflow-y-auto rounded-brand px-3 py-2 modal-scrollable bg-surface-2 border border-border"
       >
         {filtered.length === 0 ? (
           <p className="text-xs text-center py-3 text-text-muted">{t("menu.debugEmpty")}</p>

@@ -8,9 +8,6 @@ export const SETTINGS_CATEGORIES = [
   { id: "background", labelKey: "menu.terminalBackground", icon: "Image" },
   { id: "buttons", labelKey: "menu.settingsButtons", icon: "PanelRight" },
   { id: "mcp", labelKey: "menu.settingsMcp", icon: "Zap" },
-  // Host-env only (filtered in SettingsDialog): machine-local settings the
-  // host's own origin can serve.
-  { id: "host", labelKey: "menu.settingsAgent", icon: "Monitor" },
   ...(JARVIS_ENABLED ? [{ id: "jarvis", labelKey: "menu.settingsJarvis", icon: "Bot" }] : []),
   { id: "debug", labelKey: "menu.settingsDebug", icon: "Bug" },
   { id: "shortcuts", labelKey: "shortcuts.menuLabel", icon: "Keyboard" },
