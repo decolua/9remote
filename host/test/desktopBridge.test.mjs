@@ -60,8 +60,8 @@ console.log("\n[_buildInstallTaskCmd]");
   includes(cmd, "desktop-elevate.exe", "launcher path embedded");
   includes(cmd, "-Execute ", "-Execute takes the path natively (no cmdline quoting)");
   excludes(cmd, "schtasks", "no schtasks /TR cmdline (quoting hell with spaces in path)");
-  const spaced = _buildInstallTaskCmd("C:\\Users\\Hoang Anh\\.9remote\\bin\\desktop-elevate.exe", TASK_NAME);
-  includes(spaced, "'C:\\Users\\Hoang Anh\\.9remote\\bin\\desktop-elevate.exe'", "space in path stays in one quoted token");
+  const spaced = _buildInstallTaskCmd("C:\\Users\\Test User\\.9remote\\bin\\desktop-elevate.exe", TASK_NAME);
+  includes(spaced, "'C:\\Users\\Test User\\.9remote\\bin\\desktop-elevate.exe'", "space in path stays in one quoted token");
 }
 {
   // Double escaping: a literal quote is escaped once for the inner script, then
