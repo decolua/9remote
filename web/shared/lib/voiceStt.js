@@ -27,7 +27,7 @@ export const VOICE_PRESETS = {
     label: "OpenRouter",
     endpoint: VOICE_ENDPOINT_DEFAULT,
     model: "google/gemini-3.5-flash-lite",
-    note: "$0.30/1M in · $2.50/1M out",
+    note: "≈5,000 voice inputs per $1",
   },
   // Free tier via the agent — opencode.ai has no CORS, so the browser cannot call it
   opencode: {

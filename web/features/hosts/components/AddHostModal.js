@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import QRScanner from "@/shared/components/ui/QRScanner";
 import { KeyRound, Loader2, QrCode, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
@@ -106,7 +107,9 @@ export default function AddHostModal({ onClose }) {
   // clipboard-friendly query) is the one input that carries the whole code.
   const handleScan = (scanned) => connect(String(scanned || "").trim());
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <>
     <div
       className="fixed inset-0 z-[70] flex items-center justify-center px-4 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
@@ -195,6 +198,7 @@ export default function AddHostModal({ onClose }) {
         <QRScanner isOpen onClose={() => setShowQRScanner(false)} onScan={handleScan} />
       </div>
     )}
-    </>
+    </>,
+    document.body
   );
 }

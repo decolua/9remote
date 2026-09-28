@@ -5,7 +5,7 @@ import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, LogOut, Loader2, Monitor, Type,
   Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot,
-  Bug, Copy, Trash2
+  Power, Lock, PowerOff, Mic, Bug, Copy, Trash2
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -18,7 +18,7 @@ import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonI
 import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
-import VoiceEndpointSettings from "@/shared/components/ui/VoiceEndpointSettings";
+import { VoiceConfigForm } from "@/shared/components/ui/VoiceEndpointSettings";
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
@@ -28,9 +28,12 @@ import { JarvisConfigPanel } from "@/features/jarvis/components/JarvisConfigPane
 import { useJarvisStore } from "@/shared/stores/jarvisStore";
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
+import { useHostLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
+import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { useLogStore } from "@/shared/stores/logStore";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Bug };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Mic, Bug };
 
 
 /**
@@ -46,8 +49,12 @@ export default function SettingsDialog({
   // The dialog mounts only after the desktop check (post-mount), so the env
   // probe is stable here — no SSR/hydration split to worry about.
   const hostEnv = isHostEnvironment();
-  const [section, setSection] = useState("general");
+  const [section, setSection] = useState(hostEnv ? "system" : "general");
   const [reloading, setReloading] = useState(false);
+  const [confirmShutdown, setConfirmShutdown] = useState(false);
+  const hostLocal = useHostLocalSettings();
+  const voiceEnabled = useVoiceStore((s) => s.enabled);
+  const setVoiceEnabled = useVoiceStore((s) => s.setEnabled);
 
   const [languageOpen, setLanguageOpen] = useState(false);
   const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
@@ -77,8 +84,9 @@ export default function SettingsDialog({
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
     if (c.id === "codespace") return false;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
-    // General is client-web only (push/install/logout are meaningless on the
-    // origin the host itself serves); machine toggles live in the dashboard.
+    // System is host-env only (machine lifecycle); General is client-web only
+    // (push/install/logout are meaningless on the origin the host itself serves).
+    if (c.id === "system") return hostEnv;
     if (c.id === "general") return !hostEnv;
     return true;
   }), [hideActions, hostEnv]);
@@ -91,7 +99,7 @@ export default function SettingsDialog({
     // single Escape would reach both and close the dialog underneath it. The
     // innermost layer wins: skip while a child modal is up.
     const onKey = (e) => {
-      if (e.key === "Escape" && !languageOpen) {
+      if (e.key === "Escape" && !languageOpen && !confirmShutdown) {
         e.preventDefault();
         e.stopPropagation();
         onClose();
@@ -103,7 +111,7 @@ export default function SettingsDialog({
       window.removeEventListener("keydown", onKey, true);
       document.body.style.overflow = "";
     };
-  }, [onClose, languageOpen]);
+  }, [onClose, languageOpen, confirmShutdown]);
 
   // Actions that navigate away close the dialog first
   const run = useCallback((fn) => { vibrate(); onClose(); setTimeout(() => fn?.(), 50); }, [onClose]);
@@ -290,11 +298,7 @@ export default function SettingsDialog({
                   </SelectRow>
                   <ToggleRow icon={Monitor} label={t("menu.webgl")} hint={t("menu.webglHint")} value={webglEnabled} onChange={setWebglEnabled} />
                 </Group>
-              </div>
-            )}
 
-            {section === "buttons" && (
-              <div className="space-y-6">
                 {BUTTON_GROUPS.map(({ group, titleKey }) => (
                   <Group key={group} title={t(titleKey)}>
                     {buttonToggles.buttons.filter((b) => b.group === group).map((btn) => (
@@ -311,10 +315,22 @@ export default function SettingsDialog({
               </div>
             )}
 
+            {section === "voice" && (
+              <div className="space-y-6">
+                <ToggleRow
+                  icon={Mic}
+                  label={t("menu.voiceInput")}
+                  value={voiceEnabled}
+                  onChange={setVoiceEnabled}
+                />
+                <div className={voiceEnabled ? "" : "pointer-events-none opacity-40 select-none"}>
+                  <VoiceConfigForm />
+                </div>
+              </div>
+            )}
+
             {section === "mcp" && (
               <div className="space-y-6">
-                <VoiceEndpointSettings />
-
                 {artifactSupported && (<>
                   {/* One switch, and the hint under it says what it buys them — MCP is
                       jargon, so the row has to explain itself. */}
@@ -330,6 +346,56 @@ export default function SettingsDialog({
 
                   <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
                 </>)}
+              </div>
+            )}
+
+            {section === "system" && (
+              <div className="space-y-6">
+                <Group title={t("menu.agentSystem")}>
+                  <ToggleRow
+                    icon={Power}
+                    label={t("menu.agentAutoStart")}
+                    hint={t("menu.agentAutoStartHint")}
+                    value={!!hostLocal.autoStart}
+                    loading={hostLocal.autoStart === null}
+                    onChange={hostLocal.toggleAutoStart}
+                  />
+                  {hostLocal.unlock?.supported && (
+                    <ToggleRow
+                      icon={Lock}
+                      label={t("menu.agentUnlock")}
+                      hint={hostLocal.unlock.stale
+                        ? t("menu.agentUnlockStale")
+                        : hostLocal.unlock.enabled
+                          ? t("menu.agentUnlockReady")
+                          : t("menu.agentUnlockHint")}
+                      value={!!hostLocal.unlock.enabled}
+                      disabled={!!hostLocal.unlock.busy}
+                      onChange={hostLocal.toggleUnlock}
+                    />
+                  )}
+                  <SelectRow icon={Moon} label={t("menu.preventSleep")}>
+                    <select
+                      value={hostLocal.sleep?.mode || "never"}
+                      disabled={!hostLocal.sleep}
+                      onChange={(e) => { vibrate(); hostLocal.setSleepMode(e.target.value); }}
+                      className="bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none"
+                    >
+                      {(hostLocal.sleep?.presets || []).map((m) => (
+                        <option key={m} value={m}>{SLEEP_MODE_LABELS[m] || m}</option>
+                      ))}
+                    </select>
+                  </SelectRow>
+                </Group>
+
+                <Group title={t("menu.agentPower")}>
+                  <ActionRow
+                    icon={PowerOff}
+                    label={t("menu.agentShutdown")}
+                    danger
+                    onClick={() => setConfirmShutdown(true)}
+                  />
+                </Group>
               </div>
             )}
 
@@ -378,6 +444,13 @@ export default function SettingsDialog({
       </div>
 
       <LanguageModal isOpen={languageOpen} onClose={() => setLanguageOpen(false)} />
+      <ConfirmDialog
+        isOpen={confirmShutdown}
+        onClose={() => setConfirmShutdown(false)}
+        onConfirm={() => { setConfirmShutdown(false); run(hostLocal.shutdownHost); }}
+        title={t("menu.agentShutdownConfirmTitle")}
+        message={t("menu.agentShutdownConfirmMsg")}
+      />
     </div>
   );
 }
@@ -457,6 +530,9 @@ function ThemeCard({ icon: CardIcon, label, active, onClick }) {
     </button>
   );
 }
+
+// Host sleep-inhibit presets — labels mirror the dashboard's wording.
+const SLEEP_MODE_LABELS = { "30m": "30 min", "1h": "1 hour", "2h": "2 hours", "4h": "4 hours", "24h": "24 hours", never: "Always", none: "Off" };
 
 const LEVEL_CLS = {
   debug: "text-text-muted",

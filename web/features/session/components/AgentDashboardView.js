@@ -6,7 +6,6 @@ import PromptDialog from "@/shared/components/ui/PromptDialog";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import { HOMEPAGE_URL } from "@/shared/constants/API";
 import { usePendingDeviceStore } from "@/features/session/stores/pendingDeviceStore";
-import { useHostLocalSettings } from "@/features/terminal/hooks/useAgentLocalSettings";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/features/landing/constants/landingConfig";
 import "./agentDashboard.css";
 
@@ -133,36 +132,6 @@ function RemoteDesktopRow({ desktopEnabled, onDesktopToggle, permissions, onRequ
         )}
       </div>
       <Toggle on={desktopEnabled} onClick={onDesktopToggle} disabled={toggleDisabled} title={toggleDisabled ? "Grant permissions" : ""} />
-    </div>
-  );
-}
-
-function SleepInhibitRow({ mode, presets = [], onChange }) {
-  const sleepLabels = { "30m": "30 min", "1h": "1 hour", "2h": "2 hours", "4h": "4 hours", "24h": "24 hours", never: "Always", none: "Off" };
-  const active = mode !== "none";
-  return (
-    <div className="row-hover flex items-center gap-4 py-3.5 px-3 -mx-3 rounded-xl">
-      <div
-        className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
-        style={{
-          background: active ? "rgba(var(--accent-rgb),0.08)" : "var(--row-bg)",
-          border: `1px solid ${active ? "rgba(var(--accent-rgb),0.25)" : "var(--border-subtle)"}`,
-          color: active ? "var(--accent)" : "var(--text-muted)"
-        }}
-      >
-        <span className="material-symbols-outlined" style={{ fontSize: 18 }}>coffee</span>
-      </div>
-      <div className="flex-1 min-w-0">
-        <p className="text-[13.5px] font-semibold" style={{ color: "var(--text-main)" }}>Prevent Sleep</p>
-      </div>
-      <select
-        value={mode || "never"}
-        onChange={(e) => onChange?.(e.target.value)}
-        className="text-xs px-3 py-1.5 rounded-lg flex-shrink-0 focus:outline-none"
-        style={{ background: "var(--row-bg)", color: "var(--text-main)", border: "1px solid var(--border-subtle)", cursor: "pointer", outline: "none" }}
-      >
-        {presets.map((m) => <option key={m} value={m}>{sleepLabels[m] || m}</option>)}
-      </select>
     </div>
   );
 }
@@ -374,12 +343,20 @@ function ClientItem({ client, onRemove, onApprove, onLabel }) {
 
 /* ── Status + tunnel steps ─────────────────────────────────────────────── */
 
-function remoteStatus(step, transport) {
-  const rtc = transport?.rtcPeers || 0;
-  const ws = transport?.wsPeers || 0;
-  if (step === 0) return { color: "var(--danger)", blink: false, text: "offline" };
-  if (step >= 5) return { color: "var(--success)", blink: false, text: `online · rtc ${rtc} ws ${ws}` };
-  return { color: "var(--warn)", blink: true, text: "connecting" };
+/* Tunnel's live health — the watchdog's word beats the boot-progress step
+   (a stuck STOPPED once masked a healthy tunnel). */
+function tunnelStatus(main) {
+  if (main.step > 0 && main.step < 5) return { color: "var(--warn)", label: "connecting", blink: true };
+  if (main.tunnelHealth?.status === "healthy") return { color: "var(--success)", label: "healthy" };
+  return { color: "var(--danger)", label: "down", retry: true };
+}
+
+/* DO signaling + peer count — the RTC half of "which carrier is alive". */
+function rtcStatus(transport) {
+  if (transport?.signaling === "connected") {
+    return { color: "var(--success)", label: `rtc ${transport.rtcPeers || 0}` };
+  }
+  return { color: "var(--danger)", label: "rtc off" };
 }
 
 const STEP_KEYS = ["Preparing", "Connecting", "Tunneling", "Verifying", "Ready"];
@@ -501,7 +478,7 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
 
         <div className="flex flex-col items-center gap-1 mt-4 mb-9">
           <span className="text-[11.5px] leading-4" style={{ color: "var(--text-muted)" }}>Scan to sign in</span>
-          <a href={LOGIN_URL} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:underline transition-opacity">
+          <a href={LOGIN_URL} target="_blank" rel="noopener noreferrer" onClick={(e) => openExternal(e, LOGIN_URL)} className="flex items-center gap-1.5 hover:underline transition-opacity">
             <span className="w-2 h-2 rounded-full bg-green-400 flex-shrink-0" />
             <span className="text-sm font-bold" style={{ color: "var(--accent)" }}>{LOGIN_URL.replace(/^https?:\/\//, "")}</span>
             <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 14, color: "var(--accent)" }}>open_in_new</span>
@@ -552,9 +529,18 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
 
 // One connect card = tile + title/sub + arrow, the whole card is the link.
 // hero-card supplies the glass + mirror sheen. icon: Material Symbols name or ReactNode.
+// In Tauri, target=_blank opens another webview window (looks like the app
+// again) — hand external links to the system browser via the opener plugin.
+function openExternal(e, href) {
+  const opener = window.__TAURI__?.opener;
+  if (!opener?.openUrl) return; // plain browser: let the <a> do its job
+  e.preventDefault();
+  opener.openUrl(href).catch(() => {});
+}
+
 function ConnectCard({ icon, iconClass, title, sub, href }) {
   return (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="hero-card ad-connect-card">
+    <a href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => openExternal(e, href)} className="hero-card ad-connect-card">
       <div className={`w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0 ${iconClass}`}>
         {typeof icon === "string"
           ? <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{icon}</span>
@@ -592,7 +578,8 @@ export default function AgentDashboardView() {
   const [main, setMain] = useState({
     step: 0, stepDesc: "", tunnelUrl: "",
     oneTimeKey: "", oneTimeKeyExpiresAt: null, pairingUsed: false,
-    permanentKey: "", qrUrl: ""
+    permanentKey: "", qrUrl: "",
+    tunnelHealth: { status: "unknown", checkedAt: null }
   });
   const [permissions, setPermissions] = useState({ screenRecording: false, accessibility: false });
   const [transport, setTransport] = useState(null);
@@ -608,17 +595,12 @@ export default function AgentDashboardView() {
   const pendingDevice = usePendingDeviceStore((s) => s.pendingDevice);
   const settleBump = usePendingDeviceStore((s) => s.bump);
   const [autoApprove, setAutoApprove] = useState(false);
-  const [sleepInhibitMode, setSleepInhibitMode] = useState("never");
-  const [sleepPresets, setSleepPresets] = useState([]);
   const [remoteEnabled, setRemoteEnabled] = useState(true);
-  const hostLocal = useHostLocalSettings();
 
-  const [showDisconnectConfirm, setShowDisconnectConfirm] = useState(false);
   const [showRemoteOffConfirm, setShowRemoteOffConfirm] = useState(false);
-  const [showShutdownConfirm, setShowShutdownConfirm] = useState(false);
   const [deviceToRemove, setDeviceToRemove] = useState(null);
   const [deviceToLabel, setDeviceToLabel] = useState(null);
-  const [clientsOpen, setClientsOpen] = useState(false);
+  const [clientsOpen, setClientsOpen] = useState(true);
 
   const versionRef = useRef("");
 
@@ -660,7 +642,8 @@ export default function AgentDashboardView() {
           oneTimeKeyExpiresAt: data.oneTimeKeyExpiresAt ?? null,
           pairingUsed: data.pairingUsed ?? false,
           permanentKey: data.permanentKey ?? "",
-          qrUrl: data.qrUrl ?? ""
+          qrUrl: data.qrUrl ?? "",
+          tunnelHealth: data.tunnelHealth ?? { status: "unknown", checkedAt: null }
         });
         setPermissions({ screenRecording: data.screenRecording ?? false, accessibility: data.accessibility ?? false });
         if (data.transport) setTransport(data.transport);
@@ -673,11 +656,6 @@ export default function AgentDashboardView() {
     Promise.resolve().then(fetchDevices); // deferred: async like the fetches above
 
     fetch("/api/device/auto-approve").then((r) => r.json()).then((d) => alive && setAutoApprove(!!d?.enabled)).catch(() => {});
-    fetch("/api/sleep-inhibit").then((r) => r.json()).then((d) => {
-      if (!alive) return;
-      if (d?.mode) setSleepInhibitMode(d.mode);
-      if (Array.isArray(d?.presets)) setSleepPresets(d.presets);
-    }).catch(() => {});
     fetch("/api/remote/enabled").then((r) => r.json())
       .then((d) => alive && typeof d?.enabled === "boolean" && setRemoteEnabled(d.enabled)).catch(() => {});
 
@@ -696,7 +674,8 @@ export default function AgentDashboardView() {
           oneTimeKeyExpiresAt: data.oneTimeKeyExpiresAt ?? null,
           pairingUsed: data.pairingUsed ?? false,
           permanentKey: data.permanentKey ?? "",
-          qrUrl: data.qrUrl ?? ""
+          qrUrl: data.qrUrl ?? "",
+          tunnelHealth: data.tunnelHealth ?? { status: "unknown", checkedAt: null }
         });
       } else if (data.type === "updateAvailable") {
         setUpdateVersion(data.version);
@@ -714,9 +693,6 @@ export default function AgentDashboardView() {
         fetchDevices();
       } else if (data.type === "autostart") {
         // handled by the settings dialog; nothing here
-      } else if (data.type === "sleepInhibit") {
-        if (data.mode) setSleepInhibitMode(data.mode);
-        if (Array.isArray(data.presets)) setSleepPresets(data.presets);
       } else if (data.type === "remote") {
         setRemoteEnabled(!!data.enabled);
       }
@@ -790,13 +766,6 @@ export default function AgentDashboardView() {
     const d = await r?.json().catch(() => null);
     if (typeof d?.enabled === "boolean") setRemoteEnabled(d.enabled);
   };
-  const handleSleepInhibitChange = async (mode) => {
-    const prev = sleepInhibitMode;
-    setSleepInhibitMode(mode);
-    const r = await post("/api/sleep-inhibit", { mode });
-    const d = await r?.json().catch(() => null);
-    if (!d?.mode) setSleepInhibitMode(prev);
-  };
 
   /* ── non-host env: nothing to show ── */
   if (!isHostEnvironment()) {
@@ -807,7 +776,8 @@ export default function AgentDashboardView() {
     );
   }
 
-  const status = remoteStatus(main.step, transport);
+  const tunnel = tunnelStatus(main);
+  const rtc = rtcStatus(transport);
   const clients = mergeClients(approvedDevices, connections, rejectedDevices);
   const onlineCount = clients.filter((c) => c.status === "online").length;
 
@@ -855,52 +825,43 @@ export default function AgentDashboardView() {
             )}
           </div>
 
-          {/* Remote master switch — same row anatomy as Services; status speaks
-              only when something needs attention (connecting/offline). */}
+          {/* Remote switch + carrier health — one thin pill, two cells (tunnel |
+              RTC) so it's visible which one is alive; hugs content, centered. */}
           <div
-            className="row-hover relative z-[1] mt-5 w-full flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl flex-shrink-0"
+            className="relative z-[1] mt-5 self-center inline-flex items-center gap-2 px-3 py-1.5 rounded-full flex-shrink-0"
+            style={{ background: "var(--row-bg)", border: "1px solid var(--border-subtle)" }}
           >
-            <div
-              className="w-[34px] h-[34px] rounded-[9px] flex items-center justify-center flex-shrink-0"
-              style={{
-                background: remoteEnabled ? "rgba(var(--accent-rgb),0.08)" : "var(--row-bg)",
-                border: `1px solid ${remoteEnabled ? "rgba(var(--accent-rgb),0.25)" : "var(--border-subtle)"}`,
-                color: remoteEnabled ? "var(--accent)" : "var(--text-muted)"
-              }}
-            >
-              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{remoteEnabled ? "cloud_done" : "cloud_off"}</span>
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 min-w-0">
-                <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--text-main)" }}>Remote</p>
-                {remoteEnabled && status.color === "var(--success)" && (
-                  <span className="w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ background: status.color, boxShadow: "0 0 8px rgba(var(--success-rgb),0.9)" }} />
-                )}
-              </div>
-              {(!remoteEnabled || status.color !== "var(--success)") && (
-                <p className="text-[11.5px] mt-0.5 flex items-center gap-1.5" style={{ color: "var(--text-muted)" }}>
-                  {remoteEnabled ? (
-                    <>
-                      <span className={`w-[6px] h-[6px] rounded-full flex-shrink-0 ${status.blink ? "chip-blink" : ""}`} style={{ background: status.color }} />
-                      <span className="font-mono truncate">{status.text}</span>
-                      {main.step === 0 && (
-                        <span
-                          role="button"
-                          title="Retry remote connection"
-                          onClick={(e) => { e.stopPropagation(); post("/api/ui/start"); }}
-                          className="material-symbols-outlined flex-shrink-0 cursor-pointer"
-                          style={{ fontSize: 15, color: "var(--text-muted)" }}
-                        >
-                          refresh
-                        </span>
-                      )}
-                    </>
-                  ) : (
-                    <span className="truncate">Turn on to pair devices.</span>
+            {remoteEnabled ? (
+              <>
+                <span className="flex items-center gap-1.5 min-w-0" title="Cloudflare tunnel">
+                  <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 15, color: "var(--text-muted)" }}>cloud</span>
+                  <span className={`w-[6px] h-[6px] rounded-full flex-shrink-0${tunnel.blink ? " chip-blink" : ""}`} style={{ background: tunnel.color }} />
+                  <span className="font-mono text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{tunnel.label}</span>
+                  {tunnel.retry && (
+                    <span
+                      role="button"
+                      title="Retry tunnel connection"
+                      onClick={() => post("/api/ui/start")}
+                      className="material-symbols-outlined flex-shrink-0 cursor-pointer"
+                      style={{ fontSize: 14, color: "var(--text-muted)" }}
+                    >
+                      refresh
+                    </span>
                   )}
-                </p>
-              )}
-            </div>
+                </span>
+                <span className="w-px h-3.5 flex-shrink-0" style={{ background: "var(--border-subtle)" }} />
+                <span className="flex items-center gap-1.5 min-w-0" title="WebRTC signaling">
+                  <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 15, color: "var(--text-muted)" }}>hub</span>
+                  <span className="w-[6px] h-[6px] rounded-full flex-shrink-0" style={{ background: rtc.color }} />
+                  <span className="font-mono text-[11px] truncate" style={{ color: "var(--text-muted)" }}>{rtc.label}</span>
+                </span>
+              </>
+            ) : (
+              <span className="flex items-center gap-1.5 min-w-0">
+                <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 15, color: "var(--text-muted)" }}>cloud_off</span>
+                <span className="text-[11px] truncate" style={{ color: "var(--text-muted)" }}>Remote off</span>
+              </span>
+            )}
             <Toggle
               on={remoteEnabled}
               onClick={() => (remoteEnabled ? setShowRemoteOffConfirm(true) : handleRemoteToggle())}
@@ -937,45 +898,6 @@ export default function AgentDashboardView() {
               permissions={permissions}
               onRequestPermission={handleRequestPermission}
             />
-            <SleepInhibitRow mode={sleepInhibitMode} presets={sleepPresets} onChange={handleSleepInhibitChange} />
-
-            {/* Host-machine toggles moved from the settings dialog's thin Host tab. */}
-            <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
-              <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: hostLocal.autoStart ? "var(--accent)" : "var(--text-muted)" }}>
-                rocket_launch
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--text-main)" }}>Launch on startup</p>
-              </div>
-              <Toggle
-                on={!!hostLocal.autoStart}
-                onClick={() => hostLocal.toggleAutoStart(!hostLocal.autoStart)}
-                title="Start 9Remote when the machine logs in"
-              />
-            </div>
-            {hostLocal.unlock?.supported && (
-              <div className="row-hover flex items-center gap-4 py-3 px-3 -mx-3 rounded-xl">
-                <span className="material-symbols-outlined flex-shrink-0" style={{ fontSize: 19, color: hostLocal.unlock.enabled ? "var(--accent)" : "var(--text-muted)" }}>
-                  lock_open
-                </span>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[13.5px] font-semibold truncate" style={{ color: "var(--text-main)" }}>Remote unlock</p>
-                  <p className="text-[11.5px] mt-0.5" style={{ color: "var(--text-muted)" }}>
-                    {hostLocal.unlock.stale
-                      ? "Status unknown — toggle to reinstall and refresh"
-                      : hostLocal.unlock.enabled
-                        ? "Unlock worker running"
-                        : "Unlock the login screen before a session starts"}
-                  </p>
-                </div>
-                <Toggle
-                  on={!!hostLocal.unlock.enabled}
-                  disabled={!!hostLocal.unlock.busy}
-                  onClick={hostLocal.toggleUnlock}
-                  title="Install the Windows unlock worker"
-                />
-              </div>
-            )}
           </Section>
 
           {/* Clients — collapsed by default; a pending approval forces it open. */}
@@ -1009,39 +931,10 @@ export default function AgentDashboardView() {
               ))
             )}
           </Section>
-
-          {/* Power — manage-surface actions (the confirms below are already wired);
-              moved out of the settings dialog where they were buried too deep. */}
-          <Section title="Power">
-            <div className="flex flex-wrap gap-2.5 pt-1">
-              <button
-                onClick={() => setShowDisconnectConfirm(true)}
-                className="glass-btn flex-shrink-0 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg"
-                style={{ color: "var(--text-muted)" }}
-              >
-                Reset connection
-              </button>
-              <button
-                onClick={() => setShowShutdownConfirm(true)}
-                className="glass-btn flex-shrink-0 text-[12.5px] font-semibold px-3.5 py-2 rounded-lg"
-                style={{ color: "var(--danger)" }}
-              >
-                Shut down
-              </button>
-            </div>
-          </Section>
         </section>
       </main>
 
       {/* Confirms */}
-      <ConfirmDialog
-        isOpen={showDisconnectConfirm}
-        onClose={() => setShowDisconnectConfirm(false)}
-        onConfirm={() => { setShowDisconnectConfirm(false); post("/api/ui/stop"); }}
-        title="Reset connection?"
-        message="Reset and stop the tunnel? Remote clients will be disconnected."
-        confirmText="Reset"
-      />
       <ConfirmDialog
         isOpen={showRemoteOffConfirm}
         onClose={() => setShowRemoteOffConfirm(false)}
@@ -1049,14 +942,6 @@ export default function AgentDashboardView() {
         title="Turn off remote access?"
         message="Turn off remote access? Connected devices will be disconnected immediately."
         confirmText="Turn off"
-      />
-      <ConfirmDialog
-        isOpen={showShutdownConfirm}
-        onClose={() => setShowShutdownConfirm(false)}
-        onConfirm={() => { setShowShutdownConfirm(false); post("/api/ui/shutdown"); }}
-        title="Shutdown 9Remote?"
-        message="Shutdown 9Remote completely? This will stop the server, close the tunnel and quit the app."
-        confirmText="Shutdown"
       />
       <ConfirmDialog
         isOpen={!!deviceToRemove}

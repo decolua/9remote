@@ -43,11 +43,12 @@ function Status({ state }) {
   return <p className={`text-[11px] leading-relaxed break-words ${cls}`}>{state.msg}</p>;
 }
 
-// Config modal: the engine, provider and keys are one flat form. Selecting a
-// preset fills endpoint+model, only keys are typed.
-function VoiceConfigModal({ onClose }) {
+// The flat config form — engine, provider, keys. Shared by the settings Voice
+// tab (inline) and the modal below (drawer row). Selecting a preset fills
+// endpoint+model, only keys are typed.
+export function VoiceConfigForm() {
   const store = useVoiceStore();
-  const { mode, setMode, preset, setPreset, setField } = store;
+  const { mode, setMode, preset, setEngine, setField } = store;
   const { locale } = useI18n();
   const [voiceLang, setVoiceLang] = useVoiceLang(locale);
   const [langOpen, setLangOpen] = useState(false);
@@ -88,20 +89,10 @@ function VoiceConfigModal({ onClose }) {
   };
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={onClose} />
-      <div className="relative card-elev max-w-md w-full max-h-[90dvh] flex flex-col animate-in zoom-in-95 duration-200">
-        <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
-          <h3 className="text-lg font-semibold text-text">Voice input</h3>
-          <button
-            onClick={onClose}
-            className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out"
-            aria-label="Close"
-          >
-            <X size={20} />
-          </button>
-        </div>
-        <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5 flex flex-col gap-3 min-h-[320px]">
+    <div className="flex flex-col gap-3">
+      <p className="text-xs leading-relaxed text-text-muted">
+        Speak your prompts — much faster than typing. Gemini or OpenRouter is the most accurate.
+      </p>
       {/* Dictation language — applies to both engines */}
       <button
         type="button"
@@ -133,7 +124,7 @@ function VoiceConfigModal({ onClose }) {
             onClick={() => {
               vibrate();
               if (e.mode === "browser") setMode("browser");
-              else { setMode("ai"); setPreset(e.id); }
+              else setEngine("ai", e.id);
             }}
           >
             {e.label}
@@ -254,9 +245,7 @@ function VoiceConfigModal({ onClose }) {
           {voiceState && <Status state={voiceState} />}
         </>
       )}
-        </div>
-      </div>
-      {/* Language picker stacks above this modal */}
+      {/* Language picker stacks above its host */}
       {langOpen && (
         <VoiceLangModal
           isOpen={langOpen}
@@ -265,6 +254,30 @@ function VoiceConfigModal({ onClose }) {
           onClose={() => setLangOpen(false)}
         />
       )}
+    </div>
+  );
+}
+
+// Modal chrome around the form — launched from the drawer/menu row.
+function VoiceConfigModal({ onClose }) {
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={onClose} />
+      <div className="relative card-elev max-w-md w-full max-h-[90dvh] flex flex-col animate-in zoom-in-95 duration-200">
+        <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
+          <h3 className="text-lg font-semibold text-text">Voice input</h3>
+          <button
+            onClick={onClose}
+            className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-all duration-150 ease-out"
+            aria-label="Close"
+          >
+            <X size={20} />
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5 min-h-[320px]">
+          <VoiceConfigForm />
+        </div>
+      </div>
     </div>
   );
 }

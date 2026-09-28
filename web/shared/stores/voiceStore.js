@@ -48,26 +48,44 @@ export const useVoiceStore = create((set, get) => ({
   customModel: "",
   customKey: "",
   opencodeModel: "",
-  setEnabled: (v) => { save("enabled", v); set({ enabled: v }); pushToHost(get()); },
-  setMode: (m) => { save("mode", m); set({ mode: m }); pushToHost(get()); },
-  setPreset: (p) => { save("preset", p); set({ preset: p }); pushToHost(get()); },
-  setField: (k, v) => { save(k, v); set({ [k]: v }); pushToHost(get()); },
+  setEnabled: (v) => { if (get().enabled === v) return; save("enabled", v); set({ enabled: v }); pushToHost(get()); },
+  setMode: (m) => { if (get().mode === m) return; save("mode", m); set({ mode: m }); pushToHost(get()); },
+  setPreset: (p) => { if (get().preset === p) return; save("preset", p); set({ preset: p }); pushToHost(get()); },
+  setField: (k, v) => { if (get()[k] === v) return; save(k, v); set({ [k]: v }); pushToHost(get()); },
+  // One write + one push for the engine chips — setMode+setPreset together
+  // double-render the provider block below them.
+  setEngine: (m, p) => {
+    const s = get();
+    if (s.mode === m && s.preset === p) return;
+    save("mode", m); save("preset", p);
+    set({ mode: m, preset: p });
+    pushToHost(get());
+  },
   syncFromHost: (remote) => {
     if (!remote || typeof remote !== "object") return;
+    // serverInfo echoes arrive after every local pushToHost — an unchanged echo
+    // must keep state identity or every full-store subscriber re-renders (the
+    // voice form "flickers" on each engine/preset switch).
+    const same = (a, b) => Array.isArray(a) && Array.isArray(b)
+      ? a.length === b.length && a.every((v, i) => v === b[i])
+      : a === b;
     set((prev) => {
       const next = { ...prev };
-      if (typeof remote.enabled === "boolean") { next.enabled = remote.enabled; save("enabled", next.enabled); }
-      if (remote.mode) { next.mode = remote.mode; save("mode", next.mode); }
-      if (remote.preset) { next.preset = remote.preset; save("preset", next.preset); }
-      if (Array.isArray(remote.geminiKeys)) { next.geminiKeys = remote.geminiKeys; save("geminiKeys", next.geminiKeys); }
-      if (typeof remote.geminiModel === "string") { next.geminiModel = remote.geminiModel; save("geminiModel", next.geminiModel); }
-      if (typeof remote.openrouterKey === "string") { next.openrouterKey = remote.openrouterKey; save("openrouterKey", next.openrouterKey); }
-      if (typeof remote.openrouterModel === "string") { next.openrouterModel = remote.openrouterModel; save("openrouterModel", next.openrouterModel); }
-      if (typeof remote.customEndpoint === "string") { next.customEndpoint = remote.customEndpoint; save("customEndpoint", next.customEndpoint); }
-      if (typeof remote.customModel === "string") { next.customModel = remote.customModel; save("customModel", next.customModel); }
-      if (typeof remote.customKey === "string") { next.customKey = remote.customKey; save("customKey", next.customKey); }
-      if (typeof remote.opencodeModel === "string") { next.opencodeModel = remote.opencodeModel; save("opencodeModel", next.opencodeModel); }
-      return next;
+      let changed = false;
+      const apply = (cond, key, value) => {
+        if (!cond || same(next[key], value)) return;
+        next[key] = value;
+        changed = true;
+        save(key, value);
+      };
+      apply(typeof remote.enabled === "boolean", "enabled", remote.enabled);
+      apply(!!remote.mode, "mode", remote.mode);
+      apply(!!remote.preset, "preset", remote.preset);
+      apply(Array.isArray(remote.geminiKeys), "geminiKeys", remote.geminiKeys);
+      for (const k of ["geminiModel", "openrouterKey", "openrouterModel", "customEndpoint", "customModel", "customKey", "opencodeModel"]) {
+        apply(typeof remote[k] === "string", k, remote[k]);
+      }
+      return changed ? next : prev;
     });
   },
   syncFromAgent: (remote) => get().syncFromHost(remote),

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft, Plus, Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -298,7 +299,9 @@ export default function NewTerminalModal({
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [browsing, tab, onClose]);
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <>
     <div
       className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
@@ -594,6 +597,7 @@ export default function NewTerminalModal({
           onClose={() => setBrowsing(false)}
         />
       )}
-    </>
+    </>,
+    document.body
   );
 }

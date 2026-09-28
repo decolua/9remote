@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import { Folder, FolderOpen, FolderPlus, Home, HardDrive, ChevronRight, ArrowUp, Loader2, X, Search } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
@@ -486,7 +487,9 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
   // committed dir isn't silently picked under a different-looking list.
   const selectDisabled = loading || (!!preview && filter !== "");
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
       <div
         ref={dialogRef}
@@ -721,7 +724,8 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
           onClose={() => setNewFolder(null)}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }
 
