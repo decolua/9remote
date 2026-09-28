@@ -105,3 +105,6 @@ expo/.wrangler/*
 
 # Mobile app moved to decolua/9remote-expo (private)
 expo/
+
+# Local-only marketing notes
+.marketing/
