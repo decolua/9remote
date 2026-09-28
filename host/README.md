@@ -1,5 +1,11 @@
 <div align="center">
-  <!-- TODO: hero screenshot + phone strip -->
+  <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/screen.png" alt="9Remote Workspace" width="900"/>
+
+  <p align="center">
+    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-1.webp" width="280" alt="Claude Code on Phone"/>
+    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-2.webp" width="280" alt="File Explorer on Phone"/>
+    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-3.webp" width="280" alt="System Dashboard on Phone"/>
+  </p>
 
 
   # 9Remote — Remote Everything, Vibecode Everywhere
