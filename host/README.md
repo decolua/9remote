@@ -1,11 +1,13 @@
 <div align="center">
-  <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/screen.png" alt="9Remote Workspace" width="900"/>
+  <img src="https://raw.githubusercontent.com/decolua/9remote/main/web/public/screenshots/desktop-ide.webp" alt="9Remote desktop workspace: terminal, editor and AI agent panes side by side" width="880"/>
 
-  <p align="center">
-    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-1.webp" width="280" alt="Claude Code on Phone"/>
-    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-2.webp" width="280" alt="File Explorer on Phone"/>
-    <img src="https://raw.githubusercontent.com/decolua/9remote/main/images/mobile-3.webp" width="280" alt="System Dashboard on Phone"/>
-  </p>
+  <table align="center">
+    <tr>
+      <td><img src="https://raw.githubusercontent.com/decolua/9remote/main/web/public/screenshots/mobile-1.webp" width="230" alt="Claude Code on Phone"/></td>
+      <td><img src="https://raw.githubusercontent.com/decolua/9remote/main/web/public/screenshots/mobile-2.webp" width="230" alt="File Explorer on Phone"/></td>
+      <td><img src="https://raw.githubusercontent.com/decolua/9remote/main/web/public/screenshots/mobile-3.webp" width="230" alt="System Dashboard on Phone"/></td>
+    </tr>
+  </table>
 
 
   # 9Remote — Remote Everything, Vibecode Everywhere

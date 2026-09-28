@@ -5,13 +5,15 @@ Your entire dev workstation in your pocket. A remote IDE, 60fps desktop stream, 
 > **Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them.** Same agents, one UI you'll actually love.
 
 <div align="center">
-  <img src="./images/screen.png" alt="9Remote Workspace" width="900"/>
+  <img src="./web/public/screenshots/desktop-ide.webp" alt="9Remote desktop workspace: terminal, editor and AI agent panes side by side" width="880"/>
 
-  <p align="center">
-    <img src="./images/mobile-1.webp" width="280" alt="Claude Code on Phone"/>
-    <img src="./images/mobile-2.webp" width="280" alt="File Explorer on Phone"/>
-    <img src="./images/mobile-3.webp" width="280" alt="System Dashboard on Phone"/>
-  </p>
+  <table align="center">
+    <tr>
+      <td><img src="./web/public/screenshots/mobile-1.webp" width="230" alt="Claude Code on Phone"/></td>
+      <td><img src="./web/public/screenshots/mobile-2.webp" width="230" alt="File Explorer on Phone"/></td>
+      <td><img src="./web/public/screenshots/mobile-3.webp" width="230" alt="System Dashboard on Phone"/></td>
+    </tr>
+  </table>
 </div>
 
 ---
