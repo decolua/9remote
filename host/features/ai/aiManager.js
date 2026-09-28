@@ -1,6 +1,7 @@
 // Manages all active AI sessions across Claude, Codex, and OpenCode
 import fs from "node:fs";
-import { AI_ENGINES, ORPHAN_SWEEP_INTERVAL_MS, AI_IDLE_TICK_MS, STALE_CHAT_MS } from "./constants.js";
+import { execFile } from "node:child_process";
+import { AI_ENGINES, ORPHAN_SWEEP_INTERVAL_MS, AI_IDLE_TICK_MS, STALE_CHAT_MS, ORPHAN_CLAUDE_GRACE_MS } from "./constants.js";
 import { AiSession, aiSnapshotFile } from "./aiSession.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
 import { createLogger } from "../../lib/logger.js";
@@ -132,6 +133,48 @@ export async function sweepOrphanProcs(client = daemonClient) {
   }
 }
 
+// `ps` elapsed formats — mm:ss | hh:mm:ss | dd-hh:mm:ss. 0 when unparsable.
+export function etimeSeconds(raw) {
+  const parts = String(raw || "").trim().split(/[-:]/).map(Number);
+  if (!parts.length || parts.some((n) => Number.isNaN(n))) return 0;
+  while (parts.length < 4) parts.unshift(0);
+  const [d, h, m, s] = parts;
+  return ((d * 24 + h) * 60 + m) * 60 + s;
+}
+
+// Orphaned claude processes, reparented to PID 1 when their parent died (daemon
+// crash, or claude's own subagent-orphan upstream bug). PPID=1 + age is the orphan
+// proof: daemon-held CLIs have the daemon as parent, and a user's terminal claude
+// has a shell — only a dead parent leaves launchd as the foster one.
+export function parseOrphanClaude(lines) {
+  const out = [];
+  for (const line of lines) {
+    const m = line.trim().match(/^(\d+)\s+1\s+(\d+)\s+(\S+)\s+(.*)$/);
+    if (!m) continue;
+    const [, pid, pgid, etime, args] = m;
+    const bin = (args.split(/\s+/)[0] || "").split("/").pop();
+    if (bin !== "claude") continue;
+    if (etimeSeconds(etime) * 1000 < ORPHAN_CLAUDE_GRACE_MS) continue;
+    out.push({ pid: Number(pid), pgid: Number(pgid) });
+  }
+  return out;
+}
+
+export function killOrphanClaudeProcs() {
+  if (process.platform === "win32") return;
+  execFile("ps", ["-Ao", "pid,ppid,pgid,etime,args"], { timeout: 5000 }, (err, stdout) => {
+    // ps is best-effort; the next sweep tick retries.
+    if (err) return;
+    for (const { pid, pgid } of parseOrphanClaude(stdout.split("\n"))) {
+      try { process.kill(-pgid, "SIGINT"); } catch { continue; }
+      // SIGKILL stays armed: an INT-ignoring orphan would outlive the graceful pass.
+      const timer = setTimeout(() => { try { process.kill(-pgid, "SIGKILL"); } catch {} }, 3000);
+      timer.unref?.();
+      logger.info(`[proc-sweep] killed orphan claude proc ${pid} (group ${pgid})`);
+    }
+  });
+}
+
 let sweepTimer = null;
 // Boot: sweep once the daemon connects (or now, if it already has). Runtime: the
 // interval catches leaks born mid-flight (e.g. a procStop refused while the daemon
@@ -147,6 +190,11 @@ function scheduleOrphanSweep() {
   else daemonClient.on("connected", start);
 }
 scheduleOrphanSweep();
+
+// The orphaned-claude scan needs no daemon — a dead daemon is exactly when its
+// CLIs turn into orphans — so it runs on its own cadence from boot.
+setInterval(killOrphanClaudeProcs, ORPHAN_SWEEP_INTERVAL_MS).unref?.();
+killOrphanClaudeProcs();
 
 // Idle-kill ticker: one door for every session — no per-session timers to leak,
 // and the eligibility check re-reads live state on every tick.

@@ -10,8 +10,8 @@ import path from "node:path";
 
 process.env.NREMOTE_HOME = fs.mkdtempSync(path.join(os.tmpdir(), "nremote-sweep-"));
 
-const { sweepOrphanProcs, destroyDetachedChat, globalAiManager } = await import("../features/ai/aiManager.js");
-const { STALE_CHAT_MS } = await import("../features/ai/constants.js");
+const { sweepOrphanProcs, destroyDetachedChat, globalAiManager, etimeSeconds, parseOrphanClaude } = await import("../features/ai/aiManager.js");
+const { STALE_CHAT_MS, ORPHAN_CLAUDE_GRACE_MS } = await import("../features/ai/constants.js");
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
@@ -42,6 +42,27 @@ const mkClient = (procIds) => {
 };
 
 console.log("Running orphan sweep tests...");
+
+test("etimeSeconds parses every ps elapsed format", () => {
+  assert.equal(etimeSeconds("14:22"), 14 * 60 + 22);
+  assert.equal(etimeSeconds("10:22:07"), 10 * 3600 + 22 * 60 + 7);
+  assert.equal(etimeSeconds("01-03:38:46"), ((1 * 24 + 3) * 60 + 38) * 60 + 46);
+  assert.equal(etimeSeconds("garbage"), 0);
+});
+
+test("parseOrphanClaude matches only old launchd-reparented claude procs", () => {
+  const oldEnough = `${Math.floor(ORPHAN_CLAUDE_GRACE_MS / 3600000) + 1}:00:00`;
+  const tooYoung = "00:30:00";
+  const lines = [
+    "  PID  PPID  PGID ETIME ARGS",
+    `  100     1   100 ${oldEnough} claude -p --verbose --resume abc`,
+    `  101     1   101 ${tooYoung} claude -p --verbose`,
+    `  102   85897   102 ${oldEnough} claude -p --verbose`,
+    `  103     1   103 ${oldEnough} /Users/x/.local/bin/claude --resume def`,
+    `  104     1   104 ${oldEnough} node server.js`,
+  ];
+  assert.deepEqual(parseOrphanClaude(lines), [{ pid: 100, pgid: 100 }, { pid: 103, pgid: 103 }]);
+});
 
 await test("proc with no snapshot is swept", async () => {
   const client = mkClient(["gone-chat"]);

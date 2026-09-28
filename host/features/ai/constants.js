@@ -82,6 +82,10 @@ export const STALE_CHAT_MS = 6 * 60 * 60 * 1000;
 // working — idle-kill fires anyway (queued prompts and async rows stay exempt).
 export const AI_VETO_MAX_MS = 24 * 60 * 60 * 1000;
 
+// A claude CLI reparented to PID 1 (daemon crash, or claude's own subagent-orphan
+// upstream bug) is nobody's child — killed in the orphan sweep past this age.
+export const ORPHAN_CLAUDE_GRACE_MS = 3 * 60 * 60 * 1000;
+
 
 // OpenCode's mode IS its agent (build = full access, plan = read-only); the v2
 // runner reads only agent permissions, so a session ruleset PATCH would be inert.
