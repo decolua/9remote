@@ -19,6 +19,8 @@ import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { SETTINGS_CATEGORIES } from "@/features/terminal/constants/settingsCategories";
 import { VoiceConfigForm } from "@/shared/components/ui/VoiceEndpointSettings";
+import BrowserUseConfigForm from "@/shared/components/ui/BrowserUseSettings";
+import { useBrowserUseStore } from "@/shared/stores/browserUseStore";
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
 import { usePushToggle } from "@/features/terminal/hooks/usePushToggle";
 import { useArtifactToggle } from "@/features/terminal/hooks/useArtifactToggle";
@@ -33,7 +35,7 @@ import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { useLogStore } from "@/shared/stores/logStore";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Mic, Bug };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Mic, Bug, Globe };
 
 
 /**
@@ -54,6 +56,7 @@ export default function SettingsDialog({
   const [confirmShutdown, setConfirmShutdown] = useState(false);
   const hostLocal = useHostLocalSettings();
   const voiceEnabled = useVoiceStore((s) => s.enabled);
+  const browserUseEnabled = useBrowserUseStore((s) => s.enabled);
   const setVoiceEnabled = useVoiceStore((s) => s.setEnabled);
 
   const [languageOpen, setLanguageOpen] = useState(false);
@@ -325,6 +328,20 @@ export default function SettingsDialog({
                 />
                 <div className={voiceEnabled ? "" : "pointer-events-none opacity-40 select-none"}>
                   <VoiceConfigForm />
+                </div>
+              </div>
+            )}
+
+            {section === "browser" && (
+              <div className="space-y-6">
+                <ToggleRow
+                  icon={Globe}
+                  label={t("menu.settingsBrowser")}
+                  value={browserUseEnabled}
+                  onChange={(v) => useBrowserUseStore.getState().setConfig({ enabled: v })}
+                />
+                <div className={browserUseEnabled ? "" : "pointer-events-none opacity-40 select-none"}>
+                  <BrowserUseConfigForm busRef={context.busRef} />
                 </div>
               </div>
             )}

@@ -11,6 +11,7 @@ export const SETTINGS_CATEGORIES = [
   { id: "terminal", labelKey: "menu.settingsTerminalTab", icon: "Terminal" },
   { id: "background", labelKey: "menu.terminalBackground", icon: "Image" },
   { id: "voice", labelKey: "menu.settingsVoice", icon: "Mic" },
+  { id: "browser", labelKey: "menu.settingsBrowser", icon: "Globe" },
   { id: "mcp", labelKey: "menu.settingsMcp", icon: "Zap" },
   ...(JARVIS_ENABLED ? [{ id: "jarvis", labelKey: "menu.settingsJarvis", icon: "Bot" }] : []),
   { id: "debug", labelKey: "menu.settingsDebug", icon: "Bug" },

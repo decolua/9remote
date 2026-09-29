@@ -200,6 +200,7 @@ export default {
     settingsAgent: "Host",
     settingsSystem: "System",
     settingsVoice: "Voice",
+    settingsBrowser: "Browser (Jev)",
     voiceInput: "Voice Input",
     preventSleep: "Prevent Sleep",
     agentSystem: "System",

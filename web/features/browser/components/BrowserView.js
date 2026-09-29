@@ -1,12 +1,13 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Globe, Home, Loader2, Plus, RotateCw, X } from "@/shared/components/ui/Icon";
+import { Bot, ChevronLeft, ChevronRight, Globe, Home, Loader2, Plus, RotateCw, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { initSiteBridge, parseSiteAddress } from "../lib/siteBridge";
 import { SITE_ERROR_EVENT, SITE_NAV_EVENT, siteProxySrc } from "../constants/browserConfig";
 import NewSiteTabModal from "./NewSiteTabModal";
+import AgentBrowserPanel from "./AgentBrowserPanel";
 
 let tabKeySeq = 0;
 // Each tab carries its own history stack — the iframe's real history piles onto
@@ -44,6 +45,7 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
   });
   const [loading, setLoading] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
   // What the worker said when it could not serve the page: the message it
   // rendered inside the frame is a bare text response on a white ground, so
   // without this the failure is an unreadable blank tab.
@@ -246,6 +248,13 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
         >
           <Plus size={16} />
         </button>
+        <button
+          onClick={() => setAgentOpen(true)}
+          className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors shrink-0"
+          title="Jev browser agent"
+        >
+          <Bot size={16} />
+        </button>
         {loading && <Loader2 size={14} className="animate-spin text-brand-500 shrink-0 ml-1" />}
       </div>
 
@@ -342,6 +351,8 @@ export default function BrowserView({ busRef, connected = false, initialPort, in
             </button>
           </div>
         )}
+
+        {agentOpen && <AgentBrowserPanel busRef={busRef} onClose={() => setAgentOpen(false)} />}
       </div>
 
       <NewSiteTabModal
