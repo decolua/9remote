@@ -38,6 +38,30 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 static AGENT_PID: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Option<u32>>>> =
     std::sync::OnceLock::new();
 
+// Host stdout/stderr captured while starting, replayed into the GUI on failure —
+// a GUI-subsystem binary has no stderr on Windows, so without this the splash can
+// only say "did not start" with no clue why (github.com/decolua/9remote/issues/21)
+static HOST_LOG: std::sync::OnceLock<std::sync::Arc<std::sync::Mutex<Vec<String>>>> =
+    std::sync::OnceLock::new();
+// true until the server answers health — bounds host chatter written to setup.log
+static HOST_CAPTURE: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(true);
+const HOST_LOG_MAX: usize = 120;
+
+fn push_host_log(line: &str) {
+    if let Ok(mut log) = HOST_LOG.get_or_init(Default::default).lock() {
+        log.push(line.to_string());
+        let excess = log.len().saturating_sub(HOST_LOG_MAX);
+        log.drain(0..excess);
+    }
+}
+
+fn host_log_tail(n: usize) -> String {
+    if let Ok(log) = HOST_LOG.get_or_init(Default::default).lock() {
+        return log.iter().skip(log.len().saturating_sub(n)).cloned().collect::<Vec<_>>().join("\n");
+    }
+    String::new()
+}
+
 fn get_agent_pid() -> &'static std::sync::Arc<std::sync::Mutex<Option<u32>>> {
     AGENT_PID.get_or_init(|| std::sync::Arc::new(std::sync::Mutex::new(None)))
 }
@@ -1274,6 +1298,10 @@ fn spawn_9remote_ui(app: AppHandle) {
             std::thread::spawn(move || {
                 for line in BufReader::new(stdout).lines().flatten() {
                     eprintln!("[9remote] {line}");
+                    if HOST_CAPTURE.load(std::sync::atomic::Ordering::Relaxed) {
+                        push_host_log(&line);
+                        note(&format!("host | {line}"));
+                    }
                 }
             });
         }
@@ -1281,6 +1309,10 @@ fn spawn_9remote_ui(app: AppHandle) {
             std::thread::spawn(move || {
                 for line in BufReader::new(stderr).lines().flatten() {
                     eprintln!("[9remote.err] {line}");
+                    if HOST_CAPTURE.load(std::sync::atomic::Ordering::Relaxed) {
+                        push_host_log(&format!("[err] {line}"));
+                        note(&format!("host.err | {line}"));
+                    }
                 }
             });
         }
@@ -1295,6 +1327,7 @@ fn spawn_9remote_ui(app: AppHandle) {
             if let Ok(resp) = ureq::get(&url).call() {
                 if resp.status() == 200 {
                     eprintln!("[Desktop] Server ready after {}ms", (i + 1) * HEALTH_POLL_MS);
+                    HOST_CAPTURE.store(false, std::sync::atomic::Ordering::Relaxed);
                     let _ = app.emit("setup_ready", ());
                     // Navigate from Rust: the splash cannot fetch/redirect itself
                     // (tauri://localhost → http://localhost is cross-origin, blocked by WKWebView)
@@ -1309,7 +1342,17 @@ fn spawn_9remote_ui(app: AppHandle) {
             }
             if i + 1 == attempts {
                 eprintln!("[Desktop] Server timeout {HEALTH_TIMEOUT_SECS}s");
-                let _ = app.emit("setup_error", "Server did not start in time. Check Console.app for [9remote] logs.");
+                // Show why: exit status + the host's last words, right in the splash
+                let exit = match child.try_wait() {
+                    Ok(Some(s)) => format!(" — host exited with {s}"),
+                    _ => String::new(),
+                };
+                let tail = host_log_tail(15);
+                let tail = if tail.is_empty() { String::new() } else { format!("\n\n{tail}") };
+                let _ = app.emit(
+                    "setup_error",
+                    format!("Server did not start in time{exit}.\nFull log: ~/.9remote/setup.log{tail}"),
+                );
             }
             std::thread::sleep(std::time::Duration::from_millis(HEALTH_POLL_MS));
         }

@@ -37,6 +37,9 @@ for dir in native amd64; do
   done
 done
 
+# Rebuild the updater manifest so no platform is forgotten at release time
+node scripts/update-latest-json.mjs
+
 echo "[Desktop] Artifacts collected into $OUT/:"
 find "$OUT" -type f | sort | while read -r f; do
   printf "  %s  %s\n" "$(du -h "$f" | cut -f1)" "${f#$OUT/}"

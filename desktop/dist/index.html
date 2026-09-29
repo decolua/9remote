@@ -161,7 +161,18 @@
       min-height: 20px;
       line-height: 1.5;
       word-break: break-word;
+      /* setup_error carries the host log tail — render and scroll it */
+      white-space: pre-line;
+      max-height: 200px;
+      overflow-y: auto;
       transition: opacity 0.3s;
+    }
+
+    .stage.failed #status {
+      font-size: 11px;
+      font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+      text-align: left;
+      user-select: text;
     }
 
     .progress-bar {

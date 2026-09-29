@@ -38,11 +38,18 @@ fi
 # Cargo caches live in named volumes so repeat builds don't refetch every crate.
 # Intermediate objects stay in a volume (they are Linux ELF and would clash with the
 # host's macOS target dir), but the finished bundles are copied out to the host.
+# Auto-load Tauri updater signing key if present and not set (matches mac/win scripts)
+TAURI_KEY_ENV=()
+if [ -f ".sign.key" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY:-}" ] && [ -z "${TAURI_SIGNING_PRIVATE_KEY_PATH:-}" ]; then
+  TAURI_KEY_ENV=(-e "TAURI_SIGNING_PRIVATE_KEY=$(cat .sign.key)" -e "TAURI_SIGNING_PRIVATE_KEY_PASSWORD=${TAURI_SIGNING_PRIVATE_KEY_PASSWORD:-}")
+  echo "[Desktop] Loaded Tauri updater signing key from .sign.key"
+fi
 docker run --rm $PLATFORM \
   -v "$PWD:/app" \
   -v "9remote-cargo-$ARCH_SUFFIX:/usr/local/cargo/registry" \
   -v "9remote-linux-$ARCH_SUFFIX:/build" \
   -e CARGO_TARGET_DIR=/build \
+  "${TAURI_KEY_ENV[@]}" \
   -w /app "$IMAGE" \
   sh -c "cargo tauri build --bundles $BUNDLES \
     && mkdir -p /app/$OUT_DIR \
