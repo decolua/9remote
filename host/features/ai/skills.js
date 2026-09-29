@@ -92,6 +92,6 @@ const SKILL_DIRS = {
   hermes: (home) => [path.join(home, ".hermes", "skills")]
 };
 
-function skillDirs(engine, home, workspacePath) {
+export function skillDirs(engine, home, workspacePath) {
   return SKILL_DIRS[engine]?.(home, workspacePath) ?? [];
 }

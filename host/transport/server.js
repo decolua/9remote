@@ -19,6 +19,7 @@ import { setupQuotaTrackerHandlers } from "../features/quotaTracker/quotaTracker
 import { setupBackgroundHandlers } from "../features/terminal/backgroundSocket.js";
 import { setupAiHandlers } from "../features/ai/aiSocket.js";
 import { setupJarvisHandlers } from "../features/jarvis/jarvisSocket.js";
+import { setupBrowserUseHandlers } from "../features/browserUse/browserUseSocket.js";
 import { trackConnection, untrackConnection, pushUiLog, pushUiLogDebug, clearOneTimeKey, pushUiEvent, setRemoteAvailable, pushTransportState, getTunnelPayload } from "../api/ui.js";
 import {
   loadApprovedDevices,
@@ -223,6 +224,7 @@ async function setupSessionFeatures(socket) {
   setupBackgroundHandlers(socket);
   setupAiHandlers(socket, ioInstance);
   setupJarvisHandlers(socket);
+  setupBrowserUseHandlers(socket);
   await setupTerminalHandlers(socket, ioInstance, loadApiKey());
   syncClientSession(socket);
   socket.emit("terminal:ready");

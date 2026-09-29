@@ -28,6 +28,13 @@ async function start() {
   // Skip self-kill when re-entering via --tray/--auto/--start (child of launchBackground),
   // otherwise the detached child reads its own PID from agent.pid and kills itself
   const isChildRespawn = process.argv.includes("--tray") || process.argv.includes("--auto") || process.argv.includes("--start");
+  // An unknown command must never kill the running host — an older binary (or a
+  // typo) meeting a newer command would murder a live dev instance for nothing.
+  const knownMode = ["ui", "start", "help", "-h", "--help"].includes(command);
+  if (command && !command.startsWith("--") && !knownMode && !isChildRespawn) {
+    printHelp();
+    return;
+  }
   if (!isChildRespawn) stopRunningInstances();
 
   if (command === "ui") {

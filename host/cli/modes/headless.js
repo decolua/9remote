@@ -2,6 +2,7 @@ import chalk from "chalk";
 import { getVersion } from "../session/key.js";
 import { showBanner } from "../utils/tui.js";
 import { apiGet, apiPost, isServerRunning } from "../core/localApi.js";
+import { cmdBrowser } from "./browserCmd.js";
 import { WORKER_URL } from "../config.js";
 
 // Headless CLI: drive the host over its localhost API without the interactive TUI.
@@ -107,6 +108,7 @@ export async function runHeadlessCommand(argv) {
     case "key": await cmdKey(args.includes("--new")); return true;
     case "otk": await cmdOtk(); return true;
     case "devices": await cmdDevices(); return true;
+    case "browser": await cmdBrowser(args); return true;
     case "auto-approve": await cmdAutoApprove(args[0]); return true;
     case "approve": await cmdApprove(args[0]); return true;
     default: return false;

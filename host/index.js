@@ -26,6 +26,7 @@ import { matchesLocalKey } from "./cli/utils/apiKey.js";
 import { generateLocalToken } from "./lib/localToken.js";
 import { isNewerVersion } from "./cli/utils/updateChecker.js";
 
+import { handleBrowserUsePost } from "./features/browserUse/browserUseSocket.js";
 import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
   handleSseEvents, handleStateGet, handleStatePost,
@@ -306,6 +307,7 @@ const ROUTES = [
   { path: "/api/local-token",      method: "GET",  handler: handleLocalToken },
   // MCP: the AI CLI runs on this host, so the endpoint stays localhost-only (+ bearer token)
   { path: MCP.PATH,                method: "POST", handler: handleMcpPost },
+  { path: "/api/browser-use",      method: "POST", handler: handleBrowserUsePost },
   { path: "/api/ui/state",         method: "GET",  handler: handleStateGet },
   { path: "/api/ui/state",         method: "POST", handler: handleStatePost },
   { path: "/api/ui/stop",          method: "POST", handler: handleStop },
@@ -581,6 +583,15 @@ export async function startServer() {
   if (process.platform === "win32") process.on("SIGBREAK", () => gracefulShutdown("SIGBREAK"));
 
   return server;
+}
+
+// This file is the server, not the CLI: extra argv means someone (usually an
+// agent) tried "node host/index.js <command>" and would boot a second server
+// that races the running one. Refuse and point at the real door.
+const strayArgv = process.argv.slice(2).filter((a) => !a.startsWith("--"));
+if (strayArgv.length) {
+  logger.error(`host/index.js takes no commands (got: ${strayArgv.join(" ")}) — use \`9remote <command>\``);
+  process.exit(1);
 }
 
 // Boot failure must be loud + fatal — the parent CLI restarts us with backoff
