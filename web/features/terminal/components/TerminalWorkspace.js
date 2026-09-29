@@ -523,8 +523,9 @@ function TerminalWorkspace({
   );
 
   return (
+    // Park LEFT when hidden: translate-x-full made the overflow:hidden container horizontally pannable on iOS, leaving the session list stuck shifted left; the negative side creates no scrollable extent.
     <div
-      className={`absolute inset-0 flex flex-col ${isTerminalView || pairDashboard || welcomeActive ? "translate-x-0 opacity-100 z-10" : "translate-x-full opacity-0 z-0 pointer-events-none"}`}
+      className={`absolute inset-0 flex flex-col ${isTerminalView || pairDashboard || welcomeActive ? "translate-x-0 opacity-100 z-10" : "-translate-x-full opacity-0 z-0 pointer-events-none"}`}
     >
       <div ref={rowRef} className={`flex-1 min-h-0 relative ${isDesktop ? "flex flex-row" : "flex flex-col"}`}>
         {isDesktop && (

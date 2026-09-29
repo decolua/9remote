@@ -360,9 +360,11 @@ export default function HostTree({
                     <button
                       onClick={() => { vibrate(); setTermModalWs(wsKey); }}
                       disabled={!actionable}
-                      className="pl-3.5 pr-2 py-1.5 text-left text-xs text-text-subtle hover:text-brand-500 italic transition-colors disabled:opacity-40"
+                      className="w-full flex items-center gap-1.5 pl-3.5 pr-2 py-1.5 text-left text-[12px] text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
+                      title={t("workspaces.addTerminal")}
                     >
-                      {t("workspaces.emptyWorkspace")}
+                      <Plus size={12} className="flex-shrink-0" />
+                      <span>{t("terminal.newTerminal")}</span>
                     </button>
                   ) : null
                 )}
