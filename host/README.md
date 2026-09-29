@@ -56,7 +56,7 @@ npm install -g 9remote
 |---|:---:|:---:|---|
 | **macOS** | ✅ | ✅ | `npm i -g 9remote` or [Download .dmg](https://github.com/decolua/9remote/releases/latest/download/9Remote-macos-universal.dmg) |
 | **Windows** | ✅ | ✅ | `npm i -g 9remote` or [Download .exe](https://github.com/decolua/9remote/releases/latest/download/9Remote-windows-x64-setup.exe) |
-| **Linux** | ✅ | ✅ | `npm i -g 9remote` |
+| **Linux** | ✅ | ✅ | `npm i -g 9remote` or [Download .deb / .AppImage](https://github.com/decolua/9remote/releases/latest/download/9Remote-linux-amd64.deb) |
 | **Web Browser** | — | ✅ | [`https://9remote.cc/login`](https://9remote.cc/login) *(Zero install, any browser)* |
 | **iOS / iPadOS** | — | ✅ | Web / PWA (Add to Home Screen) *(Supports iPad keyboard & trackpad)* |
 | **Android** | — | ✅ | Web / PWA (Add to Home Screen) *(Fullscreen dev mode)* |

@@ -45,12 +45,27 @@ export const INSTALLERS = [
 // Newest first — /download lists every entry, so a release is one line here.
 // ponytail: hand-kept list; swap for a cached GitHub API read when releases outpace edits.
 export const DESKTOP_RELEASES = [
+  { tag: "v3.0.31", date: "2026-09-28" },
   { tag: "v3.0.3", date: "2026-09-21" },
   { tag: "v3.0.0", date: "2026-09-20" },
   { tag: "v3.5.9", date: "2026-09-15" }
 ];
 
 export const downloadUrl = (tag, asset) => `${REPO}/releases/download/${tag}/${asset}`;
+
+// Newest build, linked directly until its release carries the canonical asset names
+export const LATEST_BUILD = {
+  tag: "v3.0.31",
+  assets: {
+    dmg: `${REPO}/releases/download/v3.0.31/9Remote-macos-universal.dmg`,
+    setup: `${REPO}/releases/download/v3.0.31/9Remote-windows-x64-setup.exe`,
+    portable: `${REPO}/releases/download/v3.0.31/9Remote-windows-x64-portable.exe`,
+    // Linux unchanged in 3.0.31 — keep serving the 3.0.30 build
+    debAmd64: `${REPO}/releases/download/v3.0.30/9Remote-linux-amd64.deb`,
+    debArm64: `${REPO}/releases/download/v3.0.30/9Remote-linux-arm64.deb`,
+    appImageArm64: `${REPO}/releases/download/v3.0.30/9Remote-linux-arm64.AppImage`
+  }
+};
 
 // "v3.0.3" → "3.0.3": tags carry the v, labels should not double it
 export const versionOf = (tag) => tag.replace(/^v/, "");

@@ -31,7 +31,8 @@ npm i -g 9remote
 
 - **macOS (Universal DMG):** [9Remote-macos-universal.dmg](https://github.com/decolua/9remote/releases/latest/download/9Remote-macos-universal.dmg) *(Intel + Apple Silicon, signed & notarized)*
 - **Windows (Setup EXE):** [9Remote-windows-x64-setup.exe](https://github.com/decolua/9remote/releases/latest/download/9Remote-windows-x64-setup.exe) *(Installer, x64)*
-- **Windows (Portable EXE):** [9Remote.exe](https://github.com/decolua/9remote/releases/latest/download/9Remote.exe) *(Portable, no install)*
+- **Windows (Portable EXE):** [9Remote-windows-x64-portable.exe](https://github.com/decolua/9remote/releases/latest/download/9Remote-windows-x64-portable.exe) *(Portable, no install)*
+- **Linux:** [deb x64](https://github.com/decolua/9remote/releases/latest/download/9Remote-linux-amd64.deb) · [deb arm64](https://github.com/decolua/9remote/releases/latest/download/9Remote-linux-arm64.deb) · [AppImage arm64](https://github.com/decolua/9remote/releases/latest/download/9Remote-linux-arm64.AppImage)
 
 ### 3. Or Get Mobile App
 
@@ -48,7 +49,7 @@ Scan the QR code from a phone (or open the URL) and you're on your machine's she
 |---|:---:|:---:|---|
 | **macOS** | ✅ | ✅ | [Download .dmg](https://github.com/decolua/9remote/releases/latest/download/9Remote-macos-universal.dmg) or `npm i -g 9remote` |
 | **Windows** | ✅ | ✅ | [Download .exe](https://github.com/decolua/9remote/releases/latest/download/9Remote-windows-x64-setup.exe) or `npm i -g 9remote` |
-| **Linux** | ✅ | ✅ | `npm i -g 9remote` |
+| **Linux** | ✅ | ✅ | [Download .deb / .AppImage](https://github.com/decolua/9remote/releases/latest/download/9Remote-linux-amd64.deb) or `npm i -g 9remote` |
 | **Web Browser** | — | ✅ | [`https://9remote.cc/login`](https://9remote.cc/login) *(Zero install, any browser)* |
 | **iOS / iPadOS** | — | ✅ | [App Store](https://apps.apple.com/us/app/9remote/id6796664210) / Web PWA *(Supports iPad keyboard & trackpad)* |
 | **Android** | — | ✅ | [Google Play](https://play.google.com/store/apps/details?id=cc.remote9.app&pli=1) / Web PWA *(Fullscreen dev mode)* |
@@ -99,7 +100,7 @@ sequenceDiagram
 
 - **`host/`** — the Node.js CLI that runs on the machine you want to reach. Serves PTY terminals (daemonized), streams the screen over WebRTC with dirty-tile diffing, and exposes a jailed file explorer. Published to npm as `9remote`.
 - **`web/`** — the Next.js client UI + signaling/session API, deployed to Cloudflare Workers (OpenNext) backed by D1. Terminal data does not flow through it — clients connect to the host directly.
-- **`desktop/`** — Tauri wrapper around the host for native macOS and Windows desktop apps.
+- **`desktop/`** — Tauri wrapper around the host for native macOS, Windows and Linux desktop apps.
 - **`gitbook/`** — the docs site.
 
 The transport protocol (`host/transport/` and `web/shared/transport/`) is implemented twice, mirrored on both sides — change one, change the other.
@@ -126,6 +127,16 @@ npm run web:deploy
 ```
 
 The host itself runs anywhere Node runs — no Cloudflare dependency.
+
+---
+
+## ✍️ Code signing policy
+
+- Release binaries are built by the maintainers from the tagged commit of this repository — a release tag always points at the exact source its binaries were built from.
+- **macOS** apps are signed with an Apple Developer ID and notarized.
+- **Windows** installers are Authenticode-signed with a certificate from [SignPath Foundation](https://signpath.org) (free code signing for open source).
+- The `9remote` npm package is published from this repository by the maintainers.
+- A binary whose signature does not match the publishers above, or that cannot be traced to a tag here, did not come from this project — do not run it.
 
 ---
 

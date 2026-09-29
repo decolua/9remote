@@ -7,7 +7,7 @@ import Footer from "./Footer";
 import { useDesktopReleases } from "../hooks/useDesktopReleases";
 import {
   THEME, INSTALLERS, DESKTOP_RELEASES, downloadUrl, detectOs, byNewest,
-  GITHUB_REPO_URL, APP_STORE_URL, PLAY_STORE_URL
+  GITHUB_REPO_URL, APP_STORE_URL, PLAY_STORE_URL, LATEST_BUILD
 } from "../constants/landingConfig";
 
 // Server + first paint use "other" so hydration matches; the real OS swaps in after mount
@@ -37,7 +37,7 @@ function DownloadButton({ href, children, primary }) {
   );
 }
 
-function InstallerCard({ installer, tag, mine }) {
+function InstallerCard({ installer, tag, mine, href }) {
   return (
     <div
       className="p-5 rounded-2xl border flex flex-col transition-all duration-300 hover:-translate-y-0.5"
@@ -57,7 +57,7 @@ function InstallerCard({ installer, tag, mine }) {
       </div>
       <p className="text-xs mb-4" style={{ color: THEME.textDim }}>{installer.label}</p>
       <div className="mt-auto">
-        <DownloadButton href={downloadUrl(tag, installer.asset)} primary={mine}>
+        <DownloadButton href={href || downloadUrl(tag, installer.asset)} primary={mine}>
           Download {installer.ext}
         </DownloadButton>
       </div>
@@ -73,7 +73,8 @@ export default function DownloadsPage() {
   // Live list from GitHub; the hand-kept one carries the page until it arrives (or forever, offline)
   const live = useDesktopReleases();
   const releases = byNewest(live || DESKTOP_RELEASES);
-  const [latest, ...older] = releases;
+  // Cards already carry the newest build; the list starts one below it
+  const older = releases.slice(1);
 
   return (
     <div className="min-h-screen overflow-x-hidden safe-area-insets" style={{ color: THEME.text }}>
@@ -91,10 +92,37 @@ export default function DownloadsPage() {
             </p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-16">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
             {INSTALLERS.map((i) => (
-              <InstallerCard key={i.id} installer={i} tag={latest.tag} mine={isMine(i, os)} />
+              <InstallerCard
+                key={i.id}
+                installer={i}
+                tag={LATEST_BUILD.tag}
+                mine={isMine(i, os)}
+                href={LATEST_BUILD.assets[i.id] || downloadUrl(LATEST_BUILD.tag, i.asset)}
+              />
             ))}
+          </div>
+
+          <div className="p-5 rounded-2xl border mb-16" style={{ background: THEME.bgElevated, borderColor: THEME.border }}>
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className="text-base font-bold" style={{ color: THEME.text }}>Linux</span>
+              <span className="text-[10px] font-mono px-1.5 py-0.5 rounded border" style={{ borderColor: THEME.border, color: THEME.textMuted }}>{LATEST_BUILD.tag}</span>
+            </div>
+            <p className="text-xs mb-4" style={{ color: THEME.textDim }}>
+              Debian/Ubuntu (.deb) or any distro via AppImage (arm64). x64 AppImage: use the CLI <code>npm i -g 9remote</code>.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              {[
+                ["deb · x64", LATEST_BUILD.assets.debAmd64],
+                ["deb · arm64", LATEST_BUILD.assets.debArm64],
+                ["AppImage · arm64", LATEST_BUILD.assets.appImageArm64]
+              ].map(([label, href]) => (
+                <a key={label} href={href} className="text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors" style={{ background: THEME.bgPanel, color: THEME.textDim, borderColor: THEME.border }}>
+                  {label}
+                </a>
+              ))}
+            </div>
           </div>
 
           <section className="mb-16">

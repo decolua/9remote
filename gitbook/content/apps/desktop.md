@@ -1,6 +1,6 @@
 # Desktop App
 
-Run 9Remote as a native, zero-friction desktop application on macOS and Windows.
+Run 9Remote as a native, zero-friction desktop application on macOS, Windows and Linux.
 
 ## What It Does
 
@@ -50,13 +50,18 @@ While the 9Remote CLI runs in your terminal, the **9Remote Desktop App** wraps t
 4. Allow 9Remote through the Windows Firewall for local peer-to-peer WebRTC connections.
 5. The 9Remote tray icon will appear in the bottom-right taskbar.
 
+### Linux
+1. Download the `.deb` (x64/arm64) or `.AppImage` (arm64) from releases.
+2. Install the `.deb` with `sudo apt install ./9Remote-linux-*.deb`, or mark the AppImage executable (`chmod +x`) and run it.
+3. The 9Remote icon appears in your system tray.
+
 ---
 
 ## CLI vs Desktop App Comparison
 
 | Feature | CLI (`9remote` / `9remote start`) | Native Desktop App |
 |---|---|---|
-| **Platform** | macOS, Linux, Windows | macOS, Windows |
+| **Platform** | macOS, Linux, Windows | macOS, Windows, Linux |
 | **System Tray** | No | Yes |
 | **Terminal Window** | Required (or via systemd/screen) | None needed |
 | **Auto-Start** | Manual setup (systemd/cron) | One-click toggle in Settings |

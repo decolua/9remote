@@ -2,8 +2,7 @@
 
 import { Fragment, useState, useSyncExternalStore } from "react";
 import Link from "next/link";
-import { useDesktopReleases } from "../hooks/useDesktopReleases";
-import { THEME, HALVES, detectOs, DOWNLOADS_PATH, DESKTOP_RELEASES, versionOf, byNewest, APP_STORE_URL, PLAY_STORE_URL } from "../constants/landingConfig";
+import { THEME, HALVES, detectOs, DOWNLOADS_PATH, LATEST_BUILD, versionOf, APP_STORE_URL, PLAY_STORE_URL } from "../constants/landingConfig";
 
 // Mirror-tabbed cards — both halves get the same segmented control + body row
 const HALF_TABS = {
@@ -24,7 +23,7 @@ const INSTALLER_EXT = { macos: ".dmg", windows: ".exe" };
 export default function AgentClientSection() {
   const version = process.env.NEXT_PUBLIC_SERVER_VERSION;
   // The desktop build's own version — NEXT_PUBLIC_SERVER_VERSION tracks the web app
-  const desktopVersion = versionOf(byNewest(useDesktopReleases() || DESKTOP_RELEASES)[0].tag);
+  const desktopVersion = versionOf(LATEST_BUILD.tag);
   // Server + first paint use "other" so hydration matches; real OS swaps in after mount
   const os = useSyncExternalStore(() => () => {}, detectOs, () => "other");
   const [copied, setCopied] = useState(false);
