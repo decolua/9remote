@@ -83,11 +83,12 @@ export function useVoiceInput({
     !!window.ReactNativeWebView || /9Remote-Mobile/i.test(navigator.userAgent)
   );
 
-  const supported = typeof window !== "undefined" && (
-    mode === "ai"
-      ? !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder)
-      : (!isExpo && !!getRecognition())
-  );
+  const aiOk = typeof window !== "undefined" && !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
+  // WKWebView (Tauri) has no usable Web Speech API — even where the object exists,
+  // start() dies with "service-not-allowed". Silently use the AI engine there.
+  const isTauri = typeof window !== "undefined" && !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
+  const effMode = mode === "browser" && !isExpo && (isTauri || !getRecognition()) && aiOk ? "ai" : mode;
+  const supported = effMode === "ai" ? aiOk : (!isExpo && !!getRecognition());
   const active = enabled && supported;
 
   // AI engine: record while "listening", transcribe once on stop.
@@ -183,9 +184,9 @@ export function useVoiceInput({
 
   const stop = useCallback(() => {
     wantOnRef.current = false;
-    if (mode === "ai") { void stopAi(); return; }
+    if (effMode === "ai") { void stopAi(); return; }
     try { recognitionRef.current?.stop(); } catch {}
-  }, [mode, stopAi]);
+  }, [effMode, stopAi]);
 
   const spawn = useCallback(function spawnRec() {
     const SR = getRecognition();
@@ -249,13 +250,13 @@ export function useVoiceInput({
   }, []);
 
   const start = useCallback((currentText = "") => {
-    if (mode === "ai") { void startAi(currentText); return; }
+    if (effMode === "ai") { void startAi(currentText); return; }
     if (isExpo || !getRecognition()) return;
     baseRef.current = currentText ? currentText.replace(/\s*$/, "") + " " : "";
     setError(null);
     wantOnRef.current = true;
     spawn();
-  }, [isExpo, mode, startAi, spawn]);
+  }, [isExpo, effMode, startAi, spawn]);
 
   const toggle = useCallback((currentText = "") => {
     if (listening) stop();
