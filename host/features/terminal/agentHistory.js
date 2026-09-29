@@ -719,6 +719,183 @@ export async function listAgentSessions({ cwd, limit = HISTORY.DEFAULT_LIMIT, fr
   return unique.slice(0, limit);
 }
 
+// ---- Global conversation search --------------------------------------------
+// Scans every source's transcripts across ALL cwds for a case-insensitive
+// substring. Rows keep the list shape (no snippet): search exists to identify
+// WHICH conversation — resume shows the rest.
+// ponytail: sync single-thread scan bounded by the SEARCH_* budget; move to a
+// worker thread if it ever stutters terminal streaming.
+
+// Directory depth from each source root that reaches every cwd's transcripts.
+const SEARCH_FILE_DEPTH = { cwdDir: 3, scan: HISTORY.SCAN_DEPTH, opencode: 0 };
+
+const likeEscape = (q) => `%${q.replace(/[\\%_]/g, (c) => "\\" + c)}%`;
+
+// SQLite-backed stores: message bodies live in shapes we don't parse, so the
+// LIKE matches title (plus preview where one exists) only.
+const SQLITE_SEARCH = {
+  opencode: {
+    db: () => path.join(home(), ".local", "share", "opencode", "opencode.db"),
+    sql: "SELECT id AS sessionId, title, directory AS cwd, time_updated AS at FROM session " +
+      "WHERE parent_id IS NULL AND title LIKE ? ESCAPE '\\' ORDER BY time_updated DESC",
+    args: (like) => [like],
+    map: (r) => ({ ...r, updatedAt: r.at || 0 })
+  },
+  devin: {
+    db: () => path.join(home(), ".local", "share", "devin", "cli", "sessions.db"),
+    sql: "SELECT id AS sessionId, title, working_directory AS cwd, last_activity_at AS at FROM sessions " +
+      "WHERE (hidden = 0 OR hidden IS NULL) AND title LIKE ? ESCAPE '\\' ORDER BY last_activity_at DESC",
+    args: (like) => [like],
+    map: (r) => ({ ...r, updatedAt: (r.at || 0) * 1000 })
+  },
+  hermes: {
+    db: () => path.join(home(), ".hermes", "state.db"),
+    sql: "SELECT id AS sessionId, title, started_at AS at FROM sessions " +
+      "WHERE title != '' AND title LIKE ? ESCAPE '\\' ORDER BY started_at DESC",
+    args: (like) => [like],
+    map: (r) => ({ ...r, cwd: null, updatedAt: (r.at || 0) * 1000 })
+  },
+  antigravity: {
+    db: () => path.join(home(), ".gemini", "antigravity-cli", "conversation_summaries.db"),
+    sql: "SELECT conversation_id AS sessionId, title, preview, last_modified_time AS at, workspace_uris FROM conversation_summaries " +
+      "WHERE title LIKE ? ESCAPE '\\' OR preview LIKE ? ESCAPE '\\' ORDER BY last_modified_time DESC",
+    args: (like) => [like, like],
+    map: (r) => {
+      let cwd = null;
+      if (r.workspace_uris) {
+        try {
+          const uris = JSON.parse(r.workspace_uris);
+          const first = Array.isArray(uris) ? uris[0] : null;
+          if (typeof first === "string") cwd = decodeURIComponent(first.replace(/^file:\/\//, ""));
+        } catch {}
+      }
+      return { sessionId: r.sessionId, title: r.title || r.preview, cwd, updatedAt: Date.parse(r.at) || 0 };
+    }
+  }
+};
+
+const CWD_IN_TEXT_RE = /"cwd"\s*:\s*"((?:[^"\\]|\\.)*)"/;
+
+// One-line evidence of where the query matched. Skips the first occurrence
+// when the title itself contains it — that hit is the title's own source line
+// (boilerplate), the snippet must add context the row does not already show.
+function buildSnippet(text, lower, firstIdx, q, skipFirst) {
+  let idx = firstIdx;
+  if (skipFirst) {
+    const next = lower.indexOf(q, idx + q.length);
+    if (next !== -1) idx = next;
+  }
+  let from = Math.max(0, idx - HISTORY.SEARCH_SNIPPET_PAD);
+  let to = Math.min(text.length, idx + q.length + HISTORY.SEARCH_SNIPPET_PAD);
+  // Raw JSONL windows leak syntax ("content":"…). The match lives inside some
+  // JSON string — clamp the window to that string's enclosing quotes so the
+  // snippet reads as prose. Best effort: escaped quotes just start mid-string.
+  const lineStart = text.lastIndexOf("\n", idx) + 1;
+  const lineEnd = text.indexOf("\n", idx);
+  const qStart = text.lastIndexOf('"', idx);
+  const qEnd = text.indexOf('"', idx + q.length);
+  if (qStart !== -1 && qEnd !== -1 && qStart >= lineStart && (lineEnd === -1 || qEnd <= lineEnd)) {
+    from = Math.max(from, qStart + 1);
+    to = Math.min(to, qEnd);
+  }
+  const clean = text.slice(from, to)
+    .replace(/\\[nrt]/g, " ")
+    .replace(/\\"/g, '"')
+    .replace(/\s+/g, " ")
+    .trim();
+  const body = clean.length > HISTORY.SEARCH_SNIPPET_MAX ? `${clean.slice(0, HISTORY.SEARCH_SNIPPET_MAX - 1)}…` : clean;
+  return `${from > 0 ? "…" : ""}${body}${to < text.length ? "…" : ""}`;
+}
+
+export async function searchAgentSessions({ query, limit = HISTORY.SEARCH_LIMIT } = {}) {
+  const q = String(query || "").trim().slice(0, HISTORY.SEARCH_QUERY_MAX).toLowerCase();
+  if (q.length < HISTORY.SEARCH_MIN_CHARS) return { sessions: [], truncated: false };
+
+  const start = Date.now();
+  let bytes = 0;
+  let truncated = false;
+  const rows = [];
+  const like = likeEscape(q);
+
+  for (const source of HISTORY_SOURCES) {
+    const conf = SQLITE_SEARCH[source.id];
+    if (!conf) continue;
+    const dbPath = conf.db();
+    if (!fs.existsSync(dbPath)) continue;
+    let db;
+    try {
+      db = new (loadSqlite().DatabaseSync)(dbPath, { readOnly: true });
+      for (const rec of db.prepare(conf.sql).all(...conf.args(like)).slice(0, limit * 2)) {
+        const r = conf.map(rec);
+        if (!r.sessionId) continue;
+        rows.push({
+          agent: source.id,
+          sessionId: r.sessionId,
+          title: cleanTitle(r.title || ""),
+          cwd: r.cwd || null,
+          updatedAt: r.updatedAt || 0,
+          size: 0,
+          resume: resumeCommand(source.id, r.sessionId)
+        });
+      }
+    } catch {} finally {
+      try { db?.close(); } catch {}
+    }
+  }
+
+  const files = [];
+  for (const source of HISTORY_SOURCES) {
+    const depth = SEARCH_FILE_DEPTH[source.layout];
+    if (depth === undefined) continue;
+    for (const filePath of filesUnder(source.root(), depth, source.ext, source.file)) {
+      files.push({ filePath, source, mtime: mtimeMs(filePath) });
+    }
+  }
+  files.sort((a, b) => b.mtime - a.mtime);
+
+  for (const { filePath, source } of files) {
+    if (rows.length >= limit * 2) break;
+    if (bytes > HISTORY.SEARCH_TOTAL_BYTES || Date.now() - start > HISTORY.SEARCH_TIME_BUDGET_MS) { truncated = true; break; }
+    if (fileSizeBytes(filePath) > HISTORY.SEARCH_FILE_BYTES) continue;
+    let text;
+    try { text = fs.readFileSync(filePath, "utf8"); } catch { continue; }
+    bytes += text.length;
+    const lower = text.toLowerCase();
+    const idx = lower.indexOf(q);
+    if (idx === -1) continue;
+    const parsed = source.parse(filePath);
+    const title = cleanTitle(parsed?.title || "");
+    const snippet = buildSnippet(text, lower, idx, q, normalizePrompt(title).includes(q));
+    const sessionId = parsed?.sessionId || path.basename(filePath, path.extname(filePath));
+    let cwd = parsed?.cwd || null;
+    if (!cwd) {
+      const m = text.match(CWD_IN_TEXT_RE);
+      if (m) { try { cwd = JSON.parse(`"${m[1]}"`); } catch {} }
+    }
+    rows.push({
+      agent: source.id,
+      sessionId,
+      title,
+      snippet,
+      cwd,
+      updatedAt: mtimeMs(filePath),
+      size: fileSizeBytes(filePath),
+      resume: resumeCommand(source.id, sessionId),
+      filePath
+    });
+  }
+
+  rows.sort((a, b) => b.updatedAt - a.updatedAt || SOURCE_RANK.get(a.agent) - SOURCE_RANK.get(b.agent));
+  const seen = new Set();
+  const unique = rows.filter((row) => {
+    const key = `${row.agent}:${row.sessionId}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { sessions: unique.slice(0, limit), truncated };
+}
+
 export async function deleteAgentSession({ agent, sessionId, cwd } = {}) {
   if (!agent || !sessionId) return false;
   const source = SOURCE_BY_ID.get(agent);

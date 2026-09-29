@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { ChevronRight, History, ExternalLink, Trash2, GitFork } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
+import { isMac } from "@/features/terminal/constants/shortcuts";
 import { useAgentSessions } from "../hooks/useAgentSessions";
 import { AGENT_HISTORY_MAX_HEIGHT } from "../constants/terminalConfig";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -49,13 +50,53 @@ export default function AgentHistoryPanel({
   // it drops the collapsible section header and the height share meant for a sidebar.
   const asList = variant === "list";
 
+  // Opt/Ctrl+H opens history — the tab-switcher's modifier convention
+  // (isMac ? opt : ctrl), H for History. Sidebar variant only.
+  useEffect(() => {
+    if (asList || !cwd) return;
+    const onKey = (e) => {
+      // Typing surfaces own their keys (Ctrl+H is backspace in a terminal).
+      const tag = e.target?.tagName;
+      if (tag === "INPUT" || tag === "TEXTAREA" || e.target?.isContentEditable) return;
+      const mod = isMac()
+        ? (e.altKey && !e.ctrlKey && !e.metaKey)
+        : (e.ctrlKey && !e.metaKey && !e.altKey);
+      if (mod && e.key.toLowerCase() === "h") {
+        e.preventDefault();
+        setModalOpen(true);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [asList, cwd]);
+
+  // Rendered apart so the empty-history early return below can still show a
+  // modal the shortcut opened — global search works even with no local rows.
+  const modal = modalOpen && (
+    <AgentHistoryModal
+      isOpen={modalOpen}
+      onClose={() => setModalOpen(false)}
+      busRef={busRef}
+      cwd={cwd}
+      scope={scope}
+      onResume={onResume}
+      onSelectSession={onSelectSession}
+      liveSessionIds={liveSessionIds}
+      activeSessionId={activeSessionId}
+      connected={connected}
+    />
+  );
+
   if (!cwd) return null;
   if (!sessions?.length) {
-    if (!asList) return null;
+    if (!asList) return modal;
     return (
-      <div className="flex-1 min-h-0 flex items-center justify-center px-6 py-10 text-center text-sm text-text-muted">
-        {t("agentHistory.empty")}
-      </div>
+      <>
+        <div className="flex-1 min-h-0 flex items-center justify-center px-6 py-10 text-center text-sm text-text-muted">
+          {t("agentHistory.empty")}
+        </div>
+        {modal}
+      </>
     );
   }
 
@@ -198,20 +239,7 @@ export default function AgentHistoryPanel({
         )}
       </div>
 
-      {modalOpen && (
-        <AgentHistoryModal
-          isOpen={modalOpen}
-          onClose={() => setModalOpen(false)}
-          busRef={busRef}
-          cwd={cwd}
-          scope={scope}
-          onResume={onResume}
-          onSelectSession={onSelectSession}
-          liveSessionIds={liveSessionIds}
-          activeSessionId={activeSessionId}
-          connected={connected}
-        />
-      )}
+      {modal}
 
       {deletingSession && (
         <ConfirmDialog

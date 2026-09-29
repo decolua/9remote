@@ -6,7 +6,7 @@ import { createLogger } from "../../../lib/logger.js";
 
 const capsLogger = createLogger("terminal");
 import { detectAgentClis, agentRenameCommand, agentIdFromProcess } from "../agentCatalog.js";
-import { listAgentSessions, matchLiveSessions, conversationTitle, deleteAgentSession } from "../agentHistory.js";
+import { listAgentSessions, matchLiveSessions, conversationTitle, deleteAgentSession, searchAgentSessions } from "../agentHistory.js";
 import { getLiveConversations, forgetSession, claimResumedConversation, getConversation, getSessionAgent, setSessionAgent } from "../statusManager.js";
 import { setSessionMode, sendTerminalInput, CLEAR_LINE } from "../sessionMode.js";
 import { engineFromAgent } from "../conversationModes.js";
@@ -414,6 +414,12 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     const rows = await listAgentSessions({ cwd, limit });
     callback?.({ success: true, sessions: matchLiveSessions(rows, liveHistoryRows(sessions)) });
     syncAutoNames(io, sessions);
+  });
+
+  // Global conversation search: every directory's transcripts, content included.
+  socket.on("searchAgentSessions", async ({ query } = {}, callback) => {
+    const { sessions: found, truncated } = await searchAgentSessions({ query });
+    callback?.({ success: true, sessions: matchLiveSessions(found, liveHistoryRows(sessions)), truncated });
   });
 
   // Claim conversation immediately on resume rather than waiting for first CLI hook.

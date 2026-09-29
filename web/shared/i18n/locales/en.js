@@ -323,6 +323,8 @@ export default {
     deleteTitle: "Delete conversation",
     deleteMessage: "Delete \"{title}\"? This permanently deletes the conversation transcript.",
     noResults: "No matching conversations",
+    searchingAll: "Searching all folders…",
+    searchTruncated: "Newest matches shown — refine the query to search deeper",
   },
   workspaces: {
     title: "Workspaces",

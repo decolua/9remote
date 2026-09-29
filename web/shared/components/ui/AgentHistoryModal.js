@@ -23,6 +23,20 @@ function formatBytes(bytes) {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const ESCAPE_RE = /[.*+?^${}()|[\]\\]/g;
+
+// Split a snippet on the query that fetched it; matched spans render as <mark>
+// (weight + tint, never color alone). q is the SENT query, not the draft.
+function highlightQuery(text, q) {
+  if (!q) return text;
+  const parts = String(text).split(new RegExp(`(${q.replace(ESCAPE_RE, "\\$&")})`, "gi"));
+  return parts.map((part, i) =>
+    part.toLowerCase() === q.toLowerCase()
+      ? <mark key={i} className="bg-transparent text-text font-semibold px-0">{part}</mark>
+      : part
+  );
+}
+
 export default function AgentHistoryModal({
   isOpen,
   onClose,
@@ -39,11 +53,37 @@ export default function AgentHistoryModal({
   const [query, setQuery] = useState("");
   const [selectedAgent, setSelectedAgent] = useState("all");
   const [deletingSession, setDeletingSession] = useState(null);
+  const [globalRows, setGlobalRows] = useState([]);
+  const [activeQuery, setActiveQuery] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchTruncated, setSearchTruncated] = useState(false);
   // Same path on two machines is two histories — key through the host scope.
   const historyKey = scope ? `${scope}|${cwd}` : cwd;
 
   const rawSessions = useTerminalStore((s) => (cwd ? s.agentHistory[historyKey]?.sessions : null));
   const sessions = useMemo(() => rawSessions || [], [rawSessions]);
+
+  // 3+ chars widens the box's local filter into a host-wide content search
+  // across every directory's transcripts; rows land in the same list below.
+  // Inactive states are derived at render — the effect only sets state async.
+  const searchActive = isOpen && connected && query.trim().length >= 3;
+  useEffect(() => {
+    if (!searchActive) return;
+    const q = query.trim();
+    let stale = false;
+    const timer = setTimeout(() => {
+      setSearching(true);
+      busRef?.current?.emit("searchAgentSessions", { query: q }, (res) => {
+        if (stale) return;
+        setSearching(false);
+        setSearchTruncated(!!res?.truncated);
+        setGlobalRows(Array.isArray(res?.sessions) ? res.sessions : []);
+        // Snippets/highlights answer the query that produced them, not the draft.
+        setActiveQuery(q);
+      });
+    }, 350);
+    return () => { stale = true; clearTimeout(timer); };
+  }, [query, searchActive, busRef]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -63,17 +103,40 @@ export default function AgentHistoryModal({
     return Array.from(set);
   }, [sessions]);
 
+  const rowMatches = (s, q) => {
+    const title = (s.title || "").toLowerCase();
+    const id = (s.sessionId || "").toLowerCase();
+    const agent = (s.agent || "").toLowerCase();
+    return title.includes(q) || id.includes(q) || agent.includes(q);
+  };
+
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return sessions.filter((s) => {
-      if (selectedAgent !== "all" && s.agent !== selectedAgent) return false;
-      if (!q) return true;
-      const title = (s.title || "").toLowerCase();
-      const id = (s.sessionId || "").toLowerCase();
-      const agent = (s.agent || "").toLowerCase();
-      return title.includes(q) || id.includes(q) || agent.includes(q);
-    });
-  }, [sessions, query, selectedAgent]);
+    const out = [];
+    const seen = new Set();
+    // Content hits for conversations already in this list — attach the snippet
+    // so a title-matching local row still shows WHY it matched.
+    const snippetByKey = new Map();
+    for (const s of (searchActive ? globalRows : [])) {
+      if (s.snippet) snippetByKey.set(`${s.agent}:${s.sessionId}`, s.snippet);
+    }
+    for (const s of sessions) {
+      if (selectedAgent !== "all" && s.agent !== selectedAgent) continue;
+      if (!q || rowMatches(s, q)) {
+        const snippet = snippetByKey.get(`${s.agent}:${s.sessionId}`);
+        out.push(snippet ? { ...s, snippet } : s);
+        seen.add(`${s.agent}:${s.sessionId}`);
+      }
+    }
+    for (const s of (searchActive ? globalRows : [])) {
+      if (seen.has(`${s.agent}:${s.sessionId}`)) continue;
+      if (selectedAgent !== "all" && s.agent !== selectedAgent) continue;
+      // Foreign marks a search hit from outside this list's store — its delete
+      // would miss. Local rows (worktree branch rows included) stay deletable.
+      out.push({ ...s, foreign: true });
+    }
+    return out.sort((a, b) => (b.updatedAt || 0) - (a.updatedAt || 0));
+  }, [sessions, globalRows, searchActive, query, selectedAgent]);
 
   if (!isOpen) return null;
 
@@ -151,6 +214,14 @@ export default function AgentHistoryModal({
             )}
           </div>
 
+          {/* Fixed-height slot: the searching/truncated line comes and goes
+              without ever pushing the list up or down. */}
+          <div className="h-4 px-1 text-[11px] leading-4 text-text-subtle">
+            {searchActive && (searching
+              ? t("agentHistory.searchingAll")
+              : searchTruncated ? t("agentHistory.searchTruncated") : null)}
+          </div>
+
           {agentTypes.length > 1 && (
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
               <button
@@ -181,8 +252,9 @@ export default function AgentHistoryModal({
           )}
         </div>
 
-        {/* Sessions list */}
-        <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable p-2 space-y-1">
+        {/* Sessions list — fixed height so result count never resizes the modal
+            while typing; results swap inside the scroll area instead. */}
+        <div className="h-[55vh] min-h-0 overflow-y-auto modal-scrollable p-2 space-y-1">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-text-muted text-sm gap-2">
               <History size={32} className="opacity-40" />
@@ -194,6 +266,8 @@ export default function AgentHistoryModal({
                 ? row.openSessionId
                 : null;
               const title = row.title || t("agentHistory.untitled");
+              // Search hit from outside this list's store: no delete, show its path.
+              const foreign = !!row.foreign;
 
               return (
                 <div
@@ -217,7 +291,20 @@ export default function AgentHistoryModal({
                         </span>
                       )}
                     </div>
+                    {row.snippet && (
+                      <div className="mt-0.5 text-[11px] leading-snug text-text-subtle line-clamp-2">
+                        {highlightQuery(row.snippet, activeQuery)}
+                      </div>
+                    )}
                     <div className="flex items-center gap-1.5 mt-0.5 text-[11px] text-text-subtle min-w-0">
+                      {foreign && row.cwd && row.cwd !== cwd && (
+                        <>
+                          <span className="truncate min-w-0 max-w-[45%] font-mono" title={row.cwd}>
+                            {row.cwd}
+                          </span>
+                          <span>•</span>
+                        </>
+                      )}
                       {/* Worktree rows name their branch here; main-checkout rows stay bare */}
                       {row.branch && row.branch !== "main" && row.branch !== "master" && (
                         <>
@@ -246,9 +333,9 @@ export default function AgentHistoryModal({
                         e.stopPropagation();
                         setDeletingSession(row);
                       }}
-                      disabled={!connected || !!openId}
+                      disabled={!connected || !!openId || !!foreign}
                       className={`p-1.5 text-text-muted hover:text-danger hover:bg-danger/10 rounded-brand transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 ${
-                        openId ? "invisible pointer-events-none" : ""
+                        openId || foreign ? "invisible pointer-events-none" : ""
                       }`}
                       title={t("agentHistory.delete")}
                       aria-label={t("agentHistory.delete")}
