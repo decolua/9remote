@@ -10,6 +10,7 @@ import { writeJsonAtomic } from "../../lib/atomicFile.js";
 import { agentById } from "./agentCatalog.js";
 import { getConversationMode, engineFromAgent } from "./conversationModes.js";
 import { parseWorktreeList } from "../fileExplorer/gitRepoScan.js";
+import { findGitRoot } from "./workspaceMigration.js";
 
 const require = createRequire(import.meta.url);
 
@@ -659,8 +660,11 @@ export function clearHistoryCache() {
 // the history includes sessions from the main checkout (unlabeled) plus each linked
 // worktree (labeled with its branch). Both main and worktrees see the same list.
 function repoWorktreeInfo(cwd) {
+  if (!findGitRoot(cwd)) return null;
   try {
-    const out = execFileSync("git", ["worktree", "list", "--porcelain"], { cwd, timeout: 5000, encoding: "utf8" });
+    const out = execFileSync("git", ["worktree", "list", "--porcelain"], {
+      cwd, timeout: 5000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"]
+    });
     const trees = parseWorktreeList(out);
     if (!trees || trees.length <= 1) return null;
     const main = trees[0];

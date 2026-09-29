@@ -16,6 +16,7 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
   const revealCls = "opacity-100 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100";
   const [worktrees, setWorktrees] = useState([]);
   const [branches, setBranches] = useState([]);
+  const [isNotRepo, setIsNotRepo] = useState(false);
   const [query, setQuery] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -28,7 +29,17 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
     setError(null);
     const res = await fileBus.gitBranchList(workspacePath);
     setLoading(false);
-    if (!res?.success) return setError(res?.error || null);
+    if (!res?.success) {
+      if (/not a git repo/i.test(res?.error || "")) {
+        setIsNotRepo(true);
+        setBranches([]);
+        setWorktrees([]);
+        return;
+      }
+      setIsNotRepo(false);
+      return setError(res?.error || null);
+    }
+    setIsNotRepo(false);
     setBranches(res.branches || []);
     setWorktrees(res.worktrees || []);
   }, [workspacePath, fileBus]);
@@ -175,7 +186,9 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
           </div>
         ))}
         {!visible.length && !loading && (
-          <p className="px-3 py-2 text-[11px] text-text-subtle italic">{t("workspaces.emptyWorkspace")}</p>
+          <p className="px-3 py-2 text-[11px] text-text-subtle italic">
+            {isNotRepo ? t("git.noGitRepo") : t("workspaces.emptyWorkspace")}
+          </p>
         )}
       </div>
 

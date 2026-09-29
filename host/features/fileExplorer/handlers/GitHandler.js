@@ -10,6 +10,7 @@ import {
 import { listSessionRoots } from "../../terminal/terminalSocket.js";
 import { destroySessionById } from "../../terminal/handlers/SessionHandler.js";
 import { getSessionAgent } from "../../terminal/statusManager.js";
+import { findGitRoot } from "../../terminal/workspaceMigration.js";
 
 // Per-cwd TTL cache for gitChangedCount badge — prevents repeated git spawns on
 // rapid requests (e.g. terminal typing re-rendering the file watcher effect).
@@ -19,6 +20,7 @@ const _countCache = new Map(); // repoPath → { ts, value, pending }
 // Changed-file count for one repo, TTL-cached and de-duplicated: a spawn already in
 // flight is awaited rather than repeated.
 async function changedCountCached(repoPath, force) {
+  if (!repoPath || !findGitRoot(repoPath)) return { success: false, error: "Not a git repository or git not available" };
   const cached = _countCache.get(repoPath);
   const now = Date.now();
   if (!force && cached && now - cached.ts < GIT_COUNT_TTL_MS) return cached.value;
@@ -102,6 +104,7 @@ function capDiff(diff) {
 
 export function setupGitHandlers(socket) {
   socket.on("gitStatus", ({ repoPath }, callback) => {
+    if (!repoPath || !findGitRoot(repoPath)) return callback({ success: false, error: "Not a git repository or git not available" });
     try {
       // -uall: without it git collapses an untracked directory into one entry, which the
       // UI then opens as a file (EISDIR) and counts as zero added lines.
@@ -196,6 +199,7 @@ export function setupGitHandlers(socket) {
   });
 
   socket.on("gitFileStatus", ({ repoPath, filePath }, callback) => {
+    if (!repoPath || !findGitRoot(repoPath)) return callback({ success: true, status: null });
     try {
       const relativePath = path.relative(repoPath, filePath);
       const result = runGitSync(["status", "--porcelain", "--", relativePath], repoPath);
@@ -222,6 +226,7 @@ export function setupGitHandlers(socket) {
   });
 
   socket.on("gitDiff", ({ repoPath, file: rawFile, status }, callback) => {
+    if (!repoPath || !findGitRoot(repoPath)) return callback({ success: false, error: "Not a git repository" });
     try {
       let diff = "";
       // Callers hand this over either way: the git panel sends a repo-relative path, the
@@ -319,6 +324,7 @@ export function setupGitHandlers(socket) {
   });
 
   socket.on("gitBranch", async ({ repoPath }, callback) => {
+    if (!repoPath || !findGitRoot(repoPath)) return callback({ success: false });
     try {
       const r = await runGit(["branch", "--show-current"], repoPath);
       if (r.code !== 0) return callback({ success: false });
@@ -470,6 +476,7 @@ export function setupGitHandlers(socket) {
   // ---- Worktrees ----
 
   socket.on("gitWorktreeList", async ({ repoPath }, callback) => {
+    if (!repoPath || !findGitRoot(repoPath)) return callback({ success: false, error: "Not a git repository" });
     try {
       const r = await runGit(["worktree", "list", "--porcelain"], repoPath);
       if (r.code !== 0) return callback({ success: false, error: r.stderr.trim() });
@@ -570,6 +577,7 @@ export function setupGitHandlers(socket) {
   // ---- Branches ----
 
   socket.on("gitBranchList", async ({ repoPath }, callback) => {
+    if (!repoPath || !findGitRoot(repoPath)) return callback({ success: false, error: "Not a git repository" });
     try {
       const [branchRes, wtRes] = await Promise.all([
         runGit(["branch", "-a", "--format=%(refname)%09%(refname:short)%09%(upstream:short)%09%(HEAD)"], repoPath),

@@ -2,6 +2,7 @@
 import { execSync } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
+import { findGitRoot } from "../terminal/workspaceMigration.js";
 
 let cachedFiles = [];
 let cachedModified = new Set();
@@ -17,8 +18,23 @@ function getRepoFiles(rootDir) {
   const fileList = [];
   const modifiedSet = new Set();
 
+  if (!findGitRoot(rootDir)) {
+    try {
+      const entries = fs.readdirSync(rootDir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.name.startsWith(".")) fileList.push(e.name);
+      }
+    } catch {}
+    cachedFiles = fileList;
+    cachedModified = modifiedSet;
+    lastScanTime = now;
+    return { files: fileList, modified: modifiedSet };
+  }
+
   try {
-    const statusOut = execSync("git status --short", { cwd: rootDir, encoding: "utf8", timeout: 2000 });
+    const statusOut = execSync("git status --short", {
+      cwd: rootDir, encoding: "utf8", timeout: 2000, stdio: ["ignore", "pipe", "pipe"]
+    });
     for (const line of statusOut.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
@@ -35,6 +51,7 @@ function getRepoFiles(rootDir) {
       encoding: "utf8",
       maxBuffer: 10 * 1024 * 1024,
       timeout: 3000,
+      stdio: ["ignore", "pipe", "pipe"]
     });
 
     for (const line of lsOut.split("\n")) {
