@@ -8,7 +8,7 @@ import { termLog } from "@/shared/utils/termLog";
 import { createClientBus } from "./lib/clientBus";
 import { pickAdapter } from "./lib/controlRouting";
 import { nextRestartStep, restartTimerAction, restartRtcAction, peerDeadline } from "./lib/rtcRecoveryPolicy";
-import { attachWatchers } from "./lib/pmWatchers";
+import { attachWatchers, kickWsZombie } from "./lib/pmWatchers";
 import { handleWsStateChange, handleRtcStateChange } from "./lib/adapterStateHandlers";
 import { buildConfig, initialState } from "./lib/pmConfig";
 import { initSignalingClient, handleApprovalSignal, onSignalingReady, sendSignaling, flushSigBuffer, refreshTunnelUrl } from "./lib/pmSignaling";
@@ -55,6 +55,11 @@ export class ProtocolManager {
     if (ws) { ws.retryNow?.(reason); return; }
     termLog("switch", `retryNow by=${reason}: no ws adapter → full connect()`);
     this.connect();
+  }
+
+  // Probe a ready-but-silent WS (zombie) and force-reconnect it; true when kicked.
+  kickWsZombie(reason = "stale") {
+    return kickWsZombie(this, reason);
   }
 
   emit(event, ...args) {

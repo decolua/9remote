@@ -512,10 +512,10 @@ export class WebRtcProtocol extends BaseProtocol {
         }
         // Verify signed answer against pinned host key or pairing fp2.
         if (msg.pub && msg.sig) {
-          const ok = await this._verifyHostAnswer(msg);
-          if (!ok) {
-            console.error("[rtc] host key verification FAILED — relayed answer rejected");
-            this._closePeer("host-key-rejected");
+          const rejectReason = await this._verifyHostAnswer(msg);
+          if (rejectReason) {
+            console.error(`[rtc] host key verification FAILED (${rejectReason}) — relayed answer rejected`);
+            this._closePeer(`host-key-rejected:${rejectReason}`);
             return;
           }
         }
@@ -561,9 +561,10 @@ export class WebRtcProtocol extends BaseProtocol {
   // ─── Internal ──────────────────────────────────────────────────────────────
 
   // Verify answer signature with pinned key or pairing fp2.
+  // Returns null on success, or a kebab-case reject reason for the close/log.
   async _verifyHostAnswer(msg) {
     const apiKey = this._ctx?.auth?.apiKey;
-    if (!apiKey) return true;
+    if (!apiKey) return null;
     const trust = getTrust(apiKey);
     const pinned = trust?.hostPubKey ? trust : null;
     const fp2Usable = !!trust?.hostSealKey;
@@ -581,27 +582,27 @@ export class WebRtcProtocol extends BaseProtocol {
         if (pendingFp2 && (await hostFingerprint(msg.pub, msg.xpub)) === pendingFp2) {
           setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub, fp2: pendingFp2 });
           debugLog("transport", "[rtc] host key re-pinned via fresh pairing fp2");
-          return true;
+          return null;
         }
         debugLog("auth", "[seal] REJECT answer — pinned pub differs (host key rotated?) and no fresh fp2 to re-pin");
-        return false;
+        return "pinned-pub-mismatch";
       }
       const sig = await verifySdpSignature(msg.pub, msg.sdp, msg.sig);
       if (sig === false) {
         debugLog("auth", "[seal] REJECT answer — signature invalid (relay tampering?)");
-        return false;
+        return "sig-invalid";
       }
       if (sig === null) {
         // Browser without Ed25519: verify against stored fp2.
         if (!fp2Usable) {
           debugLog("auth", "[seal] REJECT answer — no Ed25519 in browser and pinned fp2 predates sealing");
-          return false;
+          return "no-ed25519-old-pin";
         }
         const fp2ok = (await hostFingerprint(msg.pub, msg.xpub)) === pinned.fp2;
         if (!fp2ok) debugLog("auth", "[seal] REJECT answer — fp2 fallback mismatch vs pinned", pinned.fp2);
-        return fp2ok;
+        return fp2ok ? null : "fp2-mismatch";
       }
-      return true;
+      return null;
     }
     const pendingFp2 = getPendingFp2();
     if (pendingFp2) {
@@ -611,14 +612,14 @@ export class WebRtcProtocol extends BaseProtocol {
           msg.xpub ? "" : "(agent sent no sealing key — needs the source build)");
         // Clear pending fp2 on mismatch to prevent stale codes blocking future attempts.
         takePendingFp2();
-        return false;
+        return "pairing-fp2-mismatch";
       }
       setTrust(apiKey, { hostPubKey: msg.pub, hostSealKey: msg.xpub, fp2 });
       debugLog("auth", "[seal] pinned via RTC — fp2", fp2, "sealing key stored");
       debugLog("transport", "[rtc] host key pinned via pairing fp2");
-      return true;
+      return null;
     }
-    return true;
+    return null;
   }
 
   // Classify NAT type ("ok", "hard", "unknown") from observed ICE behavior.

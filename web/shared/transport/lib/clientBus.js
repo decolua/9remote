@@ -87,6 +87,11 @@ export function createClientBus(pm) {
 
     disconnect() {
       pm._rawSocket?.disconnect();
+    },
+
+    /** Probe and reconnect a ready-but-silent WS (zombie); true when kicked. */
+    kickWsZombie(reason) {
+      return pm.kickWsZombie(reason);
     }
   };
 }

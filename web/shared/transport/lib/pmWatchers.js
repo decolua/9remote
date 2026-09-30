@@ -21,6 +21,29 @@ function resetLadderOnResume(pm, reason) {
   pm._scheduleRtcRestart("resume-rearm");
 }
 
+// Zombie verdict + kick for a WS that looks ready but has delivered nothing for
+// WS_ZOMBIE_MS — invisible to the normal retry path, which only sees open sockets.
+// Returns whether the zombie was kicked.
+export function kickWsZombie(pm, reason = "stale") {
+  const ws = pm._adapters.get("ws");
+  const wsLastAlive = Math.max(ws?.lastInboundAt ?? 0, ws?.lastMsgAt ?? 0);
+  const wsZombie = ws?.ready && isWsZombie({
+    ready: true,
+    lastInboundAt: wsLastAlive,
+    now: Date.now()
+  });
+  if (ws) {
+    const lb = ws.lastInboundAt ?? 0;
+    const lm = ws.lastMsgAt ?? 0;
+    const now = Date.now();
+    termLog("switch", `zombie check (${reason}): verdict=${!!wsZombie} ready=${!!ws.ready} lastPong=${lb ? `${now - lb}ms` : "never"} lastMsg=${lm ? `${now - lm}ms` : "never"}`);
+  }
+  if (!wsZombie) return false;
+  debugLog("transport", `[pm] ws zombie (${reason}) → force reconnect`);
+  try { ws.forceReconnect?.(); } catch {}
+  return true;
+}
+
 export function attachWatchers(pm) {
   // Health check to restart frozen RTC when tab becomes visible.
   const runResumeCheck = () => {
@@ -30,22 +53,7 @@ export function attachWatchers(pm) {
     const rtc = pm._adapters.get("rtc");
     termLog("switch", `resume check: ws=${ws?.ready ? "ready" : ws?.state} rtc=${rtc?.ready ? "ready" : rtc?.state}`);
     // Detect WS zombie when background suspension freezes keepalives while socket reports connected.
-    const wsLastAlive = Math.max(ws?.lastInboundAt ?? 0, ws?.lastMsgAt ?? 0);
-    const wsZombie = ws?.ready && isWsZombie({
-      ready: true,
-      lastInboundAt: wsLastAlive,
-      now: Date.now()
-    });
-    if (ws) {
-      const lb = ws.lastInboundAt ?? 0;
-      const lm = ws.lastMsgAt ?? 0;
-      const now = Date.now();
-      termLog("switch", `zombie check: verdict=${!!wsZombie} ready=${!!ws.ready} lastPong=${lb ? `${now - lb}ms` : "never"} lastMsg=${lm ? `${now - lm}ms` : "never"}`);
-    }
-    if (wsZombie) {
-      debugLog("transport", "[pm] ws zombie on resume → force reconnect");
-      try { ws.forceReconnect?.(); } catch {}
-    }
+    kickWsZombie(pm, "resume");
     if (pm._awaitingApproval) return;
     // When gave up on hard NAT, re-arm only if public IP changed.
     if (pm._rtcGivenUp) {
