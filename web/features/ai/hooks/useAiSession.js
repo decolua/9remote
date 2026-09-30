@@ -922,9 +922,12 @@ export function useAiSession({
   // spacing. A tap is the user saying "now": drop the pending rung and ask immediately —
   // otherwise the pane would spin for another 6s over a request the user already made.
   const retryNow = useCallback(() => {
+    // A ready-but-silent WS zombie cannot answer this ask — reconnect it first;
+    // the re-ask below (or the ladder) then lands on the fresh carrier.
+    bus?.kickWsZombie?.("refresh");
     clearHydrateRetry();
     hydrateNow();
-  }, [clearHydrateRetry, hydrateNow]);
+  }, [bus, clearHydrateRetry, hydrateNow]);
 
   // The debounce and the ladder's timer both fire outside React's render, so they reach
   // the newest callback through a ref rather than through a captured closure. Nothing

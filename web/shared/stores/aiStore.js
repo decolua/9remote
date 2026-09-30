@@ -551,11 +551,15 @@ export const useAiStore = create(
         set((state) => {
           const curr = sessionOf(state, sessionId);
           // Sweep every message — a tool whose result never arrived must not spin past the turn.
-          const messages = curr.messages.map((m, idx) => ({
-            ...m,
-            ...(idx === curr.messages.length - 1 ? { isLive: false } : null),
-            ...(m.tools ? { tools: settleRunningTools(m.tools) } : null),
-          }));
+          // Unchanged rows keep their identity: the turn-end burst calls this once per event,
+          // and a full clone re-rendered every bubble each time until React's update guard tripped.
+          const messages = curr.messages.map((m, idx) => {
+            const tools = m.tools ? settleRunningTools(m.tools) : null;
+            const toolsChanged = Boolean(tools) && (tools.length !== m.tools.length || tools.some((t, i) => t !== m.tools[i]));
+            const liveChanged = idx === curr.messages.length - 1 && m.isLive !== false;
+            if (!toolsChanged && !liveChanged) return m;
+            return { ...m, ...(liveChanged ? { isLive: false } : null), ...(toolsChanged ? { tools } : null) };
+          });
           return {
             bySession: {
               ...state.bySession,

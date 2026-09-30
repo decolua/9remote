@@ -458,6 +458,8 @@ export const AiMessagesList = memo(function AiMessagesList({
   }, [visibleBytes, topId]);
 
   // Auto-page older turns if initial hydrate landed mid-turn, bounded by MAX_AUTO_PAGES.
+  // Each page goes out through a timeout: paging straight off the effect chained ~2 commits
+  // per page into one nested-update cascade (40 pages max) that tripped React's depth guard.
   useEffect(() => {
     const paged = autoPagedRef.current;
     if (paged.sessionId !== sessionId) { paged.sessionId = sessionId; paged.n = 0; }
@@ -467,8 +469,11 @@ export const AiMessagesList = memo(function AiMessagesList({
     // Only auto-page if user is still at bottom to avoid fighting scroll-up.
     if (!isAtBottomRef.current) return;
     if (!opensMidTurn(messages, hiddenCount, hasOlder)) return;
-    paged.n += 1;
-    handleLoadMore({ auto: true });
+    const timer = setTimeout(() => {
+      paged.n += 1;
+      handleLoadMore({ auto: true });
+    }, 0);
+    return () => clearTimeout(timer);
   }, [sessionId, messages, hiddenCount, hasOlder, hydrating, synced, handleLoadMore]);
 
   const handleScroll = useCallback(() => {
