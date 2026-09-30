@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useEffect, useMemo, useState } from "react";
-import { Loader2, Bot, Terminal, Square, CheckCircle2, AlertCircle, History } from "@/shared/components/ui/Icon";
+import { Loader2, Bot, Terminal, Square, CheckCircle2, AlertCircle } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { taskActivity, findTaskTool } from "../../lib/toolTree";
@@ -22,14 +22,14 @@ const KIND = {
   shell: { label: "Background task", icon: Terminal, cls: "bg-warning/15 text-warning" }
 };
 
-// A task's status in the harness's own words, tinted by whether it is still going.
+// The status tile's tint — the CLI's own word, coloured by whether it is still going.
 const STATUS_CLS = {
-  running: "bg-sky-500/15 text-sky-400",
-  completed: "bg-emerald-500/15 text-emerald-400",
-  failed: "bg-danger/15 text-danger",
-  killed: "bg-danger/15 text-danger",
-  stopped: "bg-surface-2 text-text-muted",
-  paused: "bg-warning/15 text-warning"
+  running: "text-sky-400",
+  completed: "text-emerald-400",
+  failed: "text-danger",
+  killed: "text-danger",
+  stopped: "text-text-muted",
+  paused: "text-warning"
 };
 
 /**
@@ -70,76 +70,17 @@ export const AgentTaskModal = memo(function AgentTaskModal({
   if (!task) return null;
   const elapsed = taskElapsedMs(task, now);
   const running = !task.endedAt && (task.status === "running" || task.status === "paused");
-  const statusCls = STATUS_CLS[task.status] || (running ? STATUS_CLS.running : STATUS_CLS.stopped);
+  const meta = KIND[task.background ? "shell" : "agent"];
+  const Icon = meta.icon;
 
   return (
     <ModalShell
-      icon={<History size={14} />}
-      iconClass="bg-brand-500/15 text-brand-500"
-      title={running ? `Running for ${clockText(elapsed)}` : `Ended · ${clockText(elapsed)}`}
-      subtitle={`${live.length} task${live.length > 1 ? "s" : ""} handed off`}
+      icon={<Icon size={14} />}
+      iconClass={meta.cls}
+      title={task.description || task.subagentType || "Task"}
+      subtitle={running ? `Running for ${clockText(elapsed)}` : `Ended · ${clockText(elapsed)}`}
       onClose={onClose}
-    >
-      {/* One row per task in the group. A single task draws no picker — a list of one is
-          a heading over nothing. */}
-      {live.length > 1 && (
-        <div className="flex gap-1 px-3 py-2 border-b border-border-subtle overflow-x-auto custom-scrollbar shrink-0">
-          {live.map((t) => {
-            const meta = KIND[t.background ? "shell" : "agent"];
-            const Icon = meta.icon;
-            const on = t.taskId === task.taskId;
-            return (
-              <button
-                key={t.taskId}
-                type="button"
-                onClick={() => { vibrate(); setPicked(t.taskId); }}
-                className={`flex items-center gap-1.5 shrink-0 px-2 py-1 rounded-full text-[11px] transition-colors ${
-                  on ? "bg-brand-500/15 text-brand-400 font-semibold" : "text-text-muted hover:text-text hover:bg-surface-2"
-                }`}
-              >
-                <Icon size={11} className="shrink-0" />
-                <span className="max-w-[18ch] truncate">{t.description || t.subagentType || t.taskId}</span>
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      <div className="flex-1 overflow-y-auto custom-scrollbar">
-        <Head task={task} elapsed={elapsed} statusCls={statusCls} />
-
-        <div className="p-3">
-          <Activity task={task} messages={messages} engine={engine} />
-
-          {/* The task's own calls, newest first — the same cards the timeline draws, so a
-              sub-agent's internals read here exactly as they do in the turn. */}
-          <Calls task={task} messages={messages} engine={engine} sessionId={sessionId} />
-
-          {/* What the CLI charged the task, in its own units. Only ever what the record
-              actually carried: a completed task reports these, a running one does not. */}
-          {task.usage && (
-            <div className="flex flex-wrap gap-2 mt-3">
-              <Stat label="TOKENS" value={formatTokens(task.usage.total_tokens)} />
-              <Stat label="TOOLS" value={task.usage.tool_uses ?? 0} />
-              {usageDurationMs(task.usage) > 0 && <Stat label="TOOK" value={clockText(usageDurationMs(task.usage))} />}
-            </div>
-          )}
-
-          {task.summary && (
-            <p className="mt-3 text-[11px] text-text-muted leading-relaxed border-l-2 border-border-subtle pl-3">
-              {task.summary}
-            </p>
-          )}
-
-          {task.outputFile && (
-            <p className="mt-3 font-mono text-[10px] text-text-subtle truncate" title={task.outputFile}>
-              output · {task.outputFile}
-            </p>
-          )}
-        </div>
-      </div>
-
-      {running && task.taskId && onStopTask && (
+      footer={running && task.taskId && onStopTask ? (
         <div className="px-3 py-2.5 border-t border-border-subtle bg-bg shrink-0">
           <button
             type="button"
@@ -150,40 +91,85 @@ export const AgentTaskModal = memo(function AgentTaskModal({
             Stop this task
           </button>
         </div>
+      ) : null}
+    >
+      {/* One row per task in the group, the same pickable row every modal list uses. A
+          single task draws no picker — a list of one is a heading over nothing. */}
+      {live.length > 1 && (
+        <div className="p-3 pb-0 flex flex-col gap-0.5 shrink-0 border-b border-border-subtle">
+          {live.map((t) => {
+            const m = KIND[t.background ? "shell" : "agent"];
+            const RowIcon = m.icon;
+            const on = t.taskId === task.taskId;
+            return (
+              <button
+                key={t.taskId}
+                type="button"
+                onClick={() => { vibrate(); setPicked(t.taskId); }}
+                className={`modal-row ${on ? "modal-row-active" : ""}`}
+              >
+                <RowIcon size={14} className={`shrink-0 ${on ? "text-brand-500" : "text-text-muted"}`} />
+                <span className={`flex-1 min-w-0 truncate text-xs ${on ? "text-text font-medium" : "text-text-muted"}`}>
+                  {t.description || t.subagentType || t.taskId}
+                </span>
+                <span className="text-[10px] font-mono text-text-subtle shrink-0">
+                  {t.status === "running" ? clockText(taskElapsedMs(t, now)) : t.status}
+                </span>
+              </button>
+            );
+          })}
+        </div>
       )}
+
+      {/* The task at a glance — same tile strip as the Tasks modal. */}
+      <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-border-subtle bg-bg text-center shrink-0">
+        <Stat label="STATUS" value={task.status} cls={STATUS_CLS[task.status] || "text-text-muted"} />
+        <Stat label="RUNNING" value={clockText(elapsed)} cls="text-text" />
+        <Stat label="TOKENS" value={task.usage ? formatTokens(task.usage.total_tokens) : "—"} cls="text-text" />
+        <Stat label="TOOLS" value={task.usage ? String(task.usage.tool_uses ?? 0) : "—"} cls="text-text" />
+      </div>
+
+      <div className="p-3 flex-1 overflow-y-auto custom-scrollbar">
+        <div className="flex items-center gap-2 text-[10px] font-mono text-text-muted mb-2">
+          <span>{meta.label}</span>
+          {task.subagentType && <><span className="text-text-subtle">·</span><span className="text-brand-500">{task.subagentType}</span></>}
+          {task.taskType && <><span className="text-text-subtle">·</span><span>{task.taskType}</span></>}
+          <span className="text-text-subtle truncate ml-auto" title={task.taskId}>{task.taskId}</span>
+        </div>
+
+        <Activity task={task} messages={messages} engine={engine} />
+
+        {/* The task's own calls, newest first — the same cards the timeline draws, so a
+            sub-agent's internals read here exactly as they do in the turn. */}
+        <Calls task={task} messages={messages} engine={engine} sessionId={sessionId} />
+
+        {task.usage && usageDurationMs(task.usage) > 0 && (
+          <div className="text-[11px] text-text-muted font-mono mt-3">
+            took {clockText(usageDurationMs(task.usage))}
+          </div>
+        )}
+
+        {task.summary && (
+          <p className="mt-3 text-[11px] text-text-muted leading-relaxed border-l-2 border-border-subtle pl-3">
+            {task.summary}
+          </p>
+        )}
+
+        {task.outputFile && (
+          <p className="mt-3 font-mono text-[10px] text-text-subtle truncate" title={task.outputFile}>
+            output · {task.outputFile}
+          </p>
+        )}
+      </div>
     </ModalShell>
   );
 });
 
-/** The one-line answer: what it is, what it was asked, and the clock. */
-function Head({ task, elapsed, statusCls }) {
-  const meta = KIND[task.background ? "shell" : "agent"];
-  const Icon = meta.icon;
+function Stat({ label, value, cls }) {
   return (
-    <div className="px-4 py-3 border-b border-border-subtle flex items-start gap-3">
-      <div className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 ${meta.cls}`}>
-        <Icon size={15} />
-      </div>
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2 flex-wrap">
-          <span className="text-sm font-semibold text-text truncate">{task.description || task.subagentType || "task"}</span>
-          <span className={`text-[10px] font-mono uppercase tracking-wider px-1.5 py-0.5 rounded ${statusCls}`}>
-            {task.status}
-          </span>
-        </div>
-        <div className="flex items-center gap-2 mt-1 text-[11px] text-text-muted font-mono flex-wrap">
-          <span>{meta.label}</span>
-          {task.subagentType && <><Dot /><span className="text-brand-500">{task.subagentType}</span></>}
-          {task.taskType && <><Dot /><span>{task.taskType}</span></>}
-          <Dot />
-          {/* The clock's origin is named, because a number nobody can place is a number
-              nobody trusts: the host logs each record with a time, so this counts from
-              when the task was ANNOUNCED, not from when this panel was opened. */}
-          <span className="text-text tabular-nums" title="since the agent logged the task's start">running {clockText(elapsed)}</span>
-          <Dot />
-          <span className="text-text-subtle">{task.taskId}</span>
-        </div>
-      </div>
+    <div className="p-2 rounded-brand bg-surface-2/40">
+      <div className="text-[10px] text-text-muted font-mono truncate">{label}</div>
+      <div className={`text-sm font-bold truncate ${cls}`}>{value}</div>
     </div>
   );
 }
@@ -232,14 +218,3 @@ function Calls({ task, messages, engine, sessionId }) {
     </div>
   );
 }
-
-function Stat({ label, value }) {
-  return (
-    <div className="px-2.5 py-1.5 rounded-brand bg-surface-2/40 min-w-[68px]">
-      <div className="text-[9px] font-mono text-text-muted tracking-wider">{label}</div>
-      <div className="text-xs font-semibold text-text tabular-nums">{value}</div>
-    </div>
-  );
-}
-
-const Dot = () => <span className="text-text-subtle">·</span>;
