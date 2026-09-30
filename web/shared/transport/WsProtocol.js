@@ -3,7 +3,7 @@ import { TunnelAdapter } from "./adapters/TunnelAdapter";
 import { LocalFirstAdapter } from "./adapters/LocalFirstAdapter";
 import { API_ENDPOINTS } from "@/shared/constants/API";
 import { FEATURES, BEHAVIOR } from "@/shared/constants/features";
-import { ADAPTER_STATE, CHANNELS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, WS_ZOMBIE_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 
@@ -30,9 +30,10 @@ export class WsProtocol extends BaseProtocol {
     this._updating = false;
     this._connecting = false;
     this._visibilityHandler = null;
-    // Engine.IO liveness updated by "pong" heartbeat.
+    // Engine.IO liveness updated by manager "ping" heartbeat.
     this._lastInboundAt = Date.now();
     this._lastMsgAt = 0;
+    this._zombieWatchdogTimer = null;
     // Generation token to invalidate stale async _doRetry calls.
     this._retrySeq = 0;
   }
@@ -125,6 +126,7 @@ export class WsProtocol extends BaseProtocol {
     this._destroyed = true;
     this._retrySeq++;
     this._cancelRetry();
+    clearTimeout(this._zombieWatchdogTimer);
     this._removeNetworkListeners();
     this._detachSocketEvents();
     this._socket?.disconnect();
@@ -219,10 +221,29 @@ export class WsProtocol extends BaseProtocol {
       this._forceReconnect();
     });
 
-    socket.io?.on?.("pong", () => {
+    // Silent-death watchdog: re-armed by every heartbeat, so a healthy socket
+    // never lets it fire. When it does, no ping arrived for WS_ZOMBIE_MS — the
+    // socket died without a close event (visible-tab zombie) and the app would
+    // sit "connected" until a manual F5. Fire-time re-check of lastInboundAt
+    // keeps a timer-throttled hidden tab from false-kicking.
+    const armZombieWatchdog = () => {
+      clearTimeout(this._zombieWatchdogTimer);
+      this._zombieWatchdogTimer = setTimeout(() => {
+        if (this._destroyed || this._socket !== socket) return;
+        if (Date.now() - this._lastInboundAt < WS_ZOMBIE_MS) { armZombieWatchdog(); return; }
+        termLog("switch", "ws zombie watchdog → force reconnect");
+        this.forceReconnect();
+      }, WS_ZOMBIE_MS);
+    };
+    armZombieWatchdog();
+
+    // Engine.IO liveness: manager "ping" fires on every server heartbeat
+    // (the Manager never emits "pong" in socket.io-client 4.x).
+    socket.io?.on?.("ping", () => {
       this._lastInboundAt = Date.now();
+      armZombieWatchdog();
     });
-    socket.on("connect", () => { this._lastInboundAt = Date.now(); });
+    socket.on("connect", () => { this._lastInboundAt = Date.now(); armZombieWatchdog(); });
 
     socket.onAny((event, data) => {
       this._lastMsgAt = Date.now();
