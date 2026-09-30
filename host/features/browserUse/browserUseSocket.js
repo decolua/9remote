@@ -11,10 +11,10 @@ import { kvGet, kvSet } from "../terminal/ptyDaemonClient.js";
 import { testConfig } from "./jevClient.js";
 import { DEFAULT_POLICY } from "./agentLoop.js";
 import {
-  attachStatus, closeProfile, createProfile, deleteProfile, listProfiles, renameProfile,
+  attachStatus, closeProfile, createProfile, deleteProfile, listProfiles, openAttachGuide, renameProfile,
   requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter
 } from "./engine.js";
-import { JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_HARD, MAX_STEPS_HARD } from "./constants.js";
+import { AUTO_CONTINUE_CHUNKS, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
 import { ensureSkillInstalled } from "./skill.js";
 
 const logger = createLogger("browserUse");
@@ -118,7 +118,9 @@ export async function invoke(action, payload = {}) {
     case "status":
       return { ok: true, config: publicConfig(), sessions: sessionStatus(), profiles: listProfiles() };
     case "attach.status":
-      return { ok: true, ...attachStatus() };
+      return { ok: true, ...(await attachStatus()) };
+    case "attach.open":
+      return { ok: true, ...openAttachGuide() };
     case "profiles.list":
       return { ok: true, profiles: listProfiles() };
     case "profiles.create":
@@ -130,26 +132,23 @@ export async function invoke(action, payload = {}) {
     case "open":
       // Returns the element table too — kills the open→state double round trip.
       return { ok: true, state: await withSession({
-        profile: payload.profile || "default",
-        url: required(payload, "url"),
-        mode: payload.mode === "attach" ? "attach" : config.mode,
-        headless: config.headless
+        ...sessionOpts(payload), url: required(payload, "url")
       }, async (session) => session.observe()) };
     case "state":
-      return { ok: true, ...(await withSession({ profile: payload.profile || "default" }, (session) => session.current())) };
+      return { ok: true, ...(await withSession(sessionOpts(payload), (session) => session.current())) };
     case "run": {
       requireRunConfig();
       const taskId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
       const goal = required(payload, "goal");
-      const result = await withSession({
-        profile: payload.profile || "default",
-        url: payload.url,
-        mode: payload.mode === "attach" ? "attach" : config.mode,
-        headless: config.headless
-      }, (session) => runTask(session, {
-        goal,
-        config,
-        policy: policyFromConfig(),
+      const fragments = (Array.isArray(payload.expectText) ? payload.expectText : [payload.expectText])
+        .filter((t) => typeof t === "string" && t.trim());
+      const expect = (payload.expectUrl || payload.expectTitle || fragments.length)
+        ? { url: payload.expectUrl || null, title: payload.expectTitle || null, text: fragments }
+        : null;
+      const { result, verification } = await withSession({
+        ...sessionOpts(payload), url: payload.url
+      }, (session) => runAutoContinue(session, {
+        goal, expect,
         maxSteps: clampSteps(payload.maxSteps),
         maxMs: clampMs(payload.maxMs),
         resume: payload.resume || null,
@@ -158,7 +157,7 @@ export async function invoke(action, payload = {}) {
       }));
       let image = null;
       try {
-        image = await withSession({ profile: payload.profile || "default" }, (s) => s.screenshot());
+        image = await withSession(sessionOpts(payload), (s) => s.screenshot());
       } catch { /* screenshot optional */ }
       // A report failure must not swallow the run result — the agent would
       // retry the whole Jev loop and re-run every action.
@@ -166,27 +165,27 @@ export async function invoke(action, payload = {}) {
       try { report = (await writeReport(taskId, { goal, result, image })).report; }
       catch (e) { logger.error(`report write failed: ${e.message}`); }
       pushOutcome(goal, result);
-      logger.info(`run ${taskId}: ${result.outcome} (${result.metrics.steps} steps)`);
-      return { ok: true, taskId, ...result, report, state: await stateAfter(payload.profile || "default") };
+      logger.info(`run ${taskId}: ${result.outcome}${verification ? ` · verify ${verification.passed ? "PASSED" : "FAILED"}` : ""} (${result.metrics.steps} steps)`);
+      return { ok: true, taskId, ...result, report, verification, state: await stateAfter(payload) };
     }
     case "click":
       return { ok: true, ...(await clickById(payload.profile || "default", required(payload, "id"))),
-        state: await stateAfter(payload.profile || "default") };
+        state: await stateAfter(payload) };
     case "type": {
       const profile = payload.profile || "default";
       const result = await typeById(profile, required(payload, "id"), required(payload, "text"));
       if (payload.enter) await pressEnter(profile); // same process, one round trip
-      return { ok: true, ...result, state: await stateAfter(profile) };
+      return { ok: true, ...result, state: await stateAfter(payload) };
     }
     case "enter":
       return { ok: true, ...(await pressEnter(payload.profile || "default")),
-        state: await stateAfter(payload.profile || "default") };
+        state: await stateAfter(payload) };
     case "shot":
       return { ok: true, ...(await shoot(payload.profile || "default")) };
     case "run.cancel":
       return { ok: true, ...requestCancel(payload.profile || "default") };
     case "chain":
-      return await runChain(payload.profile || "default", payload.steps);
+      return await runChain(sessionOpts(payload), payload.steps);
     case "close":
       return { ok: true, ...(await closeProfile(payload.profile || "default")) };
     default:
@@ -194,11 +193,65 @@ export async function invoke(action, payload = {}) {
   }
 }
 
+// Run with declared end conditions: a FAILED verification means the goal is not
+// reached yet — resume the SAME session up to AUTO_CONTINUE_CHUNKS extra chunks.
+// Expectations never enter the Jev prompt; they only judge, so this cannot be gamed.
+export async function runAutoContinue(session, {
+  goal, decide = undefined, expect = null, config: cfg = config, policy = null,
+  maxSteps = 12, maxMs = 45000, only = null, resume = null, onStep = null
+} = {}) {
+  const runOpts = () => ({
+    goal, config: cfg, policy: policy || policyFromConfig(),
+    maxSteps, maxMs, only, onStep,
+    ...(decide ? { decide } : {})
+  });
+  let combined = await runTask(session, { ...runOpts(), resume });
+  let verification = null;
+  for (let chunk = 0; expect && chunk < AUTO_CONTINUE_CHUNKS; chunk++) {
+    try { verification = checkExpectations(await session.observe(), expect); }
+    catch (e) { verification = { passed: false, checks: {}, error: e.message }; }
+    if (verification.passed || combined.outcome === "cancelled") break;
+    if (session.cancelRequested) {
+      session.cancelRequested = false; // consume-once, before the next chunk resets it
+      combined = { ...combined, outcome: "cancelled", reason: "user cancelled" };
+      break;
+    }
+    const next = await runTask(session, {
+      ...runOpts(),
+      resume: { history: combined.history, steps: combined.steps, metrics: combined.metrics }
+    });
+    combined = { ...next, steps: [...combined.steps, ...next.steps] };
+  }
+  if (expect && !verification) {
+    try { verification = checkExpectations(await session.observe(), expect); }
+    catch (e) { verification = { passed: false, checks: {}, error: e.message }; }
+  }
+  return { result: combined, verification };
+}
+// to the action policy (fbu pattern): the model cannot game what it never sees.
+export function checkExpectations(state, { url = null, title = null, text = [] } = {}) {
+  const fragments = (Array.isArray(text) ? text : [text]).map((t) => String(t));
+  // Field values never appear in body innerText — also match filled values
+  // (fbu verify_flights pattern), so verifying form contents just works.
+  const fields = (state.actions || [])
+    .filter((a) => a.kind === "fill" && a.value)
+    .map((a) => `${a.label}: ${a.value}`)
+    .join("\n");
+  const haystack = `${state.text || ""}\n${fields}`;
+  const checks = {};
+  if (url) checks.url = state.url === url;
+  if (title) checks.title = state.title === title;
+  fragments.forEach((fragment, i) => {
+    checks[`text_${i + 1}`] = fragment.length > 0 && haystack.includes(fragment);
+  });
+  return { passed: Object.values(checks).every(Boolean), checks };
+}
+
 // Post-action state for the response — cached when the page did not change.
 // Never let a failed observation swallow the action result: the action already
 // ran, and reporting it as an error would make the agent retry (double-click).
-const stateAfter = async (profile) => {
-  try { return await withSession({ profile }, (s) => s.current()); }
+const stateAfter = async (payload) => {
+  try { return await withSession(sessionOpts(payload), (s) => s.current()); }
   catch { return null; }
 };
 
@@ -217,11 +270,11 @@ async function waitText(session, text) {
   return false;
 }
 
-async function runChain(profile, steps) {
+async function runChain(opts, steps) {
   if (!Array.isArray(steps) || !steps.length || steps.length > MAX_CHAIN_STEPS) {
     throw new Error(`chain needs 1..${MAX_CHAIN_STEPS} steps`);
   }
-  return withSession({ profile }, async (session) => {
+  return withSession(opts, async (session) => {
     const results = [];
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
@@ -301,6 +354,13 @@ const stateAfterSafe = async (session) => {
   try { return await session.current(); } catch { return null; }
 };
 
+// One decision gate for session identity: every caller resolves mode/headless alike.
+const sessionOpts = (payload = {}) => ({
+  profile: payload.profile || "default",
+  mode: payload.mode === "attach" ? "attach" : config.mode,
+  headless: config.headless
+});
+
 const required = (payload, key) => {
   const value = payload?.[key];
   if (value === undefined || value === null || value === "") throw new Error(`Missing field: ${key}`);
@@ -309,11 +369,11 @@ const required = (payload, key) => {
 const pickOverrides = ({ endpoint, model, apiKey }) => ({ ...(endpoint ? { endpoint } : {}), ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}) });
 const clampSteps = (n) => {
   const value = Number(n);
-  return Math.min(MAX_STEPS_HARD, Math.max(1, Number.isFinite(value) && value > 0 ? value : 12));
+  return Math.min(MAX_STEPS_HARD, Math.max(1, Number.isFinite(value) && value > 0 ? value : MAX_STEPS_DEFAULT));
 };
 const clampMs = (n) => {
   const value = Number(n);
-  return Math.min(MAX_MS_HARD, Math.max(1000, Number.isFinite(value) && value > 0 ? value : 45000));
+  return Math.min(MAX_MS_HARD, Math.max(1000, Number.isFinite(value) && value > 0 ? value : MAX_MS_DEFAULT));
 };
 
 // ---- socket + local API adapters ----------------------------------------------

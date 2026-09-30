@@ -63,12 +63,54 @@ if (!hasChrome) {
       <iframe src="/frame-child" style="width:300px;height:100px"></iframe>
       <button onclick="document.title='OUT'">Outside frame</button>
     </body></html>`,
+    "/noisy": `<!doctype html><html><body>
+      <nav><a href="#">Trang chủ</a> <a href="#">Liên hệ</a></nav>
+      <div class="cookie-banner">Accept all cookies?</div>
+      <article><h2>Bài viết</h2><p>Nội dung chính của bài viết nằm ở đây, đoạn văn thật sự có ý nghĩa.</p></article>
+      <div class="ad">Mua ngay giảm giá 50%</div>
+      <button onclick="document.title='x'">Quyên góp</button>
+      <footer><a href="#">Điều khoản</a> Bảo mật</footer>
+    </body></html>`,
+    "/spa": `<!doctype html><html><body>
+      <a href="/spa2" id="go">Go SPA</a>
+      <div id="app"></div>
+      <script>
+        document.getElementById('go').addEventListener('click', (e) => {
+          e.preventDefault(); history.pushState({}, '', '/spa2');
+          setTimeout(() => {
+            const app = document.getElementById('app');
+            app.innerHTML = '<button id="b">Loaded Two</button>';
+            document.getElementById('b').addEventListener('click', () => { document.title = 'SPA2'; });
+          }, 800);
+        });
+      <\/script>
+    </body></html>`,
+    "/tallstatic": `<!doctype html><html><body>
+      <button style="position:fixed;top:10px" onclick="document.title='A'">Anchor</button>
+      <div style="height:5000px"></div>
+    </body></html>`,
+    "/twophase": `<!doctype html><html><body>
+      <button onclick="document.getElementById('f').style.display='block'">Go phase two</button>
+      <button id="f" style="display:none" onclick="document.getElementById('out').textContent='PHASE DONE'">Finish it</button>
+      <div id="out"></div>
+    </body></html>`,
+    "/sections": `<!doctype html><html><body>
+      <fieldset><legend>Shipping</legend><button onclick="document.title='SHIP'">OK</button></fieldset>
+      <fieldset><legend>Billing</legend><button onclick="document.title='BILL'">OK</button></fieldset>
+    </body></html>`,
+    "/latecontent": `<!doctype html><html><body>
+      <button onclick="document.title='CLK';setTimeout(()=>{document.getElementById('out').textContent='LOADED'},300)">Load it</button>
+      <div id="out"></div>
+    </body></html>`,
+    "/hydrate": `<!doctype html><html><body><script>
+      setTimeout(()=>{document.body.innerHTML='<button onclick="document.title=\\'H\\'">Hidden until hydrated</button>'},250)
+    <\/script></body></html>`,
     "/frame-child": `<!doctype html><html><body>
       <button onclick="parent.document.title='IN'">Inside frame</button>
     </body></html>`
   };
   const server = http.createServer((req, res) => {
-    res.writeHead(200, { "Content-Type": "text/html" });
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(PAGES[req.url] ?? PAGES["/"]);
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
@@ -122,7 +164,7 @@ if (!hasChrome) {
     const result = await runTask(s, { goal: "Click the second Submit", decide, maxSteps: 4, maxMs: 15000 });
     assert.equal(result.outcome, "needs_verification");
     const step = result.steps.find((st) => st.result === "ok");
-    assert.equal(step.label, "Submit");
+    assert.equal(step.label, "Submit (2)");
     assert.equal((await observe(s)).title, "S2");
   });
 
@@ -155,7 +197,10 @@ if (!hasChrome) {
     };
     const result = await runTask(s, { goal: "Click the reveal target", decide, maxSteps: 12, maxMs: 30000 });
     assert.equal(result.outcome, "needs_verification");
-    assert.ok(result.steps.some((st) => st.operation === "WAIT" && st.result === "ok"));
+    // Either Jev WAITed for the reveal, or observe's hydration grace already
+    // saw the button — both are correct; a false no_progress is not.
+    assert.ok(!["no_progress", "blocked"].includes(result.outcome));
+    assert.equal((await observe(s)).title, "REVEALED");
   });
 
   await test("6. fixed header covering a button: covered one refused, visible one works", async () => {
@@ -315,6 +360,195 @@ if (!hasChrome) {
     assert.ok(!res.ok && res.failedStep === 1 && res.results[0].error === "cancelled");
     const after = await invoke("chain", { profile, steps: [{ op: "enter" }] });
     assert.ok(after.ok, "a fresh chain is not poisoned by the old cancel");
+  });
+
+  await test("18. checkExpectations verifies url/title/text independently (fbu pattern)", async () => {
+    const { checkExpectations } = await import("../features/browserUse/browserUseSocket.js");
+    const facts = { url: "https://x/y", title: "Saved", text: "Timezone: Asia/Singapore.\nWeekly digest: enabled." };
+    const pass = checkExpectations(facts, { title: "Saved", text: ["Timezone: Asia/Singapore.", "Weekly digest: enabled."] });
+    assert.equal(pass.passed, true);
+    const fail = checkExpectations(facts, { url: "https://x/z", text: ["Timezone: Europe/Paris."] });
+    assert.equal(fail.passed, false);
+    assert.deepEqual(fail.checks, { url: false, text_1: false });
+  });
+
+  await test("19. post-action settle waits for late content (quiet window)", async () => {
+    const s = await open("/latecontent");
+    const btn = (await observe(s)).actions.find((a) => /load it/i.test(a.label));
+    await s.act(btn);
+    assert.ok((await s.current()).text.includes("LOADED"), "late content captured by the settle window");
+  });
+
+  await test("20. observe retries through a blank hydrating page", async () => {
+    const s = await open("/hydrate");
+    const state = await observe(s);
+    const btn = state.actions.find((a) => /hidden until hydrated/i.test(a.label));
+    assert.ok(btn, "hydrated button observed, not a blank table");
+    await s.act(btn);
+    assert.equal((await observe(s)).title, "H");
+  });
+
+  await test("21. criteria labels are capped and duplicates get (n) suffixes", async () => {
+    const { buildActionSpace, buildQuestions } = await import("../features/browserUse/agentLoop.js");
+    const long = "A".repeat(120);
+    const actions = [
+      { id: "e1", kind: "click", label: long, role: "button", value: "", node: 1 },
+      { id: "e2", kind: "click", label: "Submit", role: "button", value: "", node: 2 },
+      { id: "e3", kind: "click", label: "Submit", role: "button", value: "", node: 3 },
+      { id: "wait", kind: "wait", label: "Wait" }
+    ];
+    const space = buildActionSpace(actions);
+    const body = buildQuestions({ url: "https://x", title: "t", text: "", actions }, "pick", [], space);
+    const criteria = body.questions.click_target.criteria;
+    assert.ok(criteria.e1.element.length <= 90, "long label capped");
+    assert.match(criteria.e2.element, /\[e2\] Submit$/);
+    assert.match(criteria.e3.element, /\[e3\] Submit \(2\)$/);
+    assert.equal(space.targets.CLICK.e3.node, 3, "labeled copy still references the real node");
+  });
+
+  await test("22. expect-text also matches filled field values, not just body text", async () => {
+    const { checkExpectations } = await import("../features/browserUse/browserUseSocket.js");
+    const state = {
+      url: "https://f/post", title: "Form", text: "",
+      actions: [
+        { kind: "fill", label: "Customer name", value: "Nguyen Van A" },
+        { kind: "click", label: "Submit", value: "" }
+      ]
+    };
+    const pass = checkExpectations(state, { text: ["Nguyen Van A", "Customer name"] });
+    assert.equal(pass.passed, true);
+    const fail = checkExpectations(state, { text: ["Khung này trống"] });
+    assert.equal(fail.passed, false);
+  });
+
+  await test("23. --only matching 0 elements fails fast with guidance", async () => {
+    const s = await open("/");
+    await assert.rejects(
+      () => runTask(s, { goal: "go", only: "ZZZNOPE", maxSteps: 2, maxMs: 5000 }),
+      /matched 0 elements.*never offered/
+    );
+  });
+
+  await test("24. a dead tab self-heals on the next command", async () => {
+    const { withSession } = engine;
+    let ref = null;
+    const st1 = await withSession({ profile, url: `${base}/`, headless: true },
+      (s) => { ref = s; return s.observe(); });
+    assert.ok(st1.actions.length);
+    // Kill the target while the browser WS stays alive (user closed the tab).
+    await ref.client.call("Target.closeTarget", { targetId: ref.targetId });
+    const st2 = await withSession({ profile, url: `${base}/`, headless: true },
+      (s) => s.observe());
+    assert.ok(st2.actions.length > 0, "session relaunched instead of wedging");
+  });
+
+  await test("25. criteria carry control state (checked/expanded)", async () => {
+    const { buildActionSpace, buildQuestions } = await import("../features/browserUse/agentLoop.js");
+    const actions = [
+      { id: "e1", kind: "click", label: "Bacon", role: "checkbox", value: "", node: 1, checked: "true" },
+      { id: "e2", kind: "click", label: "More options", role: "button", value: "", node: 2, expanded: "false" },
+      { id: "wait", kind: "wait", label: "Wait" }
+    ];
+    const space = buildActionSpace(actions);
+    const body = buildQuestions({ url: "https://x", title: "t", text: "", actions }, "g", [], space);
+    assert.equal(body.questions.click_target.criteria.e1.state, "checked");
+    assert.equal(body.questions.click_target.criteria.e2.state, "collapsed");
+  });
+
+  await test("26. same-label buttons in different sections are told apart by context", async () => {
+    const s = await open("/sections");
+    const state = await observe(s);
+    const oks = state.actions.filter((a) => a.label === "OK");
+    assert.equal(oks.length, 2);
+    assert.deepEqual(new Set(oks.map((a) => a.ctx)), new Set(["Shipping", "Billing"]));
+    const { buildActionSpace, buildQuestions } = await import("../features/browserUse/agentLoop.js");
+    const space = buildActionSpace(state.actions);
+    const body = buildQuestions(state, "g", [], space);
+    const els = Object.values(body.questions.click_target.criteria)
+      .filter((c) => /\bOK\b/.test(c.element)).map((c) => c.element);
+    assert.ok(els.some((e) => e.includes("Shipping")) && els.some((e) => e.includes("Billing")));
+  });
+
+  await test("27. page state carries headings, scroll position and omissions", async () => {
+    const { buildActionSpace, buildQuestions } = await import("../features/browserUse/agentLoop.js");
+    const actions = [
+      { id: "e1", kind: "click", label: "Go", role: "button", value: "", node: 1 },
+      { id: "scroll_down", kind: "scroll", label: "Scroll down", delta: 560 },
+      { id: "wait", kind: "wait", label: "Wait" }
+    ];
+    const page = {
+      url: "https://x/a", title: "t", text: "body",
+      headings: ["Thời sự", "Thể thao"],
+      scroll: { y: 700, height: 3000 },
+      omitted_actions: 120,
+      actions
+    };
+    const body = buildQuestions(page, "g", [], buildActionSpace(actions));
+    assert.deepEqual(body.state.page.headings, ["Thời sự", "Thể thao"]);
+    assert.deepEqual(body.state.page.scroll, { y: 700, height: 3000 });
+    assert.equal(body.state.page.omitted, 120);
+    const live = await open("/sections");
+    const state = await observe(live);
+    assert.ok(Array.isArray(state.headings), "snapshot returns headings");
+    assert.ok(state.scroll && typeof state.scroll.height === "number");
+  });
+
+  await test("28. auto-continue resumes until expect passes (premature DONE)", async () => {
+    const { runAutoContinue } = await import("../features/browserUse/browserUseSocket.js");
+    const s = await open("/twophase");
+    let clicks = 0, claimed = false;
+    const decide = ({ questions }) => {
+      const criteria = questions.click_target?.criteria || {};
+      const pick = (re) => Object.keys(criteria).find((k) => re.test(criteria[k].element || ""));
+      const done = { answers: { operation: op(questions, "DONE") }, model: "fake" };
+      let key = null;
+      if (clicks === 0) key = pick(/go phase two/i);
+      else if (!claimed) { claimed = true; return Promise.resolve(done); } // premature claim ends chunk 1
+      else key = pick(/finish it/i);
+      if (!key) return Promise.resolve(done);
+      clicks++;
+      return Promise.resolve({ answers: { operation: op(questions, "CLICK"), click_target: target(criteria, key) }, model: "fake" });
+    };
+    const { result, verification } = await runAutoContinue(s, {
+      goal: "finish both phases", decide,
+      expect: { text: ["PHASE DONE"] }, maxSteps: 4, maxMs: 15000
+    });
+    assert.ok(result.steps.some((st) => /go phase two/i.test(st.label || "")), "phase 1 ran");
+    assert.ok(result.steps.some((st) => /finish it/i.test(st.label || "")), "phase 2 ran after auto-continue");
+    assert.equal(verification.passed, true);
+  });
+
+  await test("29. scrolling that changes nothing is blocked as no-progress", async () => {
+    const s = await open("/tallstatic");
+    const decide = ({ questions }) => Promise.resolve(
+      { answers: { operation: op(questions, "SCROLL_DOWN") }, model: "fake" });
+    const result = await runTask(s, { goal: "reach the bottom", decide, maxSteps: 10, maxMs: 20000 });
+    assert.equal(result.outcome, "no_progress",
+      "scrolling a static page must not count as page progress");
+    assert.ok(result.metrics.steps <= 4, "blocked right after the third no-change scroll");
+  });
+
+  await test("30. page text filters chrome/noise, keeps real content", async () => {
+    const s = await open("/noisy");
+    const state = await observe(s);
+    const text = state.text || "";
+    assert.ok(text.includes("Nội dung chính của bài viết"), "article content kept");
+    assert.ok(state.headings.includes("Bài viết"), "heading kept");
+    for (const noise of ["Accept all cookies", "Mua ngay", "Quyên góp", "Điều khoản", "Trang chủ"]) {
+      assert.ok(!text.includes(noise), `filtered out: ${noise}`);
+    }
+    // Elements are untouched — only the body text is filtered.
+    assert.ok(state.actions.some((a) => /quyên góp/i.test(a.label)), "buttons still actionable");
+  });
+
+  await test("31. SPA route change waits for the new view to mount", async () => {
+    const s = await open("/spa");
+    const link = (await observe(s)).actions.find((a) => /go spa/i.test(a.label));
+    await s.act(link);
+    const state = await s.current();
+    assert.ok(state.actions.some((a) => /loaded two/i.test(a.label)),
+      "route changed and the late-mounting view is in the table without a manual sleep");
+    assert.equal(state.url.endsWith("/spa2"), true);
   });
 
   await closeProfile(profile).catch(() => {});

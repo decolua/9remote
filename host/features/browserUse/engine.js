@@ -12,8 +12,8 @@ import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
 import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate } from "./snapshot.js";
 import {
-  ATTACH_GUIDE_STEPS, LAUNCH_TIMEOUT_MS, OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT,
-  SCREENSHOT_QUALITY, VIEWPORT, WAIT_COMBOBOX_MS, WAIT_FRAMES, WAIT_OTHER_MS
+  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, LAUNCH_TIMEOUT_MS, OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT,
+  SCREENSHOT_QUALITY, SETTLE_CAP_MS, SETTLE_MIN_CLICK_MS, SETTLE_MIN_FILL_MS, SETTLE_MIN_HYDRATE_MS, SETTLE_MIN_SPA_MS, SETTLE_QUIET_MS, VIEWPORT
 } from "./constants.js";
 import { runTask } from "./agentLoop.js";
 
@@ -123,9 +123,41 @@ export function findAttachedDevToolsInfo() {
   return null;
 }
 
-export function attachStatus() {
+// The DevToolsActivePort file outlives a toggle-off until Chrome restarts —
+// probe the socket, never trust the file alone. The probe connection is REUSED:
+// open/close cycles trip Chrome's debug-WS throttle and fake a "not attached".
+let attachProbe = null;
+
+async function attachAlive(info) {
+  if (info.wsUrl) {
+    if (attachProbe && !attachProbe.closed) return true;
+    try {
+      attachProbe = await CdpClient.connect(info.wsUrl, ATTACH_PROBE_TIMEOUT_MS);
+      return true;
+    } catch { attachProbe = null; return false; }
+  }
+  return new Promise((resolve) => {
+    const s = net.connect(info.port, "127.0.0.1");
+    const done = (ok) => { s.destroy(); resolve(ok); };
+    s.once("connect", () => done(true));
+    s.once("error", () => done(false));
+    setTimeout(() => done(false), ATTACH_PROBE_TIMEOUT_MS);
+  });
+}
+
+export async function attachStatus() {
   const info = findAttachedDevToolsInfo();
-  return { available: Boolean(info), port: info?.port ?? null, guide: info ? null : ATTACH_GUIDE_STEPS };
+  const available = Boolean(info) && await attachAlive(info);
+  return { available, port: available ? info.port : null, guide: available ? null : ATTACH_GUIDE_STEPS };
+}
+
+// Guide step 1 done for the user: open Chrome straight at the opt-in page.
+export function openAttachGuide() {
+  const bin = resolveChromeBinary();
+  if (!bin) throw new Error("No Chrome/Chromium binary found on this machine");
+  const child = spawn(bin, [ATTACH_GUIDE_URL], { detached: true, stdio: "ignore" });
+  child.unref();
+  return { opened: ATTACH_GUIDE_URL };
 }
 
 // ---- sessions -----------------------------------------------------------------
@@ -138,8 +170,9 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
   });
 
   const session = {
-    profile, mode, port, targetId, headless,
+    profile, mode, port, targetId, headless, client,
     lastState: null,
+    docOrigin: null, docUrl: null,
     cancelRequested: false,
 
     async setup() {
@@ -162,11 +195,33 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     },
 
     async observe() {
-      for (let attempt = 0; attempt < OBSERVE_STALE_RETRIES; attempt++) {
-        try {
-          const state = await evaluate(client, sessionId, SNAPSHOT_EXPRESSION);
-          if (state) { session.lastState = state; return state; }
-        } catch { /* document navigating — retry */ }
+      const blankDeadline = Date.now() + BLANK_OBSERVE_MS;
+      let attempts = 0;
+      for (;;) {
+        let state = null;
+        try { state = await evaluate(client, sessionId, SNAPSHOT_EXPRESSION); }
+        catch (e) {
+          if (DEAD_SESSION.test(e.message)) throw e; // dead session — let withSession heal
+          state = null; /* document navigating */
+        }
+        if (state) {
+          // A blank page (no text, no real elements) may still be hydrating —
+          // retry within a bounded time window, then serve the table as-is: a
+          // genuinely quiet-empty page is a valid observation. Scroll/wait
+          // controls carry no node, so they do not count (fbu readiness pattern).
+          const hasElements = state.actions.some((a) => typeof a.node === "number");
+          if (((state.text && state.text.trim()) || hasElements) || Date.now() >= blankDeadline) {
+            session.lastState = state;
+            if (Array.isArray(state.marker)) {
+              session.docOrigin = state.marker[0]; // settle compares against the last observed doc
+              session.docUrl = state.marker[1];
+            }
+            return state;
+          }
+          await new Promise((r) => setTimeout(r, 60));
+          continue; // blank waits are time-boxed, not attempt-boxed
+        }
+        if (++attempts >= OBSERVE_STALE_RETRIES) break;
         await new Promise((r) => setTimeout(r, 20));
       }
       throw new Error("Page did not settle for observation");
@@ -181,7 +236,8 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
 
     async fresh(page) {
       try {
-        return await evaluate(client, sessionId, MARKER_EXPRESSION) === page.marker;
+        // Arrays off the wire never compare equal by reference — stringify both.
+        return JSON.stringify(await evaluate(client, sessionId, MARKER_EXPRESSION)) === JSON.stringify(page.marker);
       } catch {
         return false;
       }
@@ -305,18 +361,36 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       await call("Input.dispatchKeyEvent", enter("keyUp"));
     },
 
-    // Bounded, deterministic post-action wait — never spends a Jev call.
+    // Bounded adaptive settling — wait until the page goes QUIET (unchanged
+    // marker for 150ms), with higher minimums after fills (autosuggest debounce)
+    // and on freshly-hydrated documents. Capped, never spends a Jev call.
     async settle(action = null) {
-      const cap = action?.kind === "fill" ? WAIT_COMBOBOX_MS : WAIT_OTHER_MS;
-      const expression = `(cap => new Promise(resolve => {
-        let frames = 0, stopped = false;
-        const finish = () => { if (!stopped) { stopped = true; resolve(null); } };
-        setTimeout(finish, cap);
-        const tick = () => { if (stopped) return; if (++frames >= ${WAIT_FRAMES}) finish(); else requestAnimationFrame(tick); };
-        requestAnimationFrame(tick);
-      }))(${cap})`;
-      try { await evaluate(client, sessionId, expression, { awaitPromise: true }); }
-      catch { /* page navigating mid-wait is fine */ }
+      const fillMin = action?.kind === "fill" ? SETTLE_MIN_FILL_MS
+        : (action?.kind === "click" || action?.kind === "select") ? SETTLE_MIN_CLICK_MS : 0;
+      const started = Date.now();
+      let changedAt = started, prev = null, freshDoc = false, spaRoute = false;
+      while (Date.now() - started < SETTLE_CAP_MS) {
+        let marker = null;
+        try { marker = await evaluate(client, sessionId, MARKER_EXPRESSION); }
+        catch { changedAt = Date.now(); continue; /* navigating mid-wait */ }
+        if (Array.isArray(marker)) {
+          if (marker[0] !== session.docOrigin) {
+            session.docOrigin = marker[0];
+            freshDoc = true; // DOMContentLoaded can precede hydration of controls
+          } else if (marker[1] !== session.docUrl) {
+            spaRoute = true; // same document, new URL — SPA view still mounts
+          }
+          session.docUrl = marker[1];
+          const key = marker.join("\u0001");
+          if (prev === null || key !== prev) { prev = key; changedAt = Date.now(); }
+        } else {
+          changedAt = Date.now();
+        }
+        const minMs = Math.max(fillMin, freshDoc ? SETTLE_MIN_HYDRATE_MS : 0,
+          spaRoute ? SETTLE_MIN_SPA_MS : 0, SETTLE_QUIET_MS);
+        if (Date.now() - changedAt >= SETTLE_QUIET_MS && Date.now() - started >= minMs) break;
+        await new Promise((r) => setTimeout(r, 50));
+      }
     },
 
     async screenshot() {
@@ -341,19 +415,44 @@ function stale(message) {
   return err;
 }
 
-// Open (or reuse) a session for a profile. Serialized per profile.
+// Dead-session signatures: the browser WS dropped (Chrome restarted/quit) or the
+// target died while the WS lives (user closed the tab in attach mode).
+const DEAD_SESSION = /Session with given id|No target with given id|CDP connection closed|Target closed/i;
+
+async function dropSession(session) {
+  try { await session.close(); } catch { /* already dead */ }
+}
+
+// Open (or reuse) a session for a profile. Serialized per profile. Self-healing:
+// a session whose browser/tab died is dropped and relaunched ONCE, so a Chrome
+// restart or a closed tab never wedges every later command until host restart.
 export async function withSession(options, fn) {
   const profile = options.profile || "default";
   return serialize(profile, async () => {
-    const existing = sessions.get(profile);
-    const session = existing || await launchSession(options);
-    // Reloading an identical URL wastes seconds and resets page state. Compare
-    // against where the page ACTUALLY is (lastState.url), not the last requested
-    // URL — otherwise navigating away then re-opening the original sticks.
-    if (options.url && session.lastState?.url !== options.url) {
-      await session.navigate(options.url);
+    let existing = sessions.get(profile);
+    // Dead WS or a settings mode switch: the old browser no longer matches.
+    if (existing?.client?.closed || (existing && options.mode && existing.mode !== options.mode)) {
+      await dropSession(existing);
+      existing = null;
     }
-    return fn(session);
+    let session = existing || await launchSession(options);
+    const runWith = async (s) => {
+      // Reloading an identical URL wastes seconds and resets page state. Compare
+      // against where the page ACTUALLY is (lastState.url), not the last requested
+      // URL — otherwise navigating away then re-opening the original sticks.
+      if (options.url && s.lastState?.url !== options.url) {
+        await s.navigate(options.url);
+      }
+      return fn(s);
+    };
+    try {
+      return await runWith(session);
+    } catch (e) {
+      if (!existing || !DEAD_SESSION.test(e.message)) throw e;
+      await dropSession(session);
+      session = await launchSession(options); // fresh tab / fresh WS, same profile
+      return runWith(session);
+    }
   });
 }
 

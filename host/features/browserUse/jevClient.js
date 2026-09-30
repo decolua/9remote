@@ -1,6 +1,7 @@
 // Jev decision client — native systemone protocol (state + choice questions in,
 // answers with calibrated probabilities out). Presets mirror voice-input config.
 import crypto from "node:crypto";
+import { readSettings } from "../../lib/settings.js";
 import {
   JEV_HTTP_TIMEOUT_MS, JEV_PRESETS, JEV_RETRY_429_MS, OPENCODE_SYSTEMONE_UA
 } from "./constants.js";
@@ -34,6 +35,13 @@ export function resolveJevConfig(config = {}) {
     });
   } else if (config.apiKey) {
     headers["Authorization"] = `Bearer ${config.apiKey}`;
+  } else if (readSettings().voiceConfig?.openrouterKey) {
+    // One paste for both features: fall back to the voice-input OpenRouter key.
+    headers["Authorization"] = `Bearer ${readSettings().voiceConfig.openrouterKey}`;
+  } else if (endpoint.includes("openrouter.ai")) {
+    // Calling OpenRouter without auth yields a cryptic "No cookie auth
+    // credentials found" — fail here with an actionable message instead.
+    return { error: "OpenRouter preset needs an API key — set it in settings" };
   }
   return { url, model, headers };
 }

@@ -27,6 +27,22 @@ export function buildActionSpace(actions) {
     targets[action.kind === "select" ? "SELECT" : "CLICK"][action.id] = action;
   }
   for (const key of Object.keys(targets)) if (!Object.keys(targets[key]).length) delete targets[key];
+  // Orca pattern: cap label length and disambiguate identical labels with (2),
+  // (3)… so the model can honor "the third one" and prompts stay small. Copies,
+  // not mutations — fresh-skip reuses the same page.actions between steps.
+  const LABEL_CAP = 80;
+  for (const key of Object.keys(targets)) {
+    const group = targets[key];
+    const seen = new Map();
+    for (const id of Object.keys(group)) {
+      const action = group[id];
+      const raw = String(action.label || "");
+      const base = raw.length > LABEL_CAP ? `${raw.slice(0, LABEL_CAP - 3)}…` : raw;
+      const count = (seen.get(base) || 0) + 1;
+      seen.set(base, count);
+      group[id] = { ...action, label: count > 1 ? `${base} (${count})` : base };
+    }
+  }
   return { elements, targets, controls };
 }
 
@@ -37,7 +53,8 @@ function trackElement(elements, seenNodes, action) {
   }
   const element = {
     index: String(elements.length + 1),
-    label: String(action.label || "").split(" → ")[0],
+    // Same cap as criteria labels — state.elements rides in every Jev prompt too.
+    label: String(action.label || "").split(" → ")[0].slice(0, 80),
     role: action.role || null,
     value: action.value ?? "",
     labels: [action.label]
@@ -71,17 +88,28 @@ export function buildQuestions(page, goal, history, space) {
   for (const [operation, candidates] of Object.entries(space.targets)) {
     questions[`${operation.toLowerCase()}_target`] = {
       type: "choice",
-      criteria: Object.fromEntries(Object.entries(candidates).map(([id, a]) => [id, {
-        element: `[${id}] ${a.label}`,
-        current_value: a.current_value ?? a.value ?? "",
-        role: a.role || null
-      }])),
+      criteria: Object.fromEntries(Object.entries(candidates).map(([id, a]) => {
+        // Context + control state help the model tell same-label elements apart
+        // and avoid toggling things that are already in the wanted state.
+        const element = a.ctx ? `[${id}] ${a.label} · in ${a.ctx}` : `[${id}] ${a.label}`;
+        const entry = { element, current_value: a.current_value ?? a.value ?? "", role: a.role || null };
+        const stateBits = [];
+        if (a.checked) stateBits.push(a.checked === "true" ? "checked" : "unchecked");
+        if (a.expanded) stateBits.push(a.expanded === "true" ? "expanded" : "collapsed");
+        if (stateBits.length) entry.state = stateBits.join(",");
+        return [id, entry];
+      })),
       instructions: { goal, operation, rules: [NEXT_ACTION, TARGET] }
     };
   }
   return {
     state: {
-      page: { url: page.url, title: page.title, text: page.text },
+      page: {
+        url: page.url, title: page.title, text: page.text,
+        headings: page.headings || [],          // visible section outline
+        scroll: page.scroll || null,             // where we are in the document
+        omitted: page.omitted_actions || 0       // elements cut by the cap — scroll for more
+      },
       elements: space.elements.map(({ labels, ...e }) => e),
       recent_actions: history.slice(-10).map((h) => ({
         action: h.action, kind: h.kind, text: h.text, page_changed: h.page_changed
@@ -133,7 +161,9 @@ export async function runTask(session, {
   const baseStep = Array.isArray(resume?.steps) ? resume.steps.length : 0;
   let modelCalls = 0;
   let page = await session.observe();
-  let lastMarker = page.marker;
+  // Markers are arrays off the wire — compare by VALUE (JSON), never by reference.
+  const contentKey = (p) => JSON.stringify(p.contentMarker || p.marker);
+  let lastContent = contentKey(page); // progress ignores scroll offsets
   const finish = (outcome, reason = "") => ({
     outcome, reason, steps, history, url: page.url, title: page.title,
     metrics: {
@@ -167,6 +197,9 @@ export async function runTask(session, {
       ? page.actions.filter((a) => a.kind === "scroll" || a.kind === "wait" || onlyRe.test(a.label))
       : page.actions;
     const space = buildActionSpace(actions);
+    if (onlyRe && !Object.keys(space.targets).length) {
+      throw new Error("only pattern matched 0 elements — it matches click/select labels only; text fields are never offered to Jev");
+    }
     const body = buildQuestions(page, goal, history, space);
     decidedAt = Date.now();
     let result;
@@ -242,9 +275,9 @@ export async function runTask(session, {
       // half-finished loop into an error the agent would retry from scratch.
       try { page = await session.observe(); }
       catch (err) { return finish("action_error", `post-action observation failed: ${err.message}`); }
-      changed = page.marker !== lastMarker;
+      changed = contentKey(page) !== lastContent;
     }
-    lastMarker = page.marker;
+    lastContent = contentKey(page);
     history.push({ action: action.label, kind: action.kind, text: null, page_changed: changed });
     emit({
       operation, targetIndex: targetId, label: action.label, result: "ok",

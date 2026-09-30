@@ -18,6 +18,10 @@ function parseArgs(args) {
     if (a === "--no-headless") { opts.headless = false; continue; }
     if (a === "--enter") { opts.enter = true; continue; }
     if (a === "--only") { opts.only = args[++i]; continue; }
+    if (a === "--expect-text") { (opts.expectText ||= []).push(args[++i]); continue; }
+    if (a === "--expect-url") { opts.expectUrl = args[++i]; continue; }
+    if (a === "--expect-title") { opts.expectTitle = args[++i]; continue; }
+    if (a === "--tail") { opts.tail = true; continue; }
     positional.push(a);
   }
   return { positional, opts };
@@ -44,9 +48,10 @@ function mustOk(data) {
 function printState(state) {
   console.log(`${state.url}`);
   console.log(`${state.title || ""} · ${state.actions?.length ?? 0} elements · ${state.w}x${state.h}`);
-  for (const a of (state.actions || []).slice(0, 60)) {
+  // Compact table: fewer tokens per response, faster agent turns.
+  for (const a of (state.actions || []).slice(0, 40)) {
     const value = a.kind === "fill" && a.value ? ` = ${a.value.slice(0, 30)}` : "";
-    console.log(`  [${a.id}] ${a.kind.padEnd(6)} ${String(a.label).slice(0, 70)}${value}`);
+    console.log(`  [${a.id}] ${a.kind.padEnd(6)} ${String(a.label).slice(0, 60)}${value}`);
   }
 }
 
@@ -112,8 +117,11 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
   9remote browser open <url> [--profile N] [--attach] [--no-headless]
                                              # opens AND prints the element table
   9remote browser state [--profile N]        numbered element table
+  9remote browser read [--tail] [--profile N]  filtered page TEXT (cheaper than shot)
   9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--profile N]
                                              # --only: Jev sees only matching element labels
+                                             # --expect-text "..." (repeatable) / --expect-url / --expect-title:
+                                             #   engine verifies them on a fresh read — only PASSED is success
   9remote browser click <id> [options]       click table id (e3)
   9remote browser type <id> "<text>" [--enter]  type exact text (+ Enter) into field
   9remote browser chain "click e1; type e2 'hi' --enter; wait 'result'"  # many steps, ONE call
@@ -145,9 +153,26 @@ export async function cmdBrowser(args) {
       printState(data);
       return;
     }
+    case "read": {
+      // Read the page's filtered text — far cheaper than a screenshot and the
+      // only way to actually read article content.
+      const data = mustOk(await call("state", payload()));
+      const headings = (data.headings || []).join(" › ");
+      if (headings) console.log(`## ${headings}`);
+      const text = data.text || "";
+      console.log(opts.tail ? text.slice(Math.floor(text.length / 2)) : text);
+      if (!text.trim()) console.log("(no readable text in view — scroll or open an article first)");
+      return;
+    }
     case "run": {
       const data = mustOk(await call("run", payload({ goal: rest.join(" ") })));
       printRun(data);
+      if (data.verification) {
+        console.log(`verification: ${data.verification.passed ? "PASSED — independently verified, safe to report success" : "FAILED"}`);
+        for (const [check, ok] of Object.entries(data.verification.checks)) {
+          if (!ok) console.log(`  not met: ${check}`);
+        }
+      }
       if (data.state) printState(data.state);
       return;
     }
@@ -180,7 +205,10 @@ export async function cmdBrowser(args) {
     }
     case "chain": {
       const steps = splitTop(rest.join(" ")).map(parseStep);
-      const data = mustOk(await call("chain", payload({ steps })));
+      // NOT mustOk: a failed chain still carries results/failedStep/state that
+      // must reach the agent — "Request failed" alone hides where it broke.
+      const data = await call("chain", payload({ steps }));
+      if (!data?.results) { mustOk(data); return; }
       for (const r of data.results) {
         console.log(`  ${r.ok ? "ok" : "FAIL"} #${r.step} ${r.summary || r.op}${r.error ? ` — ${r.error}` : ""}`);
       }

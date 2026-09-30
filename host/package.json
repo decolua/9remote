@@ -15,7 +15,7 @@
     "dev:ui": "npm-run-all --parallel dev:ui:run dev:vite:wait",
     "dev:vite": "vite",
     "dev:vite:wait": "wait-on http://localhost:2208/api/health && vite",
-    "dev:ui:run": "NODE_ENV=development node cli/index.js ui",
+    "dev:ui:run": "NODE_ENV=development nodemon cli/index.js ui",
     "dev:ui:start": "npm-run-all --parallel dev:ui:run:start dev:vite:wait",
     "dev:ui:run:start": "NODE_ENV=development node cli/index.js ui --start",
     "build:ui": "vite build",

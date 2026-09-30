@@ -27,9 +27,11 @@ browser after enabling remote debugging.
 \`\`\`bash
 9remote browser open <url> [--profile NAME] [--attach]   # opens AND prints the element table
 9remote browser state [--profile NAME]                   # numbered element table of current page
-9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE]
-                                                            # Jev loop until DONE/BLOCKED;
-                                                            # --only narrows the table by label regex
+9remote browser read [--tail] [--profile NAME]           # filtered page TEXT — read content with this, never with shot
+9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--expect-text "..." ...]
+                                                            # Jev loop until DONE/BLOCKED; --only narrows
+                                                            # the table; --expect-* declares end conditions
+                                                            # the engine verifies on a fresh read
 9remote browser click <id>                               # click element by table id (e.g. e3)
 9remote browser type <id> "<exact text>" [--enter]       # type text YOU chose; --enter sends it
 9remote browser chain "click e1; type e2 'hi' --enter; select e3; wait 'Saved'"
@@ -67,8 +69,34 @@ browser after enabling remote debugging.
   When the whole sequence is known upfront (form filling, open→type→submit),
   use \`chain\` instead of several commands: one call, one result table, and it
   stops at the first failing step with the live page state.
-- \`state\` is only for re-reading mid-task; \`shot\` is for visual verification.
-- One working profile per task; pass \`--profile\` consistently.
+- \`--only\` matches CLICK/SELECT element labels only — text fields are never
+  offered to Jev (typing is yours). If a command fails, change approach or
+  report the error — never read the tool's source code to debug it.
+- Let Jev scroll inside \`run\` (it has SCROLL) instead of clicking scroll
+  controls yourself step by step.
+- Declare an expect for EVERY movement goal, even plain scrolling
+  (\`run "scroll to the footer" --expect-text "Guidelines"\`) — auto-continue then
+  drives it to the end in one command instead of many single-scroll runs.
+- When a task needs 2+ consecutive clicks following links, describe the
+  destination in ONE \`run\` — do not click ids one by one.
+- \`--only\` fragments must be long enough to be specific — a bare "2" matches
+  every label containing the digit 2.
+- \`state\` is only for re-reading mid-task. \`shot\` is ONLY final visual confirmation
+  (layout, colors, images — things text cannot tell). NEVER use screenshots to locate,
+  count or identify elements: the element table is the single source of truth for ids,
+  and a screenshot shows none of them.
+- Declare measurable end conditions up front: \`run --expect-text "Order confirmed" --expect-url ...\`.
+  The engine verifies them on a fresh read and AUTO-CONTINUES the Jev loop until they
+  pass (bounded chunks) — one command can carry the whole journey to a verified end.
+  Goal should name the DESTINATION (the outcome), not a single action — Jev handles
+  the steps itself. Only a PASSED verification is success; a DONE claim alone is
+  never proof. \`--expect-text\` matches visible page text AND filled field values.
+- Never automatically rerun a failed task that may have mutated the site — reconcile the
+  actual state first, then continue.
+- One working profile per task; pass \`--profile\` consistently. A profile is
+  created automatically on first use — no separate \`profiles create\` needed.
+- Write sequential sub-goals as ONE goal in order ("open X, then click Y, then
+  open Z") — the run loop executes the chain itself; do not split into many runs.
 - Never type into or click elements of pages the user did not ask you to touch.
 `;
 

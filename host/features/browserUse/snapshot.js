@@ -63,6 +63,19 @@ const SNAPSHOT_BODY = `(() => {
       e.getAttribute('href'),scope?.innerText?.slice(0,${PAGE_TEXT_CAP})||''];
   };
   const actions=[];
+  // Section context (heading/legend/aria-label of the enclosing dialog/section/
+  // form) lets same-label controls be told apart without a tree layout.
+  const secCache=new WeakMap();
+  const ctxOf=e=>{
+    const sec=e.closest('dialog,[role="dialog"],section,fieldset,form,nav,aside');
+    if(!sec) return null;
+    if(!secCache.has(sec)){
+      const t=(sec.getAttribute('aria-label')||sec.querySelector('h1,h2,h3,h4,legend')?.textContent||'').trim();
+      secCache.set(sec,t.slice(0,40));
+    }
+    const v=secCache.get(sec);
+    return v||null;
+  };
   for (const e of document.querySelectorAll(selector)) {
     if (!safe(e) || !visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2,
@@ -70,7 +83,7 @@ const SNAPSHOT_BODY = `(() => {
     if (!rname || r.width<=0 || r.height<=0 || x<0 || y<0 || x>=innerWidth || y>=innerHeight) continue;
     if (rname==='gridcell' && e.querySelector('button,[role="button"]')) continue;
     const base={node:identity(e),role:rname,label:name(e)||rname,
-      rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
+      ctx:ctxOf(e),rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
     for (const key of ['checked','selected','expanded']) {
       const value=e.getAttribute('aria-'+key);
       if (value!==null) base[key]=value;
@@ -94,28 +107,47 @@ const SNAPSHOT_BODY = `(() => {
   }
   const words=[], walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
   const range=document.createRange(); let node,length=0;
+  // Page-chrome blacklist (9cowork pattern): nav/footer/cookie/ads and control
+  // labels are noise for reading — buttons/options already live in the element table.
+  const NOISE='nav,header,footer,aside,form,button,select,option,label,dialog,'+
+    '[role="banner"],[role="navigation"],[role="contentinfo"],[role="complementary"],'+
+    '.ad,.ads,.advert,.cookie,.cookies,[class*="cookie-"],[id*="cookie"],.popup,.modal,.sidebar,.breadcrumb';
   while ((node=walker.nextNode()) && length<${PAGE_TEXT_CAP}) {
     const value=node.textContent.trim(), parent=node.parentElement;
-    if (!value || !parent || parent.closest('script,style,noscript,template') || !visible(parent)) continue;
+    if (!value || !parent || parent.closest('script,style,noscript,template') ||
+        parent.closest(NOISE) || !visible(parent)) continue;
     range.selectNodeContents(node); const r=range.getBoundingClientRect();
     if (r.width>0 && r.height>0 && r.bottom>0 && r.top<innerHeight && r.right>0 && r.left<innerWidth) {
       words.push(value); length+=value.length;
     }
   }
   const text=words.join('\\n').slice(0,${PAGE_TEXT_CAP}), height=document.documentElement.scrollHeight;
+  const headings=[];
+  for (const h of document.querySelectorAll('h1,h2,h3,h4')) {
+    if (headings.length>=12) break;
+    const r=h.getBoundingClientRect();
+    if (r.bottom>0 && r.top<innerHeight) {
+      const t=h.textContent.trim().slice(0,60);
+      if (t) headings.push(t);
+    }
+  }
   const page_key=cache.pageKey(), guards={};
   for (const a of actions) if (!(a.node in guards)) guards[a.node]=cache.guard(cache.nodes.get(a.node));
-  const semantics=actions.map(({rect,...action})=>action);
+  const semantics=actions.map(({rect,ctx,...action})=>action);
   const marker=[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
     document.title,text,semantics,page_key[6]];
+  // Progress marker WITHOUT scroll offsets: scrolling that reveals nothing new
+  // must not count as page progress (video players, tall static sections).
+  const contentMarker=[performance.timeOrigin,location.href,innerWidth,innerHeight,
+    document.title,text,semantics];
   const omitted_actions=Math.max(0,actions.length-${MAX_ELEMENTS});
   actions.splice(${MAX_ELEMENTS});
   actions.forEach((a,i)=>a.id='e'+(i+1));
   if (scrollY+innerHeight<height-2) actions.push({id:'scroll_down',kind:'scroll',label:'Scroll down',delta:560});
   if (scrollY>0) actions.push({id:'scroll_up',kind:'scroll',label:'Scroll up',delta:-560});
   actions.push({id:'wait',kind:'wait',label:'Wait for the page to update'});
-  return {url:location.href,title:document.title,w:innerWidth,h:innerHeight,text,
-    scroll:{y:scrollY,height},actions,marker,page_key,guards,omitted_actions};
+  return {url:location.href,title:document.title,w:innerWidth,h:innerHeight,text,headings,
+    scroll:{y:scrollY,height},actions,marker,contentMarker,page_key,guards,omitted_actions};
 })()`;
 
 export const SNAPSHOT_EXPRESSION = `(${CACHE_BOOTSTRAP},${SNAPSHOT_BODY})`;
