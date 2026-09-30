@@ -13,6 +13,11 @@ import { vibrate } from "@/shared/utils/vibration";
 // Coalesce bursts of file-change events into one git status build.
 const GIT_STATUS_DEBOUNCE_MS = 300;
 
+// Initial root load retries with backoff up to this delay (~31s total) — the
+// panel mounts before the bus exists on a cold load, and without a retry the
+// "Empty workspace" placeholder sticks until the user remounts the panel.
+const ROOT_LOAD_RETRY_MAX_MS = 16000;
+
 // Expanded folders are stored per workspace: one shared list meant opening a second
 // workspace overwrote the first one's, so going back always found the tree collapsed.
 function readExpandedStore() {
@@ -95,7 +100,7 @@ export function useFileTreeState({ workspace, fileBus }) {
         });
         return res.files || [];
       }
-      return [];
+      return null; // failed request — lets the caller distinguish from an empty dir
     },
     [fileBus, showHidden]
   );
@@ -115,20 +120,30 @@ export function useFileTreeState({ workspace, fileBus }) {
   useEffect(() => {
     if (!workspace) return;
     let alive = true;
-    (async () => {
-      const persisted = loadExpanded(workspace);
-      const restored = new Set([workspace]);
-      // Restore previously-expanded subpaths in parallel — sequential awaits waterfall one round-trip per folder.
-      const wanted = persisted.filter((p) => typeof p === "string" && p.startsWith(workspace));
-      for (const p of wanted) restored.add(p);
-      await Promise.all([loadDir(workspace), ...wanted.map((p) => loadDir(p))]);
+    let retryTimer = null;
+    let delay = 1000;
+    const persisted = loadExpanded(workspace);
+    const restored = new Set([workspace]);
+    // Restore previously-expanded subpaths in parallel — sequential awaits waterfall one round-trip per folder.
+    const wanted = persisted.filter((p) => typeof p === "string" && p.startsWith(workspace));
+    for (const p of wanted) restored.add(p);
+    const load = async () => {
+      const [root] = await Promise.all([loadDir(workspace), ...wanted.map((p) => loadDir(p))]);
       if (!alive) return;
+      if (root == null && delay <= ROOT_LOAD_RETRY_MAX_MS) {
+        const wait = delay;
+        delay *= 2;
+        retryTimer = setTimeout(load, wait);
+        return;
+      }
       setExpanded(restored);
       setExpandedFor(workspace);
       loadGitStatus();
-    })();
+    };
+    load();
     return () => {
       alive = false;
+      clearTimeout(retryTimer);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace]);
