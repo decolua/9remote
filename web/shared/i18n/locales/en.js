@@ -1139,5 +1139,10 @@ export default {
     newTerminal: "New terminal",
     toggleSidebar: "Toggle sidebar",
     toggleRightPanel: "Toggle side panel"
+  },
+  appUpdate: {
+    title: "Update required",
+    body: "This version of the app is too old to connect. Update it from the store to continue.",
+    action: "Update app"
   }
 };

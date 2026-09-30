@@ -28,6 +28,9 @@ TURN_KEY_ID = "YOUR_TURN_KEY_ID"
 BUILD_VERSION = "0.0.0"
 BUILD_TIME = "1970-01-01T00:00:00.000Z"
 ALLOWED_ORIGINS = "https://your-domain.com,http://localhost:3000"
+# Mobile shells below these versions see the update gate (web/app/api/version)
+MIN_APP_VERSION_ANDROID = "0.0.0"
+MIN_APP_VERSION_IOS = "0.0.0"
 # OTA: public R2 base (assets are served from a subdomain, not through Worker)
 R2_PUBLIC_BASE = "https://r2.your-domain.com"
 OTA_DEFAULT_CHANNEL = "production"

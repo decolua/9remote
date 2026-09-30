@@ -5,6 +5,7 @@ import { STORAGE_KEY, DEFAULT_THEME } from "@/shared/theme/themeConfig";
 import { GoogleAnalytics } from "@next/third-parties/google";
 import { GA_ID } from "@/shared/constants/analytics";
 import RotateOverlay from "@/shared/components/ui/RotateOverlay";
+import AppUpdateGate from "@/shared/components/ui/AppUpdateGate";
 import ScriptOnce from "@/shared/components/ui/ScriptOnce";
 
 const geistSans = Geist({
@@ -88,6 +89,7 @@ export default function RootLayout({ children }) {
         />
         <ThemeProvider>{children}</ThemeProvider>
         <RotateOverlay />
+        <AppUpdateGate />
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
       </body>
     </html>
