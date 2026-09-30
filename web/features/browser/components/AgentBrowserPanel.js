@@ -88,23 +88,27 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
           {running ? "running…" : result ? result.outcome : "idle"}
         </span>
         <div className="flex-1" />
-        <select
-          value={store.profile}
-          onChange={(e) => store.setProfile(e.target.value)}
-          className="px-2 py-1 bg-surface-2 rounded-brand text-xs text-text"
-        >
-          {profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-        </select>
-        <input
-          type="text" value={newProfile} onChange={(e) => setNewProfile(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addProfile()}
-          placeholder="new profile" spellCheck={false}
-          className="w-24 px-2 py-1 bg-surface-2 rounded-brand text-xs text-text placeholder-text-muted"
-        />
-        {store.profile !== "default" && (
-          <button onClick={removeProfile} className="px-2 py-1 text-xs text-text-muted hover:text-red-500" title="delete profile">
-            <X size={13} />
-          </button>
+        {store.mode !== "attach" && (
+          <>
+            <select
+              value={store.profile}
+              onChange={(e) => store.setProfile(e.target.value)}
+              className="px-2 py-1 bg-surface-2 rounded-brand text-xs text-text"
+            >
+              {profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
+            </select>
+            <input
+              type="text" value={newProfile} onChange={(e) => setNewProfile(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && addProfile()}
+              placeholder="New profile" spellCheck={false}
+              className="w-24 px-2 py-1 bg-surface-2 rounded-brand text-xs text-text placeholder-text-muted"
+            />
+            {store.profile !== "default" && (
+              <button onClick={removeProfile} className="px-2 py-1 text-xs text-text-muted hover:text-red-500" title="delete profile">
+                <X size={13} />
+              </button>
+            )}
+          </>
         )}
         <button onClick={() => setSettingsOpen(true)} className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand" title="settings">
           <Settings size={15} />
@@ -117,7 +121,7 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
       <div className="p-3 border-b border-border-subtle shrink-0 flex flex-col gap-2">
         <input
           type="text" value={url} onChange={(e) => setUrl(e.target.value)}
-          placeholder="start url (optional)"
+          placeholder="Start url (optional)"
           spellCheck={false} autoCapitalize="off"
           className="px-3 py-1.5 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none"
         />
@@ -125,7 +129,7 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
           <input
             type="text" value={goal} onChange={(e) => setGoal(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && start()}
-            placeholder="goal — e.g. open the third article in Tâm sự"
+            placeholder="Goal — e.g. open the third article in Tâm sự"
             className="flex-1 px-3 py-1.5 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none"
           />
           {running
@@ -138,7 +142,7 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
       </div>
 
       <div ref={timelineRef} className="flex-1 min-h-0 overflow-y-auto p-3 font-mono text-xs space-y-1">
-        {steps.length === 0 && <p className="text-text-muted">steps appear here as the agent works</p>}
+        {steps.length === 0 && <p className="text-text-muted">Steps appear here as the agent works</p>}
         {steps.map((s) => (
           <div key={`${s.seq}-${s.ts}`} className="flex items-start gap-2">
             <span className="text-text-muted shrink-0 w-6 text-right">#{s.seq}</span>
@@ -154,6 +158,11 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
         {result?.ok && (
           <div className="pt-2 border-t border-border-subtle text-text-muted">
             {result.outcome} — {result.reason} · {result.metrics?.steps} steps · {result.metrics?.modelCalls} jev calls
+            {result.verification && (
+              <span className={result.verification.passed ? "text-emerald-500" : "text-red-500"}>
+                {" "}· verification {result.verification.passed ? "PASSED" : "FAILED"}
+              </span>
+            )}
           </div>
         )}
         {stuckTable && (
