@@ -8,7 +8,7 @@ import { useFleetStore } from "@/shared/stores/fleetStore";
 import { connForSession } from "@/shared/transport/hostConn";
 import { parseEngineTaskEvent, parseEngineTaskResult, getEngineConfig } from "../registry";
 import { updateToolTree, settleRunningTools } from "../lib/toolTree";
-import { applyTaskRecord, foldTaskRecords, noticeFrom, lastIndexOfCompacting } from "../lib/harnessTasks";
+import { applyTaskRecord, foldTaskRecords, noticeFrom, lastIndexOfCompacting, TASK_ENDED } from "../lib/harnessTasks";
 import { upsertTask } from "../lib/taskList";
 import { estimateMessageBytes } from "../lib/messageWindow";
 import { collectOlderPage } from "../lib/olderPaging";
@@ -64,6 +64,8 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   let activeBlocked = null;
   let permissionMode = null;
   let turnEnded = false;
+  // The log saw the CLI process die; a later prompt means one answered since.
+  let processDied = false;
   let msgSeq = idBase;
 
   for (const item of events) {
@@ -74,6 +76,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
     switch (event) {
       case "user_message": {
         isTurnRunning = true;
+        processDied = false;
         // A new turn supersedes the previous refusal — same as the live path.
         activeBlocked = null;
         messages.push({ id: `u-${++msgSeq}`, role: "user", content: data?.text || "", attachments: data?.attachments || [] });
@@ -89,6 +92,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         break;
       }
       case "init": {
+        processDied = false;
         // Engines emit init more than once; a later one without skills must not wipe known ones.
         const incoming = normalizeSkills(data?.skills);
         const skills = incoming.length > 0 ? incoming : metadata.skills;
@@ -264,6 +268,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         break;
       case "exit":
         turnEnded = true;
+        processDied = true;
         // The CLI process went away — end the turn and drop the gate (claudeAdapter only).
         isTurnRunning = false;
         activePermission = null;
@@ -301,6 +306,7 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
         tasks.length = 0;
         harnessRecords.length = 0;
         isTurnRunning = false;
+        processDied = false;
         activePermission = null;
         activeBlocked = null;
         break;
@@ -349,12 +355,20 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   }
 
   // Keyed on turnEnded, not isTurnRunning: a reduced older page carries no end event.
-  if (turnEnded) {
-    for (const m of messages) if (m.tools) m.tools = settleRunningTools(m.tools);
+  // A dead process also takes the async rows — nothing is left to answer for them.
+  if (turnEnded || processDied) {
+    for (const m of messages) if (m.tools) m.tools = settleRunningTools(m.tools, { includeAsync: processDied });
   }
 
   let harnessTasks = [];
   for (const [type, subtype, record] of harnessRecords) harnessTasks = applyTaskRecord(harnessTasks, type, subtype, record);
+  // A process that died settles everything it left running — the CLI that would report
+  // each end is gone, so the fold's last word is already final.
+  if (processDied) {
+    harnessTasks = harnessTasks.map((t) =>
+      TASK_ENDED.has(t.status) ? t : { ...t, status: "stopped", endedAt: t.endedAt || Date.now() }
+    );
+  }
 
   return {
     messages, tasks, metadata, stats, isTurnRunning, activePermission, activeBlocked, permissionMode,
@@ -507,6 +521,9 @@ export function useAiSession({
         // The process is gone — drop the gate with it, nothing is left to answer it.
         clearPermission(sid);
         useAiStore.getState().finishTurn(sid, null, data?.turnMs);
+        // `stopped` only interrupts the turn — the CLI lives on and its background work
+        // with it. `exit` took the process, so everything it launched died with it.
+        if (event === "exit") useAiStore.getState().settleDeadTasks(sid);
         // `stopped` is a deliberate interrupt and says nothing; a nonzero exit is news.
         if (event === "exit" && (data?.error || (data?.code != null && data.code !== 0))) {
           useAiStore.getState().addNotice(sid, {
@@ -796,6 +813,12 @@ export function useAiSession({
           // No log to replay, but the adapter still knows what it has spent — a fresh
           // pane on a running session reads the same numbers as the one it replaced.
           if (res.session.stats) useAiStore.getState().setStats(sessionId, res.session.stats);
+        }
+        // A resting pane is a dead process (idle-killed): the tasks its log left
+        // "running" ended with it and nothing alive will send their end — settle or the
+        // strip pins them forever after a reload.
+        if (res.session.asleep && !res.session.isTurnRunning) {
+          useAiStore.getState().settleDeadTasks(sessionId);
         }
         // The host states the gate itself when the CLI is holding one, so a request that
         // scrolled off the replay tail — or that the rebuild below never reproduced —

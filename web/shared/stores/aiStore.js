@@ -72,6 +72,20 @@ function settleTasks(tasks, messages) {
   return next === messages ? null : next;
 }
 
+// finishTurn's sweep spares async rows on purpose — a LIVE CLI keeps working past the
+// turn. This one is for a process that is gone, where nothing is left running at all.
+function settleAllRunningRows(messages = []) {
+  let changed = false;
+  const next = messages.map((m) => {
+    if (!m.tools) return m;
+    const tools = settleRunningTools(m.tools, { includeAsync: true });
+    const moved = tools.length !== m.tools.length || tools.some((t, i) => t !== m.tools[i]);
+    if (moved) changed = true;
+    return moved ? { ...m, tools } : m;
+  });
+  return changed ? next : null;
+}
+
 export const useAiStore = create(
   persist(
     (set, get) => ({
@@ -574,6 +588,28 @@ export const useAiStore = create(
                 }),
                 messages
               }
+            }
+          };
+        });
+      },
+
+      // The CLI process is gone — nothing it handed off can still be running, and the
+      // events that would report each end will never come. One sweep settles the task
+      // set and every async row, or the strip pins dead work forever.
+      settleDeadTasks: (sessionId) => {
+        if (!sessionId) return;
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          const tasks = curr.harnessTasks || [];
+          const nextTasks = tasks.some((t) => !TASK_ENDED.has(t.status))
+            ? tasks.map((t) => (TASK_ENDED.has(t.status) ? t : { ...t, status: "stopped", endedAt: t.endedAt || Date.now() }))
+            : tasks;
+          const messages = settleAllRunningRows(curr.messages);
+          if (nextTasks === tasks && !messages) return state;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, harnessTasks: nextTasks, ...(messages ? { messages } : null) }
             }
           };
         });

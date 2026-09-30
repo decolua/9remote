@@ -140,11 +140,12 @@ export function taskActivity(messages = [], toolUseId = "") {
 //
 // `async` rows are the exception: a sub-agent or background shell was handed off ON
 // PURPOSE and goes on working after the turn that launched it ends. The host owns their
-// clock instead (AiSession.armAsyncWatchdog) and settles them there.
-export function settleRunningTools(tools) {
+// clock instead (AiSession.armAsyncWatchdog) and settles them there. `includeAsync` is
+// the dead-process sweep: nothing is left running then, async rows included.
+export function settleRunningTools(tools, { includeAsync = false } = {}) {
   return (tools || []).map((t) => {
-    const children = t.children ? settleRunningTools(t.children) : null;
-    if (t.status !== "running" || t.async) return children ? { ...t, children } : t;
+    const children = t.children ? settleRunningTools(t.children, { includeAsync }) : null;
+    if (t.status !== "running" || (t.async && !includeAsync)) return children ? { ...t, children } : t;
     return { ...t, status: "done", ...(children ? { children } : null) };
   });
 }
