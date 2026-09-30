@@ -86,6 +86,8 @@ export default function SettingsDialog({
 
   const categories = useMemo(() => SETTINGS_CATEGORIES.filter((c) => {
     if (c.id === "codespace") return false;
+    // Kill switch: browser use section hidden until the feature stabilizes.
+    if (c.id === "browser") return false;
     if (c.id === "terminal") return !hideActions.includes("terminalSettings");
     // System is host-env only (machine lifecycle); General is client-web only
     // (push/install/logout are meaningless on the origin the host itself serves).
