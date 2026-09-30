@@ -6,6 +6,7 @@ import { AiSession, aiSnapshotFile } from "./aiSession.js";
 import * as daemonClient from "../terminal/ptyDaemonClient.js";
 import { createLogger } from "../../lib/logger.js";
 import { registerDoneReleaser } from "../terminal/statusManager.js";
+import { queueSkillInstall } from "../browserUse/skill.js";
 
 const logger = createLogger("ai");
 
@@ -55,6 +56,7 @@ export class AiManager {
     });
 
     this.sessions.set(sessionId, session);
+    queueSkillInstall(engine);
     return session;
   }
 

@@ -15,7 +15,10 @@ import {
   requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter
 } from "./engine.js";
 import { AUTO_CONTINUE_CHUNKS, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
-import { ensureSkillInstalled } from "./skill.js";
+import { installSkillForEngine, removeAllInstalledSkills, SKILL_ENGINES } from "./skill.js";
+import { globalAiManager } from "../ai/aiManager.js";
+import { getLiveConversations } from "../terminal/statusManager.js";
+import { engineFromAgent } from "../terminal/conversationModes.js";
 
 const logger = createLogger("browserUse");
 
@@ -39,6 +42,7 @@ export async function loadConfig() {
 }
 
 export function setConfig(patch = {}) {
+  const wasEnabled = !!config.enabled;
   const next = { ...config };
   for (const key of ["enabled", "preset", "endpoint", "model", "apiKey", "headless"]) {
     if (patch[key] !== undefined) next[key] = patch[key];
@@ -49,7 +53,37 @@ export function setConfig(patch = {}) {
   }
   config = next;
   void kvSet(KV_KEY, config).catch((e) => logger.error(`config persist failed: ${e.message}`));
+  // The skill follows the switch: on = engines in use, off = removed everywhere.
+  if (!!config.enabled !== wasEnabled) {
+    if (config.enabled) void syncSkillForActiveEngines().catch((e) => logger.debug(`skill sync skipped: ${e.message}`));
+    else removeAllInstalledSkills();
+  }
   return { ok: true, config: publicConfig() };
+}
+
+// Engines with a live foot on this host: open AI chats plus terminals running
+// an agent CLI. Nothing else gets the skill — that is the point.
+function activeEngines() {
+  const set = new Set(globalAiManager.listSessions().map((s) => s.engine));
+  for (const conv of getLiveConversations()) {
+    if (conv.agent) set.add(engineFromAgent(conv.agent) || conv.agent);
+  }
+  return [...set].filter((e) => SKILL_ENGINES.includes(e));
+}
+
+// Just-in-time gate: session creation funnels here via skill.js's
+// queueSkillInstall (dynamic import — this file statically imports skill.js).
+export async function installSkillIfEnabled(engine) {
+  if (!SKILL_ENGINES.includes(engine)) return;
+  await loadConfig();
+  if (config.enabled) await installSkillForEngine(engine);
+}
+
+// Reconcile on connect and on toggle-on: install only for engines in use.
+export async function syncSkillForActiveEngines() {
+  await loadConfig();
+  if (!config.enabled) return;
+  for (const engine of activeEngines()) await installSkillForEngine(engine);
 }
 
 const publicConfig = () => ({ ...config, apiKey: config.apiKey ? "__SET__" : "" });
@@ -378,7 +412,7 @@ const clampMs = (n) => {
 
 // ---- socket + local API adapters ----------------------------------------------
 export function setupBrowserUseHandlers(socket) {
-  void ensureSkillInstalled().catch((e) => logger.debug(`skill install skipped: ${e.message}`));
+  void syncSkillForActiveEngines().catch((e) => logger.debug(`skill sync skipped: ${e.message}`));
   socket.on("browserUse:invoke", async ({ action, payload } = {}, cb) => {
     try {
       cb?.({ ok: true, ...(await invoke(action, payload)) });

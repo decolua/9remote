@@ -15,6 +15,7 @@ import { broadcast } from "../../../transport/broadcast.js";
 import { isSensitivePath } from "../../fileExplorer/pathGuard.js";
 import { currentSeq, getGap, clearSession } from "../seqStore.js";
 import { globalAiManager } from "../../ai/aiManager.js";
+import { queueSkillInstall } from "../../browserUse/skill.js";
 import { aiHistoryChunk } from "../../ai/aiEventSlice.js";
 import { AI_REPLAY_BYTES } from "../../ai/constants.js";
 import fs from "fs";
@@ -425,6 +426,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
   // Claim conversation immediately on resume rather than waiting for first CLI hook.
   socket.on("claimAgentSession", ({ sessionId, agent, conversationId } = {}, callback) => {
     claimResumedConversation(sessionId, { agent, sessionId: conversationId });
+    queueSkillInstall(engineFromAgent(agent) || agent);
     syncAutoNames(io, sessions, sessionId);
     callback?.({ success: true });
   });
@@ -456,6 +458,8 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     const wsId = workspaceId ?? groupId;
     const workspace = wsId ? workspaces.get(wsId) : null;
     const agentId = typeof agent === "string" ? agent : agent?.id || null;
+    // Just-in-time browserUse skill — installs only if the feature is enabled.
+    if (agentId) queueSkillInstall(engineFromAgent(agentId) || agentId);
 
     try {
       const shellConfig = resolveShell(shellId);

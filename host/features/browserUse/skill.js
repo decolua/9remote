@@ -1,7 +1,8 @@
-// Ships the 9remote-browser skill into every agent CLI's skill directory the
-// host finds on this machine, so terminal agents discover the browser commands
-// on their own (same distribution idea as herdr / jev-browser-use, but the
-// host installs it — no npx needed). Idempotent: only rewrites on content change.
+// Ships the 9remote-browser skill into an agent CLI's skill directory so
+// terminal agents discover the browser commands on their own (same
+// distribution idea as herdr / jev-browser-use, but the host installs it —
+// no npx needed). On demand only: one engine at a time, while the feature is
+// enabled; disabling removes it again. Idempotent on content.
 import fs from "node:fs";
 import os from "node:os";
 import { skillDirs } from "../ai/skills.js";
@@ -100,14 +101,17 @@ browser after enabling remote debugging.
 - Never type into or click elements of pages the user did not ask you to touch.
 `;
 
-export async function ensureSkillInstalled() {
+export const SKILL_ENGINES = ["claude", "codex", "opencode", "antigravity", "hermes"];
+
+// Install into ONE engine's first existing skills dir. Idempotent on content.
+// Best-effort per dir: one unwritable dir must not fail the whole install.
+export async function installSkillForEngine(engine) {
   const home = os.homedir();
-  const engines = ["claude", "codex", "opencode", "antigravity", "hermes"];
   const installed = [];
-  for (const engine of engines) {
-    for (const dir of skillDirs(engine, home, null)) {
-      // Only install where the engine already keeps a skills library.
-      if (!fs.existsSync(dir)) continue;
+  for (const dir of skillDirs(engine, home, null)) {
+    // Only install where the engine already keeps a skills library.
+    if (!fs.existsSync(dir)) continue;
+    try {
       const target = `${dir}/${SKILL_NAME}`;
       fs.mkdirSync(target, { recursive: true });
       const file = `${target}/SKILL.md`;
@@ -115,8 +119,42 @@ export async function ensureSkillInstalled() {
       if (current !== SKILL_MD) fs.writeFileSync(file, SKILL_MD);
       installed.push(`${engine}:${target}`);
       break;
+    } catch (e) {
+      logger.warn(`skill install into ${dir} failed: ${e.message}`);
     }
   }
-  if (installed.length) logger.debug(`skill installed: ${installed.join(", ")}`);
   return { installed };
+}
+
+// Disable path: sweep every engine's dirs so no agent can call a dead engine.
+// Only our own SKILL_NAME dir is ever removed, never anything shipped.
+// Best-effort per dir: one locked dir must not fail the toggle or skip the rest.
+export function removeAllInstalledSkills() {
+  const home = os.homedir();
+  const removed = [];
+  const failed = [];
+  for (const engine of SKILL_ENGINES) {
+    for (const dir of skillDirs(engine, home, null)) {
+      const target = `${dir}/${SKILL_NAME}`;
+      if (!fs.existsSync(target)) continue;
+      try {
+        fs.rmSync(target, { recursive: true, force: true });
+        removed.push(`${engine}:${target}`);
+      } catch (e) {
+        failed.push(`${engine}:${target}`);
+        logger.warn(`skill remove from ${dir} failed: ${e.message}`);
+      }
+    }
+  }
+  if (removed.length) logger.info(`skill removed: ${removed.join(", ")}`);
+  return { removed, failed };
+}
+
+// Fire-and-forget just-in-time install for one engine; the enabled gate lives
+// in browserUseSocket (dynamic import — that file statically imports this one).
+export function queueSkillInstall(engine) {
+  if (!engine || !SKILL_ENGINES.includes(engine)) return;
+  void import("./browserUseSocket.js")
+    .then((m) => m.installSkillIfEnabled(engine))
+    .catch((e) => logger.debug(`skill install skipped: ${e.message}`));
 }
