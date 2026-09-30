@@ -78,13 +78,52 @@ export const useVoiceStore = create((set, get) => ({
         changed = true;
         save(key, value);
       };
-      apply(typeof remote.enabled === "boolean", "enabled", remote.enabled);
-      apply(!!remote.mode, "mode", remote.mode);
-      apply(!!remote.preset, "preset", remote.preset);
-      apply(Array.isArray(remote.geminiKeys), "geminiKeys", remote.geminiKeys);
-      for (const k of ["geminiModel", "openrouterKey", "openrouterModel", "customEndpoint", "customModel", "customKey", "opencodeModel"]) {
-        apply(typeof remote[k] === "string", k, remote[k]);
+
+      const remoteGemini = Array.isArray(remote.geminiKeys)
+        ? remote.geminiKeys.filter((k) => typeof k === "string" && k.trim())
+        : [];
+      const hasLocalGemini = Array.isArray(prev.geminiKeys) && prev.geminiKeys.some((k) => typeof k === "string" && k.trim());
+
+      const remoteOpenrouter = typeof remote.openrouterKey === "string" ? remote.openrouterKey.trim() : "";
+      const hasLocalOpenrouter = !!prev.openrouterKey?.trim();
+
+      const remoteCustom = typeof remote.customKey === "string" ? remote.customKey.trim() : "";
+      const hasLocalCustom = !!prev.customKey?.trim();
+
+      const clientHadAnyKey = hasLocalGemini || hasLocalOpenrouter || hasLocalCustom;
+      const remoteHasAnyKey = remoteGemini.length > 0 || !!remoteOpenrouter || !!remoteCustom;
+
+      // Only inherit keys when remote has valid keys and client has none
+      if (remoteGemini.length > 0 && !hasLocalGemini) {
+        apply(true, "geminiKeys", remoteGemini);
       }
+      if (remoteOpenrouter && !hasLocalOpenrouter) {
+        apply(true, "openrouterKey", remoteOpenrouter);
+      }
+      if (remoteCustom && !hasLocalCustom) {
+        apply(true, "customKey", remoteCustom);
+      }
+
+      const remoteEndpoint = typeof remote.customEndpoint === "string" ? remote.customEndpoint.trim() : "";
+      if (remoteEndpoint && !prev.customEndpoint?.trim()) {
+        apply(true, "customEndpoint", remoteEndpoint);
+      }
+
+      // Fill missing models from host if client has none
+      for (const k of ["geminiModel", "openrouterModel", "customModel", "opencodeModel"]) {
+        const val = typeof remote[k] === "string" ? remote[k].trim() : "";
+        if (val && !prev[k]?.trim()) {
+          apply(true, k, val);
+        }
+      }
+
+      // If client had no keys configured but host does, adopt host's mode and preset
+      if (!clientHadAnyKey && remoteHasAnyKey) {
+        apply(!!remote.mode, "mode", remote.mode);
+        apply(!!remote.preset, "preset", remote.preset);
+        apply(typeof remote.enabled === "boolean", "enabled", remote.enabled);
+      }
+
       return changed ? next : prev;
     });
   },

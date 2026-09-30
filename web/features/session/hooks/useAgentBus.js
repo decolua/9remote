@@ -229,10 +229,6 @@ export function useAgentBus() {
       useTerminalStore.getState().setMcpClients(info.mcpClients);
       if (info.voiceConfig) {
         useVoiceStore.getState().syncFromHost(info.voiceConfig);
-      } else {
-        const s = useVoiceStore.getState();
-        const hasConfig = s.geminiKeys.some((k) => k.trim()) || s.openrouterKey || s.customKey || s.customEndpoint;
-        if (hasConfig) s.pushToHost();
       }
     });
 
