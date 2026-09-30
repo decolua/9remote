@@ -18,6 +18,11 @@ export function useTerminalPageViewport({ setKeyboardOpen }) {
   // VisualViewport height - handle mobile keyboard
   useEffect(() => {
     let lastKeyboardState = false;
+    // iOS-only: on Android (interactive-widget=resizes-content) innerHeight shrinks
+    // with the keyboard, so the isKeyboardOpen check misfires and the translateY
+    // below would push the whole layout up by the keyboard height.
+    const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
     const updateAppHeight = () => {
       const vv = window.visualViewport;
@@ -34,7 +39,7 @@ export function useTerminalPageViewport({ setKeyboardOpen }) {
       document.documentElement.style.setProperty("--app-height", `${vvHeight}px`);
 
       // iOS 26 Safari bug (FB20191055): offsetTop stays > 0 after keyboard dismiss
-      if (!isKeyboardOpen && offsetTop > 0) {
+      if (isIos && !isKeyboardOpen && offsetTop > 0) {
         document.documentElement.style.transform = `translateY(${-offsetTop}px)`;
       } else {
         document.documentElement.style.transform = "";
