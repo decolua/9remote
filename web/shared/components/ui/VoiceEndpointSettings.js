@@ -322,9 +322,9 @@ export default function VoiceEndpointSettings({ dense = false }) {
           type="button"
           onClick={(e) => { e.stopPropagation(); vibrate(); setEnabled(!enabled); }}
           aria-label="Toggle voice input"
-          className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors border border-transparent ${enabled ? "bg-brand-500 dark:bg-white" : "bg-surface-2 dark:border-white/15"}`}
+          className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${enabled ? "bg-brand-500" : "bg-surface-2"}`}
         >
-          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-4 dark:bg-dark-800" : "translate-x-0.5 dark:bg-white/50"}`} />
+          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${enabled ? "translate-x-4" : "translate-x-0.5"}`} />
         </button>
       </div>
       {open && <VoiceConfigModal onClose={() => setOpen(false)} />}
