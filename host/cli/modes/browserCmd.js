@@ -135,7 +135,12 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
 export async function cmdBrowser(args) {
   const { positional, opts } = parseArgs(args);
   const [sub, ...rest] = positional;
-  const payload = (extra = {}) => ({ profile: opts.profile, ...opts, ...extra });
+  const isAttach = opts.mode === "attach";
+  const payload = (extra = {}) => ({
+    profile: isAttach ? "__attach__" : opts.profile,
+    ...opts,
+    ...extra
+  });
 
   switch (sub) {
     case undefined:
@@ -144,7 +149,7 @@ export async function cmdBrowser(args) {
       return;
     case "open": {
       const data = mustOk(await call("open", payload({ url: rest[0] })));
-      console.log(`opened ${rest[0]} (profile ${opts.profile || "default"})`);
+      console.log(`opened ${rest[0]} (${isAttach ? "real browser" : `profile ${opts.profile || "default"}`})`);
       if (data.state) printState(data.state);
       return;
     }

@@ -202,26 +202,36 @@ export async function invoke(action, payload = {}) {
       logger.info(`run ${taskId}: ${result.outcome}${verification ? ` · verify ${verification.passed ? "PASSED" : "FAILED"}` : ""} (${result.metrics.steps} steps)`);
       return { ok: true, taskId, ...result, report, verification, state: await stateAfter(payload) };
     }
-    case "click":
-      return { ok: true, ...(await clickById(payload.profile || "default", required(payload, "id"))),
+    case "click": {
+      const opts = sessionOpts(payload);
+      return { ok: true, ...(await clickById(opts.profile, required(payload, "id"))),
         state: await stateAfter(payload) };
+    }
     case "type": {
-      const profile = payload.profile || "default";
-      const result = await typeById(profile, required(payload, "id"), required(payload, "text"));
-      if (payload.enter) await pressEnter(profile); // same process, one round trip
+      const opts = sessionOpts(payload);
+      const result = await typeById(opts.profile, required(payload, "id"), required(payload, "text"));
+      if (payload.enter) await pressEnter(opts.profile); // same process, one round trip
       return { ok: true, ...result, state: await stateAfter(payload) };
     }
-    case "enter":
-      return { ok: true, ...(await pressEnter(payload.profile || "default")),
+    case "enter": {
+      const opts = sessionOpts(payload);
+      return { ok: true, ...(await pressEnter(opts.profile)),
         state: await stateAfter(payload) };
-    case "shot":
-      return { ok: true, ...(await shoot(payload.profile || "default")) };
-    case "run.cancel":
-      return { ok: true, ...requestCancel(payload.profile || "default") };
+    }
+    case "shot": {
+      const opts = sessionOpts(payload);
+      return { ok: true, ...(await shoot(opts.profile)) };
+    }
+    case "run.cancel": {
+      const opts = sessionOpts(payload);
+      return { ok: true, ...requestCancel(opts.profile) };
+    }
     case "chain":
       return await runChain(sessionOpts(payload), payload.steps);
-    case "close":
-      return { ok: true, ...(await closeProfile(payload.profile || "default")) };
+    case "close": {
+      const opts = sessionOpts(payload);
+      return { ok: true, ...(await closeProfile(opts.profile)) };
+    }
     default:
       throw new Error(`Unknown browserUse action: ${action}`);
   }
@@ -389,11 +399,14 @@ const stateAfterSafe = async (session) => {
 };
 
 // One decision gate for session identity: every caller resolves mode/headless alike.
-const sessionOpts = (payload = {}) => ({
-  profile: payload.profile || "default",
-  mode: payload.mode === "attach" ? "attach" : config.mode,
-  headless: config.headless
-});
+const sessionOpts = (payload = {}) => {
+  const mode = payload.mode === "attach" ? "attach" : config.mode;
+  return {
+    profile: mode === "attach" ? "__attach__" : (payload.profile || "default"),
+    mode,
+    headless: config.headless
+  };
+};
 
 const required = (payload, key) => {
   const value = payload?.[key];

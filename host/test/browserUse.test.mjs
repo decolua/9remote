@@ -12,6 +12,7 @@ import { validateChoice, resolveJevConfig } from "../features/browserUse/jevClie
 import {
   buildActionSpace, shouldBlockNoChange, buildQuestions
 } from "../features/browserUse/agentLoop.js";
+import { urlsMatch } from "../features/browserUse/engine.js";
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
   try { await fn(); pass++; console.log(`  ✓ ${name}`); }
@@ -87,6 +88,14 @@ await test("shouldBlockNoChange: three stale non-wait actions block", () => {
   assert.equal(shouldBlockNoChange(hist(3)), true);
   assert.equal(shouldBlockNoChange(hist(2)), false);
   assert.equal(shouldBlockNoChange([{ page_changed: false, kind: "click" }, { page_changed: false, kind: "click" }, { page_changed: false, kind: "wait" }]), false);
+});
+
+await test("urlsMatch: normalizes trailing slash and compares accurately", () => {
+  assert.equal(urlsMatch("https://github.com", "https://github.com/"), true);
+  assert.equal(urlsMatch("http://localhost:3000/app/", "http://localhost:3000/app"), true);
+  assert.equal(urlsMatch("https://google.com/search?q=1", "https://google.com/search/?q=1"), true);
+  assert.equal(urlsMatch("https://google.com/search", "https://google.com/other"), false);
+  assert.equal(urlsMatch("", "https://google.com"), false);
 });
 
 // ---------------------------------------------------------------------------

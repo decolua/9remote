@@ -161,16 +161,31 @@ export function openAttachGuide() {
 }
 
 // ---- sessions -----------------------------------------------------------------
+export const ATTACH_PROFILE = "__attach__";
 const sessions = new Map(); // profile -> session
 
+export function urlsMatch(a, b) {
+  if (!a || !b) return false;
+  if (a === b) return true;
+  try {
+    const u1 = new URL(a);
+    const u2 = new URL(b);
+    const p1 = u1.pathname.replace(/\/+$/, "") || "/";
+    const p2 = u2.pathname.replace(/\/+$/, "") || "/";
+    return u1.origin === u2.origin && p1 === p2 && u1.search === u2.search;
+  } catch {
+    return a.trim().replace(/\/+$/, "") === b.trim().replace(/\/+$/, "");
+  }
+}
+
 function makeSession({ profile, mode, port, child, client, sessionId, targetId, headless = false }) {
-  const call = (method, params = {}) => client.call(method, params, sessionId);
+  const call = (method, params = {}) => client.call(method, params, session.sessionId);
   const enter = (type) => ({
     type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
   });
 
   const session = {
-    profile, mode, port, targetId, headless, client,
+    profile, mode, port, targetId, sessionId, headless, client,
     lastState: null,
     docOrigin: null, docUrl: null,
     cancelRequested: false,
@@ -187,11 +202,48 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       await call("Page.navigate", { url });
       const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
       while (Date.now() < deadline) {
-        if (await evaluate(client, sessionId, "document.readyState") === "complete") break;
+        if (await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
         await new Promise((r) => setTimeout(r, 50));
       }
       // Two pages can render identically — never serve the old table after a navigate.
       session.lastState = null;
+    },
+
+    // In attach mode: reuse a tab if it matches targetUrl, else open a new tab.
+    async openOrReuseTab(targetUrl) {
+      if (!targetUrl) return;
+      try {
+        const { targetInfos = [] } = await client.call("Target.getTargets");
+        const pageTargets = targetInfos.filter((t) => t.type === "page");
+        const matched = pageTargets.find((t) => urlsMatch(t.url, targetUrl));
+        if (matched) {
+          if (matched.targetId !== session.targetId) {
+            const attached = await client.call("Target.attachToTarget", { targetId: matched.targetId, flatten: true });
+            session.targetId = matched.targetId;
+            session.sessionId = attached.sessionId;
+            await session.setup();
+          }
+          try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
+          session.lastState = null;
+          return;
+        }
+
+        const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
+        const attached = await client.call("Target.attachToTarget", { targetId: target.targetId, flatten: true });
+        session.targetId = target.targetId;
+        session.sessionId = attached.sessionId;
+        await session.setup();
+        try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
+        session.lastState = null;
+
+        const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
+        while (Date.now() < deadline) {
+          if (await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      } catch {
+        await session.navigate(targetUrl);
+      }
     },
 
     async observe() {
@@ -199,7 +251,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       let attempts = 0;
       for (;;) {
         let state = null;
-        try { state = await evaluate(client, sessionId, SNAPSHOT_EXPRESSION); }
+        try { state = await evaluate(client, session.sessionId, SNAPSHOT_EXPRESSION); }
         catch (e) {
           if (DEAD_SESSION.test(e.message)) throw e; // dead session — let withSession heal
           state = null; /* document navigating */
@@ -237,7 +289,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     async fresh(page) {
       try {
         // Arrays off the wire never compare equal by reference — stringify both.
-        return JSON.stringify(await evaluate(client, sessionId, MARKER_EXPRESSION)) === JSON.stringify(page.marker);
+        return JSON.stringify(await evaluate(client, session.sessionId, MARKER_EXPRESSION)) === JSON.stringify(page.marker);
       } catch {
         return false;
       }
@@ -248,7 +300,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     async decorate(action, point) {
       if (headless) return;
       try {
-        await evaluate(client, sessionId, `(payload => {
+        await evaluate(client, session.sessionId, `(payload => {
           const c = window.__9rFast; if (!c) return;
           const e = c.nodes.get(payload.node);
           const r = e?.getBoundingClientRect();
@@ -283,7 +335,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     // Resolve an observed action to live coordinates; refuse anything covered,
     // hidden or gone. Model-chosen ids never bypass this gate.
     async resolve(action) {
-      return evaluate(client, sessionId, `(action => {
+      return evaluate(client, session.sessionId, `(action => {
         const c = window.__9rFast; if (!c) return null;
         const e = c.nodes.get(action.node);
         if (!e?.isConnected || e.matches(':disabled') || e.closest('[aria-disabled="true"],[inert]') ||
@@ -331,7 +383,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
 
     async type(action, text) {
       if (typeof text !== "string" || !text.trim()) throw new Error("Refusing to type empty text");
-      await evaluate(client, sessionId, `(node => {
+      await evaluate(client, session.sessionId, `(node => {
         const e = window.__9rFast?.nodes.get(node); if (e) e.focus();
       })(${action.node})`);
       const meta = process.platform === "darwin" ? 4 : 2;
@@ -342,14 +394,14 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       // tabs — verify the text landed and retry via execCommand inside the page.
       let landed = true;
       try {
-        landed = await evaluate(client, sessionId, `(node => {
+        landed = await evaluate(client, session.sessionId, `(node => {
           const e = window.__9rFast?.nodes.get(node); if (!e) return true;
           const v = 'value' in e ? String(e.value) : (e.innerText || '');
           return v.includes(${JSON.stringify(text)});
         })(${action.node})`);
       } catch { /* navigating right after typing — assume it landed */ }
       if (!landed) {
-        await evaluate(client, sessionId, `(node => {
+        await evaluate(client, session.sessionId, `(node => {
           const e = window.__9rFast?.nodes.get(node); if (e) e.focus();
           document.execCommand('insertText', false, ${JSON.stringify(text)});
         })(${action.node})`);
@@ -371,7 +423,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       let changedAt = started, prev = null, freshDoc = false, spaRoute = false;
       while (Date.now() - started < SETTLE_CAP_MS) {
         let marker = null;
-        try { marker = await evaluate(client, sessionId, MARKER_EXPRESSION); }
+        try { marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION); }
         catch { changedAt = Date.now(); continue; /* navigating mid-wait */ }
         if (Array.isArray(marker)) {
           if (marker[0] !== session.docOrigin) {
@@ -401,7 +453,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
 
     async close() {
       sessions.delete(profile);
-      try { await client.call("Target.closeTarget", { targetId }); } catch { /* already gone */ }
+      try { await client.call("Target.closeTarget", { targetId: session.targetId }); } catch { /* already gone */ }
       client.close();
       try { child?.kill(); } catch { /* already exited */ }
     }
@@ -426,8 +478,9 @@ async function dropSession(session) {
 // Open (or reuse) a session for a profile. Serialized per profile. Self-healing:
 // a session whose browser/tab died is dropped and relaunched ONCE, so a Chrome
 // restart or a closed tab never wedges every later command until host restart.
-export async function withSession(options, fn) {
-  const profile = options.profile || "default";
+export async function withSession(options = {}, fn) {
+  const isAttach = options.mode === "attach";
+  const profile = isAttach ? ATTACH_PROFILE : (options.profile || "default");
   return serialize(profile, async () => {
     let existing = sessions.get(profile);
     // Dead WS or a settings mode switch: the old browser no longer matches.
@@ -435,13 +488,16 @@ export async function withSession(options, fn) {
       await dropSession(existing);
       existing = null;
     }
-    let session = existing || await launchSession(options);
+    let session = existing || await launchSession({ ...options, profile });
     const runWith = async (s) => {
-      // Reloading an identical URL wastes seconds and resets page state. Compare
-      // against where the page ACTUALLY is (lastState.url), not the last requested
-      // URL — otherwise navigating away then re-opening the original sticks.
-      if (options.url && s.lastState?.url !== options.url) {
-        await s.navigate(options.url);
+      // In attach mode, reuse an existing tab if it already holds the target URL.
+      // In own-profile mode, re-navigating an identical URL wastes time and resets state.
+      if (options.url) {
+        if (isAttach) {
+          await s.openOrReuseTab(options.url);
+        } else if (s.lastState?.url !== options.url) {
+          await s.navigate(options.url);
+        }
       }
       return fn(s);
     };
@@ -450,7 +506,7 @@ export async function withSession(options, fn) {
     } catch (e) {
       if (!existing || !DEAD_SESSION.test(e.message)) throw e;
       await dropSession(session);
-      session = await launchSession(options); // fresh tab / fresh WS, same profile
+      session = await launchSession({ ...options, profile });
       return runWith(session);
     }
   });
@@ -498,12 +554,31 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
   }
   const client = await CdpClient.connect(info.webSocketDebuggerUrl);
   try {
-    const target = await client.call("Target.createTarget", { url: "about:blank", background: true });
-    const attached = await client.call("Target.attachToTarget", { targetId: target.targetId, flatten: true });
+    let targetId;
+    if (mode === "attach") {
+      const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
+      const pageTargets = targetInfos.filter((t) => t.type === "page");
+      const matched = url ? pageTargets.find((t) => urlsMatch(t.url, url)) : null;
+      if (matched) {
+        targetId = matched.targetId;
+      } else if (pageTargets.length > 0 && !url) {
+        targetId = pageTargets[0].targetId;
+      } else {
+        const target = await client.call("Target.createTarget", { url: url || "about:blank", background: false });
+        targetId = target.targetId;
+      }
+    } else {
+      const target = await client.call("Target.createTarget", { url: "about:blank", background: true });
+      targetId = target.targetId;
+    }
+    const attached = await client.call("Target.attachToTarget", { targetId, flatten: true });
     const session = makeSession({
-      profile, mode, port, child, client, sessionId: attached.sessionId, targetId: target.targetId, headless
+      profile, mode, port, child, client, sessionId: attached.sessionId, targetId, headless
     });
     await session.setup();
+    if (mode === "attach") {
+      try { await client.call("Page.bringToFront", {}, attached.sessionId); } catch { /* ignore */ }
+    }
     sessions.set(profile, session);
     logger.info(`session open: profile=${profile} mode=${mode} port=${port}`);
     return session;
