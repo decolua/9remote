@@ -194,7 +194,10 @@ export function presentedTailOf(auth, open) {
 // Handle proof over an open carrier (e.g. RTC data channel).
 export function handleTailProof(socket, data) {
   const deviceId = socket?.data?.auth?.deviceId || socket.handshake?.auth?.deviceId || socket.deviceId || null;
-  const presentedTemp = socket.handshake?.auth?.tempKey || data?.tempKey || null;
+  // The proof's own tempKey wins when present: an explicit null ends pairing (keyIssued cleared it client-side), else the WS handshake — frozen at connect — judges the KEY tail against the CODE tail and burns a used code.
+  const presentedTemp = data && "tempKey" in data
+    ? (data.tempKey || null)
+    : (socket.handshake?.auth?.tempKey || null);
   const pairing = !!presentedTemp && !!getActivePairing();
   if (!deviceId || (!isTailProofEnabled() && !pairing)) return true;
   const tail = presentedTailOf(data, openSealedTail);
