@@ -7,6 +7,7 @@ import { useI18n } from "@/shared/i18n";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import IconMenu from "@/shared/components/ui/IconMenu";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import AddHostModal from "./AddHostModal";
 
 // Hidden until the row is hovered on desktop; full opacity on touch/mobile so it
@@ -50,6 +51,10 @@ export default function HostTreeRow({
   className = ""
 }) {
   const { t } = useI18n();
+  // Same hide flags the header buttons obey — a feature turned off in settings
+  // stays off in this menu too.
+  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
+  const showHeaderBtn = (id) => !hiddenHeaderButtons.includes(id);
   const [rename, setRename] = useState(null);   // draft label while renaming
   const [removeOpen, setRemoveOpen] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
@@ -155,15 +160,15 @@ export default function HostTreeRow({
                 icon: KeyRound, label: t("hosts.addHost"),
                 onClick: () => setAddOpen(true)
               },
-              onOpenRemote && !hostUpdating && {
+              onOpenRemote && showHeaderBtn("remote") && !hostUpdating && {
                 icon: Monitor, label: t("menu.remoteDesktop"),
                 onClick: () => { setMenuAt(null); vibrate(); onOpenRemote(); }
               },
-              onOpenSites && {
+              onOpenSites && showHeaderBtn("sites") && {
                 icon: Globe, label: t("menu.sites"),
                 onClick: () => { setMenuAt(null); vibrate(); onOpenSites(); }
               },
-              onOpenMobile && !hostUpdating && {
+              onOpenMobile && showHeaderBtn("mobile") && !hostUpdating && {
                 icon: Smartphone, label: t("mobile.androidDevice"),
                 onClick: () => { setMenuAt(null); vibrate(); onOpenMobile(); }
               },
