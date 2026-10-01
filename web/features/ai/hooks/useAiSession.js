@@ -403,6 +403,7 @@ export function useAiSession({
   const clearPermission = useAiStore((s) => s.clearPermission);
   const finishTurn = useAiStore((s) => s.finishTurn);
   const setTurnRunning = useAiStore((s) => s.setTurnRunning);
+  const ensureTurnLive = useAiStore((s) => s.ensureTurnLive);
   const addUserMessage = useAiStore((s) => s.addUserMessage);
   // Boolean selector: re-renders on carrier changes only.
   const connected = useConnectionStore((s) => s.connected);
@@ -449,9 +450,13 @@ export function useAiSession({
         setMetadata(sid, { goal: data?.goal || null });
         break;
       case "delta":
+        // Stream proof — same law the host adapter holds ("output proves a turn"):
+        // a live delta after a flag-clearing race means the turn never ended.
+        if (!data?.replay) ensureTurnLive(sid);
         appendDelta(sid, data.text);
         break;
       case "thinking":
+        if (!data?.replay) ensureTurnLive(sid);
         appendThinking(sid, data.text);
         break;
       case "diff":
@@ -464,6 +469,7 @@ export function useAiSession({
         nestToolResult(sid, data);
         break;
       case "tool_start":
+        if (!data?.replay) ensureTurnLive(sid);
         appendTool(sid, data);
         if (data && data.name) {
           const currentTasks = useAiStore.getState().bySession[sid]?.tasks || [];
@@ -585,7 +591,7 @@ export function useAiSession({
       default:
         break;
     }
-  }, [engine, addUserMessage, setMetadata, appendDelta, appendThinking, appendDiff, appendTool, updateToolResult, nestTool, nestToolResult, upsertTask, setPermission, clearPermission, finishTurn, setTurnRunning]);
+  }, [engine, addUserMessage, setMetadata, appendDelta, appendThinking, appendDiff, appendTool, updateToolResult, nestTool, nestToolResult, upsertTask, setPermission, clearPermission, finishTurn, setTurnRunning, ensureTurnLive]);
 
   // Ref, not dep: the hydrate effect must not re-emit ai:create over a mid-stream session.
   const applyEventRef = useRef(applyEvent);

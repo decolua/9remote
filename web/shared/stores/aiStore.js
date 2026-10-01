@@ -213,6 +213,21 @@ export const useAiStore = create(
         });
       },
 
+      // A live stream event proves the turn runs even when a stale ack/reset said it
+      // ended — heal or the pane pins "Worked for …" over a turn still streaming.
+      ensureTurnLive: (sessionId) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          if (curr.isTurnRunning) return state;
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, isTurnRunning: true, turnStartedAt: Date.now(), lastTurnMs: 0 }
+            }
+          };
+        });
+      },
+
       setQueue: (sessionId, queue) => {
         if (!sessionId) return;
         set((state) => {

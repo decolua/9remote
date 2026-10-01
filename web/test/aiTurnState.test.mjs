@@ -149,5 +149,27 @@ test("a live turn_complete still ends the turn it belongs to", () => {
   assert.equal(sess.lastTurnMs, 4200);
 });
 
+test("a live delta heals the resting flag a stale ack left behind", () => {
+  // The bug: the stream keeps flowing (tab dot working) while the pane pins
+  // "Worked for …" — only user_message set the flag, so nothing repaired it.
+  useAiStore.setState({ bySession: {} });
+  useAiStore.getState().initSession("s1");
+  useAiStore.getState().restoreTurnState("s1", { isTurnRunning: false, lastTurnMs: 4200 });
+  useAiStore.getState().ensureTurnLive("s1");
+  const sess = useAiStore.getState().bySession.s1;
+  assert.equal(sess.isTurnRunning, true, "stream proof outranks a stale resting state");
+  assert.equal(sess.lastTurnMs, 0, "the live line has no span to print");
+  assert.ok(sess.turnStartedAt > 0, "the healed clock needs a mark to count from");
+});
+
+test("the heal does not restart a running turn's clock", () => {
+  useAiStore.setState({ bySession: {} });
+  useAiStore.getState().initSession("s1");
+  useAiStore.getState().addUserMessage("s1", "do it");
+  const before = useAiStore.getState().bySession.s1.turnStartedAt;
+  useAiStore.getState().ensureTurnLive("s1");
+  assert.equal(useAiStore.getState().bySession.s1.turnStartedAt, before);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail > 0) process.exit(1);
