@@ -49,7 +49,9 @@ export default {
     minutesAgo: "{n} min ago",
     hoursAgo: "{n} hours ago",
     daysAgo: "{n} days ago",
-    done: "Done"
+    done: "Done",
+    moveUp: "Move up",
+    moveDown: "Move down"
   },
   agentSwitcher: {
     title: "Your devices",

@@ -79,6 +79,22 @@ export function useApiKeyStorage() {
     }
   }, [isBrowser, loadKeys]);
 
+  // Swap a key with its neighbor (-1 up, +1 down) — array order is the host list order
+  const moveKey = useCallback((id, dir) => {
+    if (!isBrowser) return;
+    try {
+      const existing = loadKeys();
+      const from = existing.findIndex((item) => item.id === id);
+      const to = from + dir;
+      if (from === -1 || to < 0 || to >= existing.length) return;
+      [existing[from], existing[to]] = [existing[to], existing[from]];
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(existing.map((item) => ({ ...item, key: encode(item.key) }))));
+      notifyKeysChanged();
+    } catch (err) {
+      console.error("Failed to move API key:", err);
+    }
+  }, [isBrowser, loadKeys]);
+
   // Remove a key by id
   const removeKey = useCallback((id) => {
     if (!isBrowser) return;
@@ -153,6 +169,7 @@ export function useApiKeyStorage() {
   return {
     saveKey,
     loadKeys,
+    moveKey,
     removeKey,
     renameKey,
     clearKeys,

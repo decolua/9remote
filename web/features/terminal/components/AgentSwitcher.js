@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { Pencil, Trash2, Check, X } from "@/shared/components/ui/Icon";
+import { ChevronDown, ChevronUp, Pencil, Trash2, Check, X } from "@/shared/components/ui/Icon";
 import { maskApiKey } from "@/shared/utils/formatters";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -69,7 +69,7 @@ export default function AgentSwitcher({
   loadingKey = null
 }) {
   const { t } = useI18n();
-  const { renameKey, removeKey, loadKeys } = useApiKeyStorage();
+  const { renameKey, removeKey, moveKey, loadKeys } = useApiKeyStorage();
   // Local copy so rename/delete reflect immediately without parent re-render
   const [localKeys, setLocalKeys] = useState(keys);
   useEffect(() => { setLocalKeys(keys); }, [keys]);
@@ -154,6 +154,29 @@ export default function AgentSwitcher({
                   >
                     <Trash2 size={12} />
                   </button>
+                )}
+                {editMode && !isEditing && (
+                  // Reorder: saved-key order is the host list order everywhere
+                  <div className="as-mv" onClick={(e) => e.stopPropagation()}>
+                    <button
+                      type="button"
+                      className="as-mv-btn"
+                      disabled={i === 0}
+                      onClick={() => { vibrate(); moveKey(item.id, -1); refresh(); }}
+                      aria-label={t("common.moveUp")}
+                    >
+                      <ChevronUp size={12} />
+                    </button>
+                    <button
+                      type="button"
+                      className="as-mv-btn"
+                      disabled={i === localKeys.length - 1}
+                      onClick={() => { vibrate(); moveKey(item.id, 1); refresh(); }}
+                      aria-label={t("common.moveDown")}
+                    >
+                      <ChevronDown size={12} />
+                    </button>
+                  </div>
                 )}
                 <div className="as-mac-wrap">
                   <MacBook accent={accent} />
@@ -240,6 +263,10 @@ export default function AgentSwitcher({
 
         .as-del{position:absolute;top:6px;right:6px;width:20px;height:20px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;background:#ef4444;color:#fff;border:2px solid var(--bg,#0a0d12);cursor:pointer;z-index:2;box-shadow:0 2px 6px rgba(0,0,0,.4)}
         .as-card--active .as-del{border-color:rgb(var(--accent-rgb))}
+        .as-mv{position:absolute;left:4px;top:50%;transform:translateY(-50%);display:flex;flex-direction:column;gap:3px;z-index:2}
+        .as-mv-btn{width:20px;height:20px;border-radius:6px;display:inline-flex;align-items:center;justify-content:center;background:var(--surface-2,#1a2029);color:var(--text-muted,#8b95a5);border:1px solid var(--border,#262e3a);cursor:pointer}
+        .as-mv-btn:hover:not(:disabled){color:var(--text,#e7ebf0);border-color:rgb(var(--accent-rgb))}
+        .as-mv-btn:disabled{opacity:.35;cursor:default}
 
         .as-mac-wrap{display:flex;justify-content:center}
 
