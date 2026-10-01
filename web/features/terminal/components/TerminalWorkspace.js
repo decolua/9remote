@@ -522,6 +522,10 @@ function TerminalWorkspace({
     />
   );
 
+  // Pair/welcome overlay covers the whole content column: drop the header and
+  // display:none the panes so nothing paints or runs underneath it.
+  const covered = !!(pairDashboard || welcomeActive);
+
   return (
     // Park LEFT when hidden: translate-x-full made the overflow:hidden container horizontally pannable on iOS, leaving the session list stuck shifted left; the negative side creates no scrollable extent.
     <div
@@ -577,7 +581,7 @@ function TerminalWorkspace({
               onClick={() => { vibrate(); toggleSidebar(); }}
               title={withHint(t("menu.toggleSidebar") || "Show sidebar", "toggleSidebar")}
               aria-label="Show sidebar"
-              className="absolute top-2 left-2 z-30 p-1.5 rounded-brand bg-surface/90 backdrop-blur border border-border-subtle text-text-muted hover:text-text shadow-md transition-colors"
+              className="absolute top-2 left-2 z-[70] p-1.5 rounded-brand bg-surface/90 backdrop-blur border border-border-subtle text-text-muted hover:text-text shadow-md transition-colors"
             >
               <PanelLeft size={14} />
             </button>
@@ -586,13 +590,15 @@ function TerminalWorkspace({
           {/* Agent dashboard fills the content area (desktop pair view) — the
               sidebar sibling stays visible and interactive beside it. */}
           {pairDashboard && (
-            <div className="absolute inset-0 z-20 overflow-hidden bg-bg">{pairDashboard}</div>
+            // z above the AI pane's pinned cards (z-30) and its fixed modals (z-50),
+            // which would otherwise paint through the overlay
+            <div className="absolute inset-0 z-[60] overflow-hidden bg-bg">{pairDashboard}</div>
           )}
 
           {/* Welcome stage on demand (logo click): the same empty-state screen a
               fresh machine shows, reachable even with workspaces present. */}
           {welcomeActive && !pairDashboard && (
-            <div className="absolute inset-0 z-20 overflow-y-auto bg-bg">
+            <div className="absolute inset-0 z-[60] overflow-y-auto bg-bg">
               <TerminalEmptyState
                 onAddWorkspace={onAddWorkspace}
                 onOpenRemote={onOpenRemote}
@@ -605,7 +611,7 @@ function TerminalWorkspace({
           {/* With no session there is nothing to tab between, so the strip goes away on
               desktop. Mobile keeps it: the header is the only way to reach Settings there,
               since the sidebar (which holds it on desktop) does not exist. */}
-          {(!showEmptyState || !isDesktop) && (
+          {!covered && (!showEmptyState || !isDesktop) && (
           <TerminalHeader
             sessions={workspaceSessions}
             allSessions={sessions}
@@ -668,7 +674,7 @@ function TerminalWorkspace({
           ) : (
           <div
             ref={panesContainerRef}
-            className={`flex-1 min-h-0 ${isDesktop ? `flex flex-row ${fullMode ? "overflow-hidden" : "overflow-x-auto"} overflow-y-hidden px-0 pb-0 scrollbar-none` : "relative"}`}
+            className={`flex-1 min-h-0 ${covered ? "hidden" : ""} ${isDesktop ? `flex flex-row ${fullMode ? "overflow-hidden" : "overflow-x-auto"} overflow-y-hidden px-0 pb-0 scrollbar-none` : "relative"}`}
             {...bindSwipeTab({
               enabled: !isDesktop,
               sessionIds: workspaceOpenedSessions,
