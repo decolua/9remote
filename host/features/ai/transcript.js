@@ -456,9 +456,9 @@ function tailFromLastUser(events) {
 // a {type:"session", id, cwd} header, then {type:"message", message:{role,
 // content}} entries (measured on 18.2.6). The pane replays the same cards the
 // live adapter drew: text, thinking, tool calls/results and write diffs.
-export function recoverFromOmpTranscript(cwd, sessionId) {
+// omp and pi share session format v3 (pi owns that wire) — one reader, two roots.
+export function recoverFromOmpTranscript(cwd, sessionId, root = path.join(os.homedir(), ".omp", "agent", "sessions")) {
   if (!cwd || !sessionId) return null;
-  const root = path.join(os.homedir(), ".omp", "agent", "sessions");
   if (!fs.existsSync(root)) return null;
   const candidates = [];
   const walk = (dir, depth) => {
@@ -626,6 +626,7 @@ const TRANSCRIPT_RECOVERERS = {
   opencode: (cwd, sessionId) => recoverFromOpencodeTranscript(cwd, sessionId),
   antigravity: (cwd, sessionId) => recoverFromAntigravityTranscript(cwd, sessionId),
   omp: (cwd, sessionId) => recoverFromOmpTranscript(cwd, sessionId),
+  pi: (cwd, sessionId) => recoverFromOmpTranscript(cwd, sessionId, path.join(os.homedir(), ".pi", "agent", "sessions")),
   devin: (_cwd, sessionId) => recoverFromDevinTranscript(sessionId),
   hermes: (_cwd, sessionId) => recoverFromHermesTranscript(sessionId)
 };

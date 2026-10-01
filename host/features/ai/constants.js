@@ -4,6 +4,7 @@ export const AI_ENGINES = {
   OPENCODE: "opencode",
   ANTIGRAVITY: "antigravity",
   OMP: "omp",
+  PI: "pi",
   DEVIN: "devin",
   HERMES: "hermes"
 };
@@ -69,7 +70,7 @@ export const ORPHAN_SWEEP_INTERVAL_MS = 30 * 60 * 1000;
 // activity; the next prompt respawns it, resuming the saved conversation.
 // Codex rides its persistent app-server: stop() ends the carrier, and the next
 // prompt's sendPrompt hold-branch respawns it via thread/resume.
-export const IDLE_KILL_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OMP, AI_ENGINES.DEVIN, AI_ENGINES.HERMES]);
+export const IDLE_KILL_ENGINES = new Set([AI_ENGINES.CLAUDE, AI_ENGINES.CODEX, AI_ENGINES.OMP, AI_ENGINES.PI, AI_ENGINES.DEVIN, AI_ENGINES.HERMES]);
 export const AI_IDLE_KILL_MS = 30 * 60 * 1000;
 export const AI_IDLE_TICK_MS = 60 * 1000;
 

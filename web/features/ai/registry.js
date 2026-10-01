@@ -500,6 +500,70 @@ export class OmpEngine extends AiEngine {
   }
 }
 
+// pi's thinking levels (pi --help --thinking; "off" disables)
+const PI_EFFORT_OPTIONS = Object.freeze([
+  { value: "off", label: "off", desc: "Thinking off" },
+  { value: "minimal", label: "minimal", desc: "Barely think" },
+  { value: "low", label: "low", desc: "Fastest reasoning" },
+  { value: "medium", label: "medium", desc: "Balanced default" },
+  { value: "high", label: "high", desc: "Deeper reasoning for hard tasks" },
+  { value: "xhigh", label: "xhigh", desc: "Extra-high reasoning" },
+  { value: "max", label: "max", desc: "Maximum reasoning" },
+]);
+
+export class PiEngine extends AiEngine {
+  constructor() {
+    super({
+      meta: {
+        id: "pi",
+        label: "Pi",
+        desc: "pi coding agent (rpc mode)",
+        badge: "Pi",
+        icon: "Pi",
+        color: "#e11d48",
+      },
+      ui: { id: "pi-ui", label: "Pi UI", short: "Pi UI" },
+      overrides: {
+        tools: {
+          bash: "bash",
+          eval: "bash",
+          edit: "diff",
+          write: "diff",
+          read: "file",
+          glob: "search",
+          grep: "search",
+          web_search: "search",
+          ask: "question",
+        },
+        // Runtime catalog via get_available_models RPC — no static fallback.
+        models: [],
+        permissionModes: [
+          { id: "default", label: "Default", desc: "pi runs its tools directly; extensions may still ask", icon: PERMISSION_ICONS.ask },
+        ],
+        defaultMode: "default",
+        features: { thinking: true, planMode: false, tasks: false, skills: true, mcp: false, rewind: true },
+        questionGate: true,
+        slashCommands: [
+          // pi's own command vocabulary (usage.md) where the pane has an equal;
+          // /compact and /name the adapter answers directly over rpc.
+          { name: "/model", description: "Switch models", action: "modal:model" },
+          { name: "/thinking", description: "Switch thinking level", action: "submenu", optionKey: "effort", subOptions: PI_EFFORT_OPTIONS },
+          { name: "/compact", description: "Manually compact context, optionally with instructions", action: "send" },
+          { name: "/resume", description: "Pick from previous sessions", action: "modal:sessions" },
+          { name: "/fork", description: "Continue from an earlier user message", action: "modal:rewind" },
+          { name: "/clone", description: "Duplicate the current active branch into a new session", action: "send" },
+          { name: "/new", description: "Start a new session", action: "clear" },
+          { name: "/name", description: "Set session display name", action: "send" },
+          { name: "/session", description: "Show session file, ID, messages, tokens, and cost", action: "send" },
+          { name: "/skills", description: "Browse installed pi skills", action: "modal:skills" },
+          { name: "/config", description: "Configure pi execution flags", action: "modal:config" },
+          { name: "/doctor", description: "Check the pi installation", action: "modal:doctor" },
+        ],
+      },
+    });
+  }
+}
+
 export class AntigravityEngine extends AiEngine {
   constructor() {
     super({
@@ -761,6 +825,7 @@ registerEngine(new CodexEngine());
 registerEngine(new OpenCodeEngine());
 registerEngine(new AntigravityEngine());
 registerEngine(new OmpEngine());
+registerEngine(new PiEngine());
 registerEngine(new DevinEngine());
 registerEngine(new HermesEngine());
 

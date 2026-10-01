@@ -89,7 +89,12 @@ const SKILL_DIRS = {
   ],
   // Hermes resolves skills only from its home (tools/skills_tool.py: "all
   // skills live in ~/.hermes/skills/") — no workspace-level library exists.
-  hermes: (home) => [path.join(home, ".hermes", "skills")]
+  hermes: (home) => [path.join(home, ".hermes", "skills")],
+  // pi mirrors claude: user-level library plus the project's own.
+  pi: (home, workspacePath) => [
+    path.join(home, ".pi", "agent", "skills"),
+    ...(workspacePath ? [path.join(workspacePath, ".pi", "agent", "skills")] : [])
+  ]
 };
 
 export function skillDirs(engine, home, workspacePath) {

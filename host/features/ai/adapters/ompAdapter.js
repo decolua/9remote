@@ -49,6 +49,11 @@ export class OmpAdapter {
     this.onEvent?.("cli_event", { type: "warning", record: { message } });
   }
 
+  // The binary this adapter spawns; subclasses on the same wire override it.
+  _bin() {
+    return "omp";
+  }
+
   _args() {
     const args = ["--mode", "rpc-ui"];
     if (this.currentModel) args.push("--model", this.currentModel);
@@ -69,7 +74,7 @@ export class OmpAdapter {
       // The code rides the sentence — without it the row can only say the generic "ended in an error".
       else if (wasRunning) this.onEvent?.("turn_complete", { stats: this.stats, result: code != null && code !== 0 ? `OMP exited (code ${code}).` : "", isError: code != null && code !== 0, subtype: "exit" });
     };
-    const started = await this.proc.start({ bin: "omp", args: this._args(), cwd: this.cwd, env: getExtendedEnv({ hostSessionId: this.hostSessionId }), keepStdin: true });
+    const started = await this.proc.start({ bin: this._bin(), args: this._args(), cwd: this.cwd, env: getExtendedEnv({ hostSessionId: this.hostSessionId }), keepStdin: true });
     this.rpc = new OmpRpcClient({ proc: this.proc });
     this.rpc.onFrame = (frame) => this._onFrame(frame);
     // DaemonProc holds the spawn's lines until committed — skip it and the

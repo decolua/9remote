@@ -421,6 +421,8 @@ const HISTORY_SOURCES = [
   { id: "grok", layout: "cwdDir", root: () => path.join(home(), ".grok", "sessions"), encode: encodeURIComponent, depth: 1, ext: ".json", file: "summary.json", parse: parseGrok },
   { id: "antigravity", layout: "antigravity", root: () => path.join(home(), ".gemini", "antigravity-cli") },
   { id: "omp", layout: "scan", root: () => path.join(home(), ".omp", "agent", "sessions"), ext: ".jsonl", parse: parseOmp },
+  // Same session format v3 as omp — pi is the wire omp was built on.
+  { id: "pi", layout: "scan", root: () => path.join(home(), ".pi", "agent", "sessions"), ext: ".jsonl", parse: parseOmp },
   { id: "devin", layout: "devin", root: () => path.join(home(), ".local", "share", "devin", "cli") },
   { id: "hermes", layout: "hermes", root: () => path.join(home(), ".hermes") }
 ];

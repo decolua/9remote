@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import { PATHS } from "../../lib/constants.js";
 import { writeJsonAtomic } from "../../lib/atomicFile.js";
 import { getExtendedEnv } from "./adapters/env.js";
+import { AI_MODEL_CACHE_TTL_MS } from "./constants.js";
 
 const require = createRequire(import.meta.url);
 
@@ -273,6 +274,7 @@ const MODEL_LISTERS = {
   opencode: listOpencodeModelOptions,
   antigravity: listAntigravityModelOptions,
   omp: listOmpModelOptions,
+  pi: listPiModelOptions,
   devin: listDevinModelOptions,
   hermes: listHermesModelOptions
 };
@@ -282,6 +284,7 @@ export function listModelOptionsFor(engine) {
 }
 
 // Engine → its own default-model reader; an engine with no entry has no CLI default to read.
+const piFirstModel = { at: 0, id: "" };
 const DEFAULT_MODEL_READERS = {
   claude() {
     const settings = readClaudeSettings();
@@ -323,6 +326,15 @@ const DEFAULT_MODEL_READERS = {
     } catch {
       return "";
     }
+  },
+  // pi keeps no default in its config; a fresh session starts on the catalog's
+  // first model so the composer and the spawn agree. Cached — the read spawns the CLI.
+  pi() {
+    const now = Date.now();
+    if (piFirstModel.id && now - piFirstModel.at < AI_MODEL_CACHE_TTL_MS) return piFirstModel.id;
+    const id = listPiModelOptions()[0]?.id || "";
+    if (id) piFirstModel = { at: now, id };
+    return id;
   },
   devin() {
     // The CLI's own record: the model its newest session actually ran — never a canned id.
@@ -438,6 +450,47 @@ export function listAntigravityModelOptions() {
       };
     })
     .filter((m) => Boolean(m.id));
+}
+
+// List pi models over its rpc pipe — one spawnSync round trip, stdin carries the
+// command, stdout the id-correlated response (`pi --list-models` has no JSON).
+export function parsePiModelFrames(stdout) {
+  const models = [];
+  for (const line of String(stdout || "").split("\n")) {
+    let frame;
+    try { frame = JSON.parse(line); } catch { continue; }
+    if (frame?.type !== "response" || frame.id !== "m1" || frame.success === false) continue;
+    for (const m of Array.isArray(frame.data?.models) ? frame.data.models : []) {
+      if (!m?.id || !m.provider) continue;
+      const displayLabel = m.provider === "9router" ? m.id : (m.name || m.id);
+      models.push({
+        id: `${m.provider}/${m.id}`,
+        provider: m.provider,
+        label: displayLabel,
+        short: displayLabel,
+        desc: "",
+        efforts: [],
+        defaultEffort: "",
+        contextWindow: m.contextWindow || 0
+      });
+    }
+  }
+  return models.sort((a, b) => a.provider.localeCompare(b.provider) || a.label.localeCompare(b.label));
+}
+
+export function listPiModelOptions() {
+  let out = "";
+  try {
+    const res = spawnSync("pi", ["--mode", "rpc", "--no-session"], {
+      input: JSON.stringify({ id: "m1", type: "get_available_models" }) + "\n",
+      encoding: "utf8",
+      timeout: OPENCODE_CATALOG_TIMEOUT_MS
+    });
+    if (!res.error && res.status === 0) out = res.stdout || "";
+  } catch {
+    return [];
+  }
+  return parsePiModelFrames(out);
 }
 
 // List OMP models via `omp models --json`; omp already filters to providers with auth.

@@ -8,6 +8,7 @@ import { CodexAdapter } from "./codexAdapter.js";
 import { OpenCodeAdapter } from "./opencodeAdapter.js";
 import { AntigravityAdapter } from "./antigravityAdapter.js";
 import { OmpAdapter } from "./ompAdapter.js";
+import { PiAdapter } from "./piAdapter.js";
 import { DevinAdapter } from "./devinAdapter.js";
 import { HermesAdapter } from "./hermesAdapter.js";
 
@@ -91,6 +92,18 @@ export const ENGINES = Object.freeze({
     seed: (adapter, s) => {
       if (s.permissionMode || s.options.model || s.effort) {
         adapter.setOptions({ ...s.options, effort: s.effort || s.options.effort, mode: s.permissionMode || s.options.mode });
+      }
+    },
+    bindResume: bindFlat("_resumeId", "cliSessionId")
+  },
+  pi: {
+    Adapter: PiAdapter,
+    managed: true,
+    build: (ctx) => new PiAdapter(ctx),
+    // No mode field: pi has no approval tiers for a mode to steer.
+    seed: (adapter, s) => {
+      if (s.options.model || s.effort) {
+        adapter.setOptions({ model: s.options.model, effort: s.effort || s.options.effort });
       }
     },
     bindResume: bindFlat("_resumeId", "cliSessionId")

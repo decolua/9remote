@@ -1174,6 +1174,8 @@ export class AiSession {
       else if (this.engine === AI_ENGINES.DEVIN) this.cliSessionId = resume;
       // Hermes resumes via session/load on a recycled process; same id store.
       else if (this.engine === AI_ENGINES.HERMES) this.cliSessionId = resume;
+      // pi resumes via --session on the next spawn; the transcript reader fills the pane.
+      else if (this.engine === AI_ENGINES.PI) this.cliSessionId = resume;
       // Replace the log with the resumed conversation's tail; the old transcript's byte offset goes with it.
       this.attachmentOffset = null;
       this._adoptLog(this._rebuildFromStore(resume) || []);

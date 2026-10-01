@@ -47,18 +47,26 @@ export function diffFor(name, input = {}) {
   if (!file) return null;
   // No content, no card: an empty diff hiding the tool row is worse than the row.
   if (name === "write") return input.content ? { file, name, patch: "", content: String(input.content) } : null;
-  const oldStr = input.oldString || input.old_string;
-  const newStr = input.newString || input.new_string;
-  if (!oldStr && !newStr) return null;
   // A trailing newline would add an empty +/- line that reads as a real change.
-  const lines = [];
-  const add = (text, sign) => {
-    const body = String(text ?? "").replace(/\n$/, "");
-    if (body) lines.push(...body.split("\n").map((l) => `${sign}${l}`));
+  const hunk = (oldStr, newStr) => {
+    if (!oldStr && !newStr) return null;
+    const lines = [];
+    const add = (text, sign) => {
+      const body = String(text ?? "").replace(/\n$/, "");
+      if (body) lines.push(...body.split("\n").map((l) => `${sign}${l}`));
+    };
+    add(oldStr, "-");
+    add(newStr, "+");
+    return { file, name, patch: lines.join("\n"), content: "" };
   };
-  add(oldStr, "-");
-  add(newStr, "+");
-  return { file, name, patch: lines.join("\n"), content: "" };
+  // pi's edit carries multiple disjoint replacements — one hunk each.
+  if (Array.isArray(input.edits) && input.edits.length) {
+    const hunks = input.edits.map((e) => hunk(e.oldText ?? e.old_string, e.newText ?? e.new_string)).filter(Boolean);
+    return hunks.length ? hunks : null;
+  }
+  const single = hunk(input.oldString || input.old_string, input.newString || input.new_string);
+  if (!single) return null;
+  return single;
 }
 
 // opencode's read wraps its payload for the model (XML-ish tags around the

@@ -1,7 +1,7 @@
 // Tests for the per-engine default model/effort lookup and the opencode catalog.
 // Run: node agent/test/aiModels.test.mjs
 import assert from "node:assert/strict";
-import { resolveDefaultModel, resolveDefaultEffort, listCodexModelOptions, listOpencodeModelOptions, saveAiPreference, readAiPreferences } from "../features/ai/models.js";
+import { resolveDefaultModel, resolveDefaultEffort, listCodexModelOptions, listOpencodeModelOptions, parsePiModelFrames, saveAiPreference, readAiPreferences } from "../features/ai/models.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -87,6 +87,31 @@ await test("aiPreferences persists latest model and effort per engine", () => {
       effort: orig.claude?.effort || ""
     });
   }
+});
+
+await test("pi model frames parse into picker options", () => {
+  const stdout = [
+    '{"type":"response","command":"get_state","id":"other","success":true}',
+    JSON.stringify({ type: "response", command: "get_available_models", id: "m1", success: true, data: { models: [
+      { id: "claude-fable-5", name: "Claude Fable 5", provider: "anthropic", contextWindow: 1000000 },
+      { id: "ag/gemini-3.8-flash-high", provider: "9router", contextWindow: 128000 },
+      { provider: "authless", name: "no id" }
+    ] } }),
+    "not json noise"
+  ].join("\n");
+  const options = parsePiModelFrames(stdout);
+  assert.deepEqual(options.map((o) => o.id), [
+    "9router/ag/gemini-3.8-flash-high",
+    "anthropic/claude-fable-5"
+  ]);
+  assert.equal(options[0].label, "ag/gemini-3.8-flash-high", "9router shows its raw id");
+  assert.equal(options[1].label, "Claude Fable 5");
+  assert.equal(options[1].contextWindow, 1000000);
+});
+
+await test("a refused pi catalog yields no options", () => {
+  assert.deepEqual(parsePiModelFrames('{"type":"response","id":"m1","success":false,"error":"x"}'), []);
+  assert.deepEqual(parsePiModelFrames(""), []);
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
