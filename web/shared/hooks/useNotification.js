@@ -182,6 +182,7 @@ export function useNotification(busRef, connected) {
     const fetchState = () => {
       currentSocket.emit("getStatusState");
       currentSocket.emit("getNotificationState");
+      currentSocket.emit("getSessionTasks", (m) => useFleetStore.getState().applySessionTasksState(mainHead(), m));
     };
 
     // Status events land in the main host's fleet entry — the single status lane
@@ -222,6 +223,9 @@ export function useNotification(busRef, connected) {
     currentSocket.on("statusState", handleStatusState);
     currentSocket.on("statusChange", handleStatusChange);
     currentSocket.on("statusCleared", handleStatusCleared);
+    // Sub-agent/background task records — same lane the fleet buses bind.
+    const handleSessionTasks = (p) => useFleetStore.getState().applySessionTasks(mainHead(), p);
+    currentSocket.on("sessionTasks", handleSessionTasks);
     currentSocket.on("connect", handleReconnect);
     document.addEventListener("visibilitychange", handleVisibilityChange);
 
@@ -234,6 +238,7 @@ export function useNotification(busRef, connected) {
       currentSocket.off("statusState", handleStatusState);
       currentSocket.off("statusChange", handleStatusChange);
       currentSocket.off("statusCleared", handleStatusCleared);
+      currentSocket.off("sessionTasks", handleSessionTasks);
       currentSocket.off("connect", handleReconnect);
       document.removeEventListener("visibilitychange", handleVisibilityChange);
     };

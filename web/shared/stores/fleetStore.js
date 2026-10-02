@@ -48,7 +48,7 @@ function schedulePersist(get) {
 
 const emptyHost = (key) => ({
   key, full: null, label: "", status: "offline", carrier: "ws",
-  sessions: [], workspaces: [], statusMap: {},
+  sessions: [], workspaces: [], statusMap: {}, tasksBySession: {},
   platform: null, version: null, lastSeenAt: null,
   updateAvailable: null, canSelfUpdate: false, updating: false,
   approval: null,
@@ -70,6 +70,7 @@ const refetch = (bus, head) => {
   });
   bus?.emit("getWorkspaces", (list) => { if (Array.isArray(list)) patchRow(head, { workspaces: list }); });
   bus?.emit("getStatusState");
+  bus?.emit("getSessionTasks", (m) => useFleetStore.getState().applySessionTasksState(head, m));
 };
 
 const bindBus = (bus, head) => {
@@ -95,6 +96,7 @@ const bindBus = (bus, head) => {
   bus.on("statusState", (state) => useFleetStore.getState().applyStatusState(head, state));
   bus.on("statusChange", (p) => useFleetStore.getState().applyStatusChange(head, p));
   bus.on("statusCleared", (id) => useFleetStore.getState().applyStatusCleared(head, id));
+  bus.on("sessionTasks", (p) => useFleetStore.getState().applySessionTasks(head, p));
   bus.on("sessionsChanged", () => refetch(bus, head));
   bus.on("workspacesChanged", () => refetch(bus, head));
   bus.on("session-renamed", () => refetch(bus, head));
@@ -226,6 +228,32 @@ export const useFleetStore = create((set, get) => ({
       return { hosts: { ...prev.hosts, [key]: { ...h, statusMap: { ...h.statusMap, [sessionId]: { ...cur, state: "idle" } } } } };
     });
     schedulePersist(get);
+  },
+
+  // Harness task records (sub-agents + background shells), RAW on purpose: the ai
+  // feature's reader folds them at render, so no task spelling lives here.
+  applySessionTasks(key, { sessionId, records } = {}) {
+    if (!sessionId) return;
+    set((prev) => {
+      const h = prev.hosts[key];
+      if (!h) return prev;
+      const next = { ...(h.tasksBySession || {}) };
+      if (Array.isArray(records) && records.length) next[sessionId] = records;
+      else delete next[sessionId];
+      return { hosts: { ...prev.hosts, [key]: { ...h, tasksBySession: next } } };
+    });
+  },
+
+  applySessionTasksState(key, map) {
+    set((prev) => {
+      const h = prev.hosts[key];
+      if (!h) return prev;
+      const next = {};
+      for (const [sid, records] of Object.entries(map || {})) {
+        if (Array.isArray(records) && records.length) next[sid] = records;
+      }
+      return { hosts: { ...prev.hosts, [key]: { ...h, tasksBySession: next } } };
+    });
   },
 
   // Drops the host's bus. The verdict patch defaults to "no verdict" (a plain

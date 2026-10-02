@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { Check, Download, EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
@@ -23,6 +23,7 @@ import FolderPickerModal from "@/features/terminal/components/FolderPickerModal"
 import SitesList from "@/features/terminal/components/SitesList";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import HostTreeRow from "./HostTreeRow";
+import SessionTaskRows from "@/features/ai/components/SessionTaskRows";
 import HostUpdateProgress from "./HostUpdateProgress";
 import HostApprovalNotice from "./HostApprovalNotice";
 import { hostTree } from "../lib/fleetTree";
@@ -237,8 +238,8 @@ export default function HostTree({
                   const hidden = hiddenPaneSessionIds.includes(s.id);
                   const title = s.name || t("terminal.defaultName");
                   return (
+                    <Fragment key={s.id}>
                     <div
-                      key={s.id}
                       ref={registerEl(s.id)}
                       data-sid={s.id}
                       className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
@@ -343,6 +344,17 @@ export default function HostTree({
                         )}
                       </div>
                     </div>
+                    {/* Running sub-agents/background shells of this session — read-only
+                        rows, fed by the sessionTasks lane. */}
+                    <SessionTaskRows
+                      sessionId={s.id}
+                      records={host.tasksBySession?.[s.id]}
+                      engine={host.statusMap?.[s.id]?.tool || "claude"}
+                      mobile={mobile}
+                      hostKey={host.key}
+                      busRef={busTag}
+                    />
+                    </Fragment>
                   );
                 })}
                 {!isCollapsed(wsKey) && (

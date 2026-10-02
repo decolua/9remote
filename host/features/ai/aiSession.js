@@ -185,7 +185,7 @@ function capLog(events) {
 }
 
 // The only cli_event subtypes the CLI never writes to its own transcript — carried across rebuilds or the task strip is lost.
-const CARRIED_CLI_SUBTYPES = new Set([
+export const CARRIED_CLI_SUBTYPES = new Set([
   "task_started", "task_updated", "task_notification", "background_tasks_changed"
 ]);
 

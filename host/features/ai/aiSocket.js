@@ -6,7 +6,7 @@ import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
 import { searchRepoFiles } from "./files.js";
 import { listModelOptionsFor, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
-import { runEngineDoctor } from "./aiSession.js";
+import { runEngineDoctor, CARRIED_CLI_SUBTYPES } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
 import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.js";
 import { getConversation, getSessionAgent, setConversationId, getStatus, touchWorking, requestAutoName } from "../terminal/statusManager.js";
@@ -135,6 +135,23 @@ async function claudeApply(session, targets, target, { files = true } = {}) {
 let broadcastAttached = false;
 // Session ids whose create is in flight — a second mount waits on it rather than killing the first CLI.
 const creating = new Map();
+
+// Running sub-agents and background tasks, as raw harness records. A task spawns and
+// dies mid-turn, when no status transition fires, so the sidebar list hears it here —
+// the client folds them with its own reader (web lib/harnessTasks).
+function broadcastSessionTasks(io, sessionId, session) {
+  const records = session?.taskRecords?.() || [];
+  broadcast(io, "sessionTasks", { sessionId, records });
+}
+
+function tasksSnapshot(manager) {
+  const out = {};
+  for (const s of manager.sessions.values()) {
+    const records = s.taskRecords?.() || [];
+    if (records.length) out[s.id] = records;
+  }
+  return out;
+}
 
 // A chat session has no PTY feeding statusManager — this mirror is its only state writer.
 function mirrorAiStatus(manager, sessionId, event, data, engine) {
@@ -269,6 +286,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       mirrorAiStatus(manager, sessionId, event, data, engine);
       mirrorAiConversation(sessionId, event, data, engine);
       mirrorThreadName(sessionId, event, data);
+      if (event === "cli_event" && CARRIED_CLI_SUBTYPES.has(data?.subtype)) {
+        broadcastSessionTasks(io, sessionId, manager.getSession(sessionId));
+      }
     });
   }
 
@@ -285,6 +305,10 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   }
 
   // 2. Client requests
+  // Snapshot of every session's task records — the sidebar asks on bus ready (a
+  // push at connect races the client's own listener registration).
+  socket.on("getSessionTasks", (cb) => cb?.(tasksSnapshot(manager)));
+
   socket.on(AI_SOCKET_EVENTS.CREATE, async ({ sessionId, engine, cwd, options = {}, mock = false }, cb) => {
     const recvAt = Date.now();
     logger.info(`[ai] create recv: ${sessionId} engine=${engine} (syncClientSession)`);
@@ -528,6 +552,8 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     try {
       // A chat this run never loaded still owns a daemon proc + snapshot — clean both.
       if (sessionId && !manager.destroySession(sessionId)) await destroyDetachedChat(sessionId);
+      // The sidebar's task rows key off records that die with the session — clear them.
+      broadcastSessionTasks(io, sessionId, null);
       cb?.({ ok: true });
     } catch (err) {
       cb?.({ ok: false, error: err.message });
