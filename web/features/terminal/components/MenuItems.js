@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot } from "@/shared/components/ui/Icon";
+import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
@@ -139,6 +139,13 @@ export default function MenuItems({
         type: "SET_SCREEN_ORIENTATION",
         orientation: mode
       }));
+    } catch {}
+  }, []);
+
+  const handleRateApp = useCallback(() => {
+    vibrate();
+    try {
+      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "OPEN_RATING" }));
     } catch {}
   }, []);
 
@@ -414,6 +421,17 @@ export default function MenuItems({
         >
           <Users className="text-brand-500" size={16} />
           <span className="text-sm">{t("menu.community")}</span>
+        </button>
+      )}
+
+      {/* Rate App - mobile app only */}
+      {isExpo && (
+        <button
+          onClick={handleRateApp}
+          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+        >
+          <Star className="text-yellow-500 fill-yellow-500 flex-shrink-0" size={16} />
+          <span className="text-sm">{t("menu.rateApp")}</span>
         </button>
       )}
 

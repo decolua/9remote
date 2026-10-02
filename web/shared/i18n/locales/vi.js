@@ -144,6 +144,7 @@ export default {
     sites: "Trang web",
     commandNotes: "Ghi chú lệnh",
     community: "Cộng đồng",
+    rateApp: "Đánh giá ứng dụng",
     installApp: "Cài đặt ứng dụng",
     codespace: "Codespace",
     logout: "Đăng xuất",

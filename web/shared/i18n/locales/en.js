@@ -192,6 +192,7 @@ export default {
     jarvisToggleHint: "Show the Jarvis button in the header. Its tools need the MCP switch in Plugins.",
     jarvisMcpOff: "The MCP switch in Plugins is off - Jarvis will start without its coordinator tools.",
     community: "Community",
+    rateApp: "Rate App",
     installApp: "Install App",
     upgrade: "Upgrade",
     upgradeExpires: "Expires",
