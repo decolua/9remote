@@ -13,6 +13,7 @@ import { createLogger } from "../../lib/logger.js";
 const logger = createLogger("update");
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const IS_DOCKER = existsSync("/.dockerenv");
 const UPDATE_CHECK_TIMEOUT = 8000;
 const SAFETY_TIMEOUT = 15000;
 const SERVER_PORT = 2208;
@@ -74,7 +75,7 @@ function isRestrictedEnvironment() {
   if (process.env.CODESPACES === "true" || process.env.GITHUB_CODESPACES_PORT_FORWARDING_DOMAIN) {
     return "GitHub Codespaces";
   }
-  if (existsSync("/.dockerenv")) {
+  if (IS_DOCKER) {
     return "Docker";
   }
   return null;
@@ -545,17 +546,76 @@ ${process.env.NREMOTE_REGISTRY ? `export NREMOTE_REGISTRY="${process.env.NREMOTE
   return { shellCmd: ["sh", [scriptPath]], windowsVerbatim: false };
 }
 
+// Shared gate for both update paths: newer version on registry + lock
+async function prepareUpdate(currentVersion) {
+  const latest = await fetchLatestVersion();
+  if (!latest) { logger.warn("update skipped: registry unreachable"); return null; }
+  if (!isNewerVersion(currentVersion, latest)) { logger.info(`update skipped: ${currentVersion} >= registry ${latest}`); return null; }
+  if (!acquireUpdateLock()) { logger.warn("update skipped: lock held by another run"); return null; }
+  return latest;
+}
+
+// Docker flow: agent keeps serving while npm swaps the package dir (rename is
+// safe for open files on Linux). On verified success the script kills the
+// agent so the container's restart policy boots the new version — requires
+// --restart always/unless-stopped. No kill on failure: old version keeps running.
+function buildDockerUpdateScript({ currentVersion, latest, agentPid }) {
+  const { global: globalFlag, prefix } = npmInstallFlags();
+  const npmFlags = `${globalFlag} --prefer-online --no-audit --no-fund ${registryFlag()} ${prefix}`.trim();
+  const npm = npmCommand();
+  const nodeBin = getNodeBin();
+  const nodeEnv = nodeBinEnvPrefix();
+  const cliEntry = getCliEntry();
+  const script = `#!/bin/bash
+LOG_DIR="$(dirname "${LOCK_PATH}")"; mkdir -p "$LOG_DIR"
+exec >>"$LOG_DIR/update-script.log" 2>&1
+echo "=== $(date -u +%FT%TZ) docker update ${currentVersion} -> ${latest} ==="
+
+attempt=0
+while [ $attempt -lt ${UPDATE.maxRetry} ]; do
+  attempt=$((attempt+1))
+  if ${npm} install ${NPM_INSTALL_SPEC} ${npmFlags}; then break; fi
+  if [ $attempt -eq ${UPDATE.maxRetry} ]; then
+    ${npm} install ${NPM_INSTALL_SPEC} ${npmFlags} --omit=optional || true
+  fi
+  sleep 3
+done
+
+NEWVER=$(${nodeEnv}"${nodeBin}" "${cliEntry}" --version 2>/dev/null | head -1 | sed 's/\x1b\[[0-9;?]*[a-zA-Z]//g' | tr -d '[:space:]')
+if [ "$NEWVER" != "${latest}" ]; then
+  echo "Verify failed (got $NEWVER, want ${latest}), rolling back to ${currentVersion}..."
+  ${npm} install ${PACKAGE_NAME}@${currentVersion} ${npmFlags} || true
+  rm -f "${LOCK_PATH}"
+  exit 0
+fi
+
+rm -f "${LOCK_PATH}"
+kill -9 ${agentPid} 2>/dev/null
+`;
+  const scriptPath = path.join(os.tmpdir(), `${PACKAGE_NAME}-update-docker.sh`);
+  writeFileSync(scriptPath, script, { mode: 0o755 });
+  return scriptPath;
+}
+
+async function runDockerUpdate(currentVersion) {
+  const latest = await prepareUpdate(currentVersion);
+  if (!latest) return false;
+  logger.info(`update go (docker): ${currentVersion} -> ${latest}`);
+  const scriptPath = buildDockerUpdateScript({ currentVersion, latest, agentPid: process.pid });
+  const child = spawn("sh", [scriptPath], { detached: true, stdio: "ignore" });
+  child.unref();
+  return true;
+}
+
 export async function runWebUpdate() {
   const currentVersion = getCurrentVersion();
   if (!currentVersion) { logger.warn("update skipped: no version (source run?)"); return false; }
+  if (IS_DOCKER) return runDockerUpdate(currentVersion);
   const restricted = isRestrictedEnvironment();
   if (restricted) { logger.warn(`update skipped: restricted env (${restricted})`); return false; }
 
-  const latest = await fetchLatestVersion();
-  if (!latest) { logger.warn("update skipped: registry unreachable"); return false; }
-  if (!isNewerVersion(currentVersion, latest)) { logger.info(`update skipped: ${currentVersion} >= registry ${latest}`); return false; }
-
-  if (!acquireUpdateLock()) { logger.warn("update skipped: lock held by another run"); return false; }
+  const latest = await prepareUpdate(currentVersion);
+  if (!latest) return false;
   logger.info(`update go: ${currentVersion} -> ${latest}`);
 
   const { shellCmd, windowsVerbatim } = buildUpdateScript({ currentVersion, latest, agentPid: process.pid });
