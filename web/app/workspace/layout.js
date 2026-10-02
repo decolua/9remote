@@ -1140,12 +1140,13 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Connection Modal — overlay when retrying/failed (suppressed during self-update) */}
-        {/* Not admitted yet = the host has not accepted this device: the
-            carrier can be open while the key TAIL is still being proven, and
-            the workspace must not show through that window. An in-flight
-            self-update of the active host keeps the page usable — its row
-            carries the progress instead. */}
-        {(!connected || !admitted) && !mainHostUpdating && !deliberatelyOff && <ReconnectScreen />}
+        {/* Full gate only before the FIRST connect or while this device is not
+            admitted yet (the carrier can be open while the key TAIL is still
+            being proven). A connection LOST after that keeps the workspace
+            usable — the host row carries the state and ConnectionModal owns
+            the retry. An in-flight self-update of the active host keeps the
+            page usable too — its row carries the progress instead. */}
+        {(!everConnected || !admitted) && !mainHostUpdating && !deliberatelyOff && <ReconnectScreen />}
 
         {!mainHostUpdating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} suppress={resumeGrace} firstConnect={!everConnected} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 

@@ -278,6 +278,13 @@ export function useAgentBus() {
     namespace: "",
     redirectOnNoAuth: "/",
     onConnect: handleBusReady,
+    // Wire dropped: the row follows the wire — "connecting" while the transport
+    // retries (handleBusReady lands it back on "full"). Only from "full": a
+    // deliberate disconnect patches the row offline before this fires.
+    onDisconnect: () => {
+      const st = useFleetStore.getState();
+      if (st.hosts[st.currentKey]?.status === "full") patchMainHost({ status: "connecting" });
+    },
     // Agent refused over signaling — same funnel as the socket.io device:* events
     onApproval: applyApproval
   });
