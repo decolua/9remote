@@ -71,7 +71,13 @@ export function useTerminalPageViewport({ setKeyboardOpen }) {
     window.addEventListener("resize", onResize);
     onResize();
 
+    // Android expo WebView does not deliver viewport resize events when the native
+    // view resizes (soft keyboard) — poll the live height instead of waiting.
+    const isExpoAndroid = window.ReactNativeWebView && /Android/i.test(navigator.userAgent);
+    const pollTimer = isExpoAndroid ? setInterval(onResize, 250) : 0;
+
     return () => {
+      clearInterval(pollTimer);
       clearTimeout(timerId);
       document.documentElement.classList.remove("terminal-page");
       document.documentElement.style.transform = "";
