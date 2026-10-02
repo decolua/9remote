@@ -59,7 +59,6 @@ export default function MenuItems({
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
-  const [powerMenuOpen, setPowerMenuOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
   const terminalMenuRef = useRef(null);
 
@@ -76,19 +75,6 @@ export default function MenuItems({
     return () => document.removeEventListener("mousedown", onClick);
   }, [terminalMenuOpen]);
 
-  const powerMenuRef = useRef(null);
-
-  // Close power dropdown on outside click
-  useEffect(() => {
-    if (!powerMenuOpen) return;
-    const onClick = (e) => {
-      if (powerMenuRef.current && !powerMenuRef.current.contains(e.target)) {
-        setPowerMenuOpen(false);
-      }
-    };
-    document.addEventListener("mousedown", onClick);
-    return () => document.removeEventListener("mousedown", onClick);
-  }, [powerMenuOpen]);
   const [isMobile, setIsMobile] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
   useEffect(() => { setIsMobile(window.innerWidth < 768); }, []);
@@ -424,43 +410,27 @@ export default function MenuItems({
         </button>
       )}
 
-      {/* Rate App - mobile app only */}
-      {isExpo && (
+      {/* Rate App - Android only; iOS in-app review gated by Apple quota */}
+      {isExpo && window.DEVICE_INFO?.platform !== "ios" && (
         <button
           onClick={handleRateApp}
           className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
-          <Star className="text-yellow-500 fill-yellow-500 flex-shrink-0" size={16} />
+          <Star className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm">{t("menu.rateApp")}</span>
         </button>
       )}
 
-      {/* Reload app */}
-      {/* Reload & Restart dropdown */}
-      <div ref={powerMenuRef} className="rounded-brand-lg overflow-hidden">
-        <button
-          onClick={() => { vibrate(); setPowerMenuOpen((v) => !v); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <RefreshCw className="text-brand-500" size={16} />
-          <span className="text-sm flex-1">{t("menu.reloadRestart")}</span>
-          <ChevronDown className={`text-text-muted transition-transform duration-200 ${powerMenuOpen ? "rotate-180" : ""}`} size={16} />
-        </button>
-        {powerMenuOpen && (
-          <div className="bg-surface-2/50 px-3 pb-1.5 space-y-0">
-            {/* The page takes a moment to tear down before it visibly reloads; without
-                the spin the tap looks like it did nothing. */}
-            <button
-              onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
-              disabled={reloading}
-              className="w-full py-1.5 text-text text-left flex items-center gap-2.5 rounded-brand transition duration-150 ease-out hover:text-brand-500 active:scale-[0.99] disabled:opacity-70"
-            >
-              <RefreshCw size={16} className={`ml-3 ${reloading ? "animate-spin" : ""}`} />
-              <span className="text-sm">{t("menu.reload")}</span>
-            </button>
-          </div>
-        )}
-      </div>
+      {/* Reload app — direct action; the page takes a moment to tear down before it
+          visibly reloads, so spin the icon or the tap looks like it did nothing. */}
+      <button
+        onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
+        disabled={reloading}
+        className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99] disabled:opacity-70"
+      >
+        <RefreshCw size={16} className={`text-brand-500 ${reloading ? "animate-spin" : ""}`} />
+        <span className="text-sm">{t("menu.reload")}</span>
+      </button>
 
       {/* Logout */}
       {onLogout && (
