@@ -1,7 +1,7 @@
 import { BaseProtocol } from "./BaseProtocol";
 import { encode, decode, decodeFrame, encodeFragments, createReassembler } from "./codec";
 import { API_ENDPOINTS } from "@/shared/constants/API";
-import { ADAPTER_STATE, CHANNELS, CONTROL_RTC_MAX_BYTES, DEAD_PATH_POLL_MS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, CONTROL_RTC_MAX_BYTES, DEAD_PATH_POLL_MS, FILE_TRANSFER, RTC_CONNECT_TIMEOUT_MS, RTC_ICE_TIMEOUT_MS, RTC_HEARTBEAT_INTERVAL_MS, RTC_HEARTBEAT_TIMEOUT_MS, RTC_HEARTBEAT_LEGACY_TIMEOUT_MS, RTC_DC_STALL_SENDS, RTC_DC_STALL_WINDOW_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { getTrust, setTrust, getPendingFp2, takePendingFp2, hostFingerprint, verifySdpSignature } from "./lib/deviceTrust";
@@ -123,6 +123,10 @@ export class WebRtcProtocol extends BaseProtocol {
     // Detect stalled SCTP when open channel blackholes messages.
     this._hbTimer = null;
     this._hbLastPing = 0;
+    this._hbFastCadence = false; // host proved it pings at the fast interval
+    this._dcStallCount = 0;      // consecutive zero-drain control sends
+    this._dcStallSince = 0;      // first zero-drain observation of the current run
+    this._dcPrevQueued = 0;      // bufferedAmount snapshot after last control send
     this._peerEnv2 = false;
     this._peerFragCtl = false;
     this._v2Announced = false;
@@ -154,6 +158,10 @@ export class WebRtcProtocol extends BaseProtocol {
     this._iceReachedChecking = false;
     this._everOpened = false;
     this._isLoopback = false;
+    this._hbFastCadence = false;
+    this._dcStallCount = 0;
+    this._dcStallSince = 0;
+    this._dcPrevQueued = 0;
     this._typeDetail = "dc-stun";
     this._lastMid = null;
     this._remoteGatheringDone = false;
@@ -291,6 +299,10 @@ export class WebRtcProtocol extends BaseProtocol {
       if (parsed.event === "__ping") {
         // Lazy-arm on first ping to avoid timing out older agents that don't ping.
         if (!this._hbTimer) this._startHeartbeatWatch();
+        // Two pings ≤2 intervals apart prove the host runs the fast cadence;
+        // only then may the watch close at 9s instead of the legacy 25s window.
+        const gap = this._hbLastPing ? Date.now() - this._hbLastPing : Infinity;
+        if (gap <= RTC_HEARTBEAT_INTERVAL_MS * 2) this._hbFastCadence = true;
         this._hbLastPing = Date.now();
         try { dcControl.send(encode({ event: "__pong", args: parsed.args || [] })); } catch {}
         return;
@@ -366,22 +378,12 @@ export class WebRtcProtocol extends BaseProtocol {
     if (channel === CHANNELS.control) {
       if (this._dcControl?.readyState !== "open") return false;
       const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
-      // Fragmenting requires v2 support; unfragmented oversize messages are rejected.
-      if (this._peerEnv2) {
-        const sent = this._sendFramed(env);
-        if (!sent) return false;
-        if (!this._v2Announced) {
-          this._v2Announced = true;
-          termLog("switch", "env2: client→agent control now SENT as v2 binary frames");
-        }
-        return true;
+      const sent = this._sendControlStallChecked(this._dcControl, env);
+      if (sent && this._peerEnv2 && !this._v2Announced) {
+        this._v2Announced = true;
+        termLog("switch", "env2: client→agent control now SENT as v2 binary frames");
       }
-      try {
-        this._dcControl.send(encode(env));
-        return true;
-      } catch (err) {
-        return false;
-      }
+      return sent;
     }
     if (channel === CHANNELS.binary) {
       if (this._dcBinary?.readyState !== "open") return false;
@@ -406,6 +408,33 @@ export class WebRtcProtocol extends BaseProtocol {
       }
     }
     return false;
+  }
+
+  // SCTP blackhole detector: readyState stays "open" while the send buffer never
+  // drains. Zero drain across RTC_DC_STALL_SENDS sends stuck for at least
+  // RTC_DC_STALL_WINDOW_MS = dead path (a sub-second send burst drains later).
+  _sendControlStallChecked(dc, env) {
+    const before = dc.bufferedAmount;
+    if (before > 0 && before >= this._dcPrevQueued) {
+      if (this._dcStallCount === 0) this._dcStallSince = Date.now();
+      this._dcStallCount++;
+      const stuckFor = Date.now() - this._dcStallSince;
+      if (this._dcStallCount >= RTC_DC_STALL_SENDS && stuckFor >= RTC_DC_STALL_WINDOW_MS) {
+        this._closePeer(`dc-drain-stall (${before}B stuck ${stuckFor}ms)`);
+        return false;
+      }
+    } else {
+      this._dcStallCount = 0;
+    }
+    // Fragmenting requires v2 support; unfragmented oversize messages are rejected.
+    let sent;
+    if (this._peerEnv2) sent = this._sendFramed(env);
+    else {
+      try { dc.send(encode(env)); sent = true; }
+      catch (err) { sent = false; }
+    }
+    this._dcPrevQueued = dc.bufferedAmount;
+    return sent;
   }
 
   get typeDetail() { return this._typeDetail; }
@@ -454,7 +483,8 @@ export class WebRtcProtocol extends BaseProtocol {
         return;
       }
       const silent = Date.now() - this._hbLastPing;
-      if (silent > RTC_HEARTBEAT_TIMEOUT_MS) {
+      const timeout = this._hbFastCadence ? RTC_HEARTBEAT_TIMEOUT_MS : RTC_HEARTBEAT_LEGACY_TIMEOUT_MS;
+      if (silent > timeout) {
         debugLog("transport", `[rtc] heartbeat: no ping for ${silent}ms → closing stalled peer`);
         this._closePeer(`heartbeat-stale (${silent}ms)`);
       }
@@ -647,6 +677,9 @@ export class WebRtcProtocol extends BaseProtocol {
     this._dcBinary = null;
     this._dcFile = null;
     this._dcMobile = null;
+    this._dcStallCount = 0;
+    this._dcStallSince = 0;
+    this._dcPrevQueued = 0;
     this._isLoopback = false;
     this._typeDetail = "dc-stun";
     if (this._pc) {

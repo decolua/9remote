@@ -1,4 +1,4 @@
-import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS, RTC_RESTART, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS, RTC_RESTART, RTC_HEARTBEAT_LEGACY_TIMEOUT_MS } from "@/shared/constants/transport";
 import { isWsZombie } from "../wsZombie";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
@@ -167,7 +167,7 @@ export function probeRtcLiveness(pm, reason) {
     return selectedIceTraffic(r2) - a;
   })().then((delta) => {
     if (token !== pm._probeToken) return;
-    const recentlyActive = rtc?.lastInboundAt && (Date.now() - rtc.lastInboundAt < RTC_HEARTBEAT_TIMEOUT_MS);
+    const recentlyActive = rtc?.lastInboundAt && (Date.now() - rtc.lastInboundAt < RTC_HEARTBEAT_LEGACY_TIMEOUT_MS);
     if ((delta != null && delta > 0) || recentlyActive) {
       termLog("switch", `${reason} probe alive (Δ=${delta}, recent=${!!recentlyActive})`);
     } else {
@@ -176,7 +176,7 @@ export function probeRtcLiveness(pm, reason) {
     }
   }).catch(() => {
     if (token !== pm._probeToken) return;
-    const recentlyActive = rtc?.lastInboundAt && (Date.now() - rtc.lastInboundAt < RTC_HEARTBEAT_TIMEOUT_MS);
+    const recentlyActive = rtc?.lastInboundAt && (Date.now() - rtc.lastInboundAt < RTC_HEARTBEAT_LEGACY_TIMEOUT_MS);
     if (recentlyActive) {
       termLog("switch", `${reason} probe error ignored (rtc recently active)`);
       return;

@@ -1,4 +1,4 @@
-import { CHANNELS, ADAPTER_STATE, RTC_HEARTBEAT_TIMEOUT_MS } from "@/shared/constants/transport";
+import { CHANNELS, ADAPTER_STATE, RTC_HEARTBEAT_LEGACY_TIMEOUT_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { probeRtcLiveness } from "./pmWatchers";
@@ -149,7 +149,7 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
     // Ignore timeout if RTC recently received inbound traffic (slow request, not dead carrier).
     const now = Date.now();
     const rtcLastInbound = rtc?.lastInboundAt || 0;
-    if (rtc?.ready && rtcLastInbound && (now - rtcLastInbound < RTC_HEARTBEAT_TIMEOUT_MS)) {
+    if (rtc?.ready && rtcLastInbound && (now - rtcLastInbound < RTC_HEARTBEAT_LEGACY_TIMEOUT_MS)) {
       termLog("switch", `ack-timeout ${ctx?.event || "?"} ignored (rtc active, lastInbound=${now - rtcLastInbound}ms ago)`);
       return;
     }

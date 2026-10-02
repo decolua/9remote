@@ -17,8 +17,8 @@ export const CONTROL_RTC_MAX_BYTES = 65536;
 // of silence). SCTP can stay "open" while an app-level stall blackholes every
 // message — with RTC carrying the whole terminal stream, this is the only
 // detector for that. Mirrored in web/shared/constants/transport.js.
-export const RTC_HEARTBEAT_INTERVAL_MS = 10_000;
-export const RTC_HEARTBEAT_TIMEOUT_MS = 25_000;
+export const RTC_HEARTBEAT_INTERVAL_MS = 3_000;
+export const RTC_HEARTBEAT_TIMEOUT_MS = 9_000;
 
 // Device-approval answers sent over signaling. Mirrored in
 // web/shared/constants/transport.js — the client maps these to its approval UI

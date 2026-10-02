@@ -53,8 +53,16 @@ export const RETRY_MODAL_MIN_ATTEMPT = 3;
 // of silence). SCTP can stay "open" while an app-level stall blackholes every
 // message. Host pings, web pongs; each side also measures the other direction.
 // Mirrored in host/lib/transportConstants.js.
-export const RTC_HEARTBEAT_INTERVAL_MS = 10_000;
-export const RTC_HEARTBEAT_TIMEOUT_MS = 25_000;
+export const RTC_HEARTBEAT_INTERVAL_MS = 3_000;
+export const RTC_HEARTBEAT_TIMEOUT_MS = 9_000;
+// Hosts on the old 10s ping cadence never fit inside 9s — the fast window only
+// applies once two pings arrived ≤2 intervals apart (see _hbFastCadence).
+export const RTC_HEARTBEAT_LEGACY_TIMEOUT_MS = 25_000;
+// Consecutive zero-drain control sends AND min wall-clock stuck time before
+// the DC is closed — a login burst queues several sends in one tick on a
+// perfectly healthy link, so count alone cannot mean blackhole.
+export const RTC_DC_STALL_SENDS = 3;
+export const RTC_DC_STALL_WINDOW_MS = 1_000;
 
 // Max time RTC stays "connecting" before we give up. Without this, an offer that
 // reached the DO before the host joined its room is silently dropped — no answer
