@@ -16,14 +16,8 @@ self.addEventListener("activate", (event) => {
   return self.clients.claim();
 });
 
-// Fetch event - Always network, no cache
-self.addEventListener("fetch", (event) => {
-  event.respondWith(
-    fetch(event.request, {
-      cache: "no-store"
-    })
-  );
-});
+// Empty on purpose: satisfies PWA install criteria; Chromium ignores empty handlers, so no SW startup per request and no load interception (once hung Android WebView loads)
+self.addEventListener("fetch", () => {});
 
 // Push notification received
 self.addEventListener("push", (event) => {
