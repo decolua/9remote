@@ -660,6 +660,19 @@ export function requestCancel(profile) {
   return { profile, cancelRequested: true };
 }
 
+export async function listTabs(options = {}) {
+  return withSession(options, async (session) => {
+    try {
+      const { targetInfos = [] } = await session.client.call("Target.getTargets");
+      return targetInfos
+        .filter((t) => t.type === "page")
+        .map((t) => ({ id: t.targetId, title: t.title, url: t.url, active: t.targetId === session.targetId }));
+    } catch {
+      return [];
+    }
+  });
+}
+
 export function sessionStatus() {
   return [...sessions.values()].map((s) => ({ profile: s.profile, mode: s.mode, port: s.port }));
 }

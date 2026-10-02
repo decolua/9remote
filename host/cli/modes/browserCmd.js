@@ -127,6 +127,7 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
   9remote browser chain "click e1; type e2 'hi' --enter; wait 'result'"  # many steps, ONE call
   9remote browser enter                      press Enter
   9remote browser shot [--profile N]         writes /tmp/9remote-shot-*.jpg, prints the path
+  9remote browser tabs [--profile N] [--attach] # list open browser tabs
   9remote browser close [--profile N]
   9remote browser profiles list|create <name>|delete <name>
   9remote browser attach                     check real-browser attach status
@@ -147,6 +148,14 @@ export async function cmdBrowser(args) {
     case "help":
       console.log(HELP);
       return;
+    case "tabs": {
+      const data = mustOk(await call("tabs", payload()));
+      for (const t of data.tabs || []) {
+        const marker = t.active ? "* " : "  ";
+        console.log(`${marker}[${t.id}] ${t.title || "(untitled)"} — ${t.url}`);
+      }
+      return;
+    }
     case "open": {
       const data = mustOk(await call("open", payload({ url: rest[0] })));
       console.log(`opened ${rest[0]} (${isAttach ? "real browser" : `profile ${opts.profile || "default"}`})`);

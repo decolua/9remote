@@ -26,7 +26,8 @@ browser after enabling remote debugging.
 ## Command reference
 
 \`\`\`bash
-9remote browser open <url> [--profile NAME] [--attach]   # opens AND prints the element table
+9remote browser open <url> [--profile NAME] [--attach]   # opens AND prints the element table (reuses tab if open)
+9remote browser tabs [--profile NAME] [--attach]         # list open tabs (title, url, id)
 9remote browser state [--profile NAME]                   # numbered element table of current page
 9remote browser read [--tail] [--profile NAME]           # filtered page TEXT — read content with this, never with shot
 9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--expect-text "..." ...]
@@ -98,6 +99,8 @@ browser after enabling remote debugging.
   created automatically on first use — no separate \`profiles create\` needed.
 - Write sequential sub-goals as ONE goal in order ("open X, then click Y, then
   open Z") — the run loop executes the chain itself; do not split into many runs.
+- In \`--attach\` mode, \`open <url>\` automatically reuses an existing tab if it matches the URL; use \`tabs --attach\` to inspect open tabs.
+- NEVER write custom Node.js scripts or raw WebSocket code to connect to DevToolsActivePort. Always use \`9remote browser ...\` commands — the host engine manages the connection and prevents duplicate security prompts.
 - Never type into or click elements of pages the user did not ask you to touch.
 `;
 

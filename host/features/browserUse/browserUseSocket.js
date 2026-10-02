@@ -11,7 +11,7 @@ import { kvGet, kvSet } from "../terminal/ptyDaemonClient.js";
 import { testConfig } from "./jevClient.js";
 import { DEFAULT_POLICY } from "./agentLoop.js";
 import {
-  attachStatus, closeProfile, createProfile, deleteProfile, listProfiles, openAttachGuide, renameProfile,
+  attachStatus, closeProfile, createProfile, deleteProfile, listProfiles, listTabs, openAttachGuide, renameProfile,
   requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter
 } from "./engine.js";
 import { AUTO_CONTINUE_CHUNKS, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
@@ -163,6 +163,10 @@ export async function invoke(action, payload = {}) {
       return { ok: true, ...(await renameProfile(payload.from, payload.to)) };
     case "profiles.delete":
       return { ok: true, ...(await deleteProfile(payload.name)) };
+    case "tabs": {
+      const opts = sessionOpts(payload);
+      return { ok: true, tabs: await listTabs(opts) };
+    }
     case "open":
       // Returns the element table too — kills the open→state double round trip.
       return { ok: true, state: await withSession({
