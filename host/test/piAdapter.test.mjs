@@ -37,6 +37,27 @@ test("spawn args: rpc mode, session resume, no omp approval flag", () => {
   assert.deepEqual(adapter._args(), ["--mode", "rpc", "--model", "anthropic/claude-sonnet-4-5", "--session", "abc123"]);
 });
 
+test("readOnly mode rides the --tools allowlist, default adds no flag", () => {
+  const { adapter } = makeAdapter();
+  adapter.permissionMode = "readOnly";
+  assert.deepEqual(adapter._args(), ["--mode", "rpc", "--tools", "read"]);
+  adapter.permissionMode = "default";
+  assert.deepEqual(adapter._args(), ["--mode", "rpc"]);
+});
+
+test("a live mode change recycles the process to apply the flag", () => {
+  const { adapter, of } = makeAdapter();
+  const stops = [];
+  adapter.proc.stop = () => { stops.push(1); return Promise.resolve(); };
+  adapter.isTurnRunning = false;
+  adapter.setOptions({ mode: "readOnly" });
+  assert.equal(adapter.permissionMode, "readOnly");
+  assert.equal(adapter.rpc, null, "rpc torn down for the recycle");
+  assert.equal(stops.length, 1);
+  const warn = of("cli_event").filter(([e, d]) => d.type === "warning").pop();
+  assert.match(warn[1].record.message, /Pi mode changed/);
+});
+
 test("doctor checks the pi binary", () => {
   assert.deepEqual(PiAdapter.doctorSpec(), { command: "pi", args: ["--version"] });
 });

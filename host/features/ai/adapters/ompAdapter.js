@@ -54,6 +54,11 @@ export class OmpAdapter {
     return "omp";
   }
 
+  // Shown when a mode change recycles the process (modes are launch flags).
+  _modeRestartNotice() {
+    return "OMP mode changed — its process restarts to apply.";
+  }
+
   _args() {
     const args = ["--mode", "rpc-ui"];
     if (this.currentModel) args.push("--model", this.currentModel);
@@ -156,7 +161,7 @@ export class OmpAdapter {
         this.rpc.close();
         this.rpc = null;
         this._stopping = this.proc.stop().catch(() => {});
-        this._warn("OMP mode changed — its process restarts to apply.");
+        this._warn(this._modeRestartNotice());
       }
     }
     if (resume && resume !== this.activeSessionId) {

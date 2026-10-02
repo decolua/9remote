@@ -538,7 +538,8 @@ export class PiEngine extends AiEngine {
         // Runtime catalog via get_available_models RPC — no static fallback.
         models: [],
         permissionModes: [
-          { id: "default", label: "Default", desc: "pi runs its tools directly; extensions may still ask", icon: PERMISSION_ICONS.ask },
+          { id: "default", label: "Default", desc: "All built-in tools; extensions may still ask", icon: PERMISSION_ICONS.ask },
+          { id: "readOnly", label: "Read Only", desc: "read tool only — no bash, edits or writes", icon: PERMISSION_ICONS.readonly },
         ],
         defaultMode: "default",
         features: { thinking: true, planMode: false, tasks: false, skills: true, mcp: false, rewind: true },

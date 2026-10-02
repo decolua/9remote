@@ -19,11 +19,17 @@ function piSessionStats(s) {
 }
 
 export class PiAdapter extends OmpAdapter {
+  // pi has no approval tiers; its enforceable modes are tool allowlists (launch flags).
   _args() {
     const args = ["--mode", "rpc"];
+    if (this.permissionMode === "readOnly") args.push("--tools", "read");
     if (this.currentModel) args.push("--model", this.currentModel);
     if (this._resumeId) args.push("--session", this._resumeId);
     return args;
+  }
+
+  _modeRestartNotice() {
+    return "Pi mode changed — its process restarts to apply.";
   }
 
   static doctorSpec() {

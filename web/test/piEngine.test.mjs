@@ -34,6 +34,11 @@ test("pi's dialog wire is answerable — questionGate on", () => {
   assert.equal(getEngine("pi").config.questionGate, true);
 });
 
+test("pi offers default + an enforced read-only tier", () => {
+  const modes = getEngine("pi").config.permissionModes.map((m) => m.id);
+  assert.deepEqual(modes, ["default", "readOnly"]);
+});
+
 test("pi has no static model fallback — runtime catalog only", () => {
   assert.deepEqual(getEngine("pi").config.models, []);
 });

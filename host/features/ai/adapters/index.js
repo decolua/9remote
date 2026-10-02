@@ -100,10 +100,10 @@ export const ENGINES = Object.freeze({
     Adapter: PiAdapter,
     managed: true,
     build: (ctx) => new PiAdapter(ctx),
-    // No mode field: pi has no approval tiers for a mode to steer.
+    // readOnly rides --tools, a launch flag — mode changes recycle like omp's.
     seed: (adapter, s) => {
-      if (s.options.model || s.effort) {
-        adapter.setOptions({ model: s.options.model, effort: s.effort || s.options.effort });
+      if (s.permissionMode || s.options.model || s.effort) {
+        adapter.setOptions({ ...s.options, effort: s.effort || s.options.effort, mode: s.permissionMode || s.options.mode });
       }
     },
     bindResume: bindFlat("_resumeId", "cliSessionId")
