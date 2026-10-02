@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useCallback, useState } from "react";
+import { unstable_batchedUpdates } from "react-dom";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
@@ -681,22 +682,24 @@ export function useAiSession({
       pendingLiveRef.current = [];
       hydratingRef.current = false;
       setHydrating(false);
-      for (const p of queued) {
-        // A reset restarts the log at seq 1 — the snapshot's watermark no longer applies.
-        if (p.event === "conversation_reset") {
-          appliedSeqRef.current = 0;
-          logEpochRef.current++;
-          olderSeqRef.current = p.data?.fromSeq ?? 0;
-          setHasOlder(Boolean(p.data?.hasMore));
+      unstable_batchedUpdates(() => {
+        for (const p of queued) {
+          // A reset restarts the log at seq 1 — the snapshot's watermark no longer applies.
+          if (p.event === "conversation_reset") {
+            appliedSeqRef.current = 0;
+            logEpochRef.current++;
+            olderSeqRef.current = p.data?.fromSeq ?? 0;
+            setHasOlder(Boolean(p.data?.hasMore));
+            applyEventRef.current(sessionId, p.event, p.data);
+            continue;
+          }
+          if (p.seq != null) {
+            if (p.seq <= appliedSeqRef.current) continue;
+            appliedSeqRef.current = p.seq;
+          }
           applyEventRef.current(sessionId, p.event, p.data);
-          continue;
         }
-        if (p.seq != null) {
-          if (p.seq <= appliedSeqRef.current) continue;
-          appliedSeqRef.current = p.seq;
-        }
-        applyEventRef.current(sessionId, p.event, p.data);
-      }
+      });
     };
     // A lost ack must not shut the gate forever; past this window the snapshot is stale.
     const releaseTimer = setTimeout(() => {
@@ -1124,10 +1127,12 @@ export function useAiSession({
       const batch = pendingEvents;
       pendingEvents = [];
       const apply = applyEventRef.current;
-      for (const item of batch) {
-        if (item.stream) useAiStore.getState().appendStream(sessionId, item.data.text, item.data.thinking);
-        else apply(sessionId, item.event, item.data);
-      }
+      unstable_batchedUpdates(() => {
+        for (const item of batch) {
+          if (item.stream) useAiStore.getState().appendStream(sessionId, item.data.text, item.data.thinking);
+          else apply(sessionId, item.event, item.data);
+        }
+      });
     };
     const queueEvent = (event, data) => {
       // Whatever streams buffered so far arrived BEFORE this event, and must not land
