@@ -11,6 +11,12 @@ export const MAX_IMAGE_SCALED_SIZE = 3 * 1024 * 1024; // output data URL cap (po
 export const IMAGE_SCALE_MAX_DIM = 1600; // max width/height after downscale
 export const MAX_SEARCH_RESULTS = 200;
 export const MAX_MATCHES_PER_FILE = 10;
+// Context window around each match — a minified one-liner would otherwise ship megabytes per match.
+export const MATCH_CONTEXT_CHARS = 120;
+// Content search budget: past it the scan stops and returns what it found (partial).
+export const SEARCH_TIME_BUDGET_MS = 10_000;
+// Entries between event-loop yields so a big scan never freezes the host.
+export const SEARCH_YIELD_EVERY = 64;
 // HTML preview sessions: TTL refreshed on every request, capped count to bound
 // how many directories stay exposed through the public /preview route.
 export const PREVIEW_SESSION_TTL_MS = 10 * 60 * 1000;

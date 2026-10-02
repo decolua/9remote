@@ -95,12 +95,15 @@ export const createLayoutSlice = (set, get) => ({
   artifactTitle: null,
   rightPanelWasOpen: null,
   artifactSessionId: null,
+  editorJump: null,
 
   openEditorFile: (filePath, opts = {}) => set((st) => ({
     editorFilePath: filePath,
     editorPreviewSeq: opts.preview ? st.editorPreviewSeq + 1 : 0,
     artifactTitle: opts.artifactTitle || null,
     artifactSessionId: opts.artifactSessionId || null,
+    // Jump target for the editor (a search hit, a stack trace); cleared when absent.
+    editorJump: opts.line ? { line: opts.line, column: opts.column, seq: (st.editorJump?.seq || 0) + 1 } : null,
     ...(opts.artifactTitle
       ? { rightPanelWasOpen: st.rightPanelWasOpen ?? st.rightPanelOpen, rightPanelOpen: false }
       : {})

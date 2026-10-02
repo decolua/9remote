@@ -1,10 +1,11 @@
 import fs from "fs";
 import path from "path";
 import os from "os";
-import { execSync, spawn, spawnSync } from "child_process";
+import readline from "readline";
+import { execFile, execSync, spawn, spawnSync } from "child_process";
 import chokidar from "chokidar";
 import sharp from "sharp";
-import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT, HEIC_DECODERS, HEIC_DECODE_TIMEOUT_MS, isHeicFile, MAX_WATCHERS, WATCH_BURST_WINDOW_MS, WATCH_BURST_LIMIT, WATCH_BURST_COOLDOWN_MS } from "../constants.js";
+import { IGNORED_DIRS, BINARY_EXTENSIONS, MAX_FILE_SIZE, MAX_MEDIA_SIZE, MAX_IMAGE_RAW_SIZE, MAX_IMAGE_SCALED_SIZE, IMAGE_SCALE_MAX_DIM, MAX_SEARCH_RESULTS, MAX_MATCHES_PER_FILE, MATCH_CONTEXT_CHARS, SEARCH_TIME_BUDGET_MS, SEARCH_YIELD_EVERY, DEFAULT_TREE_DEPTH, MAX_DIR_ENTRIES, MIME_BY_EXT, HEIC_DECODERS, HEIC_DECODE_TIMEOUT_MS, isHeicFile, MAX_WATCHERS, WATCH_BURST_WINDOW_MS, WATCH_BURST_LIMIT, WATCH_BURST_COOLDOWN_MS } from "../constants.js";
 import { CONTROL_RTC_MAX_BYTES } from "../../../lib/transportConstants.js";
 import { isSensitivePath } from "../pathGuard.js";
 
@@ -108,17 +109,75 @@ function globToRegex(glob) {
   return new RegExp(`^${escaped}$`);
 }
 
-function searchInFilesRecursive(dir, baseDir, matcher, includeRe, excludeRe, results) {
+// ripgrep fast path for content search: respects .gitignore (like every editor),
+// streams NDJSON so limits/deadline kill the child instead of buffering 7GB.
+let rgOkCache = null;
+function rgOk() {
+  if (rgOkCache !== null) return Promise.resolve(rgOkCache);
+  return new Promise((resolve) => {
+    execFile("rg", ["--version"], { timeout: 2000 }, (err) => { rgOkCache = !err; resolve(rgOkCache); });
+  });
+}
+
+function searchInFilesRg(workspace, { query, caseSensitive, wholeWord, regex, includeGlob, excludeGlob }) {
+  return new Promise((resolve) => {
+    const args = ["--json", "--hidden", "--max-filesize", "1M", "-m", String(MAX_MATCHES_PER_FILE)];
+    if (!caseSensitive) args.push("-i");
+    if (wholeWord) args.push("-w");
+    args.push("-g", `!{${IGNORED_DIRS.join(",")}}`);
+    if (includeGlob) args.push("-g", includeGlob);
+    if (excludeGlob) args.push("-g", `!${excludeGlob}`);
+    args.push("--", regex ? query : query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), workspace);
+
+    const child = spawn("rg", args, { stdio: ["ignore", "pipe", "ignore"], windowsHide: true });
+    const results = [];
+    let current = null;
+    const killTimer = setTimeout(() => child.kill(), SEARCH_TIME_BUDGET_MS);
+    const finish = () => { clearTimeout(killTimer); resolve(results); };
+
+    const rl = readline.createInterface({ input: child.stdout });
+    rl.on("line", (lineText) => {
+      let ev;
+      try { ev = JSON.parse(lineText); } catch { return; }
+      if (ev.type !== "match" || !ev.data) return;
+      const d = ev.data;
+      const filePath = d.path?.text;
+      const sm = d.submatches?.[0];
+      if (!filePath || sm === undefined || isSensitivePath(filePath)) return;
+      if (!current || current.path !== filePath) {
+        if (results.length >= MAX_SEARCH_RESULTS) { child.kill(); finish(); return; }
+        current = { path: filePath, matches: [] };
+        results.push(current);
+      }
+      const raw = (d.lines?.text || "").replace(/\r?\n$/, "");
+      const start = Math.max(0, sm.start - MATCH_CONTEXT_CHARS);
+      const end = Math.min(raw.length, sm.end + MATCH_CONTEXT_CHARS);
+      current.matches.push({ line: d.line_number, column: sm.start + 1, contextStart: start, lineText: raw.slice(start, end), matchLength: sm.end - sm.start });
+    });
+    // exit 2 = rg error (bad regex, unreadable root) → null lets the JS fallback report it
+    child.on("error", () => { clearTimeout(killTimer); resolve(null); });
+    child.on("close", (code) => {
+      clearTimeout(killTimer);
+      resolve(code === 2 && results.length === 0 ? null : results);
+    });
+  });
+}
+
+// Async + time-budgeted so a huge tree neither freezes the host (yields to the
+// event loop) nor keeps the client waiting forever (returns partial past budget).
+async function searchInFilesRecursive(dir, baseDir, matcher, includeRe, excludeRe, results, scan) {
   if (results.length >= MAX_SEARCH_RESULTS) return;
   let entries;
   try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
   for (const entry of entries) {
     if (results.length >= MAX_SEARCH_RESULTS) return;
+    if (Date.now() > scan.deadline) return;
+    if (++scan.count % SEARCH_YIELD_EVERY === 0) await new Promise((r) => setImmediate(r));
     if (isIgnoredDir(entry.name)) continue;
     const fullPath = path.join(dir, entry.name);
     const rel = path.relative(baseDir, fullPath);
     if (entry.isDirectory()) {
-      searchInFilesRecursive(fullPath, baseDir, matcher, includeRe, excludeRe, results);
+      await searchInFilesRecursive(fullPath, baseDir, matcher, includeRe, excludeRe, results, scan);
       continue;
     }
     if (!entry.isFile()) continue;
@@ -137,7 +196,9 @@ function searchInFilesRecursive(dir, baseDir, matcher, includeRe, excludeRe, res
         const found = matcher(line);
         for (const m of found) {
           if (matches.length >= MAX_MATCHES_PER_FILE) break;
-          matches.push({ line: i + 1, column: m.column + 1, lineText: line, matchLength: m.length });
+          const start = Math.max(0, m.column - MATCH_CONTEXT_CHARS);
+          const end = Math.min(line.length, m.column + m.length + MATCH_CONTEXT_CHARS);
+          matches.push({ line: i + 1, column: m.column + 1, contextStart: start, lineText: line.slice(start, end), matchLength: m.length });
         }
       }
       if (matches.length) results.push({ path: fullPath, matches });
@@ -382,25 +443,35 @@ export function setupFileHandlers(socket) {
     }
   });
 
-  socket.on("searchInFiles", ({ workspace, query, caseSensitive, regex, includeGlob, excludeGlob }, callback) => {
+  socket.on("searchInFiles", async ({ workspace, query, caseSensitive, wholeWord, regex, includeGlob, excludeGlob }, callback) => {
     try {
       if (!query) return callback({ success: true, results: [] });
       const resolvedPath = (workspace || os.homedir()).replace(/^~/, os.homedir());
       if (!fs.existsSync(resolvedPath)) return callback({ success: false, error: "Workspace not found" });
 
+      // Fast path: ripgrep when installed (gitignore-aware, seconds instead of minutes).
+      if (await rgOk()) {
+        const rgResults = await searchInFilesRg(resolvedPath, { query, caseSensitive, wholeWord, regex, includeGlob, excludeGlob });
+        if (rgResults) return callback({ success: true, results: rgResults });
+      }
+
+      const scanMatcher = (re) => (line) => {
+        const out = []; let m;
+        re.lastIndex = 0;
+        while ((m = re.exec(line)) !== null) {
+          out.push({ column: m.index, length: m[0].length });
+          if (m.index === re.lastIndex) re.lastIndex++;
+        }
+        return out;
+      };
       let matcher;
       if (regex) {
         let re;
         try { re = new RegExp(query, caseSensitive ? "g" : "gi"); } catch (e) { return callback({ success: false, error: `Invalid regex: ${e.message}` }); }
-        matcher = (line) => {
-          const out = []; let m;
-          re.lastIndex = 0;
-          while ((m = re.exec(line)) !== null) {
-            out.push({ column: m.index, length: m[0].length });
-            if (m.index === re.lastIndex) re.lastIndex++;
-          }
-          return out;
-        };
+        matcher = scanMatcher(re);
+      } else if (wholeWord) {
+        const escaped = query.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+        matcher = scanMatcher(new RegExp(`\\b${escaped}\\b`, caseSensitive ? "g" : "gi"));
       } else {
         const needle = caseSensitive ? query : query.toLowerCase();
         matcher = (line) => {
@@ -417,7 +488,8 @@ export function setupFileHandlers(socket) {
       const includeRe = globToRegex(includeGlob);
       const excludeRe = globToRegex(excludeGlob);
       const results = [];
-      searchInFilesRecursive(resolvedPath, resolvedPath, matcher, includeRe, excludeRe, results);
+      const scan = { count: 0, deadline: Date.now() + SEARCH_TIME_BUDGET_MS };
+      await searchInFilesRecursive(resolvedPath, resolvedPath, matcher, includeRe, excludeRe, results, scan);
       callback({ success: true, results });
     } catch (error) {
       callback({ success: false, error: error.message });

@@ -791,6 +791,7 @@ function TerminalWorkspace({
               filePath={editorOpen ? editorPanel.filePath : lastEditor?.filePath}
               artifactTitle={editorOpen ? editorPanel.artifactTitle : lastEditor?.artifactTitle}
               previewSeq={editorOpen ? editorPanel.previewSeq : lastEditor?.previewSeq}
+              jump={editorOpen ? editorPanel.jump : null}
               workspace={filesRoot}
               fileBus={panelsFileBus}
               width={editorPanel.width}

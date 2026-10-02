@@ -23,7 +23,7 @@ import DiffView from "@/features/fileExplorer/components/DiffView";
 // this is for a quick read or fix, not a replacement for the full editor view.
 export default function TerminalEditorPanel({
   filePath, workspace, fileBus, width, onResize, onClose, onOpenFull, onOpenFile, isDesktop = true,
-  previewSeq = 0, artifactTitle = null
+  previewSeq = 0, artifactTitle = null, jump = null
 }) {
   const { t } = useI18n();
 
@@ -221,6 +221,8 @@ export default function TerminalEditorPanel({
             onTextChanged={doc.onTextChanged}
             onRegisterView={doc.register}
             onSave={doc.save}
+            line={jump?.line}
+            column={jump?.column}
             compact
           />
         )}

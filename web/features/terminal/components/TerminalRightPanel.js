@@ -2,7 +2,7 @@
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { startWidthDrag } from "@/shared/utils/dragResize";
-import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Loader2, Package, Plus, RefreshCw, Search, Trash2, X } from "@/shared/components/ui/Icon";
+import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, Folder, FolderPlus, GitBranch, GitFork, Loader2, Plus, RefreshCw, Search, Trash2, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import { vibrate } from "@/shared/utils/vibration";
@@ -143,6 +143,8 @@ function TerminalRightPanel({
 
   // File search over the effective root or specific folder
   const [searchState, setSearchState] = useState({ forRoot: null, searchDir: null, show: false, query: "", results: [], loading: false });
+  // Search options persist across searches (VSCode keeps them for the session).
+  const [searchOpts, setSearchOpts] = useState({ caseSensitive: false, wholeWord: false, regex: false });
   // A stale search from another root reads as closed, without an effect round-trip.
   const search = searchState.forRoot === effectiveFilesRoot
     ? searchState
@@ -167,13 +169,13 @@ function TerminalRightPanel({
       const next = { ...prev, searchDir: null };
       if (prev.query && prev.query.length >= 2) {
         next.loading = true;
-        activeFileBus.searchFiles(effectiveFilesRoot, prev.query).then((result) => {
-          setSearchState((s) => (s.loading ? { ...s, results: result.success ? result.files : [], loading: false } : s));
+        activeFileBus.searchInFiles(effectiveFilesRoot, prev.query, searchOpts).then((result) => {
+          setSearchState((s) => (s.loading ? { ...s, results: result.success ? result.results : [], loading: false } : s));
         });
       }
       return next;
     });
-  }, [activeFileBus, effectiveFilesRoot]);
+  }, [activeFileBus, effectiveFilesRoot, searchOpts]);
 
   const handleSearch = useCallback((query) => {
     setSearchState((prev) => ({ ...prev, query }));
@@ -185,13 +187,31 @@ function TerminalRightPanel({
     setSearchState((prev) => ({ ...prev, loading: true }));
     const targetDir = search.searchDir || effectiveFilesRoot;
     searchTimerRef.current = setTimeout(async () => {
-      const result = await activeFileBus.searchFiles(targetDir, query);
+      const result = await activeFileBus.searchInFiles(targetDir, query, searchOpts);
       // Ignore out-of-order replies once the query moved on.
       setSearchState((prev) => (prev.query === query && prev.loading
-        ? { ...prev, results: result.success ? result.files : [], loading: false }
+        ? { ...prev, results: result.success ? result.results : [], loading: false }
         : prev));
     }, 300);
-  }, [activeFileBus, effectiveFilesRoot, search.searchDir]);
+  }, [activeFileBus, effectiveFilesRoot, search.searchDir, searchOpts]);
+
+  // Re-run the current search when an option flips (query unchanged).
+  const rerunSearch = useCallback((opts) => {
+    setSearchState((prev) => {
+      if (!prev.query || prev.query.length < 2) return prev;
+      const next = { ...prev, loading: true };
+      activeFileBus.searchInFiles(prev.searchDir || effectiveFilesRoot, prev.query, opts).then((result) => {
+        setSearchState((s) => (s.loading ? { ...s, results: result.success ? result.results : [], loading: false } : s));
+      });
+      return next;
+    });
+  }, [activeFileBus, effectiveFilesRoot]);
+
+  const toggleSearchOpt = (key) => {
+    const nextOpts = { ...searchOpts, [key]: !searchOpts[key] };
+    setSearchOpts(nextOpts);
+    rerunSearch(nextOpts);
+  };
 
   // Clear the debounce timer on unmount.
   useEffect(() => () => { if (searchTimerRef.current) clearTimeout(searchTimerRef.current); }, []);
@@ -244,31 +264,38 @@ function TerminalRightPanel({
           up (not gated on treeActions) so the header height doesn't jump when the tree
           registers. */}
       {activeTab === "files" && workspacePath && (
-        <div className={`h-11 ${PANEL_HEADER_H_CLASS} px-2 flex items-center gap-1.5 border-b border-border-subtle flex-shrink-0`}>
+        <div className={`${search.show ? "py-1" : `h-11 ${PANEL_HEADER_H_CLASS}`} px-2 flex items-center gap-1.5 border-b border-border-subtle flex-shrink-0`}>
           {search.show ? (
-            <div className="flex-1 flex items-center gap-2 min-w-0">
-              <Search size={14} className="text-text-subtle shrink-0" />
-              <input
-                type="text"
-                value={search.query}
-                onChange={(e) => handleSearch(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
-                placeholder={search.searchDir ? `Search in ${search.searchDir.split("/").pop()}…` : t("files.searchPlaceholder")}
-                className="flex-1 min-w-0 bg-transparent text-xs text-text placeholder-text-subtle focus:outline-none"
-                autoFocus
-              />
-              {search.loading ? (
-                <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
-              ) : search.query ? (
-                <button
-                  type="button"
-                  onClick={() => handleSearch("")}
-                  className="p-1 text-text-subtle hover:text-text"
-                >
-                  <X size={12} />
-                </button>
-              ) : null}
-              <PanelButton icon={X} label={t("common.close")} onClick={closeSearch} />
+            <div className="flex-1 flex flex-col min-w-0 gap-1 py-1">
+              <div className="flex items-center gap-1.5 min-w-0">
+                <Search size={14} className="text-text-subtle shrink-0" />
+                <input
+                  type="text"
+                  value={search.query}
+                  onChange={(e) => handleSearch(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Escape") closeSearch(); }}
+                  placeholder={search.searchDir ? `Search in ${search.searchDir.split("/").pop()}…` : t("files.searchPlaceholder")}
+                  className="flex-1 min-w-0 w-0 bg-transparent text-xs text-text placeholder-text-subtle focus:outline-none"
+                  autoFocus
+                />
+                {search.loading ? (
+                  <Loader2 size={13} className="animate-spin text-brand-500 shrink-0" />
+                ) : search.query ? (
+                  <button
+                    type="button"
+                    onClick={() => handleSearch("")}
+                    className="p-1 text-text-subtle hover:text-text"
+                  >
+                    <X size={12} />
+                  </button>
+                ) : null}
+                <PanelButton icon={X} label={t("common.close")} onClick={closeSearch} />
+              </div>
+              <div className="flex items-center gap-1 pl-0.5">
+                <SearchOptBtn active={searchOpts.caseSensitive} onClick={() => toggleSearchOpt("caseSensitive")} title="Match Case">Aa</SearchOptBtn>
+                <SearchOptBtn active={searchOpts.wholeWord} onClick={() => toggleSearchOpt("wholeWord")} title="Whole Word">ab</SearchOptBtn>
+                <SearchOptBtn active={searchOpts.regex} onClick={() => toggleSearchOpt("regex")} title="Regex">.*</SearchOptBtn>
+              </div>
             </div>
           ) : (
             <>
@@ -350,7 +377,7 @@ function TerminalRightPanel({
               query={search.query}
               searchDir={search.searchDir}
               workspace={effectiveFilesRoot}
-              onOpen={(path) => { onOpenFile?.(path); closeSearch(); }}
+              onOpen={(path, m) => onOpenFile?.(path, { line: m?.line, column: m?.column })}
             />
           ) : (
             <div className="flex-1 min-h-0 flex flex-col">
@@ -472,9 +499,16 @@ function TerminalRightPanel({
   );
 }
 
-// Flat file-search results replacing the tree while search is active.
+// Content-search results (VSCode-style) replacing the tree while search is active:
+// summary line, file groups with per-line matches, highlighted match text.
 function SearchResults({ results, loading, query, searchDir, workspace, onOpen }) {
   const { t } = useI18n();
+  const [collapsed, setCollapsed] = useState(() => new Set());
+  const toggle = (p) => setCollapsed((prev) => {
+    const next = new Set(prev);
+    next.has(p) ? next.delete(p) : next.add(p);
+    return next;
+  });
   if (!query || query.length < 2) {
     const dirName = searchDir ? searchDir.split("/").pop() : "";
     return (
@@ -486,24 +520,52 @@ function SearchResults({ results, loading, query, searchDir, workspace, onOpen }
   }
   if (loading) return <p className="p-4 text-xs text-text-subtle text-center">{t("files.searching")}</p>;
   if (!results.length) return <p className="p-4 text-xs text-text-subtle text-center">{t("files.noFilesFound")}</p>;
+  const totalMatches = results.reduce((n, f) => n + f.matches.length, 0);
   return (
     <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
-      {results.map((file) => (
-        <button
-          key={file.path}
-          onClick={() => { vibrate(); onOpen(file.path); }}
-          className="w-full px-2 py-1.5 flex items-center gap-2 border-b border-border-subtle hover:bg-surface-2 transition-colors text-left"
-          title={file.path}
-        >
-          {file.type === "binary"
-            ? <Package size={14} className="text-red-500/70 flex-shrink-0" />
-            : <File size={14} className="text-text-subtle flex-shrink-0" />}
-          <span className="truncate text-xs text-text flex-1">{file.name}</span>
-          <span className="truncate text-[10px] text-text-subtle max-w-[45%]">
-            {file.path.replace(workspace, "").replace(/^\//, "")}
-          </span>
-        </button>
-      ))}
+      <p className="px-2 py-1 text-[10px] text-text-muted border-b border-border-subtle sticky top-0 bg-surface z-[1]">
+        {totalMatches} results in {results.length} files
+      </p>
+      {results.map((file) => {
+        const base = file.path.split("/").pop();
+        const dir = file.path.slice(0, file.path.length - base.length).replace(workspace, "").replace(/^\//, "");
+        const isOpen = !collapsed.has(file.path);
+        return (
+          <div key={file.path} className="border-b border-border-subtle">
+            <button
+              onClick={() => { vibrate(); toggle(file.path); }}
+              className="w-full px-2 py-1 flex items-center gap-1.5 hover:bg-surface-2 transition-colors text-left"
+              title={file.path}
+            >
+              <ChevronRight size={11} className={`flex-shrink-0 text-text-subtle transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
+              <File size={12} className="text-text-subtle flex-shrink-0" />
+              <span className="truncate text-xs text-text">{base}</span>
+              <span className="truncate text-[10px] text-text-subtle flex-1">{dir}</span>
+              <span className="text-[9px] px-1 rounded-brand bg-surface-3 text-text-muted flex-shrink-0">{file.matches.length}</span>
+            </button>
+            {isOpen && file.matches.map((m, idx) => {
+              // Exact highlight window from the server's own offsets — right for regex too.
+              const hs = Math.max(0, Math.min(m.column - 1 - (m.contextStart || 0), m.lineText.length));
+              const he = Math.min(m.lineText.length, hs + (m.matchLength || 0));
+              return (
+                <button
+                  key={`${file.path}-${idx}`}
+                  onClick={() => { vibrate(); onOpen(file.path, m); }}
+                  className="w-full px-2 pl-6 pr-2 py-0.5 flex items-baseline gap-2 hover:bg-surface-2 transition-colors text-left"
+                  title={m.lineText}
+                >
+                  <span className="text-[10px] text-text-subtle font-mono flex-shrink-0">{m.line}</span>
+                  <span className="text-[11px] font-mono text-text-muted truncate">
+                    {m.lineText.slice(0, hs)}
+                    <span className="bg-brand-500/30 text-text rounded-sm">{m.lineText.slice(hs, he)}</span>
+                    {m.lineText.slice(he)}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -555,6 +617,24 @@ function PanelButton({ icon: Icon, label, onClick, active, disabled, spinning })
       }`}
     >
       <Icon size={16} className={`sm:w-[13px] sm:h-[13px] ${spinning ? "animate-spin" : ""}`} />
+    </button>
+  );
+}
+
+// VSCode-style search option toggle (Aa / ab / .*).
+function SearchOptBtn({ active, onClick, title, children }) {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={() => { vibrate(); onClick(); }}
+      className={`px-1 h-5 text-[10px] font-medium rounded-[3px] border transition-colors shrink-0 ${
+        active
+          ? "bg-brand-500 text-white border-brand-500"
+          : "bg-transparent text-text-muted border-transparent hover:bg-surface-2"
+      }`}
+    >
+      {children}
     </button>
   );
 }

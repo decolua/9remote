@@ -121,8 +121,8 @@ export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBu
   searchInFiles: (workspace, query, options = {}) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
-    const { caseSensitive = false, regex = false, includeGlob = "", excludeGlob = "" } = options;
-    bus.emit("searchInFiles", { workspace, query, caseSensitive, regex, includeGlob, excludeGlob }, normResolve(resolve));
+    const { caseSensitive = false, wholeWord = false, regex = false, includeGlob = "", excludeGlob = "" } = options;
+    bus.emit("searchInFiles", { workspace, query, caseSensitive, wholeWord, regex, includeGlob, excludeGlob }, normResolve(resolve));
   }),
 
   replaceInFiles: (workspace, query, replacement, options = {}, files = []) => new Promise((resolve) => {

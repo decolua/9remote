@@ -110,6 +110,7 @@ export default function WorkspaceLayout({ children }) {
     setRightPanelTab,
     setRightPanelWidth,
     editorFilePath,
+    editorJump,
     editorPanelWidth,
     setEditorPanelWidth,
     openEditorFile,
@@ -155,6 +156,7 @@ export default function WorkspaceLayout({ children }) {
     setRightPanelTab: s.setRightPanelTab,
     setRightPanelWidth: s.setRightPanelWidth,
     editorFilePath: s.editorFilePath,
+    editorJump: s.editorJump,
     editorPanelWidth: s.editorPanelWidth,
     setEditorPanelWidth: s.setEditorPanelWidth,
     openEditorFile: s.openEditorFile,
@@ -810,13 +812,14 @@ export default function WorkspaceLayout({ children }) {
     filePath: editorFilePath,
     previewSeq: editorPreviewSeq,
     artifactTitle,
+    jump: editorJump,
     width: editorPanelWidth,
     onResize: setEditorPanelWidth,
     onOpen: isDesktop ? openEditorFile : openSheetFile,
     onClose: closeEditorFile,
     // Side panel → full editor route at the file's own workspace root
     onOpenFull: openEditorFull
-  }), [editorFilePath, editorPreviewSeq, artifactTitle, editorPanelWidth, setEditorPanelWidth, isDesktop, openEditorFile, openSheetFile, closeEditorFile, openEditorFull]);
+  }), [editorFilePath, editorPreviewSeq, artifactTitle, editorJump, editorPanelWidth, setEditorPanelWidth, isDesktop, openEditorFile, openSheetFile, closeEditorFile, openEditorFull]);
 
   const mobilePanelProps = useMemo(() => ({
     open: mobileOpen,
