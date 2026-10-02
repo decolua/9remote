@@ -24,11 +24,20 @@ export function useTerminalPageViewport({ setKeyboardOpen }) {
     const isIos = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
       (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
 
+    // Android (interactive-widget=resizes-content) shrinks innerHeight together with
+    // visualViewport, so the vv-vs-innerHeight check never fires there. Track the
+    // tallest height seen per width instead — the keyboard never changes width.
+    const maxHeights = {};
     const updateAppHeight = () => {
       const vv = window.visualViewport;
       const vvHeight = vv?.height || window.innerHeight;
       const offsetTop = vv?.offsetTop || 0;
-      const isKeyboardOpen = vvHeight < window.innerHeight - 100;
+      const width = window.innerWidth;
+      if (maxHeights[width] === undefined || vvHeight > maxHeights[width]) {
+        maxHeights[width] = vvHeight;
+      }
+      const isKeyboardOpen = vvHeight < window.innerHeight - 100 ||
+        vvHeight < maxHeights[width] - 100;
 
       if (lastKeyboardState !== isKeyboardOpen) {
         lastKeyboardState = isKeyboardOpen;
@@ -94,5 +103,24 @@ export function useTerminalPageViewport({ setKeyboardOpen }) {
     };
     document.addEventListener("focusin", handleFocusIn);
     return () => document.removeEventListener("focusin", handleFocusIn);
+  }, []);
+
+  // Relay editable focus to the expo shell so it can shrink the WebView BEFORE the
+  // soft keyboard opens. Android WebView's reveal-scroll only fires for an obscured
+  // focused editable — pre-shrinking keeps it visible and the reveal never runs.
+  useEffect(() => {
+    if (!window.ReactNativeWebView || !/Android/i.test(navigator.userAgent)) return;
+    const relay = (e) => {
+      if (!e.target.matches("input, textarea")) return;
+      try {
+        window.ReactNativeWebView.postMessage(JSON.stringify({ type: "INPUT_FOCUS", focused: e.type === "focusin" }));
+      } catch (err) {}
+    };
+    document.addEventListener("focusin", relay);
+    document.addEventListener("focusout", relay);
+    return () => {
+      document.removeEventListener("focusin", relay);
+      document.removeEventListener("focusout", relay);
+    };
   }, []);
 }
