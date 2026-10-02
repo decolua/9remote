@@ -19,7 +19,14 @@ const STORE_URLS = {
 // reading navigator at render time is safe.
 function detectShellPlatform() {
   if (typeof navigator === "undefined") return "android";
-  return window.DEVICE_INFO?.platform || (/iPhone|iPad|iPod/i.test(navigator.userAgent) ? "ios" : "android");
+  if (window.DEVICE_INFO?.platform) return window.DEVICE_INFO.platform;
+  // The shell's custom UA ("9Remote-Mobile/x.y.z") hides Safari device tokens —
+  // fall back to signals that survive UA replacement: navigator.platform and
+  // WKWebView-only webkit.messageHandlers.
+  const ios = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+    || /^iP/.test(navigator.platform || "")
+    || !!window.webkit?.messageHandlers;
+  return ios ? "ios" : "android";
 }
 
 export default function AppUpdateGate() {
@@ -59,8 +66,6 @@ export default function AppUpdateGate() {
       <p className="max-w-xs text-sm text-white/60">{t("appUpdate.body")}</p>
       <a
         href={storeUrl}
-        target="_blank"
-        rel="noreferrer"
         className="mt-2 rounded-brand bg-[#E56A4A] px-6 py-2.5 text-sm font-semibold text-white"
       >
         {t("appUpdate.action")}
