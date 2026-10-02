@@ -284,7 +284,7 @@ export function listModelOptionsFor(engine) {
 }
 
 // Engine → its own default-model reader; an engine with no entry has no CLI default to read.
-const piFirstModel = { at: 0, id: "" };
+let piFirstModel = { at: 0, id: "" };
 const DEFAULT_MODEL_READERS = {
   claude() {
     const settings = readClaudeSettings();
