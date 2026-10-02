@@ -13,14 +13,16 @@ export const AiBashCard = memo(function AiBashCard({
   output = "",
   error = "",
   status = "done",
-  deferred = false
+  deferred = false,
+  defaultExpanded = false
 }) {
   const { sessionId: paneSessionId } = useAiPaneScope();
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
   // History opens collapsed: an error row is auto-opened because it matters, but a
-  // screenful of them would dump every output into the DOM at once.
-  const [expanded, setExpanded] = useState(isError && !deferred);
+  // screenful of them would dump every output into the DOM at once. A reader that
+  // opened the card FOR its output (the task modal) says so and starts open.
+  const [expanded, setExpanded] = useState((isError && !deferred) || defaultExpanded);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [copiedOut, setCopiedOut] = useState(false);
 

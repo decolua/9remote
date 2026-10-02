@@ -30,13 +30,15 @@ export const AiAgentCard = memo(function AiAgentCard({
   status = "done",
   children = [],
   engine = "claude",
-  workspacePath = ""
+  workspacePath = "",
+  defaultExpanded = false
 }) {
   const { sessionId: paneSessionId } = useAiPaneScope();
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
   const runningChildren = children.filter((c) => c.status === "running").length;
-  const [expanded, setExpanded] = useState(isError);
+  // A reader that opened the card FOR the calls (the task modal) starts bungled open.
+  const [expanded, setExpanded] = useState(isError || defaultExpanded);
 
   useEffect(() => {
     if (isError) setExpanded(true);

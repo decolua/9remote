@@ -1,17 +1,15 @@
 "use client";
 
 import { memo, useEffect, useMemo, useState } from "react";
-import { Loader2, Bot, Terminal, Square, CheckCircle2, AlertCircle } from "@/shared/components/ui/Icon";
+import { Bot, Terminal, Square } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
-import { taskActivity, findTaskTool } from "../../lib/toolTree";
-import { describeActivity, formatTokens } from "../../lib/liveStatus";
+import { findTaskTool } from "../../lib/toolTree";
 import { taskElapsedMs } from "../../lib/harnessTasks";
-import { clockText, usageDurationMs } from "../../lib/taskClock";
-import { renderToolCard } from "../cards/toolCards";
-import { AiToolCard } from "../cards/AiToolCard";
+import { clockText } from "../../lib/taskClock";
+import { MessageBubble } from "../MessageBubble";
+import { AiTurn } from "../AiTurn";
 import { ModalShell } from "./ModalShell";
-import { anchorId } from "../PaneScope";
 
 // The modal's own beat, so the header's total keeps moving while it is open. One timer
 // for the whole panel — every row reads the same `now`.
@@ -22,23 +20,15 @@ const KIND = {
   shell: { label: "Background task", icon: Terminal, cls: "bg-warning/15 text-warning" }
 };
 
-// The status tile's tint — the CLI's own word, coloured by whether it is still going.
-const STATUS_CLS = {
-  running: "text-sky-400",
-  completed: "text-emerald-400",
-  failed: "text-danger",
-  killed: "text-danger",
-  stopped: "text-text-muted",
-  paused: "text-warning"
-};
-
 /**
- * Everything a pinned strip row could not say.
+ * Everything a pinned strip row could not say, drawn the way the agent itself is drawn.
  *
- * The strip is a heading: it names the work and how long it has been going. This is the
- * page behind it — what the task was asked to do, what it is doing at this second, every
- * call it has made, and what it cost. Rows for the whole group when the strip row stood
- * for several tasks, so one tap answers "what are all of these".
+ * The strip names the work; this modal walks it: a pickable row per task when the tap
+ * stood for several, then the task's own calls as the TIMELINE's tool cards — a
+ * sub-agent's internals read here exactly as they do in the turn (its agent card even
+ * draws its nested calls itself), and a background shell's card IS the command with its
+ * output. Nothing else on the page: no stat tiles, no meta line — the cards are the
+ * information, the modal is just the page they sit on.
  */
 export const AgentTaskModal = memo(function AgentTaskModal({
   tasks = [],
@@ -97,13 +87,13 @@ export const AgentTaskModal = memo(function AgentTaskModal({
           single task draws no picker — a list of one is a heading over nothing. */}
       {live.length > 1 && (
         <div className="p-3 pb-0 flex flex-col gap-0.5 shrink-0 border-b border-border-subtle">
-          {live.map((t) => {
+          {live.map((t, i) => {
             const m = KIND[t.background ? "shell" : "agent"];
             const RowIcon = m.icon;
             const on = t.taskId === task.taskId;
             return (
               <button
-                key={t.taskId}
+                key={t.taskId || t.id || i}
                 type="button"
                 onClick={() => { vibrate(); setPicked(t.taskId); }}
                 className={`modal-row ${on ? "modal-row-active" : ""}`}
@@ -121,33 +111,11 @@ export const AgentTaskModal = memo(function AgentTaskModal({
         </div>
       )}
 
-      {/* The task at a glance — same tile strip as the Tasks modal. */}
-      <div className="grid grid-cols-4 gap-2 px-4 py-3 border-b border-border-subtle bg-bg text-center shrink-0">
-        <Stat label="STATUS" value={task.status} cls={STATUS_CLS[task.status] || "text-text-muted"} />
-        <Stat label="RUNNING" value={clockText(elapsed)} cls="text-text" />
-        <Stat label="TOKENS" value={task.usage ? formatTokens(task.usage.total_tokens) : "—"} cls="text-text" />
-        <Stat label="TOOLS" value={task.usage ? String(task.usage.tool_uses ?? 0) : "—"} cls="text-text" />
-      </div>
-
+      {/* The task's card IS the interface — the very card the main timeline draws for
+          it, bungled open: its header, its calls (a sub-agent's card draws those
+          itself), its command and output (a background shell's card). */}
       <div className="p-3 flex-1 overflow-y-auto custom-scrollbar">
-        <div className="flex items-center gap-2 text-[10px] font-mono text-text-muted mb-2">
-          <span>{meta.label}</span>
-          {task.subagentType && <><span className="text-text-subtle">·</span><span className="text-brand-500">{task.subagentType}</span></>}
-          {task.taskType && <><span className="text-text-subtle">·</span><span>{task.taskType}</span></>}
-          <span className="text-text-subtle truncate ml-auto" title={task.taskId}>{task.taskId}</span>
-        </div>
-
-        <Activity task={task} messages={messages} engine={engine} />
-
-        {/* The task's own calls, newest first — the same cards the timeline draws, so a
-            sub-agent's internals read here exactly as they do in the turn. */}
-        <Calls task={task} messages={messages} engine={engine} sessionId={sessionId} />
-
-        {task.usage && usageDurationMs(task.usage) > 0 && (
-          <div className="text-[11px] text-text-muted font-mono mt-3">
-            took {clockText(usageDurationMs(task.usage))}
-          </div>
-        )}
+        <Calls task={task} messages={messages} engine={engine} running={running} />
 
         {task.summary && (
           <p className="mt-3 text-[11px] text-text-muted leading-relaxed border-l-2 border-border-subtle pl-3">
@@ -165,56 +133,36 @@ export const AgentTaskModal = memo(function AgentTaskModal({
   );
 });
 
-function Stat({ label, value, cls }) {
-  return (
-    <div className="p-2 rounded-brand bg-surface-2/40">
-      <div className="text-[10px] text-text-muted font-mono truncate">{label}</div>
-      <div className={`text-sm font-bold truncate ${cls}`}>{value}</div>
-    </div>
-  );
-}
-
-/** What it is doing at this second, read off its own deepest running call. */
-function Activity({ task, messages, engine }) {
-  const node = taskActivity(messages, task.toolUseId);
-  const line = describeActivity(node, engine);
-  if (!line || !node) return null;
-  const failed = node.status === "error";
-  return (
-    <div className="flex items-center gap-2 px-3 py-2 rounded-brand bg-surface-2/40 border border-border-subtle/60">
-      {task.status === "running" ? (
-        <Loader2 size={12} className="animate-spin text-brand-500 shrink-0" />
-      ) : failed ? (
-        <AlertCircle size={12} className="text-danger shrink-0" />
-      ) : (
-        <CheckCircle2 size={12} className="text-success shrink-0" />
-      )}
-      <span className="font-mono text-[10px] uppercase tracking-wider text-text-muted shrink-0">now</span>
-      <span className="text-[11px] text-text truncate min-w-0" title={line}>{line}</span>
-    </div>
-  );
-}
-
 /**
- * Every call under the task's own card, as the TIMELINE would draw them.
+ * The task's work as the SAME conversation the main pane draws: its prompt as a user
+ * bubble, its calls as a turn (AiTurn's rail — the very renderer the main timeline
+ * uses, cards full width), and its report as prose. Nothing here is a second rendering
+ * of a piece the pane already draws — it IS the pane's renderer, fed the task's slice.
  *
- * Not a list of my own rows: a sub-agent's diff, command or question already has a card
- * that says it better, and a second rendering here would drift from the one in the turn.
- * So the card is the row, and the generic card is the fallback for a tool with none.
+ * A background shell is a turn of one: its card is the command with its output, and it
+ * has no prompt bubble (nobody asked it anything).
  */
-function Calls({ task, messages, engine, sessionId }) {
+function Calls({ task, messages, engine, running }) {
   const row = findTaskTool(messages, task.toolUseId);
-  if (!row) return null;
-  // A background shell's row IS the command — it has no children, and the output sitting
-  // on it is the whole of what that task has to show. A sub-agent's is the other way
-  // round: the card is a heading and the calls under it are the work.
-  const calls = row.children?.length ? row.children : [row];
-  return (
-    <div className="mt-3" id={anchorId(sessionId, "calls", row.id)}>
-      <div className="text-[10px] font-mono uppercase tracking-wider text-text-muted mb-1">
-        {row.children?.length ? `${row.children.length} call${row.children.length > 1 ? "s" : ""}` : "command"}
+  if (!row) {
+    return (
+      <div className="flex flex-col items-center justify-center gap-2 py-10 text-text-muted">
+        <span className="text-xs">{running ? "Working — no calls yet." : "No calls recorded."}</span>
       </div>
-      {calls.map((c) => renderToolCard(engine, c, { engine }) || <AiToolCard key={c.id} {...c} engine={engine} />)}
+    );
+  }
+  const calls = row.children?.length ? row.children : [row];
+  const prompt = row.input?.prompt || row.input?.description || "";
+  const report = row.error || row.output || "";
+  return (
+    <div className="flex flex-col">
+      {prompt && !row.async && (
+        <MessageBubble message={{ id: `${row.id}:p`, role: "user", content: prompt }} engine={engine} />
+      )}
+      <AiTurn messages={[{ id: row.id, role: "assistant", tools: calls, isLive: running }]} engine={engine} isLive={running} />
+      {!running && report && (
+        <AiTurn messages={[{ id: `${row.id}:r`, role: "assistant", content: String(report), isLive: false }]} engine={engine} isLive={false} />
+      )}
     </div>
   );
 }

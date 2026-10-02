@@ -26,9 +26,9 @@ import { getToolCategory, getEngineConfig } from "../../registry";
 // was tried and is worse — a module nothing imports never runs, so the card silently
 // stopped existing.
 const CARDS = {
-  bash: (tool, deferred) => <AiBashCard key={tool.id} {...tool} deferred={deferred} />,
-  agent: (tool, deferred, { engine, workspacePath }) => (
-    <AiAgentCard key={tool.id} {...tool} engine={engine} workspacePath={workspacePath} />
+  bash: (tool, deferred, ctx) => <AiBashCard key={tool.id} {...tool} deferred={deferred} defaultExpanded={ctx?.defaultExpanded} />,
+  agent: (tool, deferred, { engine, workspacePath, defaultExpanded }) => (
+    <AiAgentCard key={tool.id} {...tool} engine={engine} workspacePath={workspacePath} defaultExpanded={defaultExpanded} />
   ),
   plan: (tool) => <AiPlanModeCard key={tool.id} toolName={tool.name} input={tool.input} />,
   // A code review, in either direction — its own vocabulary, its own card.
