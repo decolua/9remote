@@ -4,7 +4,7 @@ import {
 
 export const createThemeSlice = (set) => ({
   // WebGL renderer toggle
-  webglEnabled: true,
+  webglEnabled: false,
   setWebglEnabled: (enabled) => set({ webglEnabled: !!enabled }),
 
   // Terminal font size
