@@ -61,7 +61,9 @@ export function disposeProtocol(pm) {
   if (!pm) return;
   try { pm.close(); } catch {}
   unregisterProtocol(pm);
-  if (pm._host?.defersWsAdapter && _rtcSessionKiller) _rtcSessionKiller(pm._host.peerId);
+  // Any PM dying means the peer's wire is down — kill its RTC session too, even
+  // when this PM's host is a socket.io socket (duplicate-PM case leaves it behind).
+  if (_rtcSessionKiller) _rtcSessionKiller(pm._host?.peerId || pm._deviceId);
 }
 
 // Notify every active PM that RTC is enabled again (test-toggle off) — clients
