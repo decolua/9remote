@@ -13,7 +13,6 @@ export const JarvisSettingsModal = memo(function JarvisSettingsModal({ busRef, o
   return (
     <ModalShell
       icon={<Settings size={14} />}
-      iconClass="bg-surface-3 text-text-muted"
       title="Jarvis Settings"
       subtitle="Coordinator harness and behavior"
       maxWidth="max-w-sm"

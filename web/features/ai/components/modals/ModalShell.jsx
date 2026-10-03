@@ -11,11 +11,12 @@ import { X } from "@/shared/components/ui/Icon";
 // Escape stops the running turn and Enter sends a prompt while the modal is open.
 export const ModalShell = memo(function ModalShell({
   icon,
-  iconClass = "bg-brand-500/15 text-brand-500",
+  iconClass = "text-text",
   title,
   subtitle,
   maxWidth = "max-w-lg",
   onClose,
+  actions = null,
   children,
   footer = null
 }) {
@@ -56,22 +57,33 @@ export const ModalShell = memo(function ModalShell({
         aria-modal="true"
       >
         <div className="px-4 py-3 border-b border-border-subtle flex items-center justify-between shrink-0">
-          <div className="flex items-center gap-2 min-w-0">
-            <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${iconClass}`}>
-              {icon}
-            </div>
+          <div className="flex items-center gap-2.5 min-w-0">
+            {icon && (
+              iconClass ? (
+                <div className={`w-6 h-6 rounded-full flex items-center justify-center shrink-0 ${iconClass}`}>
+                  {icon}
+                </div>
+              ) : (
+                <div className="flex items-center justify-center shrink-0 text-text">
+                  {icon}
+                </div>
+              )
+            )}
             <div className="min-w-0">
               <h2 className="text-sm font-semibold text-text truncate">{title}</h2>
               {subtitle && <p className="text-[11px] text-text-muted truncate">{subtitle}</p>}
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1 rounded-brand text-text-muted hover:text-text hover:bg-surface-2 transition-colors shrink-0"
-          >
-            <X size={16} />
-          </button>
+          <div className="flex items-center gap-1.5 shrink-0 ml-2">
+            {actions}
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1 rounded-brand text-text-muted hover:text-text hover:bg-surface-2 transition-colors shrink-0"
+            >
+              <X size={16} />
+            </button>
+          </div>
         </div>
         {children}
         {footer}

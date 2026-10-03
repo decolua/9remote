@@ -63,7 +63,6 @@ export const SessionsModal = memo(function SessionsModal({
   return (
     <ModalShell
       icon={<History size={14} />}
-      iconClass="bg-sky-500/15 text-sky-400"
       title="Resume a session"
       subtitle={`Past ${engine} conversations in this project`}
       maxWidth="max-w-xl"

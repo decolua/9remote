@@ -21,7 +21,6 @@ export const TasksModal = memo(function TasksModal({ tasks = [], onClose }) {
   return (
     <ModalShell
       icon={<ListChecks size={14} />}
-      iconClass="bg-brand-500/15 text-brand-500"
       title={`Tasks (${total})`}
       subtitle="Checklist the agent is working through"
       onClose={onClose}

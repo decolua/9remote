@@ -11,7 +11,6 @@ export const McpModal = memo(function McpModal({
   return (
     <ModalShell
       icon={<Package size={14} />}
-      iconClass="bg-sky-500/15 text-sky-400"
       title={`MCP Servers (${mcpServers.length})`}
       subtitle="Model Context Protocol tools and integrations"
       onClose={onClose}

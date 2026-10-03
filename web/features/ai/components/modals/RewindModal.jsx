@@ -77,7 +77,6 @@ export const RewindModal = memo(function RewindModal({
   return (
     <ModalShell
       icon={<History size={14} />}
-      iconClass="bg-amber-500/15 text-amber-400"
       title="Rewind"
       subtitle="Go back to an earlier prompt. Turns after it are discarded."
       maxWidth="max-w-xl"

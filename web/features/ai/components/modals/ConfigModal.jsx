@@ -93,7 +93,6 @@ export const ConfigModal = memo(function ConfigModal({ engine = "claude", option
   return (
     <ModalShell
       icon={<Settings size={14} />}
-      iconClass="bg-surface-3 text-text-muted"
       title="Configuration"
       subtitle={`Runtime flags for ${engine}`}
       maxWidth="max-w-md"

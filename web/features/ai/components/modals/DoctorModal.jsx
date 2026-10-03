@@ -30,7 +30,6 @@ export const DoctorModal = memo(function DoctorModal({ engine = "claude", worksp
   return (
     <ModalShell
       icon={<HelpCircle size={14} />}
-      iconClass="bg-emerald-500/15 text-emerald-400"
       title="Diagnostics"
       subtitle={`Health check for the ${engine} CLI`}
       onClose={onClose}
