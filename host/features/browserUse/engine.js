@@ -12,8 +12,10 @@ import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
 import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate } from "./snapshot.js";
 import {
-  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, LAUNCH_TIMEOUT_MS, OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT,
-  SCREENSHOT_QUALITY, SETTLE_CAP_MS, SETTLE_MIN_CLICK_MS, SETTLE_MIN_FILL_MS, SETTLE_MIN_HYDRATE_MS, SETTLE_MIN_SPA_MS, SETTLE_QUIET_MS, VIEWPORT
+  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, LAUNCH_TIMEOUT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
+  OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT,
+  SCREENSHOT_QUALITY, SETTLE_CAP_MS, SETTLE_MIN_CLICK_MS, SETTLE_MIN_FILL_MS, SETTLE_MIN_HYDRATE_MS, SETTLE_MIN_LINK_MS, SETTLE_MIN_SPA_MS, SETTLE_QUIET_MS,
+  STEP_FRAME_QUALITY, STEP_FRAME_SCALE, VIEWPORT, WAIT_TEXT_POLL_MS, WAIT_TEXT_TIMEOUT_MS
 } from "./constants.js";
 import { runTask } from "./agentLoop.js";
 
@@ -26,15 +28,15 @@ const CHROME_CANDIDATES = process.platform === "darwin"
      "/Applications/Brave Browser.app/Contents/MacOS/Brave Browser"]
   : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"];
 
-export function profilesRoot() {
+function profilesRoot() {
   return path.join(os.homedir(), ".9remote", "browser-profiles");
 }
 
-export function safeProfileName(name) {
+function safeProfileName(name) {
   return /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(String(name || ""));
 }
 
-export function listProfiles() {
+function listProfiles() {
   const root = profilesRoot();
   if (!fs.existsSync(root)) return [{ name: "default" }];
   const found = fs.readdirSync(root, { withFileTypes: true })
@@ -43,20 +45,51 @@ export function listProfiles() {
   return found.some((p) => p.name === "default") ? found : [{ name: "default" }, ...found];
 }
 
-export function createProfile(name) {
+function createProfile(name) {
   if (!safeProfileName(name)) throw new Error("Profile name must match [a-z0-9_-], max 32 chars");
   fs.mkdirSync(path.join(profilesRoot(), name), { recursive: true });
   return { name };
 }
 
-export async function deleteProfile(name) {
+async function removeProfile(name) {
   if (!safeProfileName(name) || name === "default") throw new Error("Refusing to delete this profile");
   await closeProfile(name);
   fs.rmSync(path.join(profilesRoot(), name), { recursive: true, force: true });
+  fs.rmSync(stepFramePath(name), { force: true }); // no orphan debug tail
   return { name, deleted: true };
 }
 
-export async function renameProfile(from, to) {
+// Per-profile debug tail: ONE overwritten frame of the latest step. Rename on
+// the same filesystem is atomic — a concurrent reader never sees a torn jpeg.
+function framesRoot() {
+  return path.join(os.homedir(), ".9remote", "browserUse", "frames");
+}
+
+function stepFramePath(profile) {
+  return path.join(framesRoot(), `${profile}.jpg`);
+}
+
+function writeAtomic(file, buffer) {
+  const tmp = `${file}.${process.pid}.tmp`;
+  fs.writeFileSync(tmp, buffer);
+  fs.renameSync(tmp, file);
+}
+
+// Latest step frame as base64 (null when absent) — the run report reuses this
+// instead of capturing a second screenshot after the loop ends.
+export function framePathFor({ profile, mode } = {}) {
+  const key = mode === "attach" ? ATTACH_PROFILE : (profile || "default");
+  return safeProfileName(key) ? stepFramePath(key) : null;
+}
+
+export function readStepFrame(opts = {}) {
+  const file = framePathFor(opts);
+  if (!file) return null;
+  try { return fs.readFileSync(file).toString("base64"); }
+  catch { return null; }
+}
+
+async function renameProfile(from, to) {
   if (!safeProfileName(from) || !safeProfileName(to)) throw new Error("Invalid profile name");
   if (to === "default") throw new Error("Refusing to rename onto 'default'");
   await closeProfile(from);
@@ -68,6 +101,9 @@ export async function renameProfile(from, to) {
   return { from, to };
 }
 
+// One surface for the socket/UI: profile CRUD.
+export const profiles = { list: listProfiles, create: createProfile, remove: removeProfile, rename: renameProfile };
+
 // ---- per-profile serialization ---------------------------------------------
 const chains = new Map();
 function serialize(profile, fn) {
@@ -78,7 +114,7 @@ function serialize(profile, fn) {
 }
 
 // ---- Chrome discovery / launch ----------------------------------------------
-export function resolveChromeBinary() {
+function resolveChromeBinary() {
   for (const candidate of CHROME_CANDIDATES) {
     if (path.isAbsolute(candidate)) {
       if (fs.existsSync(candidate)) return candidate;
@@ -104,7 +140,7 @@ function reservePort() {
 // relaunch their browser — only read the port (and WS path) Chrome published.
 // Newer Chrome serves no /json HTTP API on this port; the browser WS path from
 // the file's second line is the working entry point.
-export function findAttachedDevToolsInfo() {
+function findAttachedDevToolsInfo() {
   const home = os.homedir();
   const candidates = [
     path.join(home, "Library", "Application Support", "Google", "Chrome"),
@@ -155,6 +191,14 @@ export async function attachStatus() {
 export function openAttachGuide() {
   const bin = resolveChromeBinary();
   if (!bin) throw new Error("No Chrome/Chromium binary found on this machine");
+  // On macOS go through LaunchServices, not a raw spawn: a cold-started binary
+  // hits the profile picker which eats the chrome:// URL before any tab opens.
+  if (process.platform === "darwin") {
+    const app = bin.match(/^(.*?\.app)\//)?.[1];
+    const child = spawn("open", ["-a", app || "Google Chrome", ATTACH_GUIDE_URL], { detached: true, stdio: "ignore" });
+    child.unref();
+    return { opened: ATTACH_GUIDE_URL };
+  }
   const child = spawn(bin, [ATTACH_GUIDE_URL], { detached: true, stdio: "ignore" });
   child.unref();
   return { opened: ATTACH_GUIDE_URL };
@@ -178,7 +222,21 @@ export function urlsMatch(a, b) {
   }
 }
 
-function makeSession({ profile, mode, port, child, client, sessionId, targetId, headless = false }) {
+// Same site = same origin; a fresh tab Chrome shows before its first navigation.
+function urlsSameOrigin(a, b) {
+  if (!a || !b) return false;
+  try {
+    return new URL(a).origin === new URL(b).origin;
+  } catch {
+    return false;
+  }
+}
+
+function isBlankTabUrl(url) {
+  return !url || url === "about:blank" || /^chrome:\/\/new-tab-page/.test(url);
+}
+
+function makeSession({ profile, mode, port, child, client, sessionId, targetId, headless = false, shared = false }) {
   const call = (method, params = {}) => client.call(method, params, session.sessionId);
   const enter = (type) => ({
     type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
@@ -189,8 +247,10 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     lastState: null,
     docOrigin: null, docUrl: null,
     cancelRequested: false,
+    ownsTargets: new Set(), // tabs the ENGINE created — close() cleans only these
 
     async setup() {
+      await call("Page.enable");
       await call("Emulation.setDeviceMetricsOverride",
         { width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
       // Keep background tabs rendering (rAF, menus) without stealing the user's tab.
@@ -198,7 +258,6 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     },
 
     async navigate(url) {
-      await call("Page.enable");
       await call("Page.navigate", { url });
       const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
       while (Date.now() < deadline) {
@@ -209,37 +268,57 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       session.lastState = null;
     },
 
-    // In attach mode: reuse a tab if it matches targetUrl, else open a new tab.
+    // Switch the session onto another tab (attach mode tab discipline).
+    async adopt(targetId) {
+      if (targetId === session.targetId) return;
+      const attached = await client.call("Target.attachToTarget", { targetId, flatten: true });
+      session.targetId = targetId;
+      session.sessionId = attached.sessionId;
+      await session.setup();
+      session.lastState = null;
+    },
+
+    // Human tab discipline — one tab per site: exact URL refocuses its tab,
+    // same-origin reuses that site's tab, a blank held tab gets used, a new
+    // site opens a tracked tab. A user's tab on another origin is never hijacked.
     async openOrReuseTab(targetUrl) {
       if (!targetUrl) return;
       try {
+        if (session.lastState?.url && urlsMatch(session.lastState.url, targetUrl)) return; // already there
         const { targetInfos = [] } = await client.call("Target.getTargets");
-        const pageTargets = targetInfos.filter((t) => t.type === "page");
-        const matched = pageTargets.find((t) => urlsMatch(t.url, targetUrl));
-        if (matched) {
-          if (matched.targetId !== session.targetId) {
-            const attached = await client.call("Target.attachToTarget", { targetId: matched.targetId, flatten: true });
-            session.targetId = matched.targetId;
-            session.sessionId = attached.sessionId;
-            await session.setup();
-          }
+        const pages = targetInfos.filter((t) => t.type === "page");
+        const exact = pages.find((t) => urlsMatch(t.url, targetUrl));
+        if (exact) {
+          await session.adopt(exact.targetId);
           try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
-          session.lastState = null;
           return;
         }
-
+        const sameOrigin = pages.find((t) => urlsSameOrigin(t.url, targetUrl));
+        if (sameOrigin) {
+          await session.adopt(sameOrigin.targetId);
+          await session.navigate(targetUrl);
+          try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
+          return;
+        }
+        const held = pages.find((t) => t.targetId === session.targetId && isBlankTabUrl(t.url));
+        if (held) {
+          await session.navigate(targetUrl); // use the blank tab we already hold
+          return;
+        }
         const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
-        const attached = await client.call("Target.attachToTarget", { targetId: target.targetId, flatten: true });
-        session.targetId = target.targetId;
-        session.sessionId = attached.sessionId;
-        await session.setup();
+        session.ownsTargets.add(target.targetId);
+        await session.adopt(target.targetId);
         try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
-        session.lastState = null;
-
-        const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
-        while (Date.now() < deadline) {
-          if (await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
-          await new Promise((r) => setTimeout(r, 50));
+        // A fresh target starts at about:blank whose readyState is already
+        // "complete" — wait for the target origin to land before trusting it.
+        if (!isBlankTabUrl(targetUrl)) {
+          const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
+          while (Date.now() < deadline) {
+            const href = await evaluate(client, session.sessionId, "location.href").catch(() => null);
+            if (href && urlsSameOrigin(href, targetUrl) &&
+                await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
+            await new Promise((r) => setTimeout(r, 50));
+          }
         }
       } catch {
         await session.navigate(targetUrl);
@@ -283,7 +362,22 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     // a cheap marker check instead of a full snapshot on every command.
     async current() {
       if (session.lastState && await session.fresh(session.lastState)) return session.lastState;
-      return session.observe();
+      return session.steady();
+    },
+
+    // Bounded retry: a page still churning (challenges, late hydration) gets a
+    // few quiet windows instead of an error the agent must sleep around.
+    async steady() {
+      let lastError;
+      for (let attempt = 0; attempt < OBSERVE_SETTLE_RETRIES; attempt++) {
+        try { return await session.observe(); }
+        catch (e) {
+          lastError = e;
+          if (DEAD_SESSION.test(e.message)) throw e; // dead session — let withSession heal
+          await new Promise((r) => setTimeout(r, OBSERVE_SETTLE_RETRY_MS));
+        }
+      }
+      throw lastError;
     },
 
     async fresh(page) {
@@ -343,7 +437,16 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
         if (action.kind === 'fill' && (e.readOnly || e.getAttribute('aria-readonly') === 'true')) return null;
         const r = e.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
         if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return null;
-        if (!e.contains(document.elementFromPoint(x, y))) return null;
+        // Occlusion gate across shadow boundaries: elementFromPoint retargets a
+        // shadow node to its host chain, and a click can land on slotted light
+        // content — accept when e and hit share a composed ancestry either way.
+        const hit = document.elementFromPoint(x, y);
+        if (!hit) return null;
+        const up = (el) => { const chain = []; let n = el;
+          while (n) { chain.push(n); n = n.assignedSlot || n.parentElement || (n.getRootNode()?.host || null); }
+          return chain; };
+        const hitChain = up(hit);
+        if (!e.contains(hit) && !up(e).some((a) => a === hit) && !hitChain.some((n) => n === e || e.contains(n))) return null;
         if (action.kind === 'select') {
           if (e.tagName !== 'SELECT' || ![...e.options].some(o => o.value === action.value && !o.disabled)) return null;
           e.value = action.value;
@@ -370,8 +473,10 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       }
       const target = await session.resolve(action);
       if (!target) throw stale("Target changed or is covered");
-      await session.decorate(action, target);
-      if (action.kind !== "select") {
+      // Fills need no visual feedback — the text itself is the signal. Skipping
+      // the cursor glide keeps focus+type at one round trip.
+      if (action.kind !== "fill") await session.decorate(action, target);
+      if (action.kind !== "select" && action.kind !== "fill") {
         for (const type of ["mousePressed", "mouseReleased"]) {
           await call("Input.dispatchMouseEvent", { type, x: target.x, y: target.y, button: "left", clickCount: 1 });
         }
@@ -418,7 +523,8 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     // and on freshly-hydrated documents. Capped, never spends a Jev call.
     async settle(action = null) {
       const fillMin = action?.kind === "fill" ? SETTLE_MIN_FILL_MS
-        : (action?.kind === "click" || action?.kind === "select") ? SETTLE_MIN_CLICK_MS : 0;
+        : (action?.kind === "click" || action?.kind === "select")
+          ? (action?.role === "link" ? SETTLE_MIN_LINK_MS : SETTLE_MIN_CLICK_MS) : 0;
       const started = Date.now();
       let changedAt = started, prev = null, freshDoc = false, spaRoute = false;
       while (Date.now() - started < SETTLE_CAP_MS) {
@@ -451,11 +557,119 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       return result.data; // base64 jpeg
     },
 
+    // Coordinate click — escape hatch for custom widgets the snapshot cannot
+    // see (div-role checkboxes, icon steppers). Same input path and settle
+    // rules as element clicks.
+    async clickPoint(x, y) {
+      if (!Number.isFinite(x) || !Number.isFinite(y)) throw new Error("clickxy needs numeric x and y");
+      for (const type of ["mousePressed", "mouseReleased"]) {
+        await call("Input.dispatchMouseEvent", { type, x, y, button: "left", clickCount: 1 });
+      }
+      await session.settle();
+      session.lastState = null;
+      return { clicked: { x, y } };
+    },
+
+    async scrollBy(px) {
+      if (!Number.isFinite(px) || px === 0) throw new Error("scroll needs a nonzero pixel amount");
+      await call("Input.dispatchMouseEvent",
+        { type: "mouseWheel", x: 550, y: 650, deltaX: 0, deltaY: px });
+      await session.settle();
+      session.lastState = null;
+      return { scrolled: px };
+    },
+
+    async scrollToEdge(edge) {
+      if (!["top", "bottom"].includes(edge)) throw new Error(`scroll edge must be top or bottom, got "${edge}"`);
+      const height = await evaluate(client, session.sessionId, "document.documentElement.scrollHeight");
+      await evaluate(client, session.sessionId, `window.scrollTo(0, ${edge === "top" ? 0 : height})`);
+      await session.settle();
+      session.lastState = null;
+      return { scrolledTo: edge };
+    },
+
+    async historyGo(delta) {
+      if (![ -1, 1 ].includes(delta)) throw new Error("history only supports back (-1) and forward (1)");
+      await evaluate(client, session.sessionId, `history.go(${delta})`);
+      await session.settle();
+      session.lastState = null;
+      return { went: delta };
+    },
+
+    async reload() {
+      await call("Page.reload");
+      await session.settle();
+      session.lastState = null;
+      return { reloaded: true };
+    },
+
+    async sendKey(name) {
+      const key = KEY_EVENTS[String(name || "").toLowerCase()];
+      if (!key) throw new Error(`Unsupported key "${name}" — try ${Object.keys(KEY_EVENTS).join(", ")}`);
+      await call("Input.dispatchKeyEvent", { type: "keyDown", ...key });
+      await call("Input.dispatchKeyEvent", { type: "keyUp", ...key });
+      await session.settle();
+      session.lastState = null;
+      return { key: name };
+    },
+
+    async hoverById(id) {
+      let state = await session.current();
+      let action = state.actions.find((a) => a.id === id);
+      if (!action) { // the table shifted between the caller's observe and now — one fresh retry
+        state = await session.observe();
+        action = state.actions.find((a) => a.id === id);
+      }
+      if (!action) throw new Error(`Element ${id} not observed on the current page`);
+      if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
+      const point = await session.resolve(action);
+      if (!point) throw stale("Target changed or is covered");
+      await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
+      await session.settle();
+      return { hovered: id };
+    },
+
+    // Bounded wait until the text shows up in page text or element labels —
+    // the cure for dropdown/suggestion render races after typing.
+    async waitText(text, timeoutMs = WAIT_TEXT_TIMEOUT_MS) {
+      const needle = String(text || "").toLowerCase();
+      if (!needle) throw new Error("wait needs text to look for");
+      const deadline = Date.now() + timeoutMs;
+      for (;;) {
+        const state = await session.steady();
+        const hay = `${state.text || ""}\n${(state.actions || []).map((a) => a.label).join("\n")}`.toLowerCase();
+        if (hay.includes(needle)) return { found: true, state };
+        if (Date.now() >= deadline) return { found: false, state };
+        await new Promise((r) => setTimeout(r, WAIT_TEXT_POLL_MS));
+      }
+    },
+
+    // Debug tail for the whole browser this session drives: one small frame of
+    // the latest step, overwritten in place. clip+scale does the resize inside
+    // Chrome, so no image library is involved.
+    async stepFrame() {
+      const result = await call("Page.captureScreenshot", {
+        format: SCREENSHOT_FORMAT,
+        quality: STEP_FRAME_QUALITY,
+        clip: { x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height, scale: STEP_FRAME_SCALE }
+      });
+      fs.mkdirSync(framesRoot(), { recursive: true });
+      writeAtomic(stepFramePath(session.profile), Buffer.from(result.data, "base64"));
+    },
+
     async close() {
       sessions.delete(profile);
-      try { await client.call("Target.closeTarget", { targetId: session.targetId }); } catch { /* already gone */ }
-      client.close();
+      // Close only what the engine opened — a borrowed (attach) tab is the user's.
+      for (const targetId of session.ownsTargets) {
+        try { await client.call("Target.closeTarget", { targetId }); } catch { /* already gone */ }
+      }
+      if (!shared) client.close(); // the shared attach connection outlives one session
       try { child?.kill(); } catch { /* already exited */ }
+      // Chrome flushes files while dying — deleting the profile before the real
+      // exit races it and dies with ENOTEMPTY on macOS.
+      if (child && child.exitCode === null) {
+        await new Promise((r) => { child.once("exit", r); setTimeout(r, 3000).unref(); });
+      }
     }
   };
   return session;
@@ -470,6 +684,34 @@ function stale(message) {
 // Dead-session signatures: the browser WS dropped (Chrome restarted/quit) or the
 // target died while the WS lives (user closed the tab in attach mode).
 const DEAD_SESSION = /Session with given id|No target with given id|CDP connection closed|Target closed/i;
+
+// The attach session's last tab, persisted so a host restart resumes the SAME
+// tab instead of grabbing whatever sits first in the tab strip.
+function attachTargetFile() {
+  return path.join(os.homedir(), ".9remote", "browserUse", "attach-target");
+}
+
+function readRememberedAttachTarget() {
+  try { return fs.readFileSync(attachTargetFile(), "utf8").trim() || null; } catch { return null; }
+}
+
+function rememberAttachTarget(targetId) {
+  try {
+    fs.mkdirSync(path.dirname(attachTargetFile()), { recursive: true });
+    fs.writeFileSync(attachTargetFile(), targetId);
+  } catch { /* advisory only */ }
+}
+
+// Named keys the engine can send (extend on demand — CDP key codes).
+const KEY_EVENTS = {
+  enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13 },
+  escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27, nativeVirtualKeyCode: 27 },
+  tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, nativeVirtualKeyCode: 9 },
+  arrowdown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40, nativeVirtualKeyCode: 40 },
+  arrowup: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38, nativeVirtualKeyCode: 38 },
+  arrowleft: { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37, nativeVirtualKeyCode: 37 },
+  arrowright: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39, nativeVirtualKeyCode: 39 }
+};
 
 async function dropSession(session) {
   try { await session.close(); } catch { /* already dead */ }
@@ -490,15 +732,9 @@ export async function withSession(options = {}, fn) {
     }
     let session = existing || await launchSession({ ...options, profile });
     const runWith = async (s) => {
-      // In attach mode, reuse an existing tab if it already holds the target URL.
-      // In own-profile mode, re-navigating an identical URL wastes time and resets state.
-      if (options.url) {
-        if (isAttach) {
-          await s.openOrReuseTab(options.url);
-        } else if (s.lastState?.url !== options.url) {
-          await s.navigate(options.url);
-        }
-      }
+      // One tab per site in BOTH modes (see openOrReuseTab); an identical URL
+      // is a no-op, so re-opening never resets a live observation.
+      if (options.url) await s.openOrReuseTab(options.url);
       return fn(s);
     };
     try {
@@ -534,7 +770,8 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
       `--user-data-dir=${dir}`,
       `--remote-debugging-port=${port}`,
       "--no-first-run", "--no-default-browser-check",
-      `--window-size=${VIEWPORT.width},${VIEWPORT.height}`
+      `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
+      "about:blank" // startup tab we can see immediately — an NTP can race past the cleanup
     ];
     if (headless) args.push("--headless=new");
     child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
@@ -542,41 +779,70 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
     child.stderr?.setEncoding?.("utf8");
     child.stderr?.on?.("data", (d) => { stderrTail.push(d); if (stderrTail.length > 30) stderrTail.shift(); });
   }
-  let info;
+  let client;
   try {
     // Attached browsers skip the /json HTTP API (newer Chrome doesn't serve it) —
-    // connect straight to the WS path from DevToolsActivePort.
-    info = attachWsUrl ? { webSocketDebuggerUrl: attachWsUrl } : await waitForDevTools(port, LAUNCH_TIMEOUT_MS);
+    // connect straight to the WS path from DevToolsActivePort. Chrome serves ONE
+    // browser-level debug WS: reuse the probe connection, never open a second.
+    if (attachWsUrl) {
+      if (!attachProbe || attachProbe.closed) attachProbe = await CdpClient.connect(attachWsUrl, ATTACH_PROBE_TIMEOUT_MS);
+      client = attachProbe;
+    } else {
+      const info = await waitForDevTools(port, LAUNCH_TIMEOUT_MS);
+      client = await CdpClient.connect(info.webSocketDebuggerUrl);
+    }
   } catch (e) {
     child?.kill();
     const stderr = (stderrTail.join("") || "").slice(-400).replace(/\n/g, " | ");
     throw new Error(`${e.message} (chrome exitCode=${child?.exitCode ?? "n/a"} bin=${bin} stderr=${stderr || "none"})`);
   }
-  const client = await CdpClient.connect(info.webSocketDebuggerUrl);
   try {
     let targetId;
+    let created = false;
     if (mode === "attach") {
       const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
       const pageTargets = targetInfos.filter((t) => t.type === "page");
       const matched = url ? pageTargets.find((t) => urlsMatch(t.url, url)) : null;
       if (matched) {
         targetId = matched.targetId;
-      } else if (pageTargets.length > 0 && !url) {
-        targetId = pageTargets[0].targetId;
+      } else if (!url) {
+        // A reborn attach session (host restart) returns to the tab it drove
+        // last time — falling back to the first tab drives the wrong page.
+        const remembered = readRememberedAttachTarget();
+        const alive = remembered && pageTargets.find((t) => t.targetId === remembered);
+        targetId = (alive || pageTargets[0] || {}).targetId;
+        if (!targetId) {
+          const target = await client.call("Target.createTarget", { url: "about:blank", background: false });
+          targetId = target.targetId;
+          created = true;
+        }
       } else {
         const target = await client.call("Target.createTarget", { url: url || "about:blank", background: false });
         targetId = target.targetId;
+        created = true;
       }
     } else {
       const target = await client.call("Target.createTarget", { url: "about:blank", background: true });
       targetId = target.targetId;
+      created = true;
+      // Chrome's own startup tab rides along on a fresh profile — own mode
+      // starts clean with exactly one tab; every tab here is engine territory.
+      const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
+      for (const t of targetInfos) {
+        if (t.type === "page" && t.targetId !== targetId) {
+          try { await client.call("Target.closeTarget", { targetId: t.targetId }); } catch { /* already gone */ }
+        }
+      }
     }
     const attached = await client.call("Target.attachToTarget", { targetId, flatten: true });
     const session = makeSession({
-      profile, mode, port, child, client, sessionId: attached.sessionId, targetId, headless
+      profile, mode, port, child, client, sessionId: attached.sessionId, targetId, headless,
+      shared: Boolean(attachWsUrl)
     });
+    if (created) session.ownsTargets.add(targetId);
     await session.setup();
     if (mode === "attach") {
+      rememberAttachTarget(targetId);
       try { await client.call("Page.bringToFront", {}, attached.sessionId); } catch { /* ignore */ }
     }
     sessions.set(profile, session);
@@ -613,13 +879,18 @@ export async function clickById(target, id) {
   return typeof target === "string" ? serialize(target, run) : run();
 }
 
-export async function typeById(target, id, text) {
+export async function typeById(target, id, text, { enter = false } = {}) {
   const session = toSession(target);
   const run = async () => {
-    const state = await session.current();
-    const action = state.actions.find((a) => a.id === id && a.kind === "fill");
+    let state = await session.current();
+    let action = state.actions.find((a) => a.id === id && a.kind === "fill");
+    if (!action) { // the table shifted between the caller's observe and now — one retry
+      state = await session.observe();
+      action = state.actions.find((a) => a.id === id && a.kind === "fill");
+    }
     if (!action) throw new Error(`Field ${id} not observed (or not editable)`);
     await session.act(action, text);
+    if (enter) await session.pressEnter(); // same serialized hop — one round trip
     return { typed: text };
   };
   return typeof target === "string" ? serialize(target, run) : run();
@@ -670,6 +941,45 @@ export async function listTabs(options = {}) {
     } catch {
       return [];
     }
+  });
+}
+
+async function pageTargets(session) {
+  const { targetInfos = [] } = await session.client.call("Target.getTargets");
+  return targetInfos.filter((t) => t.type === "page");
+}
+
+// Switch the session onto tab #n (1-based, the order `tabs` prints).
+export async function switchTab(options, index) {
+  return withSession(options, async (session) => {
+    const pages = await pageTargets(session);
+    const target = pages[index - 1];
+    if (!target) throw new Error(`No tab #${index} — ${pages.length} open`);
+    await session.adopt(target.targetId);
+    try { await session.client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
+    return { ok: true, url: target.url, title: target.title };
+  });
+}
+
+// Close one tab: the active one, or #n when asked. Another tab is only
+// closable when the engine opened it — the user's tabs stay theirs.
+export async function closeTab(options, index = null) {
+  return withSession(options, async (session) => {
+    const pages = await pageTargets(session);
+    const target = index ? pages[index - 1] : pages.find((t) => t.targetId === session.targetId);
+    if (!target) throw new Error(`No tab #${index || ""}`);
+    const isActive = target.targetId === session.targetId;
+    if (!isActive && !session.ownsTargets.has(target.targetId)) {
+      throw new Error(`Refusing to close tab #${index} — engine-opened or active tabs only`);
+    }
+    await session.client.call("Target.closeTarget", { targetId: target.targetId });
+    session.ownsTargets.delete(target.targetId);
+    if (isActive) {
+      const rest = pages.filter((p) => p.targetId !== target.targetId);
+      if (rest.length) await session.adopt(rest[0].targetId); // keep the session alive on a neighbour
+      else sessions.delete(session.profile); // nothing left — next command relaunches
+    }
+    return { ok: true, closed: target.url };
   });
 }
 

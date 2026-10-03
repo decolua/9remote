@@ -18,6 +18,7 @@ function parseArgs(args) {
     if (a === "--no-headless") { opts.headless = false; continue; }
     if (a === "--enter") { opts.enter = true; continue; }
     if (a === "--only") { opts.only = args[++i]; continue; }
+    if (a === "--fields") { opts.fields = parseFieldsArg(args[++i]); continue; }
     if (a === "--expect-text") { (opts.expectText ||= []).push(args[++i]); continue; }
     if (a === "--expect-url") { opts.expectUrl = args[++i]; continue; }
     if (a === "--expect-title") { opts.expectTitle = args[++i]; continue; }
@@ -25,6 +26,16 @@ function parseArgs(args) {
     positional.push(a);
   }
   return { positional, opts };
+}
+
+// --fields "Label=text;Other=more" -> { Label: "text", Other: "more" }
+function parseFieldsArg(raw) {
+  const fields = {};
+  for (const pair of String(raw || "").split(";")) {
+    const eq = pair.indexOf("=");
+    if (eq > 0) fields[pair.slice(0, eq).trim()] = pair.slice(eq + 1);
+  }
+  return Object.keys(fields).length ? fields : undefined;
 }
 
 async function call(action, payload) {
@@ -48,10 +59,16 @@ function mustOk(data) {
 function printState(state) {
   console.log(`${state.url}`);
   console.log(`${state.title || ""} · ${state.actions?.length ?? 0} elements · ${state.w}x${state.h}`);
-  // Compact table: fewer tokens per response, faster agent turns.
+  // Page text rides along (already filtered) — no follow-up `read` round trip.
+  const text = String(state.text || "").replace(/\s+/g, " ").trim();
+  if (text) console.log(`text: ${text.slice(0, 800)}${text.length > 800 ? " …" : ""}`);
+  // Compact table: fewer tokens per response, faster agent turns. Center
+  // coordinates ride along so coordinate clicks need no screenshots.
   for (const a of (state.actions || []).slice(0, 40)) {
     const value = a.kind === "fill" && a.value ? ` = ${a.value.slice(0, 30)}` : "";
-    console.log(`  [${a.id}] ${a.kind.padEnd(6)} ${String(a.label).slice(0, 60)}${value}`);
+    const r = a.rect;
+    const at = r ? ` · ${Math.round(r.x + r.w / 2)},${Math.round(r.y + r.h / 2)}` : "";
+    console.log(`  [${a.id}] ${a.kind.padEnd(6)} ${String(a.label).slice(0, 60)}${at}${value}`);
   }
 }
 
@@ -118,11 +135,20 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
                                              # opens AND prints the element table
   9remote browser state [--profile N]        numbered element table
   9remote browser read [--tail] [--profile N]  filtered page TEXT (cheaper than shot)
-  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--profile N]
+  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--fields "L=text;..."] [--profile N]
                                              # --only: Jev sees only matching element labels
+                                             # --fields: Jev picks the fields, engine types YOUR text
+                                             #   (password values are masked, never sent to the model)
                                              # --expect-text "..." (repeatable) / --expect-url / --expect-title:
                                              #   engine verifies them on a fresh read — only PASSED is success
   9remote browser click <id> [options]       click table id (e3)
+  9remote browser clickxy <x> <y>            click exact page coordinates (custom widgets)
+  9remote browser hover <id>                 move the mouse onto an element (hover menus)
+  9remote browser key <enter|escape|tab|arrow...>  send a named key
+  9remote browser scroll <top|bottom|px>     jump to top/bottom or scroll by pixels (negative = up)
+  9remote browser back | forward | reload    browser history navigation
+  9remote browser wait "<text>"              bounded wait until text/element appears
+  9remote browser tab <n> | tabclose [<n>]   switch tab #n / close one (active by default)
   9remote browser type <id> "<text>" [--enter]  type exact text (+ Enter) into field
   9remote browser chain "click e1; type e2 'hi' --enter; wait 'result'"  # many steps, ONE call
   9remote browser enter                      press Enter
@@ -187,6 +213,7 @@ export async function cmdBrowser(args) {
           if (!ok) console.log(`  not met: ${check}`);
         }
       }
+      if (data.frame) console.log(`frame: ${data.frame}`);
       if (data.state) printState(data.state);
       return;
     }
@@ -194,6 +221,58 @@ export async function cmdBrowser(args) {
       const data = mustOk(await call("click", payload({ id: rest[0] })));
       console.log(`clicked ${rest[0]}`);
       if (data.state) printState(data.state);
+      return;
+    }
+    case "clickxy": {
+      const data = mustOk(await call("clickxy", payload({ x: Number(rest[0]), y: Number(rest[1]) })));
+      console.log(`clicked x=${rest[0]} y=${rest[1]}`);
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "scroll": {
+      const where = String(rest[0] || "");
+      const body = ["top", "bottom"].includes(where) ? { edge: where } : { px: Number(where) };
+      const data = mustOk(await call("scroll", payload(body)));
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "back":
+    case "forward": {
+      const data = mustOk(await call(sub, payload()));
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "reload": {
+      const data = mustOk(await call("reload", payload()));
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "key": {
+      const data = mustOk(await call("key", payload({ name: rest[0] })));
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "hover": {
+      const data = mustOk(await call("hover", payload({ id: rest[0] })));
+      console.log(`hovered ${rest[0]}`);
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "wait": {
+      const data = mustOk(await call("wait", payload({ text: rest.join(" ") })));
+      console.log(`wait "${rest.join(" ")}": ${data.found ? "FOUND" : "TIMEOUT"}`);
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "tab": {
+      const data = mustOk(await call("tab", payload({ index: Number(rest[0]) })));
+      console.log(`active: ${data.url}`);
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "tabclose": {
+      const data = mustOk(await call("tabclose", payload(rest[0] ? { index: Number(rest[0]) } : {})));
+      console.log(`closed: ${data.closed}`);
       return;
     }
     case "type": {

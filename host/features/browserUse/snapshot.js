@@ -1,7 +1,8 @@
 // DOM snapshot ported from browser-use/jev-ultrafast snapshot.js (MIT).
 // One CDP evaluate reads atomically: visible text, actionable controls, and a
 // node-ID map kept in the page. Node IDs are the only handle the loop trusts —
-// the model never sees selectors, coordinates or JS.
+// the model never sees selectors, coordinates or JS; coordinates ride on the
+// returned actions for the agent, never inside the decision prompts.
 import { MAX_ELEMENTS, PAGE_TEXT_CAP } from "./constants.js";
 
 // Injected once per page (idempotent cache on window.__9rFast), then executed.
@@ -16,7 +17,8 @@ const SNAPSHOT_BODY = `(() => {
     const id=cache.ids.get(e); cache.nodes.set(id,e); return id;
   };
   for (const [id,e] of cache.nodes) if (!e.isConnected) cache.nodes.delete(id);
-  const safe = e => !['password','file','hidden'].includes(e.type);
+  // Password fields ARE observable (login forms) but never carry their value.
+  const safe = e => !['file','hidden'].includes(e.type);
   const visible = e => !e.closest('[aria-hidden="true"],[inert]') &&
     e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
   const name = (e,seen=new Set()) => {
@@ -24,11 +26,13 @@ const SNAPSHOT_BODY = `(() => {
     seen.add(e);
     const referenced=(e.getAttribute('aria-labelledby')||'').split(/\\s+/)
       .map(id=>name(document.getElementById(id),seen)).filter(Boolean).join(' ');
+    const slotText=e=>[...e.querySelectorAll('slot')]
+      .map(s=>[...s.assignedNodes()].map(n=>n.textContent||'').join('')).join(' ').trim();
     return referenced || e.getAttribute('aria-label') ||
       [...(e.labels||[])].map(l=>name(l,seen)).filter(Boolean).join(' ') ||
       (['button','submit','reset'].includes(e.type) ? e.value : '') || e.getAttribute('alt') ||
       (e.tagName==='INPUT' ? '' : [...e.childNodes].map(n=>n.nodeType===3 ? n.textContent :
-        n.nodeType===1 && n.getAttribute('aria-hidden')!=='true' ? name(n,seen) : '').join(' ').trim()) ||
+        n.nodeType===1 && n.getAttribute('aria-hidden')!=='true' ? name(n,seen) : '').join(' ').trim() || slotText(e)) ||
       e.getAttribute('title') || e.getAttribute('placeholder') || '';
   };
   const roles=['button','link','checkbox','radio','switch','tab','menuitem','menuitemradio',
@@ -47,22 +51,13 @@ const SNAPSHOT_BODY = `(() => {
       if (['button','submit','reset','image'].includes(e.type)) return 'button';
       if (e.type==='search') return 'searchbox';
       if (e.type==='number') return 'spinbutton';
-      if (['text','email','url','tel'].includes(e.type)) return 'textbox';
+      if (['text','email','url','tel','password'].includes(e.type)) return 'textbox';
     }
     return null;
   };
   cache.pageKey=()=>[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
-    [...document.querySelectorAll('input,textarea,select')].filter(safe)
+    [...document.querySelectorAll('input,textarea,select')].filter(e=>safe(e)&&e.type!=='password')
       .map(e=>[identity(e),e.value,e.checked,e.selectedIndex,e.disabled,e.readOnly])];
-  cache.guard=e=>{
-    if (!e?.isConnected || !visible(e)) return null;
-    const scope=e.closest('form,dialog,[role="dialog"],article,li,tr,[role="row"]') || e.parentElement;
-    return [identity(e),role(e),name(e),e.value??null,e.checked??null,e.selectedIndex??null,
-      e.readOnly??null,e.matches(':disabled'),e.getAttribute('aria-disabled'),
-      e.getAttribute('aria-expanded'),e.getAttribute('aria-checked'),e.getAttribute('aria-selected'),
-      e.getAttribute('href'),scope?.innerText?.slice(0,${PAGE_TEXT_CAP})||''];
-  };
-  const actions=[];
   // Section context (heading/legend/aria-label of the enclosing dialog/section/
   // form) lets same-label controls be told apart without a tree layout.
   const secCache=new WeakMap();
@@ -76,7 +71,15 @@ const SNAPSHOT_BODY = `(() => {
     const v=secCache.get(sec);
     return v||null;
   };
-  for (const e of document.querySelectorAll(selector)) {
+  const actions=[];
+  // Shadow piercing (open roots): modern component sites (Reddit etc.) keep
+  // controls inside shadow trees the plain document query cannot reach.
+  const deepQuery=(root,sel)=>{
+    const found=[...root.querySelectorAll(sel)];
+    for (const e of root.querySelectorAll('*')) if (e.shadowRoot) found.push(...deepQuery(e.shadowRoot,sel));
+    return found;
+  };
+  for (const e of deepQuery(document,selector)) {
     if (!safe(e) || !visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2,
       rname=role(e)||(e.hasAttribute('onclick')?'button':null);
@@ -99,12 +102,48 @@ const SNAPSHOT_BODY = `(() => {
       const editable=!e.readOnly && e.getAttribute('aria-readonly')!=='true' &&
         (['textbox','searchbox','spinbutton'].includes(rname) ||
           (rname==='combobox' && ['INPUT','TEXTAREA'].includes(e.tagName)));
-      const value='value' in e ? String(e.value) :
+      // Masked at the source: a typed password never enters any state, prompt or
+      // report — but "••••" still tells Jev (and the marker) the field is filled.
+      const value=e.type==='password' ? (e.value?'••••':'') :
+        'value' in e ? String(e.value) :
         e.isContentEditable || rname==='combobox' ? e.innerText.trim() : '';
       actions.push({...base,kind:editable?'fill':'click',value});
       if (editable) actions.push({...base,kind:'click',value,label:'Open '+base.label});
     }
   }
+  // Custom widgets: filter checkboxes, steppers and chip rows on real sites are
+  // plain div/span with no ARIA role — the a11y selector above cannot see them.
+  // Collect nodes that either carry pointer styling or a test-attribute marker
+  // (data-testid / data-ui-name … devs stamp exactly their interactive parts)
+  // and carry a name; an ancestor already collected absorbs its descendants.
+  const picked=new Set(actions.map(a=>cache.nodes.get(a.node)));
+  const isMarked=e=>e.hasAttribute('data-testid')||e.hasAttribute('data-test')||
+    e.hasAttribute('data-ui-name')||e.hasAttribute('data-automation-id')||e.hasAttribute('data-filters-item');
+  const pointerCandidates=[];
+  for (const e of deepQuery(document,'div,span,li,label')) {
+    if (pointerCandidates.length >= ${MAX_ELEMENTS}) break;
+    if (e.matches(selector)) continue; // the a11y selector owns this element
+    if (!safe(e) || !visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
+    const inner = e.querySelector('button,a,input,select,textarea,summary,[contenteditable="true"],[onclick],[role="button"],[role="checkbox"],[role="switch"]');
+    if (inner) {
+      // A label wrapping a VISUALLY-HIDDEN checkbox/radio is that control's
+      // click proxy — keep it; anything holding a live control stays skipped.
+      const ghost = inner.matches('input[type="checkbox"],input[type="radio"]') &&
+        !inner.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
+      if (!ghost) continue;
+    }
+    const st=getComputedStyle(e);
+    if (st.pointerEvents==='none' || (st.cursor!=='pointer' && !isMarked(e))) continue;
+    const label=name(e);
+    if (!label) continue;
+    const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2;
+    if (r.width<=0 || r.height<=0 || x<0 || y<0 || x>=innerWidth || y>=innerHeight) continue;
+    if ([...picked].some(p => p.contains(e))) continue;
+    pointerCandidates.push({el:e, base:{node:identity(e),role:'button',label:label.slice(0,80),
+      ctx:ctxOf(e),rect:{x:r.x,y:r.y,w:r.width,h:r.height}}});
+    picked.add(e);
+  }
+  for (const c of pointerCandidates) actions.push({...c.base,kind:'click',value:''});
   const words=[], walker=document.createTreeWalker(document.body,NodeFilter.SHOW_TEXT);
   const range=document.createRange(); let node,length=0;
   // Page-chrome blacklist (9cowork pattern): nav/footer/cookie/ads and control
@@ -131,8 +170,7 @@ const SNAPSHOT_BODY = `(() => {
       if (t) headings.push(t);
     }
   }
-  const page_key=cache.pageKey(), guards={};
-  for (const a of actions) if (!(a.node in guards)) guards[a.node]=cache.guard(cache.nodes.get(a.node));
+  const page_key=cache.pageKey();
   const semantics=actions.map(({rect,ctx,...action})=>action);
   const marker=[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
     document.title,text,semantics,page_key[6]];
@@ -147,7 +185,7 @@ const SNAPSHOT_BODY = `(() => {
   if (scrollY>0) actions.push({id:'scroll_up',kind:'scroll',label:'Scroll up',delta:-560});
   actions.push({id:'wait',kind:'wait',label:'Wait for the page to update'});
   return {url:location.href,title:document.title,w:innerWidth,h:innerHeight,text,headings,
-    scroll:{y:scrollY,height},actions,marker,contentMarker,page_key,guards,omitted_actions};
+    scroll:{y:scrollY,height},actions,marker,contentMarker,page_key,omitted_actions};
 })()`;
 
 export const SNAPSHOT_EXPRESSION = `(${CACHE_BOOTSTRAP},${SNAPSHOT_BODY})`;

@@ -116,7 +116,7 @@ if (!hasChrome) {
 } else {
   console.log("browserUse e2e (real Chrome, fake Jev)...");
   const engine = await import("../features/browserUse/engine.js");
-  const { withSession, observe, runTask, typeById, pressEnter, deleteProfile } = engine;
+  const { withSession, observe, runTask, typeById, pressEnter, profiles } = engine;
 
   const pageHtml = `<!doctype html><html><body>
     <button id="b" onclick="document.title='CLICKED';this.dataset.done='1'">Click me</button>
@@ -156,7 +156,7 @@ if (!hasChrome) {
       assert.ok(result.steps.every((s) => s.operation !== "TYPE_TEXT"), "fill element never offered to Jev");
     } finally {
       server.close();
-      await deleteProfile(profile).catch(() => {});
+      await profiles.remove(profile).catch(() => {});
     }
   });
 
@@ -178,7 +178,7 @@ if (!hasChrome) {
       });
     } finally {
       server.close();
-      await deleteProfile(profile).catch(() => {});
+      await profiles.remove(profile).catch(() => {});
     }
   });
 }

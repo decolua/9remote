@@ -4,7 +4,9 @@
 // section and the agent panel's gear. Same store, same host push, one truth.
 import { useCallback, useEffect, useState } from "react";
 import { useBrowserUseStore } from "@/shared/stores/browserUseStore";
+import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { vibrate } from "@/shared/utils/vibration";
 
 export function useBrowserUseInvoke(busRef) {
   return useCallback((action, payload) => new Promise((resolve) => {
@@ -15,6 +17,31 @@ export function useBrowserUseInvoke(busRef) {
 }
 
 const ATTACH_GUIDE_URL = "chrome://inspect/#remote-debugging";
+// Keep in sync with JEV_PRESETS in host/features/browserUse/constants.js.
+const MODEL_OPTIONS = {
+  free: ["jev-1.13-free"],
+  openrouter: [
+    "typesafe/jev-1.13", "~typesafe/jev-latest", "typesafe/jev-router",
+    "inception/mercury-decide", "inception/mercury-decide:free",
+    "liquid/d1", "upstage/solar-decide"
+  ]
+};
+
+// Same chip idiom as the voice engine picker (VoiceEndpointSettings).
+const CHIP_CLS = "px-2.5 py-1 rounded-brand text-[11px] border transition-colors";
+const CHIP_ON = "border-brand-500 bg-brand-500/10 text-brand-400 dark:border-white/30 dark:bg-white/10 dark:text-white";
+const CHIP_OFF = "border-border-subtle bg-surface-2/30 text-text-muted hover:text-text hover:bg-surface-2";
+
+function Chip({ active, onClick, title, children }) {
+  return (
+    <button type="button" title={title} onClick={onClick}
+      className={`${CHIP_CLS} ${active ? CHIP_ON : CHIP_OFF}`}>
+      {children}
+    </button>
+  );
+}
+
+const modelLabel = (id) => id.replace(/^~/, "").split("/").pop().replace(":free", " :free");
 
 export default function BrowserUseConfigForm({ busRef }) {
   const store = useBrowserUseStore();
@@ -24,6 +51,21 @@ export default function BrowserUseConfigForm({ busRef }) {
   const [attach, setAttach] = useState(null);
   const [checking, setChecking] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [editingKey, setEditingKey] = useState(false);
+  const modelOptions = MODEL_OPTIONS[store.preset] || MODEL_OPTIONS.openrouter;
+  const currentModel = store.model.trim();
+  // No model override = the preset's first (default) option is in effect.
+  const effectiveModel = currentModel || modelOptions[0];
+  const customModel = currentModel && !modelOptions.includes(currentModel);
+  // Show the shared voice key as dots so the field never looks unconfigured; editing starts fresh.
+  const voiceKey = useVoiceStore((s) => s.openrouterKey || "");
+  const sharedVoiceKey = store.preset === "openrouter" && !store.hostKeySet ? voiceKey : "";
+  const shownKey = store.apiKey || (editingKey ? "" : sharedVoiceKey);
+  const keyHint = store.hostKeySet
+    ? <span className="text-emerald-500">• saved on host — paste a new one to replace</span>
+    : (!editingKey && sharedVoiceKey
+        ? <span className="text-emerald-500">• shared with Voice input</span>
+        : <span className="opacity-60"> (empty = reuse the Voice input OpenRouter key)</span>);
 
   const save = (patch) => {
     store.setConfig(patch);
@@ -121,7 +163,7 @@ export default function BrowserUseConfigForm({ busRef }) {
         </select>
       </label>
 
-      {(store.preset !== "free" || store.endpoint) && (
+      {(store.preset === "custom" || (store.preset === "free" && store.endpoint)) && (
         <label className="block text-xs text-text-muted">
           Endpoint
           <input type="text" value={store.endpoint} onChange={(e) => store.setConfig({ endpoint: e.target.value })}
@@ -130,18 +172,33 @@ export default function BrowserUseConfigForm({ busRef }) {
             className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text" />
         </label>
       )}
-      <label className="block text-xs text-text-muted">
-        Model {store.preset === "free" && <span className="opacity-60">(default: jev-1.13-free)</span>}
-        <input type="text" value={store.model} onChange={(e) => store.setConfig({ model: e.target.value })}
-          onBlur={() => save({ model: store.model })} placeholder="default"
-          className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text" />
-      </label>
+      <div className="space-y-1.5">
+        <span className="block text-xs text-text-muted">
+          Model {store.preset === "free" && <span className="opacity-60">(default: jev-1.13-free)</span>}
+        </span>
+        {modelOptions.length > 1 && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            {modelOptions.map((id) => (
+              <Chip key={id} title={id} active={effectiveModel === id}
+                onClick={() => { vibrate(); save({ model: id }); }}>
+                {modelLabel(id)}
+              </Chip>
+            ))}
+          </div>
+        )}
+        {customModel && (
+          <input type="text" value={store.model} onChange={(e) => store.setConfig({ model: e.target.value })}
+            onBlur={() => save({ model: store.model })} spellCheck={false}
+            className="w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text" />
+        )}
+      </div>
       {store.preset !== "free" && (
         <label className="block text-xs text-text-muted">
-          API key {store.hostKeySet && <span className="text-emerald-500">• saved on host — paste a new one to replace</span>}
-            {!store.hostKeySet && <span className="opacity-60"> (empty = reuse the Voice input OpenRouter key)</span>}
-          <input type="password" value={store.apiKey} onChange={(e) => store.setConfig({ apiKey: e.target.value })}
-            onBlur={() => save({ apiKey: store.apiKey })} placeholder={store.hostKeySet ? "••••••••" : "sk-…"}
+          API key {keyHint}
+          <input type="password" value={shownKey}
+            onFocus={() => setEditingKey(true)}
+            onChange={(e) => store.setConfig({ apiKey: e.target.value })}
+            onBlur={() => { setEditingKey(false); save({ apiKey: store.apiKey }); }} placeholder={store.hostKeySet ? "••••••••" : "sk-…"}
             className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text" />
         </label>
       )}

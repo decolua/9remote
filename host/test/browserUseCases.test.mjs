@@ -4,6 +4,8 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
 
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
@@ -25,7 +27,7 @@ if (!hasChrome) {
   console.log("  - skipped (no Chrome binary found)");
 } else {
   const engine = await import("../features/browserUse/engine.js");
-  const { withSession, observe, runTask, typeById, closeProfile, deleteProfile } = engine;
+  const { withSession, observe, runTask, typeById, closeProfile, profiles } = engine;
 
   const PAGES = {
     "/": `<!doctype html><html><body style="margin:0">
@@ -93,6 +95,38 @@ if (!hasChrome) {
       <button onclick="document.getElementById('f').style.display='block'">Go phase two</button>
       <button id="f" style="display:none" onclick="document.getElementById('out').textContent='PHASE DONE'">Finish it</button>
       <div id="out"></div>
+    </body></html>`,
+    "/duo": `<!doctype html><html><body>
+      <button onclick="document.getElementById('log').textContent+='A'">First step</button>
+      <button onclick="document.getElementById('log').textContent+='B'">Second step</button>
+      <div id="log"></div>
+    </body></html>`,
+    "/plannav": `<!doctype html><html><body>
+      <a href="/duo">Move away</a>
+    </body></html>`,
+    "/xy": `<!doctype html><html><body>
+      <button style="position:fixed;left:520px;top:340px;width:80px;height:40px" onclick="document.title='XY'">Bullseye</button>
+    </body></html>`,
+    "/widget": `<!doctype html><html><head><style>.chk{cursor:pointer;padding:6px;display:block;width:200px}</style></head><body>
+      <div class="chk" data-on="0">Hồ bơi 401</div>
+      <label class="chk"><input type="checkbox" style="position:absolute;opacity:0;pointer-events:none"
+        onchange="document.getElementById('out2').textContent=this.checked?'WIFI ON':''"><span>Wi-Fi miễn phí 500</span></label>
+      <div id="out"></div>
+      <div id="out2"></div>
+      <script>
+        document.querySelector('.chk').addEventListener('click', function () {
+          this.dataset.on = this.dataset.on === '1' ? '0' : '1';
+          document.getElementById('out').textContent = this.dataset.on === '1' ? 'POOL ON' : '';
+        });
+      <\/script>
+    </body></html>`,
+    "/misc": `<!doctype html><html><body style="margin:0">
+      <div style="height:4000px;padding-top:10px">
+        <div id="hov" onmouseenter="document.title='HOVERED'" style="padding:10px;background:#eee;cursor:pointer">Hover me</div>
+        <input id="inp" placeholder="Type then Escape" onkeydown="if(event.key==='Escape')document.title='ESC'">
+        <a href="/duo">To duo</a>
+      </div>
+      <div id="foot" style="height:400px">Very bottom</div>
     </body></html>`,
     "/sections": `<!doctype html><html><body>
       <fieldset><legend>Shipping</legend><button onclick="document.title='SHIP'">OK</button></fieldset>
@@ -425,7 +459,7 @@ if (!hasChrome) {
     const s = await open("/");
     await assert.rejects(
       () => runTask(s, { goal: "go", only: "ZZZNOPE", maxSteps: 2, maxMs: 5000 }),
-      /matched 0 elements.*never offered/
+      /matched 0 elements.*--fields/
     );
   });
 
@@ -551,8 +585,189 @@ if (!hasChrome) {
     assert.equal(state.url.endsWith("/spa2"), true);
   });
 
+  await test("32. micro-plan: two same-view clicks ride ONE model call", async () => {
+    const s = await open("/duo");
+    let calls = 0;
+    const decide = ({ questions }) => {
+      calls++;
+      if (calls > 1) return Promise.resolve({ answers: { operation: op(questions, "DONE") }, model: "fake" });
+      const criteria = questions.click_target?.criteria || {};
+      const first = Object.keys(criteria).find((k) => /first step/i.test(criteria[k].element || ""));
+      const stepCriteria = questions.step_2?.criteria || {};
+      const second = Object.keys(stepCriteria).find((k) => /second step/i.test(stepCriteria[k] || ""));
+      return Promise.resolve({
+        answers: {
+          operation: op(questions, "CLICK"),
+          click_target: target(criteria, first),
+          step_2: target(stepCriteria, second || "SKIP")
+        },
+        model: "fake"
+      });
+    };
+    const result = await runTask(s, { goal: "Click First step then Second step", decide, maxSteps: 4, maxMs: 15000 });
+    assert.equal(result.outcome, "needs_verification");
+    const log = ((await observe(s)).text || "").replace(/\s+/g, "");
+    assert.ok(log.includes("AB"), `both plan actions ran: ${log}`);
+    assert.equal(calls, 2, "one call carried both actions, one confirmed DONE");
+    assert.equal(result.metrics.modelCalls, 2);
+  });
+
+  await test("33. a plan is dropped when its action navigates away", async () => {
+    const s = await open("/plannav");
+    let calls = 0;
+    const decide = ({ questions }) => {
+      calls++;
+      if (calls > 1) return Promise.resolve({ answers: { operation: op(questions, "DONE") }, model: "fake" });
+      const criteria = questions.click_target?.criteria || {};
+      const link = Object.keys(criteria).find((k) => /move away/i.test(criteria[k].element || ""));
+      // step_2 aims at a /duo button planned from the OLD page — must never run.
+      const stepCriteria = questions.step_2?.criteria || {};
+      const stale = Object.keys(stepCriteria).find((k) => /first step/i.test(stepCriteria[k] || ""));
+      return Promise.resolve({
+        answers: {
+          operation: op(questions, "CLICK"),
+          click_target: target(criteria, link),
+          step_2: target(stepCriteria, stale || "SKIP")
+        },
+        model: "fake"
+      });
+    };
+    const result = await runTask(s, { goal: "Click Move away", decide, maxSteps: 4, maxMs: 15000 });
+    assert.equal(result.outcome, "needs_verification");
+    const text = ((await observe(s)).text || "").replace(/\s+/g, "");
+    assert.ok(!text.includes("AB"), "stale plan step did not execute after navigation");
+  });
+
+  await test("34. tab discipline: one tab per site, new origin opens a tracked tab", async () => {
+    const tabProfile = `tabs-${Date.now()}`;
+    const server2 = http.createServer((req, res) => {
+      res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      res.end(PAGES[req.url] ?? PAGES["/"]);
+    });
+    await new Promise((r) => server2.listen(0, "127.0.0.1", r));
+    const base2 = `http://127.0.0.1:${server2.address().port}`;
+    const countTabs = async (s) =>
+      (await s.client.call("Target.getTargets")).targetInfos.filter((t) => t.type === "page").length;
+    try {
+      let s = await withSession({ profile: tabProfile, url: `${base}/duo`, headless: true }, (x) => x);
+      assert.equal(await countTabs(s), 1, "first open uses the launch tab");
+      s = await withSession({ profile: tabProfile, url: `${base}/`, headless: true }, (x) => x);
+      assert.equal(await countTabs(s), 1, "same-origin open reuses the site tab");
+      s = await withSession({ profile: tabProfile, url: `${base}/duo`, headless: true }, (x) => x);
+      assert.equal(await countTabs(s), 1, "exact/same-origin return stays on one tab");
+      s = await withSession({ profile: tabProfile, url: `${base2}/`, headless: true }, (x) => x);
+      assert.equal(await countTabs(s), 2, "a new origin opens a second (tracked) tab");
+      s = await withSession({ profile: tabProfile, url: `${base}/duo`, headless: true }, (x) => x);
+      assert.equal(await countTabs(s), 2, "returning to site one refocuses its tab, no third tab");
+      assert.ok((await observe(s)).actions.length, "session observes the refocused tab");
+    } finally {
+      await closeProfile(tabProfile).catch(() => {});
+      await profiles.remove(tabProfile).catch(() => {});
+      server2.close();
+    }
+  });
+
+  await test("35b. step frame: written per action, cleaned with the profile", async () => {
+    const frameProfile = `frame-${Date.now()}`;
+    const frame = path.join(os.homedir(), ".9remote", "browserUse", "frames", `${frameProfile}.jpg`);
+    const s = await withSession({ profile: frameProfile, url: `${base}/duo`, headless: true }, (x) => x);
+    const btn = (await observe(s)).actions.find((a) => /first step/i.test(a.label));
+    await s.act(btn);
+    await s.stepFrame();
+    assert.ok(fs.existsSync(frame) && fs.statSync(frame).size > 500, "scaled frame written");
+    assert.ok(engine.readStepFrame({ profile: frameProfile }), "frame reads back as base64");
+    assert.equal(engine.readStepFrame({ profile: "no-such-profile" }), null, "absent frame -> null");
+    await profiles.remove(frameProfile).catch(() => {});
+    assert.ok(!fs.existsSync(frame), "frame removed with the profile");
+  });
+
+  await test("34b. clickxy dispatches a coordinate click on invisible-to-snapshot widgets", async () => {
+    const s = await open("/xy");
+    // The button is a plain button (snapshot sees it) — the point is that the
+    // COORDINATE path alone lands the click, as it must for div-role widgets.
+    await s.clickPoint(560, 360);
+    assert.equal((await observe(s)).title, "XY");
+    await assert.rejects(() => s.clickPoint("x", null), /numeric x and y/);
+  });
+
+  await test("34c. pointer-styled custom widgets enter the table with coordinates", async () => {
+    const s = await open("/widget");
+    const state = await observe(s);
+    const chk = state.actions.find((a) => /hồ bơi/i.test(a.label || ""));
+    assert.ok(chk, "delegated div checkbox observed without any ARIA role");
+    assert.ok(chk.rect && chk.rect.w > 0 && Number.isFinite(chk.rect.x), "action carries a rect for coordinate clicks");
+    await s.act(chk); // Jev's own path: element-id click, no coordinates needed
+    assert.ok(((await observe(s)).text || "").includes("POOL ON"), "custom widget toggled via element id");
+    const ghost = state.actions.find((a) => /wi-fi miễn phí/i.test(a.label || ""));
+    assert.ok(ghost, "label wrapping a hidden checkbox observed as its click proxy");
+    await s.act(ghost);
+    assert.ok(((await observe(s)).text || "").includes("WIFI ON"), "hidden-checkbox label toggled via element id");
+  });
+
+  await test("34d. primitives: scroll edges/by, history, key, hover, waitText", async () => {
+    const s = await open("/misc");
+    // hover + named keys on the fresh load (bfcache-restored pages can miss
+    // pointer-styled widgets on the first observe — known quirk, parked)
+    const hov = (await observe(s)).actions.find((a) => /hover me/i.test(a.label));
+    assert.ok(hov, "pointer-styled hover target observed");
+    await s.hoverById(hov.id);
+    assert.equal((await observe(s)).title, "HOVERED", "hover delivered a mouseMoved event");
+    const inp = (await observe(s)).actions.find((a) => a.kind === "fill");
+    await s.act(inp, "hi");
+    await s.sendKey("escape");
+    assert.equal((await observe(s)).title, "ESC", "escape key delivered");
+    await assert.rejects(() => s.sendKey("nope"), /Unsupported key/);
+    // scroll edges and by-pixel
+    await s.scrollToEdge("bottom");
+    let st = await observe(s);
+    assert.ok(st.scroll.y + st.w >= st.scroll.height - 2, "scroll bottom reaches the end");
+    await s.scrollToEdge("top");
+    st = await observe(s);
+    assert.equal(st.scroll.y, 0, "scroll top returns to zero");
+    await s.scrollBy(300);
+    st = await observe(s);
+    assert.ok(Math.abs(st.scroll.y - 300) < 60, `scrollBy landed near 300 (got ${st.scroll.y})`);
+    await s.scrollBy(-150);
+    st = await observe(s);
+    assert.ok(Math.abs(st.scroll.y - 150) < 60, `negative scrollBy goes back up (got ${st.scroll.y})`);
+    // history: follow the link, then back returns, forward re-enters
+    await s.scrollToEdge("top"); // scrolling moved the controls out of view — come back
+    const link = (await observe(s)).actions.find((a) => /to duo/i.test(a.label));
+    await s.act(link);
+    assert.ok((await observe(s)).url.endsWith("/duo"), "navigated to /duo");
+    await s.historyGo(-1);
+    assert.ok((await observe(s)).url.endsWith("/misc"), "history back returns to /misc");
+    await s.historyGo(1);
+    assert.ok((await observe(s)).url.endsWith("/duo"), "history forward re-enters /duo");
+    // waitText catches late content on /slow
+    const slow = await open("/slow");
+    const waited = await slow.waitText("Reveal target", 4000);
+    assert.equal(waited.found, true, "waitText found the late-rendered button");
+    const missed = await slow.waitText("không tồn tại đâu đó", 300);
+    assert.equal(missed.found, false, "waitText times out bounded");
+  });
+
+  await test("35. plan questions flatten to SKIP + element choices", async () => {
+    const { buildActionSpace, buildQuestions } = await import("../features/browserUse/agentLoop.js");
+    const actions = [
+      { id: "e1", kind: "click", label: "Go", role: "button", value: "", node: 1 },
+      { id: "e2", kind: "fill", label: "Name", value: "", node: 2 },
+      { id: "scroll_down", kind: "scroll", label: "Scroll down", delta: 560 },
+      { id: "wait", kind: "wait", label: "Wait" }
+    ];
+    const space = buildActionSpace(actions, { Name: "Alice" });
+    const body = buildQuestions({ url: "https://x", title: "t", text: "", actions }, "g", [], space);
+    const criteria = body.questions.step_2.criteria;
+    assert.ok(criteria.SKIP, "SKIP ends the batch");
+    assert.match(String(criteria.e1), /Click Go/);
+    assert.match(String(criteria.e2), /Type into Name/);
+    assert.ok(criteria.SCROLL_DOWN, "scroll is plannable");
+    assert.ok(!criteria.WAIT, "wait is not plannable");
+    assert.ok(body.questions.step_3, "plan questions run to PLAN_MAX");
+  });
+
   await closeProfile(profile).catch(() => {});
-  await deleteProfile(profile).catch(() => {});
+  await profiles.remove(profile).catch(() => {});
   server.close();
 }
 

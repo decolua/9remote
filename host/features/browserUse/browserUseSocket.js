@@ -9,10 +9,12 @@ import { getIO } from "../../transport/server.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { kvGet, kvSet } from "../terminal/ptyDaemonClient.js";
 import { testConfig } from "./jevClient.js";
-import { DEFAULT_POLICY } from "./agentLoop.js";
+import { DEFAULT_POLICY, checkExpectations } from "./agentLoop.js";
+export { checkExpectations };
 import {
-  attachStatus, closeProfile, createProfile, deleteProfile, listProfiles, listTabs, openAttachGuide, renameProfile,
-  requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter
+  attachStatus, closeProfile, profiles, listTabs, openAttachGuide, readStepFrame, framePathFor,
+  requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter,
+  switchTab, closeTab
 } from "./engine.js";
 import { AUTO_CONTINUE_CHUNKS, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
 import { installSkillForEngine, removeAllInstalledSkills, SKILL_ENGINES } from "./skill.js";
@@ -150,19 +152,19 @@ export async function invoke(action, payload = {}) {
       await loadConfig();
       return { ok: true, ...(await testConfig({ ...config, ...pickOverrides(payload) })) };
     case "status":
-      return { ok: true, config: publicConfig(), sessions: sessionStatus(), profiles: listProfiles() };
+      return { ok: true, config: publicConfig(), sessions: sessionStatus(), profiles: profiles.list() };
     case "attach.status":
       return { ok: true, ...(await attachStatus()) };
     case "attach.open":
       return { ok: true, ...openAttachGuide() };
     case "profiles.list":
-      return { ok: true, profiles: listProfiles() };
+      return { ok: true, profiles: profiles.list() };
     case "profiles.create":
-      return { ok: true, profile: createProfile(payload.name) };
+      return { ok: true, profile: profiles.create(payload.name) };
     case "profiles.rename":
-      return { ok: true, ...(await renameProfile(payload.from, payload.to)) };
+      return { ok: true, ...(await profiles.rename(payload.from, payload.to)) };
     case "profiles.delete":
-      return { ok: true, ...(await deleteProfile(payload.name)) };
+      return { ok: true, ...(await profiles.remove(payload.name)) };
     case "tabs": {
       const opts = sessionOpts(payload);
       return { ok: true, tabs: await listTabs(opts) };
@@ -171,7 +173,7 @@ export async function invoke(action, payload = {}) {
       // Returns the element table too — kills the open→state double round trip.
       return { ok: true, state: await withSession({
         ...sessionOpts(payload), url: required(payload, "url")
-      }, async (session) => session.observe()) };
+      }, async (session) => session.steady()) };
     case "state":
       return { ok: true, ...(await withSession(sessionOpts(payload), (session) => session.current())) };
     case "run": {
@@ -183,20 +185,23 @@ export async function invoke(action, payload = {}) {
       const expect = (payload.expectUrl || payload.expectTitle || fragments.length)
         ? { url: payload.expectUrl || null, title: payload.expectTitle || null, text: fragments }
         : null;
-      const { result, verification } = await withSession({
-        ...sessionOpts(payload), url: payload.url
-      }, (session) => runAutoContinue(session, {
+      const runOpts = { ...sessionOpts(payload), url: payload.url };
+      // Chrome launch is dead time for the Jev connection — warm it in parallel
+      // so the first decision skips TLS setup (only when a launch is imminent).
+      if (!sessionStatus().some((s) => s.profile === runOpts.profile)) {
+        testConfig(config).catch(() => {});
+      }
+      const { result, verification } = await withSession(runOpts, (session) => runAutoContinue(session, {
         goal, expect,
+        fields: sanitizeFields(payload.fields),
         maxSteps: clampSteps(payload.maxSteps),
         maxMs: clampMs(payload.maxMs),
         resume: payload.resume || null,
         only: payload.only || null,
         onStep: emitStep
       }));
-      let image = null;
-      try {
-        image = await withSession(sessionOpts(payload), (s) => s.screenshot());
-      } catch { /* screenshot optional */ }
+      // The report reuses the loop's own last step frame — no extra capture.
+      const image = result.metrics.steps ? readStepFrame(runOpts) : null;
       // A report failure must not swallow the run result — the agent would
       // retry the whole Jev loop and re-run every action.
       let report = null;
@@ -204,17 +209,78 @@ export async function invoke(action, payload = {}) {
       catch (e) { logger.error(`report write failed: ${e.message}`); }
       pushOutcome(goal, result);
       logger.info(`run ${taskId}: ${result.outcome}${verification ? ` · verify ${verification.passed ? "PASSED" : "FAILED"}` : ""} (${result.metrics.steps} steps)`);
-      return { ok: true, taskId, ...result, report, verification, state: await stateAfter(payload) };
+      // The run's own last-step frame rides along — the agent reads this file
+      // instead of shooting a fresh, possibly-moved screenshot.
+      return { ok: true, taskId, ...result, report, verification,
+        frame: framePathFor(runOpts), state: await stateAfter(payload) };
     }
     case "click": {
       const opts = sessionOpts(payload);
       return { ok: true, ...(await clickById(opts.profile, required(payload, "id"))),
         state: await stateAfter(payload) };
     }
+    case "clickxy": {
+      const opts = sessionOpts(payload);
+      await withSession(opts, (session) =>
+        session.clickPoint(Number(required(payload, "x")), Number(required(payload, "y"))));
+      return { ok: true, state: await stateAfter(payload) };
+    }
+    case "scroll": {
+      const opts = sessionOpts(payload);
+      const action = payload.edge
+        ? (session2) => session2.scrollToEdge(payload.edge)
+        : (session2) => session2.scrollBy(Number(payload.px));
+      await withSession(opts, action);
+      return { ok: true, state: await stateAfter(payload) };
+    }
+    case "back":
+    case "forward": {
+      const opts = sessionOpts(payload);
+      await withSession(opts, (session) => session.historyGo(action === "back" ? -1 : 1));
+      return { ok: true, state: await stateAfter(payload) };
+    }
+    case "reload": {
+      const opts = sessionOpts(payload);
+      await withSession(opts, (session) => session.reload());
+      return { ok: true, state: await stateAfter(payload) };
+    }
+    case "key": {
+      const opts = sessionOpts(payload);
+      await withSession(opts, (session) => session.sendKey(required(payload, "name")));
+      return { ok: true, state: await stateAfter(payload) };
+    }
+    case "hover": {
+      const opts = sessionOpts(payload);
+      await withSession(opts, (session) => session.hoverById(required(payload, "id")));
+      return { ok: true, state: await stateAfter(payload) };
+    }
+    case "wait": {
+      const opts = sessionOpts(payload);
+      const { found, state } = await withSession(opts, (session) =>
+        session.waitText(required(payload, "text"), Number(payload.timeoutMs) || undefined));
+      return { ok: true, found, state };
+    }
+    case "tab": {
+      return { ok: true, ...(await switchTab(sessionOpts(payload), Number(required(payload, "index")))),
+        state: await stateAfter(payload) };
+    }
+    case "tabclose": {
+      return { ok: true, ...(await closeTab(sessionOpts(payload), payload.index ? Number(payload.index) : null)) };
+    }
     case "type": {
       const opts = sessionOpts(payload);
-      const result = await typeById(opts.profile, required(payload, "id"), required(payload, "text"));
-      if (payload.enter) await pressEnter(opts.profile); // same process, one round trip
+      const result = await withSession(opts, async (session) => {
+        let state = await session.current();
+        let action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "fill");
+        if (!action) { // table shifted since the caller's observe — one retry
+          state = await session.observe();
+          action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "fill");
+        }
+        if (!action) throw new Error(`Field ${required(payload, "id")} not observed (or not editable)`);
+        await session.act(action, required(payload, "text"));
+        if (payload.enter) await session.pressEnter();
+        return { typed: payload.text };
+      });
       return { ok: true, ...result, state: await stateAfter(payload) };
     }
     case "enter": {
@@ -246,11 +312,11 @@ export async function invoke(action, payload = {}) {
 // Expectations never enter the Jev prompt; they only judge, so this cannot be gamed.
 export async function runAutoContinue(session, {
   goal, decide = undefined, expect = null, config: cfg = config, policy = null,
-  maxSteps = 12, maxMs = 45000, only = null, resume = null, onStep = null
+  maxSteps = 12, maxMs = 45000, only = null, resume = null, onStep = null, fields = null
 } = {}) {
   const runOpts = () => ({
     goal, config: cfg, policy: policy || policyFromConfig(),
-    maxSteps, maxMs, only, onStep,
+    maxSteps, maxMs, only, onStep, fields, expect,
     ...(decide ? { decide } : {})
   });
   let combined = await runTask(session, { ...runOpts(), resume });
@@ -276,31 +342,18 @@ export async function runAutoContinue(session, {
   }
   return { result: combined, verification };
 }
-// to the action policy (fbu pattern): the model cannot game what it never sees.
-export function checkExpectations(state, { url = null, title = null, text = [] } = {}) {
-  const fragments = (Array.isArray(text) ? text : [text]).map((t) => String(t));
-  // Field values never appear in body innerText — also match filled values
-  // (fbu verify_flights pattern), so verifying form contents just works.
-  const fields = (state.actions || [])
-    .filter((a) => a.kind === "fill" && a.value)
-    .map((a) => `${a.label}: ${a.value}`)
-    .join("\n");
-  const haystack = `${state.text || ""}\n${fields}`;
-  const checks = {};
-  if (url) checks.url = state.url === url;
-  if (title) checks.title = state.title === title;
-  fragments.forEach((fragment, i) => {
-    checks[`text_${i + 1}`] = fragment.length > 0 && haystack.includes(fragment);
-  });
-  return { passed: Object.values(checks).every(Boolean), checks };
-}
 
 // Post-action state for the response — cached when the page did not change.
-// Never let a failed observation swallow the action result: the action already
-// ran, and reporting it as an error would make the agent retry (double-click).
+// Single-shot observe only: a page navigating away must not burn settle retries
+// here. Never let a failed observation swallow the action result either — the
+// action already ran, and reporting it as an error would make the agent retry.
 const stateAfter = async (payload) => {
-  try { return await withSession(sessionOpts(payload), (s) => s.current()); }
-  catch { return null; }
+  try {
+    return await withSession(sessionOpts(payload), async (s) => {
+      if (s.lastState && await s.fresh(s.lastState)) return s.lastState;
+      try { return await s.observe(); } catch { return null; } // mid-navigation — no retries
+    });
+  } catch { return null; }
 };
 
 // ---- chain: many steps in ONE call (openclaw batch pattern) -------------------
@@ -342,6 +395,7 @@ async function runChain(opts, steps) {
             config,
             policy: policyFromConfig(),
             only: step.only || null,
+            fields: sanitizeFields(step.fields),
             maxSteps: clampSteps(step.maxSteps),
             maxMs: clampMs(step.maxMs),
             onStep: emitStep
@@ -418,6 +472,16 @@ const required = (payload, key) => {
   return value;
 };
 const pickOverrides = ({ endpoint, model, apiKey }) => ({ ...(endpoint ? { endpoint } : {}), ...(model ? { model } : {}), ...(apiKey ? { apiKey } : {}) });
+// Trust boundary for fields: plain object of non-empty label -> non-empty string.
+const sanitizeFields = (raw) => {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const out = {};
+  for (const [k, v] of Object.entries(raw)) {
+    const key = String(k).trim();
+    if (key && typeof v === "string" && v.trim()) out[key] = v;
+  }
+  return Object.keys(out).length ? out : null;
+};
 const clampSteps = (n) => {
   const value = Number(n);
   return Math.min(MAX_STEPS_HARD, Math.max(1, Number.isFinite(value) && value > 0 ? value : MAX_STEPS_DEFAULT));

@@ -30,10 +30,12 @@ browser after enabling remote debugging.
 9remote browser tabs [--profile NAME] [--attach]         # list open tabs (title, url, id)
 9remote browser state [--profile NAME]                   # numbered element table of current page
 9remote browser read [--tail] [--profile NAME]           # filtered page TEXT — read content with this, never with shot
-9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--expect-text "..." ...]
+9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--fields "L=text;..."] [--expect-text "..." ...]
                                                             # Jev loop until DONE/BLOCKED; --only narrows
-                                                            # the table; --expect-* declares end conditions
-                                                            # the engine verifies on a fresh read
+                                                            # the table; --fields supplies text YOU chose
+                                                            # (Jev picks the matching fields, engine types,
+                                                            # passwords masked); --expect-* declares end
+                                                            # conditions the engine verifies on a fresh read
 9remote browser click <id>                               # click element by table id (e.g. e3)
 9remote browser type <id> "<exact text>" [--enter]       # type text YOU chose; --enter sends it
 9remote browser chain "click e1; type e2 'hi' --enter; select e3; wait 'Saved'"
@@ -76,6 +78,9 @@ browser after enabling remote debugging.
   report the error — never read the tool's source code to debug it.
 - Let Jev scroll inside \`run\` (it has SCROLL) instead of clicking scroll
   controls yourself step by step.
+- Form journeys: pass known values via \`run --fields "Email=a@b.c;Password=…"\` —
+  Jev picks the fields, the engine types your exact text (password values are
+  masked and never sent to the model). Prefer it over one \`type\` per field.
 - Declare an expect for EVERY movement goal, even plain scrolling
   (\`run "scroll to the footer" --expect-text "Guidelines"\`) — auto-continue then
   drives it to the end in one command instead of many single-scroll runs.
