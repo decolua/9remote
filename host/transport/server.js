@@ -842,8 +842,13 @@ export async function startTransportServer(server) {
       }
     }
 
-    trackConnection(socket.id, ip, deviceId);
-    pushUiLogDebug(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
+    // Loopback workspace is the machine's own UI — not a client device.
+    if (isLocalSocket(socket)) {
+      pushUiLogDebug(`Local connection not tracked: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
+    } else {
+      trackConnection(socket.id, ip, deviceId);
+      pushUiLogDebug(`Client connected: ${ip} (device: ${deviceId?.slice(0, 8) || "none"})`);
+    }
 
     socket.on("disconnect", (reason) => {
       untrackConnection(socket.id);
