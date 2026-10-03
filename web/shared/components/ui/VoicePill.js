@@ -1,14 +1,45 @@
 "use client";
 
-import { memo } from "react";
+import { memo, useEffect, useState } from "react";
 import { X, Check } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { useI18n } from "@/shared/i18n";
 
 const WAVE_BARS = [0.3, 0.6, 0.85, 1.0, 0.75, 0.9, 1.0, 0.65, 0.35];
 const SHIMMER_BARS = [0.4, 0.8, 1.0, 0.7, 0.9, 0.5, 0.85, 0.35];
+const ERR_DISMISS_MS = 5000;
+
+// Error codes come from useVoiceInput (browser + AI engines) — map to user text.
+function errText(code, t) {
+  if (["not-allowed", "service-not-allowed", "audio-capture"].includes(code)) return t("voice.denied");
+  if (code === "network") return t("voice.network");
+  if (code === "mic-timeout") return t("voice.micTimeout");
+  return String(code);
+}
+
+// Mounts fresh per error (keyed by code in VoicePill) — a 5s self-hide timer is
+// all the lifecycle it needs, no reset effect.
+function ErrorPill({ code, className = "", t }) {
+  const [hidden, setHidden] = useState(false);
+  useEffect(() => {
+    const timer = setTimeout(() => setHidden(true), ERR_DISMISS_MS);
+    return () => clearTimeout(timer);
+  }, []);
+  if (hidden) return null;
+  return (
+    <div className={`w-fit mx-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/30 shadow-md text-xs text-red-400 animate-in fade-in slide-in-from-bottom-1 duration-150 pointer-events-none ${className}`}>
+      <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
+      {errText(code, t)}
+    </div>
+  );
+}
 
 export const VoicePill = memo(function VoicePill({ voice, onDone, onCancel, className = "" }) {
-  if (!voice?.listening) return null;
+  const { t } = useI18n();
+  const err = !voice?.listening && voice?.error ? voice.error : null;
+  if (!voice?.listening) {
+    return err ? <ErrorPill key={err} code={err} className={className} t={t} /> : null;
+  }
 
   const handleDone = () => {
     vibrate();

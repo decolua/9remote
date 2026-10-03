@@ -193,6 +193,7 @@ export default {
     jarvisMcpOff: "The MCP switch in Plugins is off - Jarvis will start without its coordinator tools.",
     community: "Community",
     rateApp: "Rate App",
+    starChip: "Help me star",
     installApp: "Install App",
     upgrade: "Upgrade",
     upgradeExpires: "Expires",
@@ -1120,7 +1121,9 @@ export default {
     dictate: "Voice input",
     language: "Voice language",
     clear: "Clear",
-    denied: "Microphone blocked — allow mic access in your browser settings"
+    denied: "Microphone blocked — allow mic access in your browser settings",
+    network: "Voice endpoint unreachable — check Voice settings",
+    micTimeout: "Mic did not respond — try again"
   },
   shortcuts: {
     title: "Keyboard shortcuts",

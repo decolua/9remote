@@ -40,6 +40,16 @@ export function useVoiceLang(fallbackLocale) {
 // Fatal errors: user must act — don't auto-restart on these.
 const FATAL = new Set(["not-allowed", "service-not-allowed", "audio-capture", "language-not-supported"]);
 const MONITOR_MS = 80;
+// WebView getUserMedia can hang forever when its permission prompt is lost — race it.
+const GUM_TIMEOUT_MS = 10000;
+
+function withTimeout(promise, ms, code) {
+  let timer;
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => { timer = setTimeout(() => reject({ code }), ms); }),
+  ]).finally(() => clearTimeout(timer));
+}
 // Clips whose peak RMS stays under this are silent — skip the LLM (it hallucinates text).
 const SILENCE_PEAK_RMS = 3;
 
@@ -83,11 +93,14 @@ export function useVoiceInput({
     !!window.ReactNativeWebView || /9Remote-Mobile/i.test(navigator.userAgent)
   );
 
+  // Android WebView (expo app) has no usable Web Speech API either — same silent AI fallback.
+  const isAndroidExpo = isExpo && /Android/i.test(navigator.userAgent);
+
   const aiOk = typeof window !== "undefined" && !!(navigator.mediaDevices?.getUserMedia && window.MediaRecorder);
   // WKWebView (Tauri) has no usable Web Speech API — even where the object exists,
   // start() dies with "service-not-allowed". Silently use the AI engine there.
   const isTauri = typeof window !== "undefined" && !!(window.__TAURI__ || window.__TAURI_INTERNALS__);
-  const effMode = mode === "browser" && !isExpo && (isTauri || !getRecognition()) && aiOk ? "ai" : mode;
+  const effMode = mode === "browser" && (isTauri || isAndroidExpo || (!isExpo && !getRecognition())) && aiOk ? "ai" : mode;
   const supported = effMode === "ai" ? aiOk : (!isExpo && !!getRecognition());
   const active = enabled && supported;
 
@@ -134,8 +147,10 @@ export function useVoiceInput({
     wantOnRef.current = true;
     setVolume(0);
     setTranscribing(false);
+    let gum = null;
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      gum = navigator.mediaDevices.getUserMedia({ audio: true });
+      const stream = await withTimeout(gum, GUM_TIMEOUT_MS, "mic-timeout");
       const rec = new MediaRecorder(stream);
       const chunks = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
@@ -160,7 +175,10 @@ export function useVoiceInput({
       setListening(true);
     } catch (err) {
       wantOnRef.current = false;
-      const code = err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "not-allowed" : "audio-capture";
+      // A timed-out getUserMedia may still resolve later — release the mic.
+      if (gum) gum.then((s) => s.getTracks().forEach((t) => t.stop())).catch(() => {});
+      const code = err?.code === "mic-timeout" ? "mic-timeout"
+        : err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "not-allowed" : "audio-capture";
       setError(code);
       onErrorRef.current?.(code);
     }
