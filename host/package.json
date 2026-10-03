@@ -11,7 +11,8 @@
   "scripts": {
     "start": "node cli/index.js",
     "ui": "node cli/index.js ui",
-    "dev": "NODE_ENV=development nodemon cli/index.js",
+    "dev": "NODE_ENV=development nodemon cli/index.js tui",
+    "dev:server": "NODE_ENV=development nodemon index.js",
     "dev:ui": "npm-run-all --parallel dev:ui:run dev:vite:wait",
     "dev:vite": "vite",
     "dev:vite:wait": "wait-on http://localhost:2208/api/health && vite",

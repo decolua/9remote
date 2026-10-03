@@ -8,6 +8,7 @@ import { startUiMode } from "./modes/ui.js";
 import { startTrayMode } from "./modes/tray.js";
 import { autoStartDev } from "./modes/auto.js";
 import { startupMenu } from "./modes/startup.js";
+import { tuiMode } from "./modes/tui.js";
 import { runHeadlessCommand, printHelp } from "./modes/headless.js";
 
 // Print version early and exit clean (no logger/TUI ANSI) so update scripts can parse it
@@ -30,7 +31,7 @@ async function start() {
   const isChildRespawn = process.argv.includes("--tray") || process.argv.includes("--auto") || process.argv.includes("--start");
   // An unknown command must never kill the running host — an older binary (or a
   // typo) meeting a newer command would murder a live dev instance for nothing.
-  const knownMode = ["ui", "start", "help", "-h", "--help"].includes(command);
+  const knownMode = ["ui", "tui", "start", "help", "-h", "--help"].includes(command);
   if (command && !command.startsWith("--") && !knownMode && !isChildRespawn) {
     printHelp();
     return;
@@ -39,6 +40,8 @@ async function start() {
 
   if (command === "ui") {
     await startUiMode();
+  } else if (command === "tui") {
+    await tuiMode();
   } else if (command === "start" || process.argv.includes("--auto")) {
     await autoStartDev();
   } else if (process.argv.includes("--tray") || process.argv.includes("--start")) {
