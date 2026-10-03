@@ -1,7 +1,8 @@
 "use client";
 
 import { memo, useEffect, useMemo, useState } from "react";
-import { Bot, Terminal, Square } from "@/shared/components/ui/Icon";
+import { Bot, Terminal, Square, Loader2 } from "@/shared/components/ui/Icon";
+import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { findTaskTool } from "../../lib/toolTree";
@@ -9,21 +10,37 @@ import { taskElapsedMs } from "../../lib/harnessTasks";
 import { clockText } from "../../lib/taskClock";
 import { MessageBubble } from "../MessageBubble";
 import { AiTurn } from "../AiTurn";
+import { renderToolCard } from "../cards/toolCards";
+import { AiToolCard } from "../cards/AiToolCard";
 import { ModalShell } from "./ModalShell";
 
 // The modal's own beat, so the header's total keeps moving while it is open. One timer
 // for the whole panel — every row reads the same `now`.
 const TICK_MS = 1000;
 
-const KIND = {
-  agent: { label: "Sub-agent", icon: Bot, cls: "bg-accent/15 text-accent" },
-  shell: { label: "Background task", icon: Terminal, cls: "bg-warning/15 text-warning" }
-};
+function TaskIcon({ background = false, engine = "claude", size = 16, className = "" }) {
+  if (background) {
+    return <Terminal size={size} className={className || "text-text"} />;
+  }
+  const iconSrc = agentIconUrl(engine);
+  if (iconSrc) {
+    return (
+      <img
+        src={iconSrc}
+        alt={engine}
+        draggable={false}
+        style={{ width: size, height: size }}
+        className={`flex-shrink-0 object-contain ${AGENT_ICON_CLS} ${className}`}
+      />
+    );
+  }
+  return <Bot size={size} className={className || "text-text"} />;
+}
 
 /**
  * Everything a pinned strip row could not say, drawn the way the agent itself is drawn.
  *
- * The strip names the work; this modal walks it: a pickable row per task when the tap
+ * The strip names the work; this modal walks it: a chip per task when the tap
  * stood for several, then the task's own calls as the TIMELINE's tool cards — a
  * sub-agent's internals read here exactly as they do in the turn (its agent card even
  * draws its nested calls itself), and a background shell's card IS the command with its
@@ -60,49 +77,47 @@ export const AgentTaskModal = memo(function AgentTaskModal({
   if (!task) return null;
   const elapsed = taskElapsedMs(task, now);
   const running = !task.endedAt && (task.status === "running" || task.status === "paused");
-  const meta = KIND[task.background ? "shell" : "agent"];
-  const Icon = meta.icon;
 
   return (
     <ModalShell
-      icon={<Icon size={14} />}
-      iconClass={meta.cls}
+      icon={<TaskIcon background={task.background} engine={engine} size={16} />}
+      iconClass=""
       title={task.description || task.subagentType || "Task"}
       subtitle={running ? `Running for ${clockText(elapsed)}` : `Ended · ${clockText(elapsed)}`}
       onClose={onClose}
-      footer={running && task.taskId && onStopTask ? (
-        <div className="px-3 py-2.5 border-t border-border-subtle bg-bg shrink-0">
-          <button
-            type="button"
-            onClick={() => { vibrate(); onStopTask(task.taskId); }}
-            className="w-full flex items-center justify-center gap-1.5 py-2 rounded-brand text-xs font-semibold text-danger bg-danger/10 hover:bg-danger/20 transition-colors"
-          >
-            <Square size={11} />
-            Stop this task
-          </button>
-        </div>
+      actions={running && task.taskId && onStopTask ? (
+        <button
+          type="button"
+          onClick={() => { vibrate(); onStopTask(task.taskId); }}
+          className="px-2.5 py-1 rounded-brand text-xs font-medium text-danger bg-danger/10 hover:bg-danger/20 transition-colors flex items-center gap-1.5"
+          title="Stop this task"
+        >
+          <Square size={10} className="fill-current" />
+          <span>Stop</span>
+        </button>
       ) : null}
     >
-      {/* One row per task in the group, the same pickable row every modal list uses. A
-          single task draws no picker — a list of one is a heading over nothing. */}
+      {/* Tabs when there are multiple tasks in the session */}
       {live.length > 1 && (
-        <div className="p-3 pb-0 flex flex-col gap-0.5 shrink-0 border-b border-border-subtle">
+        <div className="px-4 py-2 border-b border-border-subtle bg-bg flex items-center gap-1 overflow-x-auto custom-scrollbar shrink-0">
           {live.map((t, i) => {
-            const m = KIND[t.background ? "shell" : "agent"];
-            const RowIcon = m.icon;
             const on = t.taskId === task.taskId;
             return (
               <button
                 key={t.taskId || t.id || i}
                 type="button"
                 onClick={() => { vibrate(); setPicked(t.taskId); }}
-                className={`modal-row ${on ? "modal-row-active" : ""}`}
+                className={`shrink-0 flex items-center gap-1.5 px-2.5 py-1 rounded-brand text-xs transition-colors ${
+                  on
+                    ? "bg-surface-2 text-text font-medium"
+                    : "text-text-muted hover:text-text hover:bg-surface-2/40"
+                }`}
               >
-                <RowIcon size={14} className={`shrink-0 ${on ? "text-brand-500" : "text-text-muted"}`} />
-                <span className={`flex-1 min-w-0 truncate text-xs ${on ? "text-text font-medium" : "text-text-muted"}`}>
+                <TaskIcon background={t.background} engine={engine} size={13} className={on ? "opacity-100" : "opacity-60"} />
+                <span className="truncate max-w-[140px]">
                   {t.description || t.subagentType || t.taskId}
                 </span>
-                <span className="text-[10px] font-mono text-text-subtle shrink-0">
+                <span className="font-mono text-[10px] opacity-60 tabular-nums">
                   {t.status === "running" ? clockText(taskElapsedMs(t, now)) : t.status}
                 </span>
               </button>
@@ -118,7 +133,7 @@ export const AgentTaskModal = memo(function AgentTaskModal({
         <Calls task={task} messages={messages} engine={engine} running={running} />
 
         {task.summary && (
-          <p className="mt-3 text-[11px] text-text-muted leading-relaxed border-l-2 border-border-subtle pl-3">
+          <p className="mt-3 text-[11px] text-text-muted leading-relaxed">
             {task.summary}
           </p>
         )}
@@ -134,20 +149,36 @@ export const AgentTaskModal = memo(function AgentTaskModal({
 });
 
 /**
- * The task's work as the SAME conversation the main pane draws: its prompt as a user
- * bubble, its calls as a turn (AiTurn's rail — the very renderer the main timeline
- * uses, cards full width), and its report as prose. Nothing here is a second rendering
- * of a piece the pane already draws — it IS the pane's renderer, fed the task's slice.
+ * The task's work as the CLI itself prints it: prompt bubble, then its calls as flat
+ * card rows — same cards the main timeline draws, but without the turn rail around
+ * them, so the modal's narrow column keeps one level of indentation (a card's own
+ * output border) instead of a staircase of nested rails.
  *
- * A background shell is a turn of one: its card is the command with its output, and it
+ * A background shell is a list of one: its card is the command with its output, and it
  * has no prompt bubble (nobody asked it anything).
  */
 function Calls({ task, messages, engine, running }) {
   const row = findTaskTool(messages, task.toolUseId);
   if (!row) {
     return (
-      <div className="flex flex-col items-center justify-center gap-2 py-10 text-text-muted">
-        <span className="text-xs">{running ? "Working — no calls yet." : "No calls recorded."}</span>
+      <div className="flex flex-col items-center justify-center gap-2.5 py-14 text-text-muted select-none">
+        {running ? (
+          <>
+            <Loader2 size={24} className="animate-spin text-brand-500 opacity-80" />
+            <div className="text-center">
+              <div className="text-xs font-medium text-text">Task is running...</div>
+              <div className="text-[11px] text-text-subtle mt-0.5">Waiting for task calls or tool events</div>
+            </div>
+          </>
+        ) : (
+          <>
+            <TaskIcon background={task.background} engine={engine} size={28} className="opacity-40" />
+            <div className="text-center">
+              <div className="text-xs font-medium text-text">No calls recorded</div>
+              <div className="text-[11px] text-text-subtle mt-0.5">This task ended without child tool calls</div>
+            </div>
+          </>
+        )}
       </div>
     );
   }
@@ -159,7 +190,11 @@ function Calls({ task, messages, engine, running }) {
       {prompt && !row.async && (
         <MessageBubble message={{ id: `${row.id}:p`, role: "user", content: prompt }} engine={engine} />
       )}
-      <AiTurn messages={[{ id: row.id, role: "assistant", tools: calls, isLive: running }]} engine={engine} isLive={running} />
+      {calls.map((c) =>
+        renderToolCard(engine, c, { deferred: !running, workspacePath: "" }) || (
+          <AiToolCard key={c.id} {...c} engine={engine} workspacePath="" deferred={!running} />
+        )
+      )}
       {!running && report && (
         <AiTurn messages={[{ id: `${row.id}:r`, role: "assistant", content: String(report), isLive: false }]} engine={engine} isLive={false} />
       )}

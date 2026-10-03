@@ -800,6 +800,7 @@ export class AiSession {
     // Any terminal event releases the turn, or a failed spawn leaves every client spinning.
     if (TURN_END_EVENTS.has(event)) {
       this.isTurnRunning = false;
+      this._settleForegroundTasks();
       this.history = compactEvents(this.history);
       this.flushSaveSnapshot();
       this.applyPendingOptions();
@@ -937,12 +938,43 @@ export class AiSession {
     this.asyncTimers.clear();
   }
 
+  // Foreground tasks (not is_backgrounded) cannot outlive the turn that started them.
+  _settleForegroundTasks(includeBackground = false) {
+    const ended = new Set();
+    for (const ev of this.history || []) {
+      if (ev.event !== "cli_event") continue;
+      const subtype = ev.data?.subtype;
+      const taskId = ev.data?.record?.task_id || ev.data?.task_id;
+      if (subtype === "task_notification" && taskId) ended.add(taskId);
+    }
+    for (const ev of this.history || []) {
+      if (ev.event !== "cli_event" || ev.data?.subtype !== "task_started") continue;
+      const rec = ev.data?.record || {};
+      const taskId = rec.task_id || ev.data?.task_id;
+      if (!taskId || ended.has(taskId)) continue;
+      if (includeBackground || !rec.is_backgrounded) {
+        ended.add(taskId);
+        this.emitNormalized("cli_event", {
+          type: "system",
+          subtype: "task_notification",
+          record: {
+            type: "system",
+            subtype: "task_notification",
+            task_id: taskId,
+            status: "completed"
+          }
+        });
+      }
+    }
+  }
+
   // Restored async rows have nothing left to report their end; closing twice is a no-op.
   _settleRestoredAsync() {
     for (const ev of this.history || []) {
       if (ev.event !== "tool_result" || !ev.data?.async || ev.data.status !== "running") continue;
       ev.data = { ...ev.data, status: "done" };
     }
+    this._settleForegroundTasks(false);
   }
 
   // Debounced middle ground: a sync write per event stalls the socket, the turn boundary alone loses a hard kill.
@@ -1235,9 +1267,22 @@ export class AiSession {
     return true;
   }
 
-  // Nothing emitted on purpose — the CLI's own task_notification settles the row on both paths.
+  // Stop a task. If the CLI cannot stop it (e.g. orphan task or finished command), settle it locally so it clears the UI.
   stopTask(taskId) {
-    return this.adapter?.stopTask?.(taskId) || false;
+    const ok = this.adapter?.stopTask?.(taskId);
+    if (!ok && taskId) {
+      this.emitNormalized("cli_event", {
+        type: "system",
+        subtype: "task_notification",
+        record: {
+          type: "system",
+          subtype: "task_notification",
+          task_id: String(taskId),
+          status: "stopped"
+        }
+      });
+    }
+    return true;
   }
 
   // A restored session can outlive its daemon process (agent update, CLI crash):
