@@ -211,7 +211,7 @@ export default function SlideMenu() {
 
       {/* Menu Panel - slides from right */}
       <div
-        className="absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right pt-[var(--safe-top)] pb-[var(--safe-bottom)]"
+        className={`absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right pt-[var(--safe-top)] ${activePanel === "menu" ? "" : "pb-[var(--safe-bottom)]"}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -247,20 +247,6 @@ export default function SlideMenu() {
           <div className="flex items-center gap-1">
             {activePanel === "menu" && (
               <>
-                {SHOW_GITHUB_STAR && (
-                  <a
-                    href={GITHUB_REPO_URL}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="px-2 py-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex items-center gap-1.5 text-xs font-medium"
-                    title="Star on GitHub"
-                    aria-label="Star on GitHub"
-                  >
-                    <Github size={16} />
-                    <Star size={13} className="text-yellow-500 fill-yellow-500" />
-                    {formattedStars && <span className="font-mono text-[11px] leading-none">{formattedStars}</span>}
-                  </a>
-                )}
                 <button
                   onClick={() => { vibrate(); toggleTheme(); }}
                   className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
@@ -316,6 +302,26 @@ export default function SlideMenu() {
           {activePanel === "pwa" && <PwaInstallGuide />}
 
         </div>
+
+        {/* GitHub star chip - pinned footer, owns the bottom safe inset */}
+        {activePanel === "menu" && SHOW_GITHUB_STAR && (
+          <div className="flex-shrink-0 flex justify-center px-3 pt-2 pb-safe border-t border-border">
+            <a
+              href={GITHUB_REPO_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={vibrate}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface hover:bg-surface-2 border border-border text-xs text-text-muted hover:text-text transition-colors"
+              title="Star on GitHub"
+              aria-label="Star on GitHub"
+            >
+              <Github size={14} />
+              <span>{t("menu.starChip")}</span>
+              <Star size={12} className="text-yellow-500 fill-yellow-500" />
+              {formattedStars && <span className="font-mono text-[11px]">{formattedStars}</span>}
+            </a>
+          </div>
+        )}
       </div>
 
       <CommandNotesPanel
