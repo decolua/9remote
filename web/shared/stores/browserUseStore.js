@@ -14,7 +14,6 @@ const defaults = {
   minConfidence: 0.55,
   headless: true,
   mode: "own",
-  profile: "default",
   hostKeySet: false // runtime flag: the host holds a saved (masked) api key
 };
 
@@ -74,6 +73,5 @@ export const useBrowserUseStore = create((set, get) => ({
     };
     set(next);
     persist(next);
-  },
-  setProfile: (profile) => get().setConfig({ profile })
+  }
 }));

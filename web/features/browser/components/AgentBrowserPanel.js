@@ -5,7 +5,6 @@
 // voice-input pattern — per-device store that pushes to the host's KV.
 import { useEffect, useRef, useState } from "react";
 import { Bot, Image, Loader2, Play, Settings, Square, X } from "@/shared/components/ui/Icon";
-import { useBrowserUseStore } from "@/shared/stores/browserUseStore";
 import BrowserUseConfigForm, { useBrowserUseInvoke } from "@/shared/components/ui/BrowserUseSettings";
 
 const RESULT_STYLES = {
@@ -21,7 +20,6 @@ const outcomeStyle = (outcome) =>
       : "text-amber-500";
 
 export default function AgentBrowserPanel({ busRef, onClose }) {
-  const store = useBrowserUseStore();
   const [goal, setGoal] = useState("");
   const [url, setUrl] = useState("");
   const [steps, setSteps] = useState([]);
@@ -29,9 +27,7 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
   const [result, setResult] = useState(null);
   const [shot, setShot] = useState(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [profiles, setProfiles] = useState([{ name: "default" }]);
   const [stuckTable, setStuckTable] = useState(null);
-  const [newProfile, setNewProfile] = useState("");
   const timelineRef = useRef(null);
 
   const invoke = useBrowserUseInvoke(busRef);
@@ -43,39 +39,26 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
     return () => b?.off?.("browserUse:step", onStep);
   }, [busRef]);
 
-  useEffect(() => { invoke("profiles.list").then((r) => r.ok && setProfiles(r.profiles)); }, [invoke]);
   useEffect(() => { timelineRef.current?.scrollTo?.({ top: 1e9 }); }, [steps]);
 
   const start = async () => {
     if (!goal.trim() || running) return;
     setSteps([]); setResult(null); setShot(null); setStuckTable(null); setRunning(true);
-    const res = await invoke("run", { goal: goal.trim(), url: url.trim() || undefined, profile: store.profile });
+    const res = await invoke("run", { goal: goal.trim(), url: url.trim() || undefined });
     setRunning(false);
     setResult(res);
     // A dead end is only readable against the world the agent saw — pull the table.
     if (res.ok && ["blocked", "no_progress", "decision_error", "low_confidence"].includes(res.outcome)) {
-      const state = await invoke("state", { profile: store.profile });
+      const state = await invoke("state", {});
       if (state.ok) setStuckTable(state.actions || []);
     }
   };
-  const addProfile = async () => {
-    const name = newProfile.trim();
-    if (!name) return;
-    const res = await invoke("profiles.create", { name });
-    if (res.ok) { setProfiles((prev) => [...prev, { name }]); store.setProfile(name); setNewProfile(""); }
-  };
-  const removeProfile = async () => {
-    if (store.profile === "default") return;
-    if (!window.confirm(`Delete profile "${store.profile}" and its saved logins?`)) return;
-    const res = await invoke("profiles.delete", { name: store.profile });
-    if (res.ok) { setProfiles((prev) => prev.filter((p) => p.name !== store.profile)); store.setProfile("default"); }
-  };
   // Real cancel: the engine loop stops at the next decision boundary; the UI
   // stays "running" until the run actually returns (never lies about stopping).
-  const stop = () => invoke("run.cancel", { profile: store.profile });
+  const stop = () => invoke("run.cancel", {});
 
   const takeShot = async () => {
-    const res = await invoke("shot", { profile: store.profile });
+    const res = await invoke("shot", {});
     if (res.ok) setShot(`data:image/jpeg;base64,${res.image}`);
   };
 
@@ -88,28 +71,6 @@ export default function AgentBrowserPanel({ busRef, onClose }) {
           {running ? "running…" : result ? result.outcome : "idle"}
         </span>
         <div className="flex-1" />
-        {store.mode !== "attach" && (
-          <>
-            <select
-              value={store.profile}
-              onChange={(e) => store.setProfile(e.target.value)}
-              className="px-2 py-1 bg-surface-2 rounded-brand text-xs text-text"
-            >
-              {profiles.map((p) => <option key={p.name} value={p.name}>{p.name}</option>)}
-            </select>
-            <input
-              type="text" value={newProfile} onChange={(e) => setNewProfile(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && addProfile()}
-              placeholder="New profile" spellCheck={false}
-              className="w-24 px-2 py-1 bg-surface-2 rounded-brand text-xs text-text placeholder-text-muted"
-            />
-            {store.profile !== "default" && (
-              <button onClick={removeProfile} className="px-2 py-1 text-xs text-text-muted hover:text-red-500" title="delete profile">
-                <X size={13} />
-              </button>
-            )}
-          </>
-        )}
         <button onClick={() => setSettingsOpen(true)} className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand" title="settings">
           <Settings size={15} />
         </button>
