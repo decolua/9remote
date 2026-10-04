@@ -10,10 +10,11 @@ import os from "node:os";
 import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
+import { getExtClient } from "./extRelay.js";
 import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate } from "./snapshot.js";
 import { MAX_ELEMENTS } from "./constants.js";
 import {
-  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, LAUNCH_TIMEOUT_MS, NAV_WAIT_COMMIT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
+  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, EXT_PROFILE, LAUNCH_TIMEOUT_MS, NAV_WAIT_COMMIT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
   OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT,
   SCREENSHOT_QUALITY, SETTLE_CAP_MS, SETTLE_MIN_CLICK_MS, SETTLE_MIN_FILL_MS, SETTLE_MIN_HYDRATE_MS, SETTLE_MIN_LINK_MS, SETTLE_MIN_SPA_MS, SETTLE_QUIET_MS,
   STEP_FRAME_QUALITY, STEP_FRAME_SCALE, VIEWPORT, WAIT_TEXT_POLL_MS, WAIT_TEXT_TIMEOUT_MS
@@ -79,7 +80,7 @@ function writeAtomic(file, buffer) {
 // Latest step frame as base64 (null when absent) — the run report reuses this
 // instead of capturing a second screenshot after the loop ends.
 export function framePathFor({ profile, mode } = {}) {
-  const key = mode === "attach" ? ATTACH_PROFILE : (profile || "default");
+  const key = mode === "attach" ? ATTACH_PROFILE : mode === "extension" ? EXT_PROFILE : (profile || "default");
   return safeProfileName(key) ? stepFramePath(key) : null;
 }
 
@@ -207,6 +208,7 @@ export function openAttachGuide() {
 
 // ---- sessions -----------------------------------------------------------------
 export const ATTACH_PROFILE = "__attach__";
+export { EXT_PROFILE };
 const sessions = new Map(); // profile -> session
 
 export function urlsMatch(a, b) {
@@ -243,6 +245,8 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
   });
 
+  const unsubs = []; // client.on unsubscribe fns — drained in close() (shared clients)
+
   const session = {
     profile, mode, port, targetId, sessionId, headless, client,
     lastState: null,
@@ -263,9 +267,16 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       // auto-attach gives each an addressable child session (orca OOPIF pattern).
       await call("Target.setAutoAttach",
         { autoAttach: true, flatten: true, waitForDebuggerOnStart: false });
+      // Target discovery (browser level, no session) — feeds the popup adoption
+      // below; the extension shim synthesizes the same events from tabs.onCreated.
+      await client.call("Target.setDiscoverTargets", { discover: true }).catch(() => {});
       // Route downloads to a per-profile folder the agent can read back from.
-      await client.call("Browser.setDownloadBehavior",
-        { behavior: "allow", downloadPath: dlRoot(profile), eventsEnabled: true });
+      // chrome.debugger exposes no Browser domain — extension mode skips this;
+      // its download waits simply time out instead of tracking a file.
+      if (mode !== "extension") {
+        await client.call("Browser.setDownloadBehavior",
+          { behavior: "allow", downloadPath: dlRoot(profile), eventsEnabled: true });
+      }
       await call("Emulation.setDeviceMetricsOverride",
         { width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
       // Keep background tabs rendering (rAF, menus) without stealing the user's tab.
@@ -644,7 +655,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
         : (action?.kind === "click" || action?.kind === "select")
           ? (action?.role === "link" ? SETTLE_MIN_LINK_MS : SETTLE_MIN_CLICK_MS) : 0;
       const started = Date.now();
-      let changedAt = started, prev = null, freshDoc = false, spaRoute = false;
+      let changedAt = started, prev = null, prevFrame = null, freshDoc = false, spaRoute = false;
       while (Date.now() - started < SETTLE_CAP_MS) {
         let marker = null;
         try { marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION); }
@@ -661,6 +672,15 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
           if (prev === null || key !== prev) { prev = key; changedAt = Date.now(); }
         } else {
           changedAt = Date.now();
+        }
+        // A frame-targeted action can navigate ITS frame while the main marker
+        // sits still — quiet requires the frame's marker stable too.
+        if (action?.frame) {
+          try {
+            const fm = await evaluate(client, action.frame, MARKER_EXPRESSION);
+            const fk = Array.isArray(fm) ? fm.join("\u0001") : null;
+            if (fk === null || fk !== prevFrame) { prevFrame = fk; changedAt = Date.now(); }
+          } catch { changedAt = Date.now(); /* frame mid-navigation */ }
         }
         const minMs = Math.max(fillMin, freshDoc ? SETTLE_MIN_HYDRATE_MS : 0,
           spaRoute ? SETTLE_MIN_SPA_MS : 0, SETTLE_QUIET_MS);
@@ -799,6 +819,9 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
 
     async close() {
       sessions.delete(profile);
+      // Shared connections (attach probe, extension relay) outlive the session —
+      // its event handlers must not pile up on them across rebuilds.
+      for (const off of unsubs) off();
       // Close only what the engine opened — a borrowed (attach) tab is the user's.
       for (const targetId of session.ownsTargets) {
         try { await client.call("Target.closeTarget", { targetId }); } catch { /* already gone */ }
@@ -874,61 +897,71 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     return hit ? { x: hit.x, y: hit.y } : null;
   }
 
+  // Popup adoption (orca pattern): a page OUR tab spawned (full-screen chat,
+  // window.open, target=_blank) moves the session there, the way a user's
+  // focus follows the click — without it the table never changes and the
+  // agent re-clicks the opener, spawning duplicate tabs.
+  unsubs.push(client.on("Target.targetCreated", (p) => {
+    const t = p.targetInfo || {};
+    if (t.type !== "page" || t.openerId !== session.targetId) return;
+    void session.adopt(t.targetId).catch(() => {});
+  }));
+
   // OOPIF registry: cross-origin iframes get their own CDP session; snapshots
   // and actions route to it, coordinates get offset into parent space.
-  client.on("Target.attachedToTarget", (p, sid) => {
+  unsubs.push(client.on("Target.attachedToTarget", (p, sid) => {
     if (sid !== session.sessionId || p.targetInfo?.type !== "iframe" || !p.sessionId) return;
     session.iframes.set(p.targetInfo.targetId, { sessionId: p.sessionId, url: p.targetInfo.url || "" });
     client.call("Runtime.enable", {}, p.sessionId).catch(() => {});
-  });
-  client.on("Target.detachedFromTarget", (p) => {
+  }));
+  unsubs.push(client.on("Target.detachedFromTarget", (p) => {
     for (const [tid, info] of session.iframes) if (info.sessionId === p.sessionId) session.iframes.delete(tid);
-  });
+  }));
 
   // Main-frame navigation bookkeeping: a nav REQUEST fires at click time, the
   // COMMIT only when the server answers — settle() uses both to decide whether
   // to hold past its usual cap instead of serving the old page.
-  client.on("Page.frameRequestedNavigation", (p, sid) => {
+  unsubs.push(client.on("Page.frameRequestedNavigation", (p, sid) => {
     if (sid !== session.sessionId || p.frame?.parentId) return;
     session.navReq = { ts: Date.now(), disposition: p.disposition };
-  });
-  client.on("Page.frameNavigated", (p, sid) => {
+  }));
+  unsubs.push(client.on("Page.frameNavigated", (p, sid) => {
     for (const info of session.iframes.values()) {
       if (info.sessionId === sid && p.frame?.url) info.url = p.frame.url; // attach precedes the real src
     }
     if (sid !== session.sessionId || p.frame?.parentId) return;
     session.navCommit = Date.now();
-  });
+  }));
 
   // An open js dialog (alert/confirm/prompt) blocks EVERY later CDP command —
   // the loop would wedge with no error. Dismiss on arrival (accept the default
   // button; beforeunload declines so a stray unload cannot navigate away).
-  client.on("Page.javascriptDialogOpening", (dialog, sid) => {
+  unsubs.push(client.on("Page.javascriptDialogOpening", (dialog, sid) => {
     if (sid !== session.sessionId) return;
     session.dialogLog.push({ type: dialog.type, message: dialog.message ?? "", ts: Date.now() });
     if (session.dialogLog.length > 5) session.dialogLog.shift();
     client.call("Page.handleJavaScriptDialog",
       { accept: dialog.type !== "beforeunload" }, sid).catch(() => {});
-  });
+  }));
 
   // Download tracking: guid -> completed file path; waitDownload parks callers
   // until one lands. Chrome dedupes clashing names on disk, so the joined path
   // is the first-write name — delivered entries are never re-announced.
-  client.on("Page.downloadWillBegin", (p, sid) => {
+  unsubs.push(client.on("Page.downloadWillBegin", (p, sid) => {
     if (sid !== session.sessionId) return;
     session.downloads.set(p.guid, {
       filename: p.suggestedFilename || "download",
       path: path.join(dlRoot(session.profile), p.suggestedFilename || "download"),
       done: false, delivered: false
     });
-  });
-  client.on("Page.downloadProgress", (p, sid) => {
+  }));
+  unsubs.push(client.on("Page.downloadProgress", (p, sid) => {
     if (sid !== session.sessionId) return;
     const entry = session.downloads.get(p.guid);
     if (!entry || (p.state !== "completed" && p.state !== "canceled")) return;
     entry.done = p.state === "completed";
     if (entry.done) for (const resolve of session.downloadWaiters.splice(0)) resolve();
-  });
+  }));
 
   return session;
 }
@@ -1008,8 +1041,8 @@ async function dropSession(session) {
 // a session whose browser/tab died is dropped and relaunched ONCE, so a Chrome
 // restart or a closed tab never wedges every later command until host restart.
 export async function withSession(options = {}, fn) {
-  const isAttach = options.mode === "attach";
-  const profile = isAttach ? ATTACH_PROFILE : (options.profile || "default");
+  const mode = options.mode === "attach" || options.mode === "extension" ? options.mode : "own";
+  const profile = mode === "attach" ? ATTACH_PROFILE : mode === "extension" ? EXT_PROFILE : (options.profile || "default");
   return serialize(profile, async () => {
     let existing = sessions.get(profile);
     // Dead WS or a settings mode switch: the old browser no longer matches.
@@ -1041,7 +1074,9 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
   let bin = null;
   const stderrTail = [];
   let attachWsUrl = null;
-  if (mode === "attach") {
+  if (mode === "extension") {
+    if (!getExtClient()) throw new Error("Browser extension not connected — install it from Settings → Browser");
+  } else if (mode === "attach") {
     const info = attachPort ? { port: attachPort } : findAttachedDevToolsInfo();
     if (!info) throw new Error("Real browser not attached — enable chrome://inspect/#remote-debugging first");
     port = info.port;
@@ -1068,10 +1103,12 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
   }
   let client;
   try {
-    // Attached browsers skip the /json HTTP API (newer Chrome doesn't serve it) —
-    // connect straight to the WS path from DevToolsActivePort. Chrome serves ONE
-    // browser-level debug WS: reuse the probe connection, never open a second.
-    if (attachWsUrl) {
+    if (mode === "extension") {
+      client = getExtClient(); // checked above — still connected
+    } else if (attachWsUrl) {
+      // Attached browsers skip the /json HTTP API (newer Chrome doesn't serve it) —
+      // connect straight to the WS path from DevToolsActivePort. Chrome serves ONE
+      // browser-level debug WS: reuse the probe connection, never open a second.
       if (!attachProbe || attachProbe.closed) attachProbe = await CdpClient.connect(attachWsUrl, ATTACH_PROBE_TIMEOUT_MS);
       client = attachProbe;
     } else {
@@ -1086,7 +1123,7 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
   try {
     let targetId;
     let created = false;
-    if (mode === "attach") {
+    if (mode !== "own") { // real-browser modes share the same tab discipline
       const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
       const pageTargets = targetInfos.filter((t) => t.type === "page");
       const matched = url ? pageTargets.find((t) => urlsMatch(t.url, url)) : null;
@@ -1124,11 +1161,11 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
     const attached = await client.call("Target.attachToTarget", { targetId, flatten: true });
     const session = makeSession({
       profile, mode, port, child, client, sessionId: attached.sessionId, targetId, headless,
-      shared: Boolean(attachWsUrl)
+      shared: mode !== "own" // a borrowed browser outlives every session
     });
     if (created) session.ownsTargets.add(targetId);
     await session.setup();
-    if (mode === "attach") {
+    if (mode !== "own") {
       rememberAttachTarget(targetId);
       try { await client.call("Page.bringToFront", {}, attached.sessionId); } catch { /* ignore */ }
     }

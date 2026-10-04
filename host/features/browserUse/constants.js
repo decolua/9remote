@@ -75,7 +75,7 @@ export const JEV_CONFIG_DEFAULTS = {
   apiKey: "",     // free lane ignores this
   minConfidence: MIN_CONFIDENCE_DEFAULT,
   headless: true,     // own-profile Chrome runs headless unless disabled
-  mode: "own"         // "own" = engine's isolated Chrome · "attach" = user's real browser (debug)
+  mode: "own"         // "own" = engine's isolated Chrome · "attach" = real browser (debug port) · "extension" = real browser (bridge extension)
 };
 
 export const KV_KEY = "browserUse.config";
@@ -84,4 +84,14 @@ export const ATTACH_GUIDE_STEPS = [
   "Open chrome://inspect/#remote-debugging in Chrome (or use the Open button)",
   "Enable \"Allow remote debugging\"",
   "Come back and Check again"
+];
+
+// Extension bridge (mode "extension") — same engine, CDP over chrome.debugger.
+export const EXT_PROFILE = "__extension__";
+export const EXT_RELAY_PATH = "/browser-relay";
+export const EXT_HEARTBEAT_MS = 15000; // keeps the MV3 service worker from idling out
+export const EXT_GUIDE_STEPS = [
+  "Click Install — the host opens Chrome's extensions page and the extension folder",
+  "Turn on Developer mode, then \"Load unpacked\" and pick that folder",
+  "The status here flips to connected once the extension loads"
 ];

@@ -50,6 +50,9 @@ export default function BrowserUseConfigForm({ busRef }) {
   const [testing, setTesting] = useState(false);
   const [attach, setAttach] = useState(null);
   const [checking, setChecking] = useState(false);
+  const [ext, setExt] = useState(null);
+  const [installing, setInstalling] = useState(false);
+  const [copiedSilence, setCopiedSilence] = useState(false);
   const [copied, setCopied] = useState(false);
   const [editingKey, setEditingKey] = useState(false);
   const modelOptions = MODEL_OPTIONS[store.preset] || MODEL_OPTIONS.openrouter;
@@ -105,6 +108,27 @@ export default function BrowserUseConfigForm({ busRef }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.mode]);
 
+  const checkExt = async () => {
+    const res = await invoke("ext.status", {});
+    if (res.ok) setExt(res);
+  };
+  const installExt = async () => {
+    setInstalling(true);
+    const res = await invoke("ext.install", {});
+    setInstalling(false);
+    if (res.ok) await checkExt(); // folder materialized — re-read status + guide
+  };
+  // Extension panel: auto-check plus the host's live connect/disconnect push.
+  useEffect(() => {
+    if (store.mode !== "extension") return;
+    const t = setTimeout(checkExt, 0);
+    const onExt = ({ connected } = {}) => setExt((e) => ({ ...(e || {}), connected }));
+    const b = useConnectionStore.getState().bus;
+    b?.on?.("browserUse:ext", onExt);
+    return () => { clearTimeout(t); b?.off?.("browserUse:ext", onExt); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [store.mode]);
+
   return (
     <div className="space-y-4">
       <label className="block text-xs text-text-muted">
@@ -113,6 +137,7 @@ export default function BrowserUseConfigForm({ busRef }) {
           className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text">
           <option value="own">Own browser — isolated profile (default, safe)</option>
           <option value="attach">Real browser — attach via debug mode</option>
+          <option value="extension">Real browser — via Chrome extension</option>
         </select>
       </label>
 
@@ -149,6 +174,47 @@ export default function BrowserUseConfigForm({ busRef }) {
                 {(attach.guide || []).map((step, i) => <li key={i}>{step}</li>)}
               </ol>
             </>
+          )}
+        </div>
+      )}
+
+      {store.mode === "extension" && (
+        <div className="rounded-brand border border-border-subtle p-2.5 space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <span className={`flex items-center gap-1.5 text-xs font-medium ${ext?.connected ? "text-emerald-500" : "text-amber-500"}`}>
+              <span className={`inline-block h-1.5 w-1.5 rounded-full ${ext?.connected ? "bg-emerald-500" : "bg-amber-500"}`} />
+              {ext ? (ext.connected ? "Extension connected" : ext.installed ? "Not connected — is the extension loaded?" : "Extension not installed") : "Checking…"}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <button onClick={installExt} disabled={installing}
+                className="px-2 py-1 bg-brand-500 text-white rounded-brand text-xs disabled:opacity-40">
+                {installing ? "…" : "Install"}
+              </button>
+              <button onClick={checkExt}
+                className="px-2 py-1 bg-surface-2 rounded-brand text-xs text-text-muted">
+                Recheck
+              </button>
+            </div>
+          </div>
+          {ext && !ext.connected && (
+            <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-0.5">
+              {(ext.guide || []).map((step, i) => <li key={i}>{step}</li>)}
+            </ol>
+          )}
+          {ext?.connected && ext.silenceCmd && (
+            <div className="flex items-center gap-1.5" title="Quit Chrome fully, then run this — the debug banner stays off for that whole session. It hides the banner for every extension, not just this one.">
+              <span className="text-[11px] text-text-muted shrink-0">Kill banner:</span>
+              <code className="flex-1 min-w-0 px-2 py-1 bg-surface-2 rounded-brand text-[11px] text-text truncate select-all">{ext.silenceCmd}</code>
+              <button onClick={async () => {
+                try {
+                  await navigator.clipboard.writeText(ext.silenceCmd);
+                  setCopiedSilence(true);
+                  setTimeout(() => setCopiedSilence(false), 1500);
+                } catch { /* clipboard unavailable — the code text is still selectable */ }
+              }} className="shrink-0 px-2 py-1 bg-surface-2 rounded-brand text-xs text-text-muted">
+                {copiedSilence ? "Copied" : "Copy"}
+              </button>
+            </div>
           )}
         </div>
       )}

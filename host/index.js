@@ -27,6 +27,7 @@ import { generateLocalToken } from "./lib/localToken.js";
 import { isNewerVersion } from "./cli/utils/updateChecker.js";
 
 import { handleBrowserUsePost } from "./features/browserUse/browserUseSocket.js";
+import { attachBrowserRelay } from "./features/browserUse/extRelay.js";
 import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
   handleSseEvents, handleStateGet, handleStatePost,
@@ -534,6 +535,9 @@ export async function startServer() {
   if (process.platform === "darwin") {
     setInterval(refreshPermissionsSafe, PERMISSION_POLL_MS);
   }
+
+  // Extension bridge rides the same HTTP server (own path, loopback + token).
+  attachBrowserRelay(server, port);
 
   await startTransportServer(server);
 

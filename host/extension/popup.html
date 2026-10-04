@@ -1,0 +1,58 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* Web light theme (:root.light in globals.css), mirrored — no Tailwind here. */
+  :root {
+    --bg: #FCFBF9; --surface: #ffffff; --surface-2: #f4f4f5; --surface-3: #e7e7e9;
+    --border: #e5e7eb; --border-subtle: #e9e9ec;
+    --text: #0a0a0a; --muted: #6B7280; --subtle: #9CA3AF;
+    --brand: #FF570A; --ok: #10B981; --warn: #B45309;
+  }
+  * { box-sizing: border-box; }
+  body { width: 264px; margin: 0; font: 13px -apple-system, "Segoe UI", sans-serif; background: var(--bg); color: var(--text); }
+  .head { display: flex; align-items: center; gap: 10px; padding: 14px 14px 10px; }
+  .head img { width: 30px; height: 30px; border-radius: 7px; }
+  .head .name { font-weight: 600; font-size: 14px; }
+  .head .ver { color: var(--subtle); font-size: 11px; margin-left: auto; }
+  .status { display: flex; align-items: center; gap: 8px; padding: 0 14px 12px; font-size: 12.5px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+  .dot.on  { background: var(--ok); box-shadow: 0 0 6px #10b98166; }
+  .dot.off { background: var(--warn); }
+  .dot.cut { background: var(--surface-3); }
+  .status .host { color: var(--muted); margin-left: auto; font-size: 11px; }
+  .section { border-top: 1px solid var(--border-subtle); padding: 10px 14px; }
+  .row { display: flex; align-items: center; justify-content: space-between; }
+  .row .what { font-size: 12.5px; }
+  .row .hint { color: var(--muted); font-size: 10.5px; margin-top: 2px; }
+  /* Switch — neutral on-state (no brand color) */
+  .switch { position: relative; width: 36px; height: 20px; flex-shrink: 0; cursor: pointer; }
+  .switch input { display: none; }
+  .slider { position: absolute; inset: 0; background: var(--surface-2); border: 1px solid var(--border); border-radius: 999px; transition: background .15s; }
+  .slider::after { content: ""; position: absolute; top: 2px; left: 2px; width: 14px; height: 14px; border-radius: 50%; background: #fff; box-shadow: 0 1px 2px rgba(0,0,0,.18); transition: transform .15s; }
+  .switch input:checked + .slider { background: #0a0a0a; border-color: #0a0a0a; }
+  .switch input:checked + .slider::after { transform: translateX(16px); }
+</style>
+</head>
+<body>
+  <div class="head">
+    <img src="icons/icon48.png" alt="">
+    <span class="name">9remote Bridge</span>
+    <span class="ver" id="ver"></span>
+  </div>
+  <div class="status">
+    <span class="dot off" id="dot"></span>
+    <span id="label">Checking…</span>
+    <span class="host" id="host"></span>
+  </div>
+  <div class="section row">
+    <div>
+      <div class="what">Bridge</div>
+      <div class="hint" id="pauseHint">Host may drive this browser</div>
+    </div>
+    <label class="switch"><input type="checkbox" id="bridge" checked><span class="slider"></span></label>
+  </div>
+  <script src="popup.js"></script>
+</body>
+</html>

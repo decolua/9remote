@@ -13,6 +13,7 @@ function parseArgs(args) {
     if (a === "--url") { opts.url = args[++i]; continue; }
     if (a === "--max-steps") { opts.maxSteps = Number(args[++i]); continue; }
     if (a === "--attach") { opts.mode = "attach"; continue; }
+    if (a === "--extension") { opts.mode = "extension"; continue; }
     if (a === "--no-headless") { opts.headless = false; continue; }
     if (a === "--enter") { opts.enter = true; continue; }
     if (a === "--only") { opts.only = args[++i]; continue; }
@@ -165,6 +166,7 @@ export async function cmdBrowser(args) {
   const { positional, opts } = parseArgs(args);
   const [sub, ...rest] = positional;
   const isAttach = opts.mode === "attach";
+  if (opts.mode === "extension") opts.profile = "__extension__"; // engine keys the shared bridge session
   const payload = (extra = {}) => ({
     profile: isAttach ? "__attach__" : undefined, // engine defaults the own-mode profile
     ...opts,
@@ -186,7 +188,8 @@ export async function cmdBrowser(args) {
     }
     case "open": {
       const data = mustOk(await call("open", payload({ url: rest[0], wait: opts.wait, timeoutMs: opts.timeoutMs })));
-      console.log(`opened ${rest[0]} (${isAttach ? "real browser" : "isolated Chrome"})`);
+      const modeLabel = isAttach ? "real browser (debug)" : opts.mode === "extension" ? "real browser (extension)" : "isolated Chrome";
+      console.log(`opened ${rest[0]} (${modeLabel})`);
       if (data.state) printState(data.state);
       return;
     }

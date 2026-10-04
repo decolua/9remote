@@ -171,6 +171,20 @@ function copyMobileVendor() {
   console.log(`✅ scrcpy-server → host/dist/vendor/`);
 }
 
+// Ship the browser-bridge extension template (load-unpacked source): dev
+// layout host/extension/, dist host/dist/extension/.
+function copyExtension() {
+  console.log("\n🧩 Copying browser extension...");
+  const srcDir = path.join(SERVER_DIR, "extension");
+  const destDir = path.join(DIST_DIR, "extension");
+  if (!fs.existsSync(srcDir)) return;
+  ensureDir(destDir);
+  for (const file of fs.readdirSync(srcDir)) {
+    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
+  }
+  console.log(`✅ extension → host/dist/extension/`);
+}
+
 async function build() {
   console.log("🔨 Building npm package...\n");
 
@@ -185,6 +199,7 @@ async function build() {
   copyAssets();
   copyDesktopBridge();
   copyMobileVendor();
+  copyExtension();
 
   // Disabled: obfuscation triggers Defender false positive (Trojan:JS/NpmSteal)
   // console.log("\n🔒 Obfuscating bundles...");

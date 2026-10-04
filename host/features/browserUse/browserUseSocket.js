@@ -16,6 +16,7 @@ import {
   requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter,
   switchTab, closeTab
 } from "./engine.js";
+import { ensureExtensionInstall, extStatus } from "./extRelay.js";
 import { AUTO_CONTINUE_CHUNKS, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
 import { installSkillForEngine, removeAllInstalledSkills, SKILL_ENGINES } from "./skill.js";
 import { globalAiManager } from "../ai/aiManager.js";
@@ -49,7 +50,7 @@ export function setConfig(patch = {}) {
   for (const key of ["enabled", "preset", "endpoint", "model", "apiKey", "headless"]) {
     if (patch[key] !== undefined) next[key] = patch[key];
   }
-  if (patch.mode === "own" || patch.mode === "attach") next.mode = patch.mode;
+  if (patch.mode === "own" || patch.mode === "attach" || patch.mode === "extension") next.mode = patch.mode;
   if (typeof patch.minConfidence === "number") {
     next.minConfidence = Math.min(1, Math.max(0, patch.minConfidence));
   }
@@ -167,6 +168,10 @@ export async function invoke(action, payload = {}) {
       return { ok: true, ...(await attachStatus()) };
     case "attach.open":
       return { ok: true, ...openAttachGuide() };
+    case "ext.status":
+      return { ok: true, ...extStatus() };
+    case "ext.install":
+      return { ok: true, ...ensureExtensionInstall() };
     case "tabs": {
       const opts = sessionOpts(payload);
       return { ok: true, tabs: await listTabs(opts) };
@@ -524,10 +529,11 @@ const stateAfterSafe = async (session) => {
 };
 
 // One decision gate for session identity: every caller resolves mode/headless alike.
+const MODES = ["own", "attach", "extension"];
 const sessionOpts = (payload = {}) => {
-  const mode = payload.mode === "attach" ? "attach" : config.mode;
+  const mode = MODES.includes(payload.mode) ? payload.mode : config.mode;
   return {
-    profile: mode === "attach" ? "__attach__" : (payload.profile || "default"),
+    profile: mode === "attach" ? "__attach__" : mode === "extension" ? "__extension__" : (payload.profile || "default"),
     mode,
     headless: config.headless
   };

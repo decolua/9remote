@@ -1,0 +1,11 @@
+{
+  "manifest_version": 3,
+  "name": "9remote Browser Bridge",
+  "version": "1.0.0",
+  "description": "Lets the 9remote host drive this browser. All logic lives on the host — this is only a CDP pipe.",
+  "permissions": ["debugger", "tabs", "storage"],
+  "background": { "service_worker": "background.js" },
+  "action": { "default_popup": "popup.html" },
+  "icons": { "16": "icons/icon16.png", "48": "icons/icon48.png", "128": "icons/icon128.png" },
+  "minimum_chrome_version": "116"
+}
