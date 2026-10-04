@@ -4,17 +4,17 @@
  */
 
 export function vibrate(duration = 10) {
-  // Standard Vibration API (Android browsers)
-  if (navigator.vibrate) {
-    navigator.vibrate(duration);
-    return;
-  }
-
-  // Expo shell on Android: WebView has no Vibration API, use native haptics bridge
-  if (window.DEVICE_INFO?.platform === "android" && window.ReactNativeWebView) {
+  // Expo shell: navigator.vibrate exists in Android WebView but is a no-op there, so the native bridge must win
+  if (window.ReactNativeWebView) {
     try {
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: "HAPTIC", style: "selection" }));
     } catch {}
+    return;
+  }
+
+  // Standard Vibration API (Android browsers)
+  if (navigator.vibrate) {
+    navigator.vibrate(duration);
     return;
   }
 
