@@ -1,0 +1,3 @@
+{
+  "ignore": ["dist/", "*.tgz", "package.json"]
+}
