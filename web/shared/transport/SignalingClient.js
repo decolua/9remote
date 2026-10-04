@@ -37,7 +37,7 @@ function sigData(msg) {
 export class SignalingClient {
   static id = "sig";
 
-  constructor({ url, role, roomId, apiKey, from, onReady, pingMs = 25000 }) {
+  constructor({ url, role, roomId, apiKey, from, onReady, pingMs = 10000 }) {
     const peerId = from || role;
     this._url = `${url}/ws/${encodeURIComponent(roomId)}?role=${role}&apiKey=${encodeURIComponent(apiKey)}&from=${encodeURIComponent(peerId)}`;
     this._from = from || role;
