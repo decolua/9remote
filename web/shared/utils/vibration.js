@@ -4,8 +4,10 @@
  */
 
 export function vibrate(duration = 10) {
-  // Expo shell: navigator.vibrate exists in Android WebView but is a no-op there, so the native bridge must win
-  if (window.ReactNativeWebView) {
+  // Android Expo shell: navigator.vibrate exists in Android WebView but is a no-op
+  // there, so the native bridge must win. UA gate — DEVICE_INFO is injected post-load
+  // and can be missing. iOS keeps its WebView haptic path below.
+  if (window.ReactNativeWebView && /Android/i.test(navigator.userAgent)) {
     try {
       window.ReactNativeWebView.postMessage(JSON.stringify({ type: "HAPTIC", style: "selection" }));
     } catch {}
