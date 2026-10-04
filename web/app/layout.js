@@ -56,10 +56,10 @@ const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_K
 // Redirect Expo WebView from dev.9remote.cc to production 9remote.cc
 const expoRedirectScript = `(function(){try{if(location.hostname==="dev.9remote.cc"&&(window.ReactNativeWebView||/9Remote-Mobile/i.test(navigator.userAgent))){location.replace("https://9remote.cc"+location.pathname+location.search+location.hash);}}catch(e){}})();`;
 
-// Native shell bridge — expo injects the real status-bar inset via
-// handleSafeAreaInset; web applies it as --pl-top (0 when unset, so browsers/PWA
+// Native shell bridge — expo injects the real status-bar/notch insets via
+// handleSafeAreaInset; web applies them as --pl-* (0 when unset, so browsers/PWA
 // are unaffected). Bottom inset is owned by bottom bars (.safe-area-bottom).
-const safeAreaScript = `window.handleSafeAreaInset=function(top,bottom){try{document.documentElement.style.setProperty("--pl-top",Math.max(top||0,0)+"px");}catch(e){}};`;
+const safeAreaScript = `window.handleSafeAreaInset=function(top,left,right){try{var d=document.documentElement.style;d.setProperty("--pl-top",Math.max(top||0,0)+"px");d.setProperty("--pl-left",Math.max(left||0,0)+"px");d.setProperty("--pl-right",Math.max(right||0,0)+"px");}catch(e){}};`;
 
 // Clipboard-read blocker — neutralizes navigator.clipboard.readText/.read at the
 // browser API level so no library (xterm core OSC52, CodeMirror, addon) can trigger

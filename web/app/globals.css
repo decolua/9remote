@@ -596,14 +596,19 @@ html.terminal-page body {
 :root {
   --safe-top: max(env(safe-area-inset-top, 0px), var(--pl-top, 0px));
   --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--pl-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--pl-left, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--pl-right, 0px));
 }
 
-/* Native shell (expo): push content below the status bar; background stays
-   full-screen. Every view renders inside this container, so components
-   inherit the top inset instead of computing their own. */
+/* Native shell (expo): push content below the status bar and clear of the
+   landscape notch; background stays full-screen. Every view renders inside
+   this container, so components inherit the insets instead of computing
+   their own. */
 .terminal-container {
   top: var(--safe-top);
   height: calc(var(--app-height, 100vh) - var(--safe-top));
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
 }
 
 /* Terminal container */
