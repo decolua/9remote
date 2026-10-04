@@ -11,7 +11,7 @@ import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../..
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, loadWorkspaces, saveWorkspaces, saveSessionMetadata, saveSessionMetadataRaw } from "./ptyHelper.js";
 import { migrateGroupsToWorkspaces, assignOrphanSessions } from "./workspaceMigration.js";
-import { setupSessionHandlers, syncAutoNames } from "./handlers/SessionHandler.js";
+import { setupSessionHandlers, syncAutoNames, pickRespawnSize } from "./handlers/SessionHandler.js";
 import { setupInputHandlers } from "./handlers/InputHandler.js";
 import { setupPushHandlers } from "./handlers/PushHandler.js";
 import { reconcileClaudeEnv, autoEnableInstalledHooks, reconcileCodexTrust } from "./hookManager.js";
@@ -21,9 +21,12 @@ import { markSubscriptionDisconnected } from "./pushManager.js";
 import { clearNotification } from "./notificationManager.js";
 import { touchWorking, touchOutput, startReaper, getStatuses, getStatus, getConversation, setSessionAgent, getSessionAgent, clearSessionAgent, clearStatus, forgetSession, onAgentChange, restoreConversation, setConversationPersister, onAutoNameRequest, onProcessChange, confirmShellClear, isPendingShellClear, applyEvent, scheduleDoneCommit } from "./statusManager.js";
 import { agentIdFromTitle } from "./agentCatalog.js";
+import { resumeCommand } from "./agentHistory.js";
+import { engineFromAgent } from "./conversationModes.js";
+import { sendTerminalInput, CLEAR_LINE } from "./sessionMode.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
-import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES } from "./constants.js";
+import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES, RESPAWN_RESUME_DELAY_MS } from "./constants.js";
 import { createLogger } from "../../lib/logger.js";
 
 const termLogger = createLogger("terminal");
@@ -156,6 +159,37 @@ function scheduleAutoName(sessionId) {
     autoNameTimers.delete(sessionId);
     syncAutoNames(autoNameIo, sessions, sessionId).catch(() => {});
   }, AUTO_NAME_DEBOUNCE_MS));
+}
+
+// A daemon restart killed every PTY it owned. Recreate them right away — same id,
+// title, cwd and size — instead of waiting for each tab to be opened, and re-run the
+// agent CLI's resume line so a conversation that was running continues where it stopped.
+async function respawnPendingSessions() {
+  const pending = [...sessions.entries()].filter(([, s]) => s.daemon && s.needsRespawn);
+  let respawned = 0;
+  for (const [sessionId, session] of pending) {
+    try {
+      const { cols, rows } = pickRespawnSize(session);
+      const created = await daemonClient.createSession(session.name, cols, rows, session.shellId, sessionId, session.cwd);
+      if (!created.success) continue;
+      delete session.needsRespawn;
+      session.cwd = created.cwd;
+      session.shellLabel = created.shellLabel;
+      session.lastCols = cols;
+      session.lastRows = rows;
+      respawned++;
+      const conv = getConversation(sessionId);
+      const engine = conv && engineFromAgent(conv.agent);
+      const line = engine && conv.id && resumeCommand(engine, conv.id);
+      if (line) setTimeout(() => sendTerminalInput(sessionId, session, `${CLEAR_LINE}${line}\r`), RESPAWN_RESUME_DELAY_MS);
+    } catch (e) {
+      termLogger.warn(`[respawn] session ${sessionId} failed: ${e.message}`);
+    }
+  }
+  if (!respawned) return;
+  saveSessionMetadata(sessions);
+  broadcast(null, "sessionsChanged");
+  console.log(ORANGE(`🔄 Respawned ${respawned} session(s) after daemon restart`));
 }
 
 // Give every workspace-less terminal a home, by the directory it actually runs in. Runs
@@ -305,8 +339,9 @@ export async function initializeTerminal() {
     } else {
       await syncDaemonSessions();
       adoptOrphanSessions();
+      respawnPendingSessions().catch(() => {});
       // Re-sync when daemon respawns (e.g. version bump) so titles survive and lost PTYs are marked for respawn
-      daemonClient.on("connected", () => { syncDaemonSessions().then(adoptOrphanSessions).catch(() => {}); });
+      daemonClient.on("connected", () => { syncDaemonSessions().then(adoptOrphanSessions).then(respawnPendingSessions).catch(() => {}); });
       // Silent connect
       return;
     }
