@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star } from "@/shared/components/ui/Icon";
+import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star, Check, Smartphone } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
@@ -59,6 +59,7 @@ export default function MenuItems({
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
   const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
+  const [orientationOpen, setOrientationOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
   const terminalMenuRef = useRef(null);
 
@@ -89,16 +90,19 @@ export default function MenuItems({
   const isApp = typeof window !== "undefined" && (
     window.matchMedia("(display-mode: standalone)").matches || isExpo
   );
+  // iOS app: orientation item hidden until a build with the bridge handler ships
+  const isAndroidApp = isExpo && !(/iPad|iPhone|iPod/.test(navigator.userAgent));
 
   const [orientation, setOrientation] = useState(() => {
     if (typeof window !== "undefined") {
-      return window.CURRENT_ORIENTATION || localStorage.getItem("expo_orientation") || "portrait";
+      // "auto" matches the native default lock (OrientationLock.DEFAULT)
+      return window.CURRENT_ORIENTATION || localStorage.getItem("expo_orientation") || "auto";
     }
-    return "portrait";
+    return "auto";
   });
 
   useEffect(() => {
-    if (!isExpo) return;
+    if (!isAndroidApp) return;
     const handler = (newOri) => {
       if (newOri) {
         setOrientation(newOri);
@@ -107,14 +111,21 @@ export default function MenuItems({
     };
     window.handleScreenOrientationChange = handler;
     try {
-      window.ReactNativeWebView?.postMessage(JSON.stringify({ type: "GET_SCREEN_ORIENTATION" }));
+      // Native lock resets on app restart — re-apply the persisted mode; otherwise
+      // just read the current lock so the UI matches reality
+      const stored = localStorage.getItem("expo_orientation");
+      window.ReactNativeWebView?.postMessage(JSON.stringify(
+        ["portrait", "auto"].includes(stored)
+          ? { type: "SET_SCREEN_ORIENTATION", orientation: stored }
+          : { type: "GET_SCREEN_ORIENTATION" }
+      ));
     } catch {}
     return () => {
       if (window.handleScreenOrientationChange === handler) {
         window.handleScreenOrientationChange = undefined;
       }
     };
-  }, [isExpo]);
+  }, [isAndroidApp]);
 
   const handleOrientationChange = useCallback((mode) => {
     vibrate();
@@ -177,36 +188,6 @@ export default function MenuItems({
           )}
         </button>
       )}
-
-      {/* Screen orientation — Expo native app only (temporarily hidden) */}
-      {/* isExpo && (
-        <div className="w-full px-3 py-2 bg-surface rounded-brand-lg flex flex-col gap-2">
-          <div className="flex items-center gap-2.5">
-            <RotateCw className="text-brand-500" size={16} />
-            <span className="text-sm">{t("menu.orientation")}</span>
-          </div>
-          <div className="grid grid-cols-3 gap-1 bg-surface-2 p-1 rounded-brand">
-            {[
-              { id: "portrait", label: t("menu.orientationPortrait") },
-              { id: "landscape", label: t("menu.orientationLandscape") },
-              { id: "auto", label: t("menu.orientationAuto") }
-            ].map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                onClick={() => handleOrientationChange(item.id)}
-                className={`py-1 px-2 text-xs font-medium rounded-brand transition duration-150 ease-out text-center ${
-                  orientation === item.id
-                    ? "bg-brand-500 text-white shadow-sm"
-                    : "text-text-muted hover:text-text"
-                }`}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      ) */}
 
       {/* Terminal settings — collapsible dropdown (font + theme + GPU render) */}
       {/* Header buttons — the same list the desktop settings screen offers, so a
@@ -364,6 +345,40 @@ export default function MenuItems({
           </span>
           <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
         </button>
+      )}
+
+      {/* Screen orientation — Android app only; iOS hidden until a build with the
+          SET/GET handler ships (menu arrives via web deploy, handler needs OTA/build) */}
+      {isAndroidApp && (
+        <div className="bg-surface rounded-brand-lg overflow-hidden">
+          <button
+            onClick={() => { vibrate(); setOrientationOpen((v) => !v); }}
+            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+          >
+            <RotateCw className="text-brand-500 flex-shrink-0" size={16} />
+            <span className="text-sm flex-1">{t("menu.orientation")}</span>
+            <ChevronDown className={`text-text-muted transition-transform duration-200 ${orientationOpen ? "rotate-180" : ""}`} size={16} />
+          </button>
+          {orientationOpen && (
+            <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
+              {[
+                { id: "portrait", label: t("menu.orientationPortrait"), Icon: Smartphone },
+                { id: "auto", label: t("menu.orientationAuto"), Icon: RotateCw }
+              ].map((item) => (
+                <button
+                  key={item.id}
+                  type="button"
+                  onClick={() => handleOrientationChange(item.id)}
+                  className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+                >
+                  <item.Icon className="text-text" size={16} />
+                  <span className="text-sm flex-1">{item.label}</span>
+                  {orientation === item.id && <Check size={16} className="text-brand-500 flex-shrink-0" />}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
       )}
 
       {/* Jarvis coordinator — opens the kanban + voice chat overlay */}
