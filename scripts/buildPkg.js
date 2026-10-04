@@ -178,10 +178,7 @@ function copyExtension() {
   const srcDir = path.join(SERVER_DIR, "extension");
   const destDir = path.join(DIST_DIR, "extension");
   if (!fs.existsSync(srcDir)) return;
-  ensureDir(destDir);
-  for (const file of fs.readdirSync(srcDir)) {
-    fs.copyFileSync(path.join(srcDir, file), path.join(destDir, file));
-  }
+  fs.cpSync(srcDir, destDir, { recursive: true, filter: (src) => !src.endsWith(".DS_Store") });
   console.log(`✅ extension → host/dist/extension/`);
 }
 
