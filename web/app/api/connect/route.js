@@ -129,9 +129,6 @@ export async function POST(request) {
 
     const tunnelUrl = cached?.tunnelUrl || null;
 
-    console.log(`[connect] apiKey=${apiKey?.slice(0,8)} tunnelUrl=${tunnelUrl || "none (rtc)"} localIp=${cached?.localIp || "none"}` +
-      ` [seal] hostKeys=${cached?.hostKeys ? (cached.hostKeys.x ? "ed+x" : "ed only (agent has not registered a sealing key)") : "none"}`);
-
     return jsonOk({ tunnelUrl, apiKey, tempKey, localIp: cached?.localIp || null, hostKeys: cached?.hostKeys || null });
   } catch (e) {
     return jsonError(e?.message || String(e), 500);
