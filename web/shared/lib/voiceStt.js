@@ -68,10 +68,18 @@ export const sttErrText = (err) =>
   err?.message === "Failed to fetch" ? "Network/CORS error" :
   err?.message || "Failed";
 
+// Some Android WebViews can't record the default webm — negotiate a codec the
+// recorder supports. Transcription decodes then re-encodes, so the choice is safe.
+const RECORDER_MIME_CANDIDATES = ["audio/webm;codecs=opus", "audio/webm", "audio/mp4", "audio/ogg;codecs=opus", "audio/aac"];
+export function pickRecorder(stream) {
+  const mimeType = RECORDER_MIME_CANDIDATES.find((m) => MediaRecorder.isTypeSupported?.(m));
+  return mimeType ? new MediaRecorder(stream, { mimeType }) : new MediaRecorder(stream);
+}
+
 // Fixed-length clip for the test button; dictation manages its own recorder.
 export async function recordClip(ms = RECORD_MS) {
   const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-  const rec = new MediaRecorder(stream);
+  const rec = pickRecorder(stream);
   const chunks = [];
   rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
   const stopped = new Promise((resolve) => { rec.onstop = resolve; });

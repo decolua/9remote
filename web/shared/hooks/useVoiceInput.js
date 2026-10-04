@@ -8,7 +8,7 @@
 // `active` = enabled && engine available; render mic buttons on that, not `supported`.
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useVoiceStore } from "@/shared/stores/voiceStore";
-import { transcribeBlob } from "@/shared/lib/voiceStt";
+import { transcribeBlob, pickRecorder } from "@/shared/lib/voiceStt";
 
 // Map app 2-letter locales to BCP-47 speech tags (best-effort; bare code works too).
 export const SPEECH_LANG = {
@@ -151,7 +151,7 @@ export function useVoiceInput({
     try {
       gum = navigator.mediaDevices.getUserMedia({ audio: true });
       const stream = await withTimeout(gum, GUM_TIMEOUT_MS, "mic-timeout");
-      const rec = new MediaRecorder(stream);
+      const rec = pickRecorder(stream);
       const chunks = [];
       rec.ondataavailable = (e) => { if (e.data.size) chunks.push(e.data); };
       const stopped = new Promise((resolve) => { rec.onstop = resolve; });
@@ -178,7 +178,8 @@ export function useVoiceInput({
       // A timed-out getUserMedia may still resolve later — release the mic.
       if (gum) gum.then((s) => s.getTracks().forEach((t) => t.stop())).catch(() => {});
       const code = err?.code === "mic-timeout" ? "mic-timeout"
-        : err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "not-allowed" : "audio-capture";
+        : err?.name === "NotAllowedError" || err?.name === "SecurityError" ? "not-allowed"
+        : err?.name || "audio-capture";
       setError(code);
       onErrorRef.current?.(code);
     }
