@@ -411,6 +411,17 @@ export const Composer = memo(function Composer({
       return;
     }
 
+    // Ctrl/Cmd+C stops the running turn, like the CLI — unless copying a selection
+    if ((e.ctrlKey || e.metaKey) && (e.key === "c" || e.key === "C") && isTurnRunning) {
+      const ta = textareaRef.current;
+      const hasSelection = ta && ta.selectionStart !== ta.selectionEnd;
+      if (!hasSelection) {
+        e.preventDefault();
+        handleStopClick();
+        return;
+      }
+    }
+
     // Escape: cancel submenu, then autocomplete menu, then stop stream / clear queue
     if (e.key === "Escape") {
       if (submenuCmd) {
@@ -427,7 +438,6 @@ export const Composer = memo(function Composer({
       }
       if (isTurnRunning) {
         e.preventDefault();
-        console.log("[TEMP DIAGNOSTIC] Esc → stop", { sessionId });
         handleStopClick();
         return;
       }
