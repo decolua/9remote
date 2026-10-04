@@ -198,7 +198,11 @@ export async function invoke(action, payload = {}) {
       if (!sessionStatus().some((s) => s.profile === runOpts.profile)) {
         testConfig(config).catch(() => {});
       }
-      const { result, verification } = await withSession(runOpts, (session) => runAutoContinue(session, {
+      const { result, verification } = await withSession(runOpts, (session) => {
+        // A site asking for input via window.prompt() has no DOM field Jev could
+        // fill — arm the first answer so the loop is not answered with "".
+        session.pendingPromptText = typeof payload.promptText === "string" ? payload.promptText : null;
+        return runAutoContinue(session, {
         goal, expect,
         fields: sanitizeFields(payload.fields),
         maxSteps: clampSteps(payload.maxSteps),
@@ -206,7 +210,8 @@ export async function invoke(action, payload = {}) {
         resume: payload.resume || null,
         only: payload.only || null,
         onStep: emitStep
-      }));
+        });
+      });
       // The report reuses the loop's own last step frame — no extra capture.
       const image = result.metrics.steps ? readStepFrame(runOpts) : null;
       // A report failure must not swallow the run result — the agent would
@@ -223,7 +228,8 @@ export async function invoke(action, payload = {}) {
     }
     case "click": {
       const opts = sessionOpts(payload);
-      return { ok: true, ...(await clickById(opts.profile, required(payload, "id"))),
+      return { ok: true, ...(await clickById(opts.profile, required(payload, "id"),
+        { promptText: typeof payload.promptText === "string" ? payload.promptText : null })),
         ...(await waitGate(payload)), state: await stateAfter(payload) };
     }
     case "clickxy": {

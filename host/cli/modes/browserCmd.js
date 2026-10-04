@@ -22,6 +22,7 @@ function parseArgs(args) {
     if (a === "--expect-url") { opts.expectUrl = args[++i]; continue; }
     if (a === "--expect-title") { opts.expectTitle = args[++i]; continue; }
     if (a === "--tail") { opts.tail = true; continue; }
+    if (a === "--prompt") { opts.promptText = args[++i]; continue; }
     if (a === "--wait") { opts.wait = args[++i]; continue; }
     if (a === "--timeout-ms") { opts.timeoutMs = Number(args[++i]); continue; }
     positional.push(a);
@@ -134,13 +135,15 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
                                              # --wait: hold until the page shows the text (SPA-ready marker)
   9remote browser state                      numbered element table
   9remote browser read [--tail]              filtered page TEXT (cheaper than shot)
-  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--fields "L=text;..."]
+  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--fields "L=text;..."] [--prompt "text"]
                                              # --only: Jev sees only matching element labels
                                              # --fields: Jev picks the fields, engine types YOUR text
                                              #   (password values are masked, never sent to the model)
                                              # --expect-text "..." (repeatable) / --expect-url / --expect-title:
                                              #   engine verifies them on a fresh read — only PASSED is success
   9remote browser click <id> [options]       click table id (e3) — --wait "text" gates completion in this call
+                                             # --prompt "text": answer a window.prompt() the click opens
+                                             #   (native dialog, never appears in the element table)
   9remote browser clickxy <x> <y>            click exact page coordinates (custom widgets)
   9remote browser hover <id>                 move the mouse onto an element (hover menus)
   9remote browser key <enter|escape|tab|arrow...>  send a named key

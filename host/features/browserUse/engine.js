@@ -254,6 +254,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     cancelRequested: false,
     ownsTargets: new Set(), // tabs the ENGINE created — close() cleans only these
     dialogLog: [],          // auto-dismissed js dialogs (bounded, agent-visible)
+    pendingPromptText: null, // one-shot answer armed before a click that triggers window.prompt()
     downloads: new Map(),   // guid -> {filename, path, done, delivered}
     downloadWaiters: [],    // resolvers parked until a download completes
     navReq: null,           // last main-frame nav REQUEST {ts, disposition}
@@ -940,8 +941,13 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     if (sid !== session.sessionId) return;
     session.dialogLog.push({ type: dialog.type, message: dialog.message ?? "", ts: Date.now() });
     if (session.dialogLog.length > 5) session.dialogLog.shift();
-    client.call("Page.handleJavaScriptDialog",
-      { accept: dialog.type !== "beforeunload" }, sid).catch(() => {});
+    // A pre-armed answer rides only the FIRST prompt — one-shot, then auto again.
+    const promptText = dialog.type === "prompt" ? session.pendingPromptText : null;
+    session.pendingPromptText = null;
+    client.call("Page.handleJavaScriptDialog", {
+      accept: dialog.type !== "beforeunload",
+      ...(promptText != null ? { promptText } : {})
+    }, sid).catch(() => {});
   }));
 
   // Download tracking: guid -> completed file path; waitDownload parks callers
@@ -1197,9 +1203,14 @@ export async function observe(target) {
   return session.observe();
 }
 
-export async function clickById(target, id) {
+export async function clickById(target, id, { promptText } = {}) {
   const session = toSession(target);
-  const run = () => clickAction(session, id);
+  const run = () => {
+    // Armed BEFORE the click: a window.prompt() this click triggers is a native
+    // dialog (no DOM, not in the table) — this is the only way to answer it.
+    session.pendingPromptText = typeof promptText === "string" ? promptText : null;
+    return clickAction(session, id);
+  };
   return typeof target === "string" ? serialize(target, run) : run();
 }
 

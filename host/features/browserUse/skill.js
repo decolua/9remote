@@ -30,13 +30,15 @@ browser after enabling remote debugging.
 9remote browser tabs [--attach]                          # list open tabs (title, url, id)
 9remote browser state                                    # numbered element table of current page
 9remote browser read [--tail]                            # filtered page TEXT — read content with this, never with shot
-9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--fields "L=text;..."] [--expect-text "..." ...]
+9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--fields "L=text;..."] [--prompt "text"] [--expect-text "..." ...]
                                                             # Jev loop until DONE/BLOCKED; --only narrows
                                                             # the table; --fields supplies text YOU chose
                                                             # (Jev picks the matching fields, engine types,
                                                             # passwords masked); --expect-* declares end
                                                             # conditions the engine verifies on a fresh read
 9remote browser click <id>                               # click element by table id (e.g. e3)
+9remote browser click <id> --prompt "text"               # the click opens a window.prompt() modal? answer it here —
+                                                            # native dialog, it NEVER appears in the element table
 9remote browser type <id> "<exact text>" [--enter]       # type text YOU chose; --enter sends it
 9remote browser chain "click e1; type e2 'hi' --enter; select e3; wait 'Saved'"
                                                           # known multi-step sequence in ONE call;
