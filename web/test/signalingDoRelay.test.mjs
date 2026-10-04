@@ -30,14 +30,16 @@ function fakeCtx() {
   };
 }
 
-function fakeWs(role, peerId) {
+function fakeWs(role, peerId, aliveAt) {
+  const att = { role, peerId, ...(aliveAt !== undefined ? { aliveAt } : {}) };
   return {
     role,
     peerId,
     sent: [],
     closed: null,
-    serializeAttachment: () => ({ role, peerId }),
-    deserializeAttachment: () => ({ role, peerId }),
+    _att: att,
+    serializeAttachment(a) { this._att = a; },
+    deserializeAttachment() { return this._att; },
     send(data) { this.sent.push(JSON.parse(data)); },
     close(code, reason) { this.closed = { code, reason }; }
   };
@@ -129,10 +131,33 @@ const send = (ws, obj) => ws.send(JSON.stringify(obj));
   const clientsOnly = await new FakeDO(ctx).fetch({ url: "https://x/presence" });
   assert.equal((await clientsOnly.json()).agentPresent, false, "clients alone do not answer for the agent");
 
-  ctx.sockets.push(fakeWs("agent", "a1"));
+  ctx.sockets.push(fakeWs("agent", "a1", Date.now()));
   const withAgent = await new FakeDO(ctx).fetch({ url: "https://x/presence" });
-  assert.equal((await withAgent.json()).agentPresent, true, "agent join is visible to the probe");
+  assert.equal((await withAgent.json()).agentPresent, true, "fresh agent is visible to the probe");
   console.log("  ✓ presence probe reports the agent role only");
 }
 
-console.log("\n5 passed");
+// 6. Presence freshness — a socket that stopped speaking (host asleep, TCP
+//    half-open) must not vouch for the agent. The agent's "hb" beat re-stamps
+//    liveness and is never forwarded to clients.
+{
+  const ctx = fakeCtx();
+  const corpse = fakeWs("agent", "a1", Date.now() - 200000); // silent past AGENT_FRESH_MS
+  const legacy = fakeWs("agent", "a2"); // no stamp at all
+  ctx.sockets.push(corpse, legacy);
+  const res = await new FakeDO(ctx).fetch({ url: "https://x/presence" });
+  assert.equal((await res.json()).agentPresent, false, "silent agent sockets do not answer presence");
+
+  const ctx2 = fakeCtx();
+  const agent = fakeWs("agent", "a1", Date.now() - 200000);
+  const client = fakeWs("client", "c1");
+  ctx2.sockets.push(agent, client);
+  await new FakeDO(ctx2).webSocketMessage(agent, JSON.stringify({ to: "client", from: "agent", type: "hb" }));
+  assert.equal(client.sent.length, 0, "hb is not forwarded");
+  assert.equal(Date.now() - agent.deserializeAttachment().aliveAt < 180000, true, "hb re-stamps aliveAt");
+  const res2 = await new FakeDO(ctx2).fetch({ url: "https://x/presence" });
+  assert.equal((await res2.json()).agentPresent, true, "a beat brings the agent back");
+  console.log("  ✓ presence freshness + hb beat");
+}
+
+console.log("\n7 passed");

@@ -8,7 +8,7 @@
 // deviceId and flushed when the matching PM registers — so the first offer is
 // never lost to a race.
 import { SignalingClient } from "../transport/SignalingClient.js";
-import { WORKER_URL } from "../cli/config.js";
+import { WORKER_URL, SIGNALING_HB_INTERVAL_MS } from "../cli/config.js";
 import { createLogger } from "./logger.js";
 
 const logger = createLogger("signaling");
@@ -44,6 +44,7 @@ export function onSignalingReady(fn) {
 // keeps listening on the retired room while clients that hold the new key sit
 // in a room nobody answers, spinning forever.
 let _roomKey = null;
+let _hbTimer = null;
 
 export function initSignalingGlobal(apiKey) {
   if (!apiKey) return;
@@ -86,6 +87,10 @@ export function initSignalingGlobal(apiKey) {
     try { _offerFallback?.(msg.from); } catch (e) { logger.error(`offer fallback: ${e.message}`); }
   });
   _client.connect();
+  // "ping" is auto-replied without waking the DO — presence needs a message it actually sees.
+  clearInterval(_hbTimer);
+  _hbTimer = setInterval(() => { if (_client?.ready) _client.send({ type: "hb" }); }, SIGNALING_HB_INTERVAL_MS);
+  _hbTimer.unref?.();
   logger.info(`global signaling client started (room=${apiKey.slice(0, 8)}...)`);
 }
 
@@ -146,6 +151,8 @@ export function getSignalingState() {
 
 export function stopSignalingGlobal() {
   try { _client?.disconnect(); } catch {}
+  clearInterval(_hbTimer);
+  _hbTimer = null;
   _client = null;
   _roomKey = null;
   _handlers.clear();

@@ -113,6 +113,9 @@ export async function handleSignaling(request, env) {
   return env.SIGNALING_DO.get(id).fetch(request);
 }
 
+// An agent that last spoke longer ago than this is a sleep/crash corpse — presence must not vouch for it.
+const AGENT_FRESH_MS = 180000;
+
 // Forward-only relay. DO stays dumb about SDP/ICE semantics. One room = one deviceId,
 // two roles (agent + client). WebSocket Hibernation: ping/pong auto-replied by runtime,
 // never wakes the DO, never billed while idle.
@@ -125,7 +128,11 @@ export class SignalingDO extends DurableObject {
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/presence") {
-      const live = this.ctx.getWebSockets().some((p) => p.deserializeAttachment()?.role === "agent");
+      const now = Date.now();
+      const live = this.ctx.getWebSockets().some((p) => {
+        const att = p.deserializeAttachment();
+        return att?.role === "agent" && now - (att.aliveAt || 0) < AGENT_FRESH_MS;
+      });
       return Response.json({ agentPresent: live });
     }
     const role = url.searchParams.get("role");
@@ -134,7 +141,7 @@ export class SignalingDO extends DurableObject {
     const peerId = url.searchParams.get("from") || null;
     const [client, server] = Object.values(new WebSocketPair());
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ role, peerId });
+    server.serializeAttachment({ role, peerId, aliveAt: Date.now() });
 
     // One agent per room. An agent that restarted without its socket closing
     // cleanly leaves a corpse that find() would keep picking — every offer then
@@ -156,6 +163,10 @@ export class SignalingDO extends DurableObject {
     let msg;
     try { msg = JSON.parse(message); } catch { return; }
     const { to, from, type, payload } = msg;
+    // Every agent message re-stamps liveness; "ping" never reaches here (runtime auto-replies it).
+    const att = ws.deserializeAttachment();
+    if (att?.role === "agent") ws.serializeAttachment({ ...att, aliveAt: Date.now() });
+    if (type === "hb") return; // agent liveness beat — consumed here, never forwarded
     if (!to || !type) return;
     const target = this.ctx.getWebSockets().find((peer) => {
       if (peer === ws) return false;
