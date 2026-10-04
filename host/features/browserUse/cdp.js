@@ -8,6 +8,14 @@ export class CdpClient {
     this.ws = null;
     this.nextId = 1;
     this.pending = new Map(); // id -> {resolve, reject, timer}
+    this.handlers = new Map(); // event method -> Set<fn(params, sessionId)>
+  }
+
+  // Subscribe to a CDP event; returns an unsubscribe function.
+  on(method, fn) {
+    if (!this.handlers.has(method)) this.handlers.set(method, new Set());
+    this.handlers.get(method).add(fn);
+    return () => this.handlers.get(method)?.delete(fn);
   }
 
   static async connect(wsUrl, timeoutMs = 10000) {
@@ -37,7 +45,12 @@ export class CdpClient {
   _onMessage(raw) {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
-    if (!msg.id) return;
+    if (!msg.id) {
+      // Event frame — dispatch to subscribers; unknown events are dropped.
+      const subs = this.handlers.get(msg.method);
+      if (subs) for (const fn of subs) { try { fn(msg.params || {}, msg.sessionId); } catch { /* subscriber error never kills the socket */ } }
+      return;
+    }
     const entry = this.pending.get(msg.id);
     if (!entry) return;
     this.pending.delete(msg.id);

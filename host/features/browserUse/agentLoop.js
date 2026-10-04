@@ -3,7 +3,8 @@
 // runTask drives a session object (engine provides observe/act), so no engine
 // import here — the loop never touches CDP directly.
 import { validateChoice, decide as jevDecide } from "./jevClient.js";
-import { MAX_MODEL_CALLS, MAX_MS_DEFAULT, MAX_STEPS_DEFAULT, MIN_CONFIDENCE_DEFAULT, PLAN_MAX } from "./constants.js";
+import { renderTreeLines } from "./compress.js";
+import { MAX_CHOICES, MAX_MODEL_CALLS, MAX_MS_DEFAULT, MAX_STEPS_DEFAULT, MIN_CONFIDENCE_DEFAULT, PLAN_MAX } from "./constants.js";
 
 export const DEFAULT_POLICY = {
   minConfidence: MIN_CONFIDENCE_DEFAULT
@@ -19,6 +20,13 @@ const jevSafe = (s) => String(s ?? "").toWellFormed()
 // unless the caller supplied `fields` — then the ENGINE types the agent-provided
 // text; the model only picks the target and never sees the text itself.
 export function buildActionSpace(actions, fields = null) {
+  // Provider hard cap: a question with >255 criteria is HTTP 400. Plan criteria
+  // ride SKIP + all targets + scroll controls — trim the tail (page order).
+  const budget = MAX_CHOICES - 3;
+  if (actions.length > budget) {
+    const keep = new Set(actions.slice(0, budget).map((a) => a.id));
+    actions = actions.filter((a) => a.kind === "scroll" || a.kind === "wait" || keep.has(a.id));
+  }
   const targets = { CLICK: {}, SELECT: {} };
   const controls = {};
   const elements = [];
@@ -26,6 +34,9 @@ export function buildActionSpace(actions, fields = null) {
   const typeTargets = {};
   for (const action of actions) {
     if (action.kind === "wait") { controls.WAIT = action; continue; }
+    // Upload inputs are agent-only (chain/CLI) — a Jev click would open a
+    // native file picker CDP cannot dismiss.
+    if (action.kind === "upload") continue;
     if (action.kind === "scroll") { controls[action.id.toUpperCase()] = action; continue; }
     if (action.kind === "fill") {
       trackElement(elements, seenNodes, action);
@@ -140,9 +151,11 @@ export function buildQuestions(page, goal, history, space) {
         url: jevSafe(page.url), title: jevSafe(page.title), text: jevSafe(page.text),
         headings: (page.headings || []).map(jevSafe),  // visible section outline
         scroll: page.scroll || null,                    // where we are in the document
-        omitted: page.omitted_actions || 0              // elements cut by the cap — scroll for more
+        omitted: page.omitted_actions || 0,             // elements cut by the cap — scroll for more
+        // Structural tree of every offered action (nested by snapshot path) —
+        // the label table criteria alone cannot carry where an element lives.
+        tree: jevSafe(renderTreeLines(page.actions || []))
       },
-      elements: space.elements.map(({ labels, ...e }) => ({ ...e, label: jevSafe(e.label), value: jevSafe(e.value) })),
       recent_actions: history.slice(-10).map((h) => ({
         action: jevSafe(h.action), kind: h.kind, text: h.text, page_changed: h.page_changed
       }))
@@ -261,6 +274,7 @@ export async function runTask(session, {
 
   let decidedAt = 0;
   let pageMoved = false; // set by afterAction — a moved page voids the micro-plan
+  let staleStreak = { id: null, n: 0 }; // same target failing coordinate resolution twice
 
   // Shared post-action bookkeeping: reuse the observed table when the page did
   // not change (cheap marker check instead of a full snapshot), else re-observe.
@@ -307,7 +321,9 @@ export async function runTask(session, {
     if (onlyRe && !Object.keys(space.targets).length && !space.controls.SCROLL_DOWN && !space.controls.SCROLL_UP) {
       throw new Error("only pattern matched 0 elements — it matches click/select labels only; fills need a matching --fields entry");
     }
-    const body = buildQuestions(page, goal, history, space);
+    // The tree must show exactly the offered action set — with `only`, page.actions
+    // still holds the unfiltered snapshot and would surface unchoosable ids.
+    const body = buildQuestions({ ...page, actions }, goal, history, space);
     const planSpace = buildPlanSpace(space);
     decidedAt = Date.now();
     let result;
@@ -324,12 +340,16 @@ export async function runTask(session, {
       emit({ operation: "MODEL", label: goal, result: "rejected" });
       return finish("decision_error", "Jev answer failed validation; no action executed");
     }
-    if ((operationAnswer.confidence ?? 1) < policy.minConfidence) {
-      emit({ operation: operationAnswer.choice, label: "", result: "low_confidence",
-        probability: operationAnswer.probabilities?.[operationAnswer.choice] });
+    const operation = operationAnswer.choice;
+    // WAIT/BLOCKED are inherently low-confidence answers for a choice model —
+    // they mean "nothing to act on", not "wrong". Gating them killed runs on
+    // step 1 and forced the caller to restart the whole task (top live slowness).
+    const passive = operation === "WAIT" || operation === "BLOCKED";
+    if (!passive && (operationAnswer.confidence ?? 1) < policy.minConfidence) {
+      emit({ operation, label: "", result: "low_confidence",
+        probability: operationAnswer.probabilities?.[operation] });
       return finish("low_confidence", `confidence ${operationAnswer.confidence}`);
     }
-    const operation = operationAnswer.choice;
 
     if (operation === "DONE") {
       emit({ operation: "DONE", label: goal, result: "ok",
@@ -377,9 +397,27 @@ export async function runTask(session, {
 
     try {
       await session.act(action, action.text ?? null);
+      staleStreak = { id: null, n: 0 };
     } catch (e) {
       if (e.code === "STALE") {
+        staleStreak = { id: targetId, n: (staleStreak.id === targetId ? staleStreak.n : 0) + 1 };
         emit({ operation, targetIndex: targetId, label: action.label, result: "stale", detail: e.message });
+        // Coordinate clicks keep missing (overlay, odd stacking) — click the node
+        // directly in the page once, bypassing the occlusion gate entirely.
+        if (staleStreak.n >= 2 && action.kind === "click" && session.jsClick) {
+          try {
+            await session.jsClick(action);
+            staleStreak = { id: null, n: 0 };
+            emit({ operation, targetIndex: targetId, label: action.label, result: "js-click" });
+            const jsError = await afterAction(operation, targetId, action, operationAnswer.probabilities?.[operation]);
+            if (jsError) return finish("action_error", jsError);
+            if (expect && checkExpectations(page, expect).passed) {
+              return finish("needs_verification", "target verified on page state");
+            }
+            if (shouldBlockNoChange(history)) return finish("no_progress", "three actions changed nothing");
+            continue;
+          } catch { /* js-click failed too — fall through to re-observe */ }
+        }
         try { page = await session.observe(); }
         catch (err) { return finish("action_error", `re-observation failed: ${err.message}`); }
         continue;

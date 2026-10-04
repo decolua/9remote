@@ -18,7 +18,9 @@ const SNAPSHOT_BODY = `(() => {
   };
   for (const [id,e] of cache.nodes) if (!e.isConnected) cache.nodes.delete(id);
   // Password fields ARE observable (login forms) but never carry their value.
-  const safe = e => !['file','hidden'].includes(e.type);
+  // File inputs are observed too (kind 'upload') — the agent sets them via CDP,
+  // never via a click (a native picker would wedge the loop).
+  const safe = e => !['hidden'].includes(e.type);
   const visible = e => !e.closest('[aria-hidden="true"],[inert]') &&
     e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true});
   const name = (e,seen=new Set()) => {
@@ -71,6 +73,29 @@ const SNAPSHOT_BODY = `(() => {
     const v=secCache.get(sec);
     return v||null;
   };
+  // Structural path for the tree renderer: walk ancestors, keep landmark/
+  // section wrappers that carry a name (aria-label or first heading/legend).
+  const SEG_SEL='section,nav,aside,main,article,dialog,form,fieldset,[role="dialog"],'+
+    '[role="region"],[role="group"],[role="tablist"],[role="tabpanel"],'+
+    '[role="navigation"],[role="complementary"],[role="banner"],'+
+    '[role="contentinfo"],[role="form"],[role="search"]';
+  const segName=s=>{
+    const a=s.getAttribute('aria-label');
+    if(a) return a.slice(0,40);
+    const h=s.querySelector('h1,h2,h3,h4,legend');
+    return h?(h.textContent||'').trim().slice(0,40):null;
+  };
+  const pathCache=new WeakMap();
+  const pathOf=e=>{
+    if(pathCache.has(e)) return pathCache.get(e);
+    const segs=[]; let n=e.parentElement;
+    while(n&&n!==document.body&&n!==document.documentElement&&segs.length<4){
+      if(n.matches(SEG_SEL)){const s=segName(n); if(s) segs.unshift(s);}
+      n=n.parentElement;
+    }
+    const p=segs.length?segs:null;
+    pathCache.set(e,p); return p;
+  };
   const actions=[];
   // Shadow piercing (open roots): modern component sites (Reddit etc.) keep
   // controls inside shadow trees the plain document query cannot reach.
@@ -83,10 +108,16 @@ const SNAPSHOT_BODY = `(() => {
     if (!safe(e) || !visible(e) || e.matches(':disabled') || e.closest('[aria-disabled="true"]')) continue;
     const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2,
       rname=role(e)||(e.hasAttribute('onclick')?'button':null);
-    if (!rname || r.width<=0 || r.height<=0 || x<0 || y<0 || x>=innerWidth || y>=innerHeight) continue;
+    if (r.width<=0 || r.height<=0) continue; // full page: no viewport cut (orca/openclaw shape)
+    if (e.type==='file') {
+      actions.push({node:identity(e),role:'button',label:name(e)||'Choose file',
+        ctx:ctxOf(e),path:pathOf(e),rect:{x:r.x,y:r.y,w:r.width,h:r.height},kind:'upload',value:''});
+      continue;
+    }
+    if (!rname) continue;
     if (rname==='gridcell' && e.querySelector('button,[role="button"]')) continue;
     const base={node:identity(e),role:rname,label:name(e)||rname,
-      ctx:ctxOf(e),rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
+      ctx:ctxOf(e),path:pathOf(e),rect:{x:r.x,y:r.y,w:r.width,h:r.height}};
     for (const key of ['checked','selected','expanded']) {
       const value=e.getAttribute('aria-'+key);
       if (value!==null) base[key]=value;
@@ -136,11 +167,11 @@ const SNAPSHOT_BODY = `(() => {
     if (st.pointerEvents==='none' || (st.cursor!=='pointer' && !isMarked(e))) continue;
     const label=name(e);
     if (!label) continue;
-    const r=e.getBoundingClientRect(), x=r.x+r.width/2, y=r.y+r.height/2;
-    if (r.width<=0 || r.height<=0 || x<0 || y<0 || x>=innerWidth || y>=innerHeight) continue;
+    const r=e.getBoundingClientRect();
+    if (r.width<=0 || r.height<=0) continue;
     if ([...picked].some(p => p.contains(e))) continue;
     pointerCandidates.push({el:e, base:{node:identity(e),role:'button',label:label.slice(0,80),
-      ctx:ctxOf(e),rect:{x:r.x,y:r.y,w:r.width,h:r.height}}});
+      ctx:ctxOf(e),path:pathOf(e),rect:{x:r.x,y:r.y,w:r.width,h:r.height}}});
     picked.add(e);
   }
   for (const c of pointerCandidates) actions.push({...c.base,kind:'click',value:''});
@@ -156,7 +187,7 @@ const SNAPSHOT_BODY = `(() => {
     if (!value || !parent || parent.closest('script,style,noscript,template') ||
         parent.closest(NOISE) || !visible(parent)) continue;
     range.selectNodeContents(node); const r=range.getBoundingClientRect();
-    if (r.width>0 && r.height>0 && r.bottom>0 && r.top<innerHeight && r.right>0 && r.left<innerWidth) {
+    if (r.width>0 && r.height>0) {
       words.push(value); length+=value.length;
     }
   }
@@ -164,14 +195,11 @@ const SNAPSHOT_BODY = `(() => {
   const headings=[];
   for (const h of document.querySelectorAll('h1,h2,h3,h4')) {
     if (headings.length>=12) break;
-    const r=h.getBoundingClientRect();
-    if (r.bottom>0 && r.top<innerHeight) {
-      const t=h.textContent.trim().slice(0,60);
-      if (t) headings.push(t);
-    }
+    const t=h.textContent.trim().slice(0,60);
+    if (t) headings.push(t);
   }
   const page_key=cache.pageKey();
-  const semantics=actions.map(({rect,ctx,...action})=>action);
+  const semantics=actions.map(({rect,ctx,path,...action})=>action);
   const marker=[performance.timeOrigin,location.href,scrollX,scrollY,innerWidth,innerHeight,
     document.title,text,semantics,page_key[6]];
   // Progress marker WITHOUT scroll offsets: scrolling that reveals nothing new

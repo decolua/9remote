@@ -11,8 +11,9 @@ import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
 import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate } from "./snapshot.js";
+import { MAX_ELEMENTS } from "./constants.js";
 import {
-  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, LAUNCH_TIMEOUT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
+  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, LAUNCH_TIMEOUT_MS, NAV_WAIT_COMMIT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
   OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT,
   SCREENSHOT_QUALITY, SETTLE_CAP_MS, SETTLE_MIN_CLICK_MS, SETTLE_MIN_FILL_MS, SETTLE_MIN_HYDRATE_MS, SETTLE_MIN_LINK_MS, SETTLE_MIN_SPA_MS, SETTLE_QUIET_MS,
   STEP_FRAME_QUALITY, STEP_FRAME_SCALE, VIEWPORT, WAIT_TEXT_POLL_MS, WAIT_TEXT_TIMEOUT_MS
@@ -248,9 +249,23 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     docOrigin: null, docUrl: null,
     cancelRequested: false,
     ownsTargets: new Set(), // tabs the ENGINE created — close() cleans only these
+    dialogLog: [],          // auto-dismissed js dialogs (bounded, agent-visible)
+    downloads: new Map(),   // guid -> {filename, path, done, delivered}
+    downloadWaiters: [],    // resolvers parked until a download completes
+    navReq: null,           // last main-frame nav REQUEST {ts, disposition}
+    navCommit: 0,           // ts of the last main-frame navigation commit
+    iframes: new Map(),     // OOPIF targetId -> {sessionId, url} (auto-attached)
 
     async setup() {
       await call("Page.enable");
+      await call("DOM.enable"); // uploadFile resolves nodes via DOM.requestNode
+      // Cross-origin iframes are separate processes invisible to this session —
+      // auto-attach gives each an addressable child session (orca OOPIF pattern).
+      await call("Target.setAutoAttach",
+        { autoAttach: true, flatten: true, waitForDebuggerOnStart: false });
+      // Route downloads to a per-profile folder the agent can read back from.
+      await client.call("Browser.setDownloadBehavior",
+        { behavior: "allow", downloadPath: dlRoot(profile), eventsEnabled: true });
       await call("Emulation.setDeviceMetricsOverride",
         { width: VIEWPORT.width, height: VIEWPORT.height, deviceScaleFactor: 1, mobile: false });
       // Keep background tabs rendering (rAF, menus) without stealing the user's tab.
@@ -290,14 +305,12 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
         const exact = pages.find((t) => urlsMatch(t.url, targetUrl));
         if (exact) {
           await session.adopt(exact.targetId);
-          try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
           return;
         }
         const sameOrigin = pages.find((t) => urlsSameOrigin(t.url, targetUrl));
         if (sameOrigin) {
           await session.adopt(sameOrigin.targetId);
           await session.navigate(targetUrl);
-          try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
           return;
         }
         const held = pages.find((t) => t.targetId === session.targetId && isBlankTabUrl(t.url));
@@ -308,7 +321,6 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
         const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
         session.ownsTargets.add(target.targetId);
         await session.adopt(target.targetId);
-        try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
         // A fresh target starts at about:blank whose readyState is already
         // "complete" — wait for the target origin to land before trusting it.
         if (!isBlankTabUrl(targetUrl)) {
@@ -342,6 +354,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
           // controls carry no node, so they do not count (fbu readiness pattern).
           const hasElements = state.actions.some((a) => typeof a.node === "number");
           if (((state.text && state.text.trim()) || hasElements) || Date.now() >= blankDeadline) {
+            await mergeIframes(state);
             session.lastState = state;
             if (Array.isArray(state.marker)) {
               session.docOrigin = state.marker[0]; // settle compares against the last observed doc
@@ -383,7 +396,15 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     async fresh(page) {
       try {
         // Arrays off the wire never compare equal by reference — stringify both.
-        return JSON.stringify(await evaluate(client, session.sessionId, MARKER_EXPRESSION)) === JSON.stringify(page.marker);
+        if (JSON.stringify(await evaluate(client, session.sessionId, MARKER_EXPRESSION)) !==
+            JSON.stringify(page.marker)) return false;
+        // Frame-aware freshness: a change INSIDE an iframe leaves the main marker
+        // untouched — re-check each recorded frame on its own session.
+        for (const frame of page.frames || []) {
+          const now = await evaluate(client, frame.sessionId, MARKER_EXPRESSION).catch(() => null);
+          if (now === null || JSON.stringify(now) !== JSON.stringify(frame.marker)) return false;
+        }
+        return true;
       } catch {
         return false;
       }
@@ -429,18 +450,28 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     // Resolve an observed action to live coordinates; refuse anything covered,
     // hidden or gone. Model-chosen ids never bypass this gate.
     async resolve(action) {
-      return evaluate(client, session.sessionId, `(action => {
+      return evaluate(client, action.frame || session.sessionId, `(action => {
         const c = window.__9rFast; if (!c) return null;
         const e = c.nodes.get(action.node);
         if (!e?.isConnected || e.matches(':disabled') || e.closest('[aria-disabled="true"],[inert]') ||
             !e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return null;
         if (action.kind === 'fill' && (e.readOnly || e.getAttribute('aria-readonly') === 'true')) return null;
-        const r = e.getBoundingClientRect(), x = r.x + r.width / 2, y = r.y + r.height / 2;
-        if (!r.width || !r.height || x < 0 || y < 0 || x >= innerWidth || y >= innerHeight) return null;
+        // Full-page tables carry below-fold elements — bring the target into the
+        // viewport before point-hitting it (orca scrollIntoView pattern).
+        const center = (r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+        let r = e.getBoundingClientRect();
+        if (!r.width || !r.height) return null;
+        let p = center(r);
+        if (p.x < 0 || p.y < 0 || p.x >= innerWidth || p.y >= innerHeight) {
+          e.scrollIntoView({ block: 'center', inline: 'center' });
+          r = e.getBoundingClientRect();
+          p = center(r);
+          if (!r.width || !r.height || p.x < 0 || p.y < 0 || p.x >= innerWidth || p.y >= innerHeight) return null;
+        }
         // Occlusion gate across shadow boundaries: elementFromPoint retargets a
         // shadow node to its host chain, and a click can land on slotted light
         // content — accept when e and hit share a composed ancestry either way.
-        const hit = document.elementFromPoint(x, y);
+        const hit = document.elementFromPoint(p.x, p.y);
         if (!hit) return null;
         const up = (el) => { const chain = []; let n = el;
           while (n) { chain.push(n); n = n.assignedSlot || n.parentElement || (n.getRootNode()?.host || null); }
@@ -453,8 +484,36 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
           e.dispatchEvent(new Event('input', {bubbles:true}));
           e.dispatchEvent(new Event('change', {bubbles:true}));
         }
-        return { x, y };
+        return { x: p.x, y: p.y };
       })(${JSON.stringify({ node: action.node, kind: action.kind, value: action.value })})`);
+    },
+
+    // resolve() in the element's own frame, then lift iframe-local points into
+    // parent-page coordinates (mouse input dispatches on the main session).
+    async pointFor(action) {
+      const p = await session.resolve(action);
+      if (!p || !action.frame) return p;
+      const off = await iframeOffset(action.frame);
+      if (!off) throw stale("iframe position unknown — cannot click inside it");
+      return { x: p.x + off.x, y: p.y + off.y };
+    },
+
+    // Last-resort click: run the click INSIDE the page, bypassing coordinate
+    // dispatch and the occlusion gate — for targets an overlay keeps covering.
+    // Not a trusted event; most handlers accept it, some will not.
+    async jsClick(action) {
+      if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
+      const ok = await evaluate(client, action.frame || session.sessionId, `(node => {
+        const e = window.__9rFast?.nodes.get(node);
+        if (!e?.isConnected || !e.checkVisibility({checkOpacity:true,checkVisibilityCSS:true})) return false;
+        e.scrollIntoView({ block: 'center' });
+        e.click();
+        return true;
+      })(${action.node})`);
+      if (!ok) throw stale("js-click: element gone or hidden");
+      await session.settle(action);
+      session.lastState = null;
+      return { executed: action.id, via: "js" };
     },
 
     async act(action, text = null) {
@@ -471,7 +530,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       if (typeof action.node !== "number") {
         throw stale("Action does not reference an observed node");
       }
-      const target = await session.resolve(action);
+      const target = await session.pointFor(action);
       if (!target) throw stale("Target changed or is covered");
       // Fills need no visual feedback — the text itself is the signal. Skipping
       // the cursor glide keeps focus+type at one round trip.
@@ -488,7 +547,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
 
     async type(action, text) {
       if (typeof text !== "string" || !text.trim()) throw new Error("Refusing to type empty text");
-      await evaluate(client, session.sessionId, `(node => {
+      await evaluate(client, action.frame || session.sessionId, `(node => {
         const e = window.__9rFast?.nodes.get(node); if (e) e.focus();
       })(${action.node})`);
       const meta = process.platform === "darwin" ? 4 : 2;
@@ -499,14 +558,14 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       // tabs — verify the text landed and retry via execCommand inside the page.
       let landed = true;
       try {
-        landed = await evaluate(client, session.sessionId, `(node => {
+        landed = await evaluate(client, action.frame || session.sessionId, `(node => {
           const e = window.__9rFast?.nodes.get(node); if (!e) return true;
           const v = 'value' in e ? String(e.value) : (e.innerText || '');
           return v.includes(${JSON.stringify(text)});
         })(${action.node})`);
       } catch { /* navigating right after typing — assume it landed */ }
       if (!landed) {
-        await evaluate(client, session.sessionId, `(node => {
+        await evaluate(client, action.frame || session.sessionId, `(node => {
           const e = window.__9rFast?.nodes.get(node); if (e) e.focus();
           document.execCommand('insertText', false, ${JSON.stringify(text)});
         })(${action.node})`);
@@ -516,6 +575,65 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     async pressEnter() {
       await call("Input.dispatchKeyEvent", enter("keyDown"));
       await call("Input.dispatchKeyEvent", enter("keyUp"));
+      // Enter usually submits — a settle here catches the navigation (or not)
+      await session.settle();
+      session.lastState = null;
+    },
+
+    // Park until a download completes (bounded); each completed file is
+    // delivered once — a second call waits for the NEXT one.
+    async waitDownload(timeoutMs = 15000) {
+      const ready = [...session.downloads.values()].find((d) => d.done && !d.delivered);
+      if (ready) { ready.delivered = true; return { filename: ready.filename, path: ready.path }; }
+      const parked = new Promise((resolve) => session.downloadWaiters.push(resolve));
+      const winner = await Promise.race([parked, new Promise((r) => setTimeout(() => r(null), timeoutMs))]);
+      if (!winner) return null;
+      const next = [...session.downloads.values()].find((d) => d.done && !d.delivered);
+      if (!next) return null;
+      next.delivered = true;
+      return { filename: next.filename, path: next.path };
+    },
+
+    // HTML5 drag: press at the source, move in small steps so dragover fires
+    // along the way, release over the target.
+    async dragTo(fromAction, toAction) {
+      const a = await session.pointFor(fromAction);
+      const b = await session.pointFor(toAction);
+      if (!a || !b) throw stale("Drag source or target changed or is covered");
+      await call("Input.dispatchMouseEvent",
+        { type: "mousePressed", x: a.x, y: a.y, button: "left", clickCount: 1 });
+      const steps = 8;
+      for (let i = 1; i <= steps; i++) {
+        const x = Math.round(a.x + (b.x - a.x) * i / steps);
+        const y = Math.round(a.y + (b.y - a.y) * i / steps);
+        await call("Input.dispatchMouseEvent",
+          { type: "mouseMoved", x, y, button: "left", buttons: 1 });
+        await new Promise((r) => setTimeout(r, 16));
+      }
+      await call("Input.dispatchMouseEvent",
+        { type: "mouseReleased", x: b.x, y: b.y, button: "left", clickCount: 1 });
+      await session.settle();
+      session.lastState = null;
+      return { dragged: true };
+    },
+
+    // Set a file on an observed input[type=file] without touching the native
+    // picker. getDocument first — the DOM agent refuses requestNode without it.
+    // CDP fires the change event itself, so page JS reacts normally.
+    async uploadFile(action, file) {
+      if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
+      const fsid = action.frame || session.sessionId;
+      const res = await client.call("Runtime.evaluate",
+        { expression: `window.__9rFast?.nodes.get(${action.node})` }, fsid);
+      const objectId = res?.result?.objectId;
+      if (!objectId) throw stale("File input no longer observed");
+      await client.call("DOM.getDocument", { depth: -1 }, fsid);
+      const { nodeId } = await client.call("DOM.requestNode", { objectId }, fsid);
+      if (!nodeId) throw stale("File input node could not be resolved");
+      await client.call("DOM.setFileInputFiles", { files: [file], nodeId }, fsid);
+      await session.settle();
+      session.lastState = null;
+      return { uploaded: file };
     },
 
     // Bounded adaptive settling — wait until the page goes QUIET (unchanged
@@ -548,6 +666,28 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
           spaRoute ? SETTLE_MIN_SPA_MS : 0, SETTLE_QUIET_MS);
         if (Date.now() - changedAt >= SETTLE_QUIET_MS && Date.now() - started >= minMs) break;
         await new Promise((r) => setTimeout(r, 50));
+      }
+      // Navigation-aware tail: frameRequestedNavigation fires at the CLICK,
+      // long before a slow server commits — settle alone would serve the OLD
+      // page's table. When a main-frame nav was requested during this settle,
+      // wait for the commit and a quiet marker (bounded). newTab/download
+      // dispositions never commit the main frame and are skipped.
+      const req = session.navReq;
+      if (req && !["newTab", "download"].includes(req.disposition) &&
+          req.ts >= started - 200 && session.navCommit < req.ts) {
+        const deadline = Date.now() + NAV_WAIT_COMMIT_MS;
+        let prevKey = null, changedAt = Date.now();
+        while (Date.now() < deadline) {
+          if (session.navCommit >= req.ts) {
+            let marker = null;
+            try { marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION); }
+            catch { changedAt = Date.now(); await new Promise((r) => setTimeout(r, 50)); continue; }
+            const key = Array.isArray(marker) ? marker.join("\u0001") : null;
+            if (key === null || key !== prevKey) { prevKey = key; changedAt = Date.now(); }
+            if (key !== null && Date.now() - changedAt >= SETTLE_QUIET_MS) break;
+          }
+          await new Promise((r) => setTimeout(r, 50));
+        }
       }
     },
 
@@ -604,8 +744,8 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     },
 
     async sendKey(name) {
-      const key = KEY_EVENTS[String(name || "").toLowerCase()];
-      if (!key) throw new Error(`Unsupported key "${name}" — try ${Object.keys(KEY_EVENTS).join(", ")}`);
+      const key = keyEventFor(String(name || ""));
+      if (!key) throw new Error(`Unsupported key "${name}" — try ${Object.keys(KEY_EVENTS).join(", ")} or combos like ctrl+a`);
       await call("Input.dispatchKeyEvent", { type: "keyDown", ...key });
       await call("Input.dispatchKeyEvent", { type: "keyUp", ...key });
       await session.settle();
@@ -622,7 +762,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       }
       if (!action) throw new Error(`Element ${id} not observed on the current page`);
       if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
-      const point = await session.resolve(action);
+      const point = await session.pointFor(action);
       if (!point) throw stale("Target changed or is covered");
       await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
       await session.settle();
@@ -672,7 +812,133 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       }
     }
   };
+
+  // Snapshot every auto-attached OOPIF and splice its table into the main
+  // state: ids continue the parent sequence, each action carries its frame
+  // session, and markers append so fresh() sees frame-only changes too.
+  async function mergeIframes(state) {
+    const inDom = await evaluate(client, session.sessionId,
+      "document.querySelectorAll('iframe').length").catch(() => 0);
+    if (!inDom) return;
+    const deadline = Date.now() + 600; // targets attach async — give them a beat
+    while (session.iframes.size < inDom && Date.now() < deadline) {
+      await new Promise((r) => setTimeout(r, 60));
+    }
+    if (!session.iframes.size) return;
+    let seq = state.actions.length;
+    for (const info of session.iframes.values()) {
+      let child = null;
+      try { child = await evaluate(client, info.sessionId, SNAPSHOT_EXPRESSION); }
+      catch { continue; /* frame navigating */ }
+      if (!child) continue;
+      if (child.url) info.url = child.url; // targetInfo.url is "" right after attach
+      let host = "iframe";
+      try { host = `iframe: ${new URL(info.url).hostname}`; } catch { /* keep */ }
+      for (const a of child.actions) {
+        if (a.kind === "wait" || a.kind === "scroll") continue; // parent owns controls
+        if (state.actions.length >= MAX_ELEMENTS) { state.omitted_actions++; continue; } // choice cap budget
+        a.id = `e${++seq}`;
+        a.frame = info.sessionId;
+        a.path = Array.isArray(a.path) ? [host, ...a.path] : [host];
+        if (!a.ctx) a.ctx = host;
+        state.actions.push(a);
+      }
+      state.omitted_actions = (state.omitted_actions || 0) + (child.omitted_actions || 0);
+      state.frames = [...(state.frames || []),
+        { sessionId: info.sessionId, url: info.url, marker: child.marker }];
+      state.contentMarker = [...(state.contentMarker || []), child.contentMarker];
+    }
+  }
+
+  // Parent-space origin of an iframe session: match its target URL against the
+  // <iframe> elements' src (exact first, origin fallback — orca pattern).
+  async function iframeOffset(frameSessionId) {
+    const [tid, info] = [...session.iframes.entries()].find(([, f]) => f.sessionId === frameSessionId) || [];
+    if (!info) return null;
+    if (!info.url) {
+      try { info.url = (await client.call("Target.getTargetInfo", { targetId: tid })).targetInfo?.url || ""; }
+      catch { /* keep empty */ }
+    }
+    const raw = await evaluate(client, session.sessionId, `JSON.stringify(
+      [...document.querySelectorAll('iframe')].map(f => {
+        const r = f.getBoundingClientRect();
+        return { x: r.x, y: r.y, src: f.src || "" };
+      }))`).catch(() => null);
+    if (!raw) return null;
+    let rects = [];
+    try { rects = JSON.parse(raw); } catch { return null; }
+    let target = null;
+    try { target = new URL(info.url); } catch { return null; }
+    const hit = rects.find((r) => { try { return r.src === info.url; } catch { return false; } }) ||
+      rects.find((r) => { try { return r.src && new URL(r.src).origin === target.origin; } catch { return false; } });
+    return hit ? { x: hit.x, y: hit.y } : null;
+  }
+
+  // OOPIF registry: cross-origin iframes get their own CDP session; snapshots
+  // and actions route to it, coordinates get offset into parent space.
+  client.on("Target.attachedToTarget", (p, sid) => {
+    if (sid !== session.sessionId || p.targetInfo?.type !== "iframe" || !p.sessionId) return;
+    session.iframes.set(p.targetInfo.targetId, { sessionId: p.sessionId, url: p.targetInfo.url || "" });
+    client.call("Runtime.enable", {}, p.sessionId).catch(() => {});
+  });
+  client.on("Target.detachedFromTarget", (p) => {
+    for (const [tid, info] of session.iframes) if (info.sessionId === p.sessionId) session.iframes.delete(tid);
+  });
+
+  // Main-frame navigation bookkeeping: a nav REQUEST fires at click time, the
+  // COMMIT only when the server answers — settle() uses both to decide whether
+  // to hold past its usual cap instead of serving the old page.
+  client.on("Page.frameRequestedNavigation", (p, sid) => {
+    if (sid !== session.sessionId || p.frame?.parentId) return;
+    session.navReq = { ts: Date.now(), disposition: p.disposition };
+  });
+  client.on("Page.frameNavigated", (p, sid) => {
+    for (const info of session.iframes.values()) {
+      if (info.sessionId === sid && p.frame?.url) info.url = p.frame.url; // attach precedes the real src
+    }
+    if (sid !== session.sessionId || p.frame?.parentId) return;
+    session.navCommit = Date.now();
+  });
+
+  // An open js dialog (alert/confirm/prompt) blocks EVERY later CDP command —
+  // the loop would wedge with no error. Dismiss on arrival (accept the default
+  // button; beforeunload declines so a stray unload cannot navigate away).
+  client.on("Page.javascriptDialogOpening", (dialog, sid) => {
+    if (sid !== session.sessionId) return;
+    session.dialogLog.push({ type: dialog.type, message: dialog.message ?? "", ts: Date.now() });
+    if (session.dialogLog.length > 5) session.dialogLog.shift();
+    client.call("Page.handleJavaScriptDialog",
+      { accept: dialog.type !== "beforeunload" }, sid).catch(() => {});
+  });
+
+  // Download tracking: guid -> completed file path; waitDownload parks callers
+  // until one lands. Chrome dedupes clashing names on disk, so the joined path
+  // is the first-write name — delivered entries are never re-announced.
+  client.on("Page.downloadWillBegin", (p, sid) => {
+    if (sid !== session.sessionId) return;
+    session.downloads.set(p.guid, {
+      filename: p.suggestedFilename || "download",
+      path: path.join(dlRoot(session.profile), p.suggestedFilename || "download"),
+      done: false, delivered: false
+    });
+  });
+  client.on("Page.downloadProgress", (p, sid) => {
+    if (sid !== session.sessionId) return;
+    const entry = session.downloads.get(p.guid);
+    if (!entry || (p.state !== "completed" && p.state !== "canceled")) return;
+    entry.done = p.state === "completed";
+    if (entry.done) for (const resolve of session.downloadWaiters.splice(0)) resolve();
+  });
+
   return session;
+}
+
+// Per-profile download folder — user-findable, one level under Downloads.
+function dlRoot(profile) {
+  const safe = String(profile).replace(/[^a-zA-Z0-9_-]/g, "_");
+  const dir = path.join(os.homedir(), "Downloads", "9remote", safe);
+  fs.mkdirSync(dir, { recursive: true });
+  return dir;
 }
 
 function stale(message) {
@@ -712,6 +978,27 @@ const KEY_EVENTS = {
   arrowleft: { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37, nativeVirtualKeyCode: 37 },
   arrowright: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39, nativeVirtualKeyCode: 39 }
 };
+
+// CDP modifier bit flags; "cmd" aliases meta for macOS muscle memory.
+const MODIFIER_BITS = { alt: 1, ctrl: 2, meta: 4, cmd: 4, shift: 8 };
+
+// Resolve a key spec: a named key ("enter"), a single char ("a"), or a combo
+// ("ctrl+a", "meta+c", "shift+arrowright"). Modifier flags ride the same event.
+export function keyEventFor(spec) {
+  const parts = String(spec).toLowerCase().split("+").map((p) => p.trim()).filter(Boolean);
+  if (!parts.length) return null;
+  const keyName = parts[parts.length - 1];
+  const named = KEY_EVENTS[keyName];
+  const single = !named && keyName.length === 1 ? {
+    key: keyName, code: `Key${keyName.toUpperCase()}`,
+    windowsVirtualKeyCode: keyName.toUpperCase().charCodeAt(0),
+    nativeVirtualKeyCode: keyName.toUpperCase().charCodeAt(0)
+  } : null;
+  const base = named || single;
+  if (!base) return null;
+  const modifiers = parts.slice(0, -1).reduce((bits, mod) => bits | (MODIFIER_BITS[mod] ?? 0), 0);
+  return modifiers ? { ...base, modifiers } : base;
+}
 
 async function dropSession(session) {
   try { await session.close(); } catch { /* already dead */ }

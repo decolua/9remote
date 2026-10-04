@@ -160,6 +160,62 @@ if (!hasChrome) {
     }
   });
 
+  await test("e2e: low-confidence WAIT no longer kills the run", async () => {
+    const server = http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(`<!doctype html><html><body>
+      <button onclick="document.title='LATER'">Reveal me</button>
+    </body></html>`); });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${server.address().port}/`;
+    const profile = `e2e-lc-${Date.now()}`;
+    try {
+      let calls = 0;
+      const shakyDecide = async ({ questions }) => {
+        calls++;
+        // WAIT twice with garbage-low confidence, then a confident DONE — the run must survive
+        const mk = (choice, confidence) => ({ choice, confidence,
+          probabilities: { CLICK: choice === "CLICK" ? 1 : 0, DONE: choice === "DONE" ? 1 : 0, BLOCKED: 0, WAIT: choice === "WAIT" ? 1 : 0 } });
+        return { answers: { operation: calls <= 2 ? mk("WAIT", 0.3) : mk("DONE", 1) }, model: "fake", usage: {} };
+      };
+      const result = await withSession({ profile, url, headless: true }, (session) =>
+        runTask(session, { goal: "wait then done", decide: shakyDecide, maxSteps: 6, maxMs: 20000 }));
+      assert.equal(result.outcome, "needs_verification", `died early: ${result.outcome} — ${result.reason}`);
+      assert.equal(result.metrics.modelCalls, 3, "all three decisions consumed");
+      server.close();
+    } finally { await profiles.remove(profile).catch(() => {}); server.close(); }
+  });
+
+  await test("e2e: repeated stale falls back to an in-page JS click", async () => {
+    // Overlay TRAVELS with the button — scrollIntoView cannot escape it, so
+    // coordinate dispatch stays stale until the js-click fallback fires.
+    const server = http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(`<!doctype html><html><body>
+      <div style="position:relative;height:40px;width:220px">
+        <button style="position:absolute;top:10px;left:0" onclick="document.title='COVERED'">Under overlay</button>
+        <div style="position:absolute;inset:0;background:#ccc;opacity:.5"></div>
+      </div>
+    </body></html>`); });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${server.address().port}/`;
+    const profile = `e2e-stale-${Date.now()}`;
+    try {
+      let calls = 0;
+      const stubbornDecide = async ({ questions }) => {
+        calls++;
+        const click = { choice: "CLICK", confidence: 1, probabilities: { CLICK: 1, DONE: 0, BLOCKED: 0, WAIT: 0 } };
+        const done = { choice: "DONE", confidence: 1, probabilities: { CLICK: 0, DONE: 1, BLOCKED: 0, WAIT: 0 } };
+        // CLICK twice (two stales trigger the fallback), then DONE
+        return { answers: calls <= 2
+          ? { operation: click, click_target: { choice: "e1", confidence: 1, probabilities: { e1: 1 } } }
+          : { operation: done }, model: "fake", usage: {} };
+      };
+      const result = await withSession({ profile, url, headless: true }, (session) =>
+        runTask(session, { goal: "click the covered button", decide: stubbornDecide, maxSteps: 5, maxMs: 20000 }));
+      const jsClicked = result.steps.some((s) => s.result === "js-click");
+      assert.ok(jsClicked, `no js-click fallback; steps: ${JSON.stringify(result.steps.map((s) => s.result))}`);
+      assert.equal(result.outcome, "needs_verification", `outcome ${result.outcome} — ${result.reason}`);
+      server.close();
+    } finally { await profiles.remove(profile).catch(() => {}); server.close(); }
+  });
+
   await test("e2e: type into observed field + enter via single-step commands", async () => {
     const server = http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(`<!doctype html><html><body>
       <input id="q" placeholder="Search" onkeydown="if(event.key==='Enter')document.title='SENT:'+this.value">

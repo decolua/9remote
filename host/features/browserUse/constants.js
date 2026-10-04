@@ -24,13 +24,15 @@ export const SETTLE_MIN_LINK_MS = 800;      // link clicks — navigation commit
 export const WAIT_TEXT_TIMEOUT_MS = 6000;   // bounded wait for text/elements to appear
 export const WAIT_TEXT_POLL_MS = 200;
 export const SETTLE_CAP_MS = 1500;          // hard ceiling per settle
+export const NAV_WAIT_COMMIT_MS = 4000;     // main-frame nav: wait the commit past the settle cap
 export const SCREENSHOT_QUALITY = 72;
 export const SCREENSHOT_FORMAT = "jpeg";
 export const STEP_FRAME_QUALITY = 40;     // per-step debug tail — small on purpose
 export const STEP_FRAME_SCALE = 0.5;      // CDP clip scale shrinks in-browser, no image lib
 export const KEEP_REPORTS = 20;
-export const MAX_ELEMENTS = 250;            // snapshot-side cap, mirrored from upstream port
-export const PAGE_TEXT_CAP = 6000;
+export const MAX_CHOICES = 255;              // systemone provider hard cap: 256 criteria = HTTP 400
+export const MAX_ELEMENTS = 248;            // snapshot budget — leaves room for SKIP/scroll in plan criteria
+export const PAGE_TEXT_CAP = 12000;         // full-page text budget (was 6000 viewport-cut)
 export const VIEWPORT = { width: 1120, height: 780 };
 export const LAUNCH_TIMEOUT_MS = 15000;
 export const ATTACH_PROBE_TIMEOUT_MS = 5000; // attach liveness probe ceiling — Chrome's debug WS slows under connect churn

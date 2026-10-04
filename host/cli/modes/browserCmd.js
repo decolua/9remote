@@ -2,16 +2,14 @@
 // API (same pattern as key/devices). Output is agent-friendly: element tables
 // and run outcomes print as compact text, everything else as JSON.
 import fs from "node:fs";
+import { renderTreeLines } from "../../features/browserUse/compress.js";
 import { apiPost, isServerRunning } from "../core/localApi.js";
-
-const PROFILE_FLAGS = ["--profile", "-p"];
 
 function parseArgs(args) {
   const positional = [];
   const opts = {};
   for (let i = 0; i < args.length; i++) {
     const a = args[i];
-    if (PROFILE_FLAGS.includes(a)) { opts.profile = args[++i]; continue; }
     if (a === "--url") { opts.url = args[++i]; continue; }
     if (a === "--max-steps") { opts.maxSteps = Number(args[++i]); continue; }
     if (a === "--attach") { opts.mode = "attach"; continue; }
@@ -23,6 +21,8 @@ function parseArgs(args) {
     if (a === "--expect-url") { opts.expectUrl = args[++i]; continue; }
     if (a === "--expect-title") { opts.expectTitle = args[++i]; continue; }
     if (a === "--tail") { opts.tail = true; continue; }
+    if (a === "--wait") { opts.wait = args[++i]; continue; }
+    if (a === "--timeout-ms") { opts.timeoutMs = Number(args[++i]); continue; }
     positional.push(a);
   }
   return { positional, opts };
@@ -62,14 +62,10 @@ function printState(state) {
   // Page text rides along (already filtered) — no follow-up `read` round trip.
   const text = String(state.text || "").replace(/\s+/g, " ").trim();
   if (text) console.log(`text: ${text.slice(0, 800)}${text.length > 800 ? " …" : ""}`);
-  // Compact table: fewer tokens per response, faster agent turns. Center
-  // coordinates ride along so coordinate clicks need no screenshots.
-  for (const a of (state.actions || []).slice(0, 40)) {
-    const value = a.kind === "fill" && a.value ? ` = ${a.value.slice(0, 30)}` : "";
-    const r = a.rect;
-    const at = r ? ` · ${Math.round(r.x + r.w / 2)},${Math.round(r.y + r.h / 2)}` : "";
-    console.log(`  [${a.id}] ${a.kind.padEnd(6)} ${String(a.label).slice(0, 60)}${at}${value}`);
-  }
+  // Full structural tree — sections nest by path and repeating rows collapse,
+  // so a 400-element page stays readable where a flat 40-row cut misleads.
+  console.log(renderTreeLines(state.actions || []));
+  if (state.omitted_actions) console.log(`… ${state.omitted_actions} more elements cut by the cap`);
 }
 
 // Chain script parser: split on top-level ';' (quotes respected), one step each.
@@ -111,7 +107,8 @@ export function parseStep(raw) {
     }
     default: { // run
       const onlyIdx = argv.indexOf("--only");
-      const goal = unq(argv.filter((a, i) => i !== onlyIdx && i !== onlyIdx + 1).join(" "));
+      const drop = onlyIdx >= 0 ? new Set([onlyIdx, onlyIdx + 1]) : null; // -1+1=0 would drop the goal
+      const goal = unq(argv.filter((a, i) => !drop?.has(i)).join(" "));
       return { op: "run", goal, only: onlyIdx >= 0 ? unq(argv[onlyIdx + 1]) : undefined };
     }
   }
@@ -131,17 +128,18 @@ function printRun(result) {
 
 const HELP = `9remote browser — agent-driven Chrome via the host engine
 
-  9remote browser open <url> [--profile N] [--attach] [--no-headless]
+  9remote browser open <url> [--attach] [--no-headless] [--wait "text"]
                                              # opens AND prints the element table
-  9remote browser state [--profile N]        numbered element table
-  9remote browser read [--tail] [--profile N]  filtered page TEXT (cheaper than shot)
-  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--fields "L=text;..."] [--profile N]
+                                             # --wait: hold until the page shows the text (SPA-ready marker)
+  9remote browser state                      numbered element table
+  9remote browser read [--tail]              filtered page TEXT (cheaper than shot)
+  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--fields "L=text;..."]
                                              # --only: Jev sees only matching element labels
                                              # --fields: Jev picks the fields, engine types YOUR text
                                              #   (password values are masked, never sent to the model)
                                              # --expect-text "..." (repeatable) / --expect-url / --expect-title:
                                              #   engine verifies them on a fresh read — only PASSED is success
-  9remote browser click <id> [options]       click table id (e3)
+  9remote browser click <id> [options]       click table id (e3) — --wait "text" gates completion in this call
   9remote browser clickxy <x> <y>            click exact page coordinates (custom widgets)
   9remote browser hover <id>                 move the mouse onto an element (hover menus)
   9remote browser key <enter|escape|tab|arrow...>  send a named key
@@ -150,12 +148,16 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
   9remote browser wait "<text>"              bounded wait until text/element appears
   9remote browser tab <n> | tabclose [<n>]   switch tab #n / close one (active by default)
   9remote browser type <id> "<text>" [--enter]  type exact text (+ Enter) into field
+  9remote browser upload <id> <file-path>       set a file on an observed file input (CDP, no native picker)
+  9remote browser download [--timeout MS]      wait for the next completed download, print its path
+  9remote browser drag <from> <to>             HTML5 drag: press at <from>, release over <to>
   9remote browser chain "click e1; type e2 'hi' --enter; wait 'result'"  # many steps, ONE call
+  9remote browser chain "run 'open pricing'; type e5 'hi'; run 'pick team plan' --only 'Plan'"
+                                               # batch Jev sub-goals in one chain too
   9remote browser enter                      press Enter
-  9remote browser shot [--profile N]         writes /tmp/9remote-shot-*.jpg, prints the path
-  9remote browser tabs [--profile N] [--attach] # list open browser tabs
-  9remote browser close [--profile N]
-  9remote browser profiles list|create <name>|delete <name>
+  9remote browser shot                       writes /tmp/9remote-shot-*.jpg, prints the path
+  9remote browser tabs [--attach]            # list open browser tabs
+  9remote browser close
   9remote browser attach                     check real-browser attach status
   9remote browser status                     config + sessions`;
 
@@ -164,7 +166,7 @@ export async function cmdBrowser(args) {
   const [sub, ...rest] = positional;
   const isAttach = opts.mode === "attach";
   const payload = (extra = {}) => ({
-    profile: isAttach ? "__attach__" : opts.profile,
+    profile: isAttach ? "__attach__" : undefined, // engine defaults the own-mode profile
     ...opts,
     ...extra
   });
@@ -183,8 +185,8 @@ export async function cmdBrowser(args) {
       return;
     }
     case "open": {
-      const data = mustOk(await call("open", payload({ url: rest[0] })));
-      console.log(`opened ${rest[0]} (${isAttach ? "real browser" : `profile ${opts.profile || "default"}`})`);
+      const data = mustOk(await call("open", payload({ url: rest[0], wait: opts.wait, timeoutMs: opts.timeoutMs })));
+      console.log(`opened ${rest[0]} (${isAttach ? "real browser" : "isolated Chrome"})`);
       if (data.state) printState(data.state);
       return;
     }
@@ -218,7 +220,7 @@ export async function cmdBrowser(args) {
       return;
     }
     case "click": {
-      const data = mustOk(await call("click", payload({ id: rest[0] })));
+      const data = mustOk(await call("click", payload({ id: rest[0], wait: opts.wait, timeoutMs: opts.timeoutMs })));
       console.log(`clicked ${rest[0]}`);
       if (data.state) printState(data.state);
       return;
@@ -276,9 +278,25 @@ export async function cmdBrowser(args) {
       return;
     }
     case "type": {
-      const data = mustOk(await call("type", payload({ id: rest[0], text: rest.slice(1).join(" "), enter: Boolean(opts.enter) })));
+      const data = mustOk(await call("type", payload({ id: rest[0], text: rest.slice(1).join(" "), enter: Boolean(opts.enter), wait: opts.wait, timeoutMs: opts.timeoutMs })));
       console.log(`typed into ${rest[0]}${opts.enter ? " + enter" : ""}`);
       if (data.state) printState(data.state);
+      return;
+    }
+    case "upload": {
+      const data = mustOk(await call("upload", payload({ id: rest[0], file: rest[1] })));
+      console.log(`uploaded ${data.uploaded} into ${rest[0]}`);
+      if (data.state) printState(data.state);
+      return;
+    }
+    case "download": {
+      const data = mustOk(await call("download", payload({ timeout: opts.timeout })));
+      console.log(`downloaded: ${data.download.path}`);
+      return;
+    }
+    case "drag": {
+      const data = mustOk(await call("drag", payload({ from: rest[0], to: rest[1] })));
+      console.log(`dragged ${rest[0]} onto ${rest[1]}`);
       return;
     }
     case "enter": {
@@ -313,14 +331,6 @@ export async function cmdBrowser(args) {
       mustOk(await call("close", payload()));
       console.log("closed");
       return;
-    case "profiles": {
-      if (rest[0] === "create") { mustOk(await call("profiles.create", { name: rest[1] })); console.log(`created ${rest[1]}`); return; }
-      if (rest[0] === "delete") { mustOk(await call("profiles.delete", { name: rest[1] })); console.log(`deleted ${rest[1]}`); return; }
-      if (rest[0] === "rename") { mustOk(await call("profiles.rename", { from: rest[1], to: rest[2] })); console.log(`renamed ${rest[1]} -> ${rest[2]}`); return; }
-      const data = mustOk(await call("profiles.list", {}));
-      console.log((data.profiles || []).map((p) => p.name).join("\n"));
-      return;
-    }
     case "attach": {
       const data = mustOk(await call("attach.status", {}));
       if (data.available) console.log(`attached (port ${data.port})`);

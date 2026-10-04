@@ -8,7 +8,9 @@ import os from "node:os";
 import path from "node:path";
 
 let pass = 0, fail = 0;
+const onlyCases = process.env.CASES?.split(","); // CASES=7,49 — run a subset by number
 const test = async (name, fn) => {
+  if (onlyCases && !onlyCases.some((n) => name.startsWith(`${n}.`))) return;
   try { await fn(); pass++; console.log(`  ✓ ${name}`); }
   catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
 };
@@ -91,6 +93,51 @@ if (!hasChrome) {
       <button style="position:fixed;top:10px" onclick="document.title='A'">Anchor</button>
       <div style="height:5000px"></div>
     </body></html>`,
+    "/dialog": `<!doctype html><html><body>
+      <button onclick="alert('BOOM'); document.title='AFTER-ALERT'">Trigger alert</button>
+      <button onclick="if(confirm('Sure?')) document.title='CONFIRMED'; else document.title='DENIED'">Trigger confirm</button>
+      <button onclick="document.title='PLAIN'">Plain button</button>
+    </body></html>`,
+    "/upload": `<!doctype html><html><body>
+      <label for="f">Ảnh đại diện</label>
+      <input type="file" id="f">
+      <div id="out">no file</div>
+      <script>window.f.onchange = () => { document.getElementById('out').textContent = 'FILE:' + (f.files[0]?.name || 'none'); };<\/script>
+    </body></html>`,
+    "/download": `<!doctype html><html><body>
+      <a href="/file.txt" download>Download file</a>
+    </body></html>`,
+    "/file.txt": "hello-download-content",
+    "/drag": `<!doctype html><html><body>
+      <div id="src" draggable="true" style="cursor:pointer;padding:10px;background:#eee">Drag me</div>
+      <div id="dst" style="cursor:pointer;padding:20px;background:#dfd">Drop zone</div>
+      <script>
+        window.src.ondragstart = (e) => e.dataTransfer.setData('text/plain', 'PAYLOAD');
+        window.dst.ondragover = (e) => e.preventDefault();
+        window.dst.ondrop = (e) => { e.preventDefault(); document.title = 'DROPPED:' + e.dataTransfer.getData('text/plain'); };
+      <\/script>
+    </body></html>`,
+    "/keys": `<!doctype html><html><body>
+      <script>document.addEventListener('keydown', (e) => {
+        document.title = 'KEY:' + e.key + ':' + (e.ctrlKey || e.metaKey) + ':' + e.shiftKey;
+      });<\/script>
+    </body></html>`,
+    "/navslow": `<!doctype html><html><body>
+      <a href="/veryslow">Go slow target</a>
+    </body></html>`,
+    "/veryslow": `<!doctype html><html><body>
+      <h1>SLOW PAGE ARRIVED</h1>
+      <button onclick="document.title='SLOW'">Late arrival button</button>
+    </body></html>`,
+    "/searchform": `<!doctype html><html><body>
+      <form action="/veryslow" id="f"><input name="q" placeholder="Search term"
+        onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('f').submit();}"></form>
+    </body></html>`,
+    "/tallpage": `<!doctype html><html><body>
+      <button onclick="document.title='TOP'">Top button</button>
+      <div style="height:3000px">filler</div>
+      <button onclick="document.title='DEEP'" style="margin-bottom:40px">Deep footer button</button>
+    </body></html>`,
     "/twophase": `<!doctype html><html><body>
       <button onclick="document.getElementById('f').style.display='block'">Go phase two</button>
       <button id="f" style="display:none" onclick="document.getElementById('out').textContent='PHASE DONE'">Finish it</button>
@@ -143,9 +190,18 @@ if (!hasChrome) {
       <button onclick="parent.document.title='IN'">Inside frame</button>
     </body></html>`
   };
+  const dynamicPages = {}; // test-injected pages whose URLs are known only at runtime
   const server = http.createServer((req, res) => {
+    const route = req.url.split("?")[0];
+    if (route === "/veryslow") { // deliberately slow commit — navigate-aware settle must wait it out
+      setTimeout(() => {
+        res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+        res.end(PAGES[route]);
+      }, 3000);
+      return;
+    }
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(PAGES[req.url] ?? PAGES["/"]);
+    res.end(dynamicPages[route] ?? PAGES[route] ?? PAGES["/"]);
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -248,11 +304,14 @@ if (!hasChrome) {
     assert.equal((await observe(s)).title, "VISIBLE");
   });
 
-  await test("7. 400 buttons: element cap + omitted_actions + scroll offered", async () => {
+  await test("7. 400 buttons: full-page table honors the cap, overflow omitted, scroll still offered", async () => {
+    const { MAX_ELEMENTS } = await import("../features/browserUse/constants.js");
     const s = await open("/long");
     const state = await observe(s);
-    assert.ok(state.actions.filter((a) => a.kind === "click").length <= 250, "cap holds");
-    assert.ok(state.omitted_actions > 100, "omissions reported");
+    const clicks = state.actions.filter((a) => a.kind === "click").length;
+    assert.ok(clicks <= MAX_ELEMENTS, "cap holds");
+    assert.equal(clicks, MAX_ELEMENTS, "table fills to the cap in page order");
+    assert.equal(state.omitted_actions, 400 - MAX_ELEMENTS, "overflow reported");
     assert.ok(state.actions.some((a) => a.id === "scroll_down"), "scroll offered");
   });
 
@@ -355,6 +414,32 @@ if (!hasChrome) {
     assert.equal(res.failedStep, 2);
     assert.ok(res.results[0].ok && !res.results[1].ok);
     assert.equal(res.state.title, "DIV-CLICKED", "state shows step 1 landed");
+  });
+
+  await test("14b. chain resolves targets by label and select value when id not specified", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/");
+    const res = await invoke("chain", { profile, steps: [
+      { op: "click", id: "Do it now" },
+      { op: "select", id: "Beta" },
+      { op: "type", id: "chain works", text: "label matching works" }
+    ] });
+    assert.ok(res.ok, JSON.stringify(res.results));
+    assert.equal(res.results.length, 3);
+    assert.equal(res.state.title, "CE");
+    assert.ok(res.state.text.includes("label matching works"));
+  });
+
+  await test("14c. chain failure includes suggestions of available elements", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/");
+    const res = await invoke("chain", { profile, steps: [
+      { op: "click", id: "NonExistentButton" }
+    ] });
+    assert.ok(!res.ok);
+    assert.equal(res.failedStep, 1);
+    assert.match(res.results[0].error, /Element "NonExistentButton" not observed/);
+    assert.match(res.results[0].error, /Available: /);
   });
 
   await test("15. re-opening the original URL returns after navigating away", async () => {
@@ -764,6 +849,237 @@ if (!hasChrome) {
     assert.ok(criteria.SCROLL_DOWN, "scroll is plannable");
     assert.ok(!criteria.WAIT, "wait is not plannable");
     assert.ok(body.questions.step_3, "plan questions run to PLAN_MAX");
+  });
+
+  await test("36. js dialogs auto-dismiss — alert/confirm never wedge the CDP loop", async () => {
+    const withTimeout = (p, ms, label) => Promise.race([
+      p,
+      new Promise((_, rej) => setTimeout(() => rej(new Error(`${label} timed out — dialog wedged CDP`)), ms))
+    ]);
+    const s = await open("/dialog");
+    const buttons = (await observe(s)).actions.filter((a) => a.kind === "click");
+    const alertBtn = buttons.find((a) => /trigger alert/i.test(a.label));
+    const confirmBtn = buttons.find((a) => /trigger confirm/i.test(a.label));
+    await withTimeout(s.act(alertBtn), 8000, "alert click");
+    const st1 = await withTimeout(observe(s), 8000, "observe after alert");
+    assert.equal(st1.title, "AFTER-ALERT", "alert dismissed and JS resumed");
+    await withTimeout(s.act(confirmBtn), 8000, "confirm click");
+    const st2 = await withTimeout(observe(s), 8000, "observe after confirm");
+    assert.equal(st2.title, "CONFIRMED", "confirm accepted (default)");
+  });
+
+  await test("37. file upload: observed in the table, set via CDP, never offered to Jev", async () => {
+    const { buildActionSpace } = await import("../features/browserUse/agentLoop.js");
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const s = await open("/upload");
+    const state = await observe(s);
+    const fileInput = state.actions.find((a) => a.kind === "upload");
+    assert.ok(fileInput, "file input missing from the element table");
+    assert.match(fileInput.label, /ảnh đại diện/i);
+
+    // The choice loop must NEVER get it — clicking opens a native picker CDP cannot drive
+    const space = buildActionSpace(state.actions);
+    const offered = [...Object.values(space.targets)].flatMap((m) => Object.keys(m));
+    assert.ok(!offered.includes(fileInput.id), "upload action leaked into Jev's choice space");
+
+    const tmp = `/tmp/9r-upload-${Date.now()}.txt`;
+    fs.writeFileSync(tmp, "upload test");
+    const res = await invoke("upload", { profile, id: fileInput.id, file: tmp });
+    assert.ok(res.ok, JSON.stringify(res));
+    const after = await observe(s);
+    assert.match(after.text, /FILE:9r-upload-/, "change event fired with the file name");
+    fs.unlinkSync(tmp);
+  });
+
+  await test("38. downloads land in a known dir; waitDownload returns the path", async () => {
+    const s = await open("/download");
+    const link = (await observe(s)).actions.find((a) => /download file/i.test(a.label));
+    assert.ok(link, "download link observed");
+    await s.act(link);
+    const dl = await s.waitDownload(8000);
+    assert.ok(dl, "download never completed within the bound");
+    assert.match(dl.filename, /file/);
+    assert.ok(fs.existsSync(dl.path), "downloaded file exists on disk");
+    assert.equal(fs.readFileSync(dl.path, "utf8"), "hello-download-content", "content matches");
+  });
+
+  await test("39. drag & drop between two observed elements", async () => {
+    const s = await open("/drag");
+    const state = await observe(s);
+    const src = state.actions.find((a) => /drag me/i.test(a.label));
+    const dst = state.actions.find((a) => /drop zone/i.test(a.label));
+    assert.ok(src && dst, "both drag endpoints observed");
+    await s.dragTo(src, dst);
+    assert.equal((await observe(s)).title, "DROPPED:PAYLOAD", "HTML5 drop fired with dataTransfer");
+  });
+
+  await test("40. sendKey handles modifier combos (ctrl+a, meta+c)", async () => {
+    const s = await open("/keys");
+    await s.sendKey("ctrl+a");
+    assert.equal((await observe(s)).title, "KEY:a:true:false", "ctrl+a delivered with ctrlKey");
+    await s.sendKey("escape");
+    assert.equal((await observe(s)).title, "KEY:Escape:false:false", "plain key still works");
+  });
+
+  await test("41. click to a slow page returns the NEW page table, not the old one", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/navslow");
+    const link = (await observe(await open("/navslow"))).actions.find((a) => /go slow target/i.test(a.label));
+    const data = await invoke("click", { profile, id: link.id });
+    assert.ok(data.state.url.includes("/veryslow"), `still on ${data.state.url}`);
+    assert.match(data.state.text, /SLOW PAGE ARRIVED/, "new page content observed");
+  });
+
+  await test("42. type --enter submitting to a slow page returns the new table", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const s = await open("/searchform");
+    const field = (await observe(s)).actions.find((a) => a.kind === "fill");
+    const data = await invoke("type", { profile, id: field.id, text: "hello", enter: true });
+    assert.ok(data.state.url.includes("/veryslow"), `still on ${data.state.url}`);
+    assert.match(data.state.text, /SLOW PAGE ARRIVED/);
+  });
+
+  await test("43. in-place clicks do NOT pay the navigation wait", async () => {
+    const s = await open("/twophase");
+    const phaseOne = (await observe(s)).actions.find((a) => /go phase two/i.test(a.label));
+    const started = Date.now();
+    await s.act(phaseOne);
+    const elapsed = Date.now() - started;
+    const st = await observe(s);
+    assert.ok(st.actions.some((a) => /finish it/i.test(a.label)), "in-place click still lands");
+    assert.ok(elapsed < 2500, `in-place click took ${elapsed}ms — navigation wait leaked`);
+  });
+
+  await test("44. click --wait 'text' gates completion in the same call", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const s = await open("/twophase");
+    const finish = (await observe(s)).actions.find((a) => /finish it/i.test(a.label));
+    const data = await invoke("click", { profile, id: finish.id, wait: "PHASE DONE" });
+    assert.equal(data.found, true, "wait text observed in the same response");
+    assert.match(data.state.text, /PHASE DONE/);
+  });
+
+  await test("45. full-page snapshot: below-fold elements appear without scrolling", async () => {
+    const s = await open("/tallpage");
+    const state = await observe(s);
+    assert.ok(state.actions.some((a) => /top button/i.test(a.label)), "top element present");
+    assert.ok(state.actions.some((a) => /deep footer button/i.test(a.label)),
+      "below-fold element must be in the table without any scroll");
+    assert.match(state.text, /filler/, "below-fold text readable");
+  });
+
+  await test("46. clicking a below-fold element scrolls it into view and lands", async () => {
+    const s = await open("/tallpage");
+    const state = await observe(s);
+    const deep = state.actions.find((a) => /deep footer button/i.test(a.label));
+    await s.act(deep);
+    assert.equal((await observe(s)).title, "DEEP", "clicked the off-viewport element");
+  });
+
+  await test("47. scrolling alone is not page progress (contentMarker ignores offsets)", async () => {
+    const s = await open("/tallpage");
+    const before = await observe(s);
+    await s.scrollBy(800);
+    const after = await observe(s);
+    assert.deepEqual(after.contentMarker, before.contentMarker,
+      "pure scrolling must not look like new content");
+  });
+
+  await test("48. open/reuse never steals focus (no Page.bringToFront in the flow)", async () => {
+    // Spy on outgoing CDP commands for the whole profile session
+    const session = (await import("../features/browserUse/engine.js")).sessionStatus?.();
+    await open("/tallpage"); // may create the tab (fresh origin for this test)
+    const spy = await withSession({ profile }, async (s) => {
+      const orig = s.client.call.bind(s.client);
+      let front = 0;
+      s.client.call = (method, params, sid) => {
+        if (method === "Page.bringToFront") front++;
+        return orig(method, params, sid);
+      };
+      // open() is withSession too — calling it nested on the same profile
+      // self-deadlocks the per-profile mutex; drive the same branches directly.
+      await s.openOrReuseTab(base + "/tallpage");        // exact-match reuse branch
+      await s.openOrReuseTab(base + "/tallpage#anchor"); // same-origin branch
+      const st = await observe(s);
+      const top = st.actions.find((a) => /top button/i.test(a.label));
+      await s.act(top);                   // interaction still lands without real focus
+      await new Promise((r) => setTimeout(r, 50));
+      return front;
+    });
+    assert.equal(spy, 0, "Page.bringToFront fired during open/reuse — focus stolen");
+    const after = await observe(await open("/tallpage"));
+    assert.equal(after.title, "TOP", "click landed without bringing the tab to front");
+  });
+
+  await test("49. cross-origin iframe (OOPIF): observed, clickable — orca pattern", async () => {
+    const childPages = {
+      "/xf-child": `<!doctype html><html><body><button onclick="location.href='/xf-child2'">Iframe inner button</button></body></html>`,
+      "/xf-child2": `<!doctype html><html><body><button>In frame two</button></body></html>`
+    };
+    const childSrv = http.createServer((q, r) => {
+      r.writeHead(200, { "Content-Type": "text/html" });
+      r.end(childPages[q.url.split("?")[0]] ?? childPages["/xf-child"]);
+    });
+    await new Promise((r) => childSrv.listen(0, "localhost", r));
+    const childUrl = `http://localhost:${childSrv.address().port}/xf-child`;
+    dynamicPages["/xframe"] = `<!doctype html><html><body>
+      <button onclick="document.title='OUT'">Outside frame</button>
+      <iframe src="${childUrl}" style="width:300px;height:120px"></iframe>
+    </body></html>`;
+    try {
+      const s = await open("/xframe");
+      const st1 = await observe(s);
+      const inner = st1.actions.find((a) => /iframe inner button/i.test(a.label));
+      assert.ok(inner, "iframe button must appear in the table");
+      assert.ok(inner.frame, "iframe action carries its frame session id");
+      await s.act(inner);
+      const st2 = await observe(s);
+      assert.ok(st2.actions.some((a) => /in frame two/i.test(a.label)),
+        "click navigated the cross-origin frame");
+      assert.ok(st2.actions.some((a) => /outside frame/i.test(a.label)), "parent actions intact");
+    } finally {
+      delete dynamicPages["/xframe"];
+      childSrv.close();
+    }
+  });
+
+  await test("50. every question stays under the provider choice cap (255)", async () => {
+    const { buildActionSpace, buildQuestions } = await import("../features/browserUse/agentLoop.js");
+    const { MAX_CHOICES } = await import("../features/browserUse/constants.js");
+    const many = [];
+    for (let i = 1; i <= 600; i++) {
+      many.push({ id: "e" + i, node: i, kind: "click", role: "link", label: "Link " + i, value: "", ctx: null });
+    }
+    const space = buildActionSpace(many);
+    const body = buildQuestions({ url: "https://x", title: "t", text: "", actions: many }, "g", [], space);
+    const sizes = Object.values(body.questions).map((q) => Object.keys(q.criteria).length);
+    assert.ok(Math.max(...sizes) <= MAX_CHOICES,
+      `question exceeded the provider cap: ${Math.max(...sizes)} > ${MAX_CHOICES}`);
+  });
+
+  await test("51. fresh() is frame-aware: idle iframe pages cache-hit, frame changes do not", async () => {
+    const childSrv = http.createServer((q, r) => {
+      r.writeHead(200, { "Content-Type": "text/html" });
+      r.end(`<!doctype html><html><body><button id="b">Static inner</button></body></html>`);
+    });
+    await new Promise((r) => childSrv.listen(0, "localhost", r));
+    dynamicPages["/xframe-idle"] = `<!doctype html><html><body>
+      <button onclick="document.title='O'">Outer</button>
+      <iframe src="http://localhost:${childSrv.address().port}/" style="width:300px;height:100px"></iframe>
+    </body></html>`;
+    try {
+      const s = await open("/xframe-idle");
+      const a = await observe(s);
+      assert.ok(a.frames?.length, "iframe markers recorded on the state");
+      assert.strictEqual(await s.current(), a, "idle page must serve the cached state (no re-observe)");
+      const { evaluate } = await import("../features/browserUse/snapshot.js");
+      await evaluate(s.client, a.frames[0].sessionId,
+        `document.getElementById('b').textContent = 'Changed inside'`);
+      assert.equal(await s.fresh(a), false, "a frame-only change must invalidate freshness");
+    } finally {
+      delete dynamicPages["/xframe-idle"];
+      childSrv.close();
+    }
   });
 
   await closeProfile(profile).catch(() => {});

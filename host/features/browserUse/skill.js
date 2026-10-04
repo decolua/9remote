@@ -26,10 +26,10 @@ browser after enabling remote debugging.
 ## Command reference
 
 \`\`\`bash
-9remote browser open <url> [--profile NAME] [--attach]   # opens AND prints the element table (reuses tab if open)
-9remote browser tabs [--profile NAME] [--attach]         # list open tabs (title, url, id)
-9remote browser state [--profile NAME]                   # numbered element table of current page
-9remote browser read [--tail] [--profile NAME]           # filtered page TEXT — read content with this, never with shot
+9remote browser open <url> [--attach]                    # opens AND prints the element table (reuses tab if open)
+9remote browser tabs [--attach]                          # list open tabs (title, url, id)
+9remote browser state                                    # numbered element table of current page
+9remote browser read [--tail]                            # filtered page TEXT — read content with this, never with shot
 9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--fields "L=text;..."] [--expect-text "..." ...]
                                                             # Jev loop until DONE/BLOCKED; --only narrows
                                                             # the table; --fields supplies text YOU chose
@@ -39,11 +39,11 @@ browser after enabling remote debugging.
 9remote browser click <id>                               # click element by table id (e.g. e3)
 9remote browser type <id> "<exact text>" [--enter]       # type text YOU chose; --enter sends it
 9remote browser chain "click e1; type e2 'hi' --enter; select e3; wait 'Saved'"
-                                                          # known multi-step sequence in ONE call
+                                                          # known multi-step sequence in ONE call;
+                                                          # steps may also be run "<sub-goal>"
 9remote browser enter                                    # press Enter (send/submit)
-9remote browser shot [--profile NAME]                    # writes a jpeg, prints its path — view via your file tool
-9remote browser close [--profile NAME]
-9remote browser profiles                                 # list/create/delete browser profiles
+9remote browser shot                                     # writes a jpeg, prints its path — view via your file tool
+9remote browser close
 \`\`\`
 
 ## Division of labor
@@ -100,10 +100,13 @@ browser after enabling remote debugging.
   never proof. \`--expect-text\` matches visible page text AND filled field values.
 - Never automatically rerun a failed task that may have mutated the site — reconcile the
   actual state first, then continue.
-- One working profile per task; pass \`--profile\` consistently. A profile is
-  created automatically on first use — no separate \`profiles create\` needed.
 - Write sequential sub-goals as ONE goal in order ("open X, then click Y, then
   open Z") — the run loop executes the chain itself; do not split into many runs.
+- When sub-goals need your own typing or a different \`--only\` between them, batch
+  them as ONE \`chain\` of \`run\` steps instead of one \`run\` per turn:
+  \`chain "run 'select community r/selfhosted'; type eTags 'tools'; run 'publish' --only 'Post'"\`.
+  The runs share the session, each step reports its own outcome, and the chain
+  stops at the first failure with the live table — one CLI call, one of your turns.
 - In \`--attach\` mode, \`open <url>\` automatically reuses an existing tab if it matches the URL; use \`tabs --attach\` to inspect open tabs.
 - NEVER write custom Node.js scripts or raw WebSocket code to connect to DevToolsActivePort. Always use \`9remote browser ...\` commands — the host engine manages the connection and prevents duplicate security prompts.
 - Never type into or click elements of pages the user did not ask you to touch.

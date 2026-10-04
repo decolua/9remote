@@ -12,7 +12,7 @@ import { testConfig } from "./jevClient.js";
 import { DEFAULT_POLICY, checkExpectations } from "./agentLoop.js";
 export { checkExpectations };
 import {
-  attachStatus, closeProfile, profiles, listTabs, openAttachGuide, readStepFrame, framePathFor,
+  attachStatus, closeProfile, listTabs, openAttachGuide, readStepFrame, framePathFor,
   requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter,
   switchTab, closeTab
 } from "./engine.js";
@@ -141,6 +141,16 @@ const emitStep = (step) => {
     `"${String(step.label || "").slice(0, 50)}" · ${step.result} · ${step.latencyMs}ms`);
 };
 
+// Optional completion gate for action commands: --wait "<text>" holds the SAME
+// call until the page visibly shows the evidence (bounded), so the agent learns
+// action + outcome + table in one round trip.
+const waitGate = async (payload) => {
+  if (!payload.wait) return {};
+  const { found } = await withSession(sessionOpts(payload), (session) =>
+    session.waitText(String(payload.wait), Number(payload.timeoutMs) || 5000));
+  return { found };
+};
+
 export async function invoke(action, payload = {}) {
   await loadConfig();
   switch (action) {
@@ -152,26 +162,18 @@ export async function invoke(action, payload = {}) {
       await loadConfig();
       return { ok: true, ...(await testConfig({ ...config, ...pickOverrides(payload) })) };
     case "status":
-      return { ok: true, config: publicConfig(), sessions: sessionStatus(), profiles: profiles.list() };
+      return { ok: true, config: publicConfig(), sessions: sessionStatus() };
     case "attach.status":
       return { ok: true, ...(await attachStatus()) };
     case "attach.open":
       return { ok: true, ...openAttachGuide() };
-    case "profiles.list":
-      return { ok: true, profiles: profiles.list() };
-    case "profiles.create":
-      return { ok: true, profile: profiles.create(payload.name) };
-    case "profiles.rename":
-      return { ok: true, ...(await profiles.rename(payload.from, payload.to)) };
-    case "profiles.delete":
-      return { ok: true, ...(await profiles.remove(payload.name)) };
     case "tabs": {
       const opts = sessionOpts(payload);
       return { ok: true, tabs: await listTabs(opts) };
     }
     case "open":
       // Returns the element table too — kills the open→state double round trip.
-      return { ok: true, state: await withSession({
+      return { ok: true, ...(await waitGate(payload)), state: await withSession({
         ...sessionOpts(payload), url: required(payload, "url")
       }, async (session) => session.steady()) };
     case "state":
@@ -217,7 +219,7 @@ export async function invoke(action, payload = {}) {
     case "click": {
       const opts = sessionOpts(payload);
       return { ok: true, ...(await clickById(opts.profile, required(payload, "id"))),
-        state: await stateAfter(payload) };
+        ...(await waitGate(payload)), state: await stateAfter(payload) };
     }
     case "clickxy": {
       const opts = sessionOpts(payload);
@@ -281,7 +283,50 @@ export async function invoke(action, payload = {}) {
         if (payload.enter) await session.pressEnter();
         return { typed: payload.text };
       });
+      return { ok: true, ...result, ...(await waitGate(payload)), state: await stateAfter(payload) };
+    }
+    case "upload": {
+      const opts = sessionOpts(payload);
+      const file = required(payload, "file");
+      if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
+      const result = await withSession(opts, async (session) => {
+        let state = await session.current();
+        let action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "upload");
+        if (!action) { // table shifted since the caller's observe — one retry
+          state = await session.observe();
+          action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "upload");
+        }
+        if (!action) throw new Error(`${required(payload, "id")} is not an observed file input`);
+        return await session.uploadFile(action, file);
+      });
       return { ok: true, ...result, state: await stateAfter(payload) };
+    }
+    case "download": {
+      const opts = sessionOpts(payload);
+      const result = await withSession(opts, async (session) =>
+        await session.waitDownload(Number(payload.timeout) || 15000));
+      if (!result) throw new Error("No download completed within the timeout");
+      return { ok: true, download: result };
+    }
+    case "drag": {
+      const opts = sessionOpts(payload);
+      const result = await withSession(opts, async (session) => {
+        const grab = async (key) => {
+          const id = required(payload, key);
+          let state = await session.current();
+          let action = state.actions.find((a) => a.id === id);
+          if (!action) { // table shifted since the caller's observe — one retry
+            state = await session.observe();
+            action = state.actions.find((a) => a.id === id);
+          }
+          if (!action) throw new Error(`Element ${id} not observed`);
+          return action;
+        };
+        const from = await grab("from");
+        const to = await grab("to");
+        return await session.dragTo(from, to);
+      });
+      return { ok: true, ...result };
     }
     case "enter": {
       const opts = sessionOpts(payload);
@@ -406,21 +451,43 @@ async function runChain(opts, steps) {
           }
         } else {
           const state = await session.current();
-          const find = (id) => {
-            const action = state.actions.find((a) => a.id === id);
-            if (!action) throw new Error(`Element ${id} not observed`);
+          const find = (target, expectedKind = null) => {
+            if (!target) throw new Error("Missing element target");
+            let action = state.actions.find((a) => a.id === target);
+            if (!action) {
+              const lower = String(target).toLowerCase();
+              const pool = expectedKind ? state.actions.filter((a) => a.kind === expectedKind) : state.actions;
+              action = pool.find((a) => a.label?.toLowerCase() === lower ||
+                (a.kind === "select" && (a.value === target || a.label?.toLowerCase().endsWith(`→ ${lower}`) || a.label?.toLowerCase().endsWith(`-> ${lower}`))));
+              if (!action) {
+                action = pool.find((a) => a.label?.toLowerCase().includes(lower));
+              }
+              if (!action && expectedKind) {
+                action = state.actions.find((a) => a.label?.toLowerCase() === lower ||
+                  (a.kind === "select" && (a.value === target || a.label?.toLowerCase().endsWith(`→ ${lower}`) || a.label?.toLowerCase().endsWith(`-> ${lower}`)))) ||
+                  state.actions.find((a) => a.label?.toLowerCase().includes(lower));
+              }
+            }
+            if (!action) {
+              const pool = expectedKind ? state.actions.filter((a) => a.kind === expectedKind) : state.actions;
+              const suggestions = (pool.length ? pool : state.actions)
+                .slice(0, 5)
+                .map((a) => `[${a.id}] "${a.label || a.kind}"`);
+              const hint = suggestions.length ? `. Available: ${suggestions.join(", ")}` : "";
+              throw new Error(`Element "${target}" not observed${hint}`);
+            }
             return action;
           };
           if (step.op === "click" || step.op === "select") {
-            const action = find(step.id);
+            const action = find(step.id, step.op);
             await session.act(action);
-            summary = `${step.op} ${step.id} (${String(action.label || "").slice(0, 40)})`;
+            summary = `${step.op} ${action.id} (${String(action.label || "").slice(0, 40)})`;
           } else if (step.op === "type") {
-            const action = find(step.id);
+            const action = find(step.id, "fill");
             if (action.kind !== "fill") throw new Error(`${step.id} is not an editable field`);
             await session.act(action, String(step.text ?? ""));
             if (step.enter) await session.pressEnter();
-            summary = `type ${step.id}${step.enter ? " +enter" : ""}`;
+            summary = `type ${action.id}${step.enter ? " +enter" : ""}`;
           } else if (step.op === "enter") {
             await session.pressEnter();
           } else if (step.op === "scroll") {
