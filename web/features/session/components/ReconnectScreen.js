@@ -26,6 +26,8 @@ export default function ReconnectScreen({ label, inline = false }) {
   const handleReload = () => {
     vibrate();
     setReloading(true);
+    // Break the auto-login loop: land on the login page, where the saved key shows the host's real state.
+    try { sessionStorage.setItem("9remote_manual_disconnect", "1"); } catch {}
     setTimeout(() => window.location.reload(), 150);
   };
 
