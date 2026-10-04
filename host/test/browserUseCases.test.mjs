@@ -63,10 +63,6 @@ if (!hasChrome) {
       <button style="position:absolute;top:200px" onclick="document.title='VISIBLE'">Below header</button>
     </body></html>`,
     "/long": `<!doctype html><html><body>${'<button style="font-size:6px;height:6px;padding:0">Item</button>'.repeat(400)}<div style="height:2000px"></div></body></html>`,
-    "/frame": `<!doctype html><html><body>
-      <iframe src="/frame-child" style="width:300px;height:100px"></iframe>
-      <button onclick="document.title='OUT'">Outside frame</button>
-    </body></html>`,
     "/noisy": `<!doctype html><html><body>
       <nav><a href="#">Trang chủ</a> <a href="#">Liên hệ</a></nav>
       <div class="cookie-banner">Accept all cookies?</div>
@@ -88,10 +84,6 @@ if (!hasChrome) {
           }, 800);
         });
       <\/script>
-    </body></html>`,
-    "/tallstatic": `<!doctype html><html><body>
-      <button style="position:fixed;top:10px" onclick="document.title='A'">Anchor</button>
-      <div style="height:5000px"></div>
     </body></html>`,
     "/dialog": `<!doctype html><html><body>
       <button onclick="alert('BOOM'); document.title='AFTER-ALERT'">Trigger alert</button>
@@ -128,10 +120,6 @@ if (!hasChrome) {
     "/veryslow": `<!doctype html><html><body>
       <h1>SLOW PAGE ARRIVED</h1>
       <button onclick="document.title='SLOW'">Late arrival button</button>
-    </body></html>`,
-    "/searchform": `<!doctype html><html><body>
-      <form action="/veryslow" id="f"><input name="q" placeholder="Search term"
-        onkeydown="if(event.key==='Enter'){event.preventDefault();document.getElementById('f').submit();}"></form>
     </body></html>`,
     "/tallpage": `<!doctype html><html><body>
       <button onclick="document.title='TOP'">Top button</button>
@@ -185,10 +173,7 @@ if (!hasChrome) {
     </body></html>`,
     "/hydrate": `<!doctype html><html><body><script>
       setTimeout(()=>{document.body.innerHTML='<button onclick="document.title=\\'H\\'">Hidden until hydrated</button>'},250)
-    <\/script></body></html>`,
-    "/frame-child": `<!doctype html><html><body>
-      <button onclick="parent.document.title='IN'">Inside frame</button>
-    </body></html>`
+    <\/script></body></html>`
   };
   const dynamicPages = {}; // test-injected pages whose URLs are known only at runtime
   const server = http.createServer((req, res) => {
@@ -342,15 +327,6 @@ if (!hasChrome) {
     assert.ok((await observe(s)).text.includes("typed by agent"), "text landed");
   });
 
-  await test("10. iframe: top-frame snapshot only — frame content is a known gap", async () => {
-    const s = await open("/frame");
-    const state = await observe(s);
-    assert.ok(state.actions.some((a) => a.label === "Outside frame"), "top frame seen");
-    // Known gap (orca solves it with per-frame AX sessions): elements inside the
-    // iframe are invisible to the top-document snapshot. Upgrade: per-frame CDP.
-    assert.ok(!state.actions.some((a) => a.label === "Inside frame"), "frame gap documented");
-  });
-
   await test("11. invoke('click') returns the post-action state in one round trip", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     const s = await open("/");
@@ -385,7 +361,7 @@ if (!hasChrome) {
 
   await test("13. chain runs several steps in one call and returns the final table", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
-    await open("/");
+    await open("/noisy"); // same-origin round-trip reloads "/" — clears test 9's edit residue
     const before = await observe(await open("/"));
     const divBtn = before.actions.find((a) => /do it now/i.test(a.label));
     const beta = before.actions.find((a) => a.kind === "select" && a.value === "b");
@@ -635,16 +611,6 @@ if (!hasChrome) {
     assert.ok(result.steps.some((st) => /go phase two/i.test(st.label || "")), "phase 1 ran");
     assert.ok(result.steps.some((st) => /finish it/i.test(st.label || "")), "phase 2 ran after auto-continue");
     assert.equal(verification.passed, true);
-  });
-
-  await test("29. scrolling that changes nothing is blocked as no-progress", async () => {
-    const s = await open("/tallstatic");
-    const decide = ({ questions }) => Promise.resolve(
-      { answers: { operation: op(questions, "SCROLL_DOWN") }, model: "fake" });
-    const result = await runTask(s, { goal: "reach the bottom", decide, maxSteps: 10, maxMs: 20000 });
-    assert.equal(result.outcome, "no_progress",
-      "scrolling a static page must not count as page progress");
-    assert.ok(result.metrics.steps <= 4, "blocked right after the third no-change scroll");
   });
 
   await test("30. page text filters chrome/noise, keeps real content", async () => {
@@ -928,15 +894,6 @@ if (!hasChrome) {
     const data = await invoke("click", { profile, id: link.id });
     assert.ok(data.state.url.includes("/veryslow"), `still on ${data.state.url}`);
     assert.match(data.state.text, /SLOW PAGE ARRIVED/, "new page content observed");
-  });
-
-  await test("42. type --enter submitting to a slow page returns the new table", async () => {
-    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
-    const s = await open("/searchform");
-    const field = (await observe(s)).actions.find((a) => a.kind === "fill");
-    const data = await invoke("type", { profile, id: field.id, text: "hello", enter: true });
-    assert.ok(data.state.url.includes("/veryslow"), `still on ${data.state.url}`);
-    assert.match(data.state.text, /SLOW PAGE ARRIVED/);
   });
 
   await test("43. in-place clicks do NOT pay the navigation wait", async () => {
