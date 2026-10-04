@@ -168,7 +168,7 @@ function procLinesSince(proc, from = 0) {
   return out;
 }
 
-function createProc(procId, { bin, args = [], cwd, env } = {}) {
+function createProc(procId, { bin, args = [], cwd, env, windowsVerbatimArguments } = {}) {
   if (!procId) return { success: false, error: "Missing procId" };
   if (!bin) return { success: false, error: "Missing bin" };
   const existing = procs.get(procId);
@@ -179,7 +179,10 @@ function createProc(procId, { bin, args = [], cwd, env } = {}) {
     stdio: ["pipe", "pipe", "pipe"],
     env: { ...process.env, ...(env || {}) },
     // Own session/group: stopping a CLI can then signal the whole tree like a closed terminal.
-    detached: process.platform !== "win32"
+    detached: process.platform !== "win32",
+    // Windows .cmd shims arrive pre-escaped for cmd.exe (rewritten at the client
+    // door via cross-spawn) — Node must not quote them a second time.
+    windowsVerbatimArguments: windowsVerbatimArguments === true
   });
 
   const proc = {

@@ -5,6 +5,7 @@ import fs from "fs";
 import path from "path";
 import os from "os";
 import { spawn } from "child_process";
+import crossSpawnParse from "cross-spawn/lib/parse.js";
 import { fileURLToPath } from "url";
 import { DAEMON_VERSION } from "./constants.js";
 import { NODE_BIN, nodeSpawnEnv, PATHS } from "../../lib/constants.js";
@@ -556,8 +557,20 @@ export function resizeSession(sessionId, cols, rows) {
 }
 
 // Managed child processes owned by daemon to survive agent restarts.
+// On Windows npm-installed CLIs are .cmd shims a bare spawn cannot exec — rewrite
+// to a cmd.exe invocation with safely escaped args HERE (one door, before the wire),
+// so the daemon's plain spawn keeps working. POSIX passes through untouched.
+// windowsVerbatimArguments must ride along: parse() pre-escapes for cmd.exe, and a
+// plain spawn would re-quote the escaped string into garbage.
 export function procStart(procId, { bin, args, cwd, env } = {}) {
-  return call("proc.start", { procId, bin, args, cwd, env });
+  let windowsVerbatimArguments;
+  if (process.platform === "win32") {
+    const parsed = crossSpawnParse(bin, args || [], { env: env || process.env });
+    bin = parsed.command;
+    args = parsed.args;
+    windowsVerbatimArguments = parsed.options.windowsVerbatimArguments === true || undefined;
+  }
+  return call("proc.start", { procId, bin, args, cwd, env, windowsVerbatimArguments });
 }
 
 export function procAttach(procId, from = 0) {

@@ -2,7 +2,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn"; // Windows: npm-installed opencode is a .cmd shim a bare spawn cannot exec
 import { createLogger } from "../../lib/logger.js";
 import { PATHS } from "../../lib/constants.js";
 import { OPENCODE_SERVER_PORT, OPENCODE_PROMPT_TIMEOUT_MS } from "./constants.js";
@@ -148,21 +148,29 @@ export async function ensureServer() {
     }
 
     // Terminate unresponsive OpenCode server holding the port.
+    let lastFail = "";
+    let stderrTail = "";
     for (let attempt = 0; attempt < 2; attempt++) {
+      lastFail = "";
+      stderrTail = "";
       proc = spawn("opencode", ["serve", "--port", String(port), "--hostname", "127.0.0.1"], {
         env: buildOpencodeEnv(),
         stdio: ["ignore", "pipe", "pipe"],
         windowsHide: true
       });
       proc.stdout.on("data", () => {});
-      // Drain stderr to prevent pipe buffer from filling.
-      proc.stderr.on("data", () => {});
+      // Drain stderr to prevent pipe buffer from filling — but keep a tail, because
+      // "did not start" alone never says why (bad flag, old version, auth error).
+      proc.stderr.on("data", (d) => { stderrTail = (stderrTail + d.toString()).slice(-2048); });
       proc.on("error", (e) => {
+        lastFail = e.message;
         logger.warn(`[opencode] server failed to start: ${e.message}`);
         proc = null;
         base = null;
       });
-      proc.on("exit", () => {
+      proc.on("exit", (code) => {
+        // A real exit during boot is a failure we can name; our own kill (signal, no code) is not.
+        if (code != null) lastFail = `exited with code ${code}${stderrTail ? `: ${stderrTail.replace(/\s+/g, " ").trim().slice(0, 300)}` : ""}`;
         proc = null;
         base = null;
         clearMarker();
@@ -188,7 +196,8 @@ export async function ensureServer() {
       await new Promise((r) => setTimeout(r, 500));
     }
     booting = null;
-    throw new Error("opencode server did not start");
+    logger.warn(`[opencode] server did not start${lastFail ? `: ${lastFail}` : ""}`);
+    throw new Error(`opencode server did not start${lastFail ? ` (${lastFail})` : ""}`);
   })();
 
   try {

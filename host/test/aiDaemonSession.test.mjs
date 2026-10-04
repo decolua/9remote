@@ -30,7 +30,7 @@ console.log("Running AI daemon session tests...");
 test("the daemon relays lines and never parses an engine's protocol", () => {
   assert.match(DAEMON, /broadcast\(\{ type: "procLine", procId, epoch: proc\.epoch, n: proc\.lineCount/);
   assert.match(DAEMON, /lines: \(m\) => \{/);
-  assert.match(DAEMON, /function createProc\(procId, \{ bin, args = \[\], cwd, env \} = \{\}\)/);
+  assert.match(DAEMON, /function createProc\(procId, \{ bin, args = \[\], cwd, env, windowsVerbatimArguments \} = \{\}\)/);
   for (const engineWord of ["stream_event", "control_request", "turn_complete", "claude"]) {
     assert.ok(!DAEMON.includes(engineWord), `the daemon must not know "${engineWord}"`);
   }

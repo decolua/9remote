@@ -1,5 +1,5 @@
 // Daemon protocol/code version — bump when daemon behavior changes.
-export const DAEMON_VERSION = "72";
+export const DAEMON_VERSION = "73";
 
 // Staging directory for pasted/attached files before handing to CLI.
 export const UPLOAD_DIR = "/tmp/9remote-uploads";
@@ -65,6 +65,9 @@ export const RESIZE_SHRINK_SETTLE_MS = 300;
 export const SESSION_NAME_MAX = 40;
 export const AUTO_NAME_RE = /^(Term|Terminal) \d+$/;
 export const AUTO_NAME_DEBOUNCE_MS = 800;
+// How long a respawned shell waits before the agent resume line is typed into it:
+// zsh's instant-prompt discards input that arrives before the first prompt.
+export const RESPAWN_RESUME_DELAY_MS = 2000;
 
 // Max bytes per slice to keep base64 envelope under 64KB SCTP limit.
 export const OUTPUT_SLICE_BYTES = 45 * 1024;

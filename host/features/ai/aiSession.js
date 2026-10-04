@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { spawn } from "node:child_process";
+import spawn from "cross-spawn"; // Windows: exec npm .cmd shims the doctor commands live in
 import { AI_ENGINES, AI_TURN_IDLE_TIMEOUT_MS, AI_ASYNC_IDLE_TIMEOUT_MS, AI_DOCTOR_TIMEOUT_MS, AI_PERSIST_DEBOUNCE_MS, AI_PERSIST_STREAM_MS, AI_MAX_EVENTS, AI_MAX_TOOL_OUTPUT, AI_TASK_RECORDS_BYTES, IDLE_KILL_ENGINES, AI_IDLE_KILL_MS, AI_VETO_MAX_MS } from "./constants.js";
 import { getExtendedEnv } from "./adapters/env.js";
 import { recoverFromTranscript } from "./transcript.js";

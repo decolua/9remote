@@ -4,7 +4,8 @@
 //
 // The surface is deliberately the same as DaemonProc's and AgentProc's, so an adapter
 // never learns which carrier it got.
-import { spawn } from "node:child_process";
+// cross-spawn: npm-installed CLIs are .cmd shims on Windows; a bare spawn cannot exec them.
+import spawn from "cross-spawn";
 import { toLines, startResult } from "./daemonProc.js";
 
 export class LocalProc {

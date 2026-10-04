@@ -114,7 +114,8 @@ test("the daemon runtime copy includes the kv module, and the version is bumped"
   const CLIENT = fs.readFileSync(path.join(root, "host/features/terminal/ptyDaemonClient.js"), "utf8");
   assert.match(CLIENT, /DAEMON_LOCAL_MODULES = \[[^\]]*"daemonKv.js"/, "daemonKv.js must ship in the runtime copy");
   const CONST = fs.readFileSync(path.join(root, "host/features/terminal/constants.js"), "utf8");
-  assert.match(CONST, /DAEMON_VERSION = "71"/, "the daemon version must be bumped past 70");
+  const v = CONST.match(/DAEMON_VERSION = "(\d+)"/);
+  assert.ok(Number(v?.[1]) >= 71, "the daemon version must be bumped past 70");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);
