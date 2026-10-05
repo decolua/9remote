@@ -1,6 +1,6 @@
 "use client";
 
-import { Fragment, useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
 import { Check, Download, EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
@@ -62,6 +62,7 @@ export default function HostTree({
   cwdBySession = null,
   treeCls = "pl-3.5",
   mobile = false,             // bigger fonts + touch-sized buttons (mobile session list)
+  onResumeAgentSession = null, // wired through to the new-terminal modal's history tab
   rowCls = "hover:bg-text/5 hover:text-text"
 }) {
   const { t } = useI18n();
@@ -140,6 +141,8 @@ export default function HostTree({
 
 
   const groups = hostTree(host.sessions, host.workspaces);
+  // This host's live ids — the modal's history rows check the host's open tag against them.
+  const liveIds = useMemo(() => new Set((host.sessions || []).map((s) => s.id)), [host.sessions]);
 
   const createIn = (name, shellId, agent, yolo, cwd, nameIsAuto) => {
     actions.createSession?.(name, termModalWs === "ungrouped" ? null : termModalWs, shellId, cwd, agent, yolo, nameIsAuto);
@@ -403,7 +406,9 @@ export default function HostTree({
           shells={shells}
           busRef={busTag}
           hostKey={host.key}
-          liveSessionIds={null}
+          onResumeAgentSession={onResumeAgentSession}
+          onSelectSession={actions.selectSession}
+          liveSessionIds={liveIds}
           connected={actionable}
           workspacePath={host.workspaces?.find((w) => w.id === (termModalWs === "ungrouped" ? null : termModalWs))?.path || null}
           workspaceName={termModalWs === "ungrouped" ? t("workspaces.ungrouped") : host.workspaces?.find((w) => w.id === termModalWs)?.name || ""}

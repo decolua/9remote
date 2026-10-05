@@ -209,6 +209,7 @@ export default function SessionList({
                     onConnect: onMainReconnect
                   }}
                   busRef={busRef}
+                  onResumeAgentSession={onResumeAgentSession}
                   actions={{
                     selectSession: onSelect,
                     createSession: onCreate,

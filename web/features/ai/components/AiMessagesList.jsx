@@ -3,6 +3,7 @@
 import { memo, useRef, useEffect, useLayoutEffect, useState, useCallback, useMemo } from "react";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import { MessageBubble } from "./MessageBubble";
 import { AiTurn } from "./AiTurn";
 import { ENGINE_INFO, STARTER_PROMPTS } from "../constants";
@@ -217,6 +218,8 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
   const { t } = useI18n();
   const [recent, setRecent] = useState([]);
   const [homedir, setHomedir] = useState(null);
+  // Same open-tag guard as SessionsModal: only a session that exists counts.
+  const liveStatus = useAllSessionStatus();
   const git = useWorkspaceGit(workspacePath, fileBus, { enabled: Boolean(workspacePath) });
 
   useEffect(() => {
@@ -277,7 +280,7 @@ const AiEmptyState = memo(function AiEmptyState({ engine, engineMeta, workspaceP
           <div className="max-h-[38vh] overflow-y-auto custom-scrollbar rounded-brand border border-border-subtle bg-surface-2/30">
             {recent.map((row) => {
               // If session is already open in a terminal, switch to it instead of resuming.
-              const isOpen = !!row.openSessionId;
+              const isOpen = !!row.openSessionId && !!liveStatus[row.openSessionId];
               const onPick = () => {
                 if (isOpen) window.dispatchEvent(new CustomEvent(OPEN_SESSION_EVENT, { detail: { sessionId: row.openSessionId } }));
                 else onOpenResume?.(row);
