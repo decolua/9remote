@@ -3,7 +3,7 @@
 // node-ID map kept in the page. Node IDs are the only handle the loop trusts —
 // the model never sees selectors, coordinates or JS; coordinates ride on the
 // returned actions for the agent, never inside the decision prompts.
-import { MAX_ELEMENTS, PAGE_TEXT_CAP } from "./constants.js";
+import { MAX_ELEMENTS, PAGE_TEXT_CAP, READ_TOTAL_CAP } from "./constants.js";
 
 // Injected once per page (idempotent cache on window.__9rFast), then executed.
 const CACHE_BOOTSTRAP = `(() => {
@@ -219,6 +219,121 @@ const SNAPSHOT_BODY = `(() => {
 export const SNAPSHOT_EXPRESSION = `(${CACHE_BOOTSTRAP},${SNAPSHOT_BODY})`;
 // Freshness marker only — cheap re-check that the observed page is still the same one.
 export const MARKER_EXPRESSION = `(() => { const state=(${SNAPSHOT_BODY}); return state ? state.marker : null; })()`;
+
+// Markdown-lite content reader (the `read` op). Same vocabulary as --parent:
+// a section matches by its tree name (segName). Structure: headings keep their
+// level, paragraphs merge inline runs into one line, runs of same-tag leaf
+// siblings join " · " (chips, div-rows, role=row grids), real tables render
+// pipe rows, nested lists indent 2 spaces per level. Same NOISE/visibility
+// rules and cap as the snapshot walker.
+export function readExpression(parent, from = 0, len = null) {
+  const needle = JSON.stringify(String(parent || "").toLowerCase());
+  const fromNum = Math.max(0, Math.floor(Number(from) || 0));
+  const lenNum = len == null ? PAGE_TEXT_CAP : Math.min(READ_TOTAL_CAP, Math.max(1, Math.floor(Number(len) || 1)));
+  return `(() => {
+  const needle = ${needle};
+  // READER visibility: content-visibility:auto (GitHub timeline) reports
+  // checkVisibility=false while textContent stays readable — gate on intent
+  // markers only, not rendered-ness.
+  const visible = e => !e.closest('[aria-hidden="true"],[inert],[hidden]');
+  const NOISE='nav,header,footer,aside,form,button,select,option,label,dialog,'+
+    '[role="banner"],[role="navigation"],[role="contentinfo"],[role="complementary"],'+
+    '.ad,.ads,.advert,.cookie,.cookies,[class*="cookie-"],[id*="cookie"],.popup,.modal,.sidebar,.breadcrumb';
+  const SEG_SEL='section,nav,aside,main,article,dialog,form,fieldset,[role="dialog"],'+
+    '[role="region"],[role="group"],[role="tablist"],[role="tabpanel"],'+
+    '[role="navigation"],[role="complementary"],[role="banner"],'+
+    '[role="contentinfo"],[role="form"],[role="search"]';
+  const segName=s=>{const a=s.getAttribute('aria-label'); if(a) return a.slice(0,40);
+    const h=s.querySelector('h1,h2,h3,h4,legend'); return h?(h.textContent||'').trim().slice(0,40):null;};
+  const deep=(root,sel)=>{const f=[...root.querySelectorAll(sel)];
+    for (const e of root.querySelectorAll('*')) if (e.shadowRoot) f.push(...deep(e.shadowRoot,sel)); return f;};
+  const named=deep(document,SEG_SEL).map(segName).filter(Boolean);
+  let root=document.body;
+  if(needle!==''){
+    const hit=deep(document,SEG_SEL).find(s=>{const n=segName(s); return n&&n.toLowerCase().includes(needle);});
+    if(!hit) return {error:'no section matches',sections:[...new Set(named)]};
+    root=hit;
+  }
+  // A NOISE ancestor of the chosen root does not apply — the root was picked.
+  const noiseSkip=c=>{const n=c.closest(NOISE); return Boolean(n)&&n!==root&&!n.contains(root);};
+  const BLOCK='p,h1,h2,h3,h4,h5,h6,li,blockquote,pre,dt,dd,figure,table';
+  const isBlock=e=>e.nodeType===1&&e.matches(BLOCK);
+  // Inline run: text of descendants, stopping at any block boundary.
+  const inlineText=e=>[...e.childNodes].map(n=>n.nodeType===3?n.textContent:
+    (n.nodeType===1&&!isBlock(n)&&!n.matches('script,style,noscript,template')&&n.getAttribute('aria-hidden')!=='true')?inlineText(n):'').join(' ');
+  const clean=s=>String(s||'').replace(/\\s+/g,' ').replace(/\\s+([.,;:!?])/g,'$1').trim();
+  const lines=[]; let len=0;
+  const push=(raw,indent)=>{const t=clean(raw); if(!t) return false;
+    const out=(indent?'  '.repeat(indent):'')+t; lines.push(out); len+=out.length+1;
+    return len>=${READ_TOTAL_CAP};};
+  const descend=(el,liDepth)=>{
+    const children=[...el.children].filter(c=>!c.matches('script,style,noscript,template')&&!noiseSkip(c)&&visible(c));
+    let i=0;
+    while(i<children.length){
+      const c=children[i];
+      if(isBlock(c)){ if(blockLine(c,liDepth)) return true; i++; continue; }
+      let j=i; while(j<children.length&&!isBlock(children[j])&&children[j].tagName===c.tagName&&!children[j].children.length) j++;
+      if(j-i>=2){
+        const cells=children.slice(i,j).map(k=>clean(inlineText(k))).filter(Boolean);
+        if(cells.length>=2){ if(push(cells.join(' · '),liDepth)) return true; i=j; continue; }
+      }
+      // Inline-only subtrees (lone leaves and wrappers like GitHub's
+      // <div class=row><a>#12</a></div>) carry text no ancestor emitted — one
+      // line each. Wrappers that CONTAIN blocks recurse; anything else would
+      // duplicate text an ancestor's inlineText already consumed.
+      if(c.querySelector(BLOCK)){ if(descend(c,liDepth)) return true; }
+      else {
+        // Inline-only wrapper: a same-tag leaf run inside IS a row ("a · b · c");
+        // anything else collapses to one line — no recursion, no duplication.
+        const ks=[...c.children];
+        if(ks.length>=2&&ks.every(k=>k.tagName===ks[0].tagName&&!k.children.length)){
+          const cells=ks.map(k=>clean(inlineText(k))).filter(Boolean);
+          if(cells.length>=2){ if(push(cells.join(' · '),liDepth)) return true; i++; continue; }
+        }
+        if(push(inlineText(c),liDepth)) return true;
+      }
+      i++;
+    }
+    return false;
+  };
+  const blockLine=(b,liDepth)=>{
+    const tag=b.tagName;
+    if(/^H[1-6]$/.test(tag)) return push('#'.repeat(+tag[1])+' '+clean(b.textContent),0);
+    if(tag==='LI'){
+      const d=liDepth||0;
+      const t=inlineText(b); if(t&&push('- '+t,d)) return true;
+      return b.querySelector(BLOCK) ? descend(b,d+1) : false;
+    }
+    if(tag==='TABLE'){
+      for(const tr of b.querySelectorAll('tr')){
+        const cells=[...tr.children].map(td=>clean(td.textContent)).filter(Boolean);
+        if(cells.length&&push('| '+cells.join(' | ')+' |',liDepth||0)) return true;
+      }
+      return false;
+    }
+    const t=inlineText(b); if(t&&push(t,liDepth)) return true;
+    return b.querySelector(BLOCK) ? descend(b,liDepth) : false;
+  };
+  // Floating text of a CONTAINER is its direct text nodes only — recursion here
+  // would swallow nav/footer noise and chip rows (they are not blocks).
+  const directText=e=>[...e.childNodes].filter(n=>n.nodeType===3).map(n=>n.textContent).join(' ');
+
+  const t=directText(root); if(t) push(t,0);
+  descend(root,0);
+  // Window over the rendered lines (line-aligned): [from, from+len). total is
+  // the full render length so the agent knows whether to page on.
+  let total=0; for(const l of lines) total+=l.length+1;
+  const from=${fromNum}, maxLen=${lenNum};
+  let cum=0, out=[], taken=0;
+  for(const l of lines){
+    cum+=l.length+1;
+    if(cum<=from) continue;
+    out.push(l); taken+=l.length+1;
+    if(taken>=maxLen) break;
+  }
+  return {url:location.href,title:document.title,text:out.join('\\n'),total,sections:[...new Set(named)]};
+})()`;
+}
 
 export async function evaluate(client, sessionId, expression, { awaitPromise = false } = {}) {
   const result = await client.call("Runtime.evaluate",

@@ -17,6 +17,9 @@ function parseArgs(args) {
     if (a === "--no-headless") { opts.headless = false; continue; }
     if (a === "--enter") { opts.enter = true; continue; }
     if (a === "--only") { opts.only = args[++i]; continue; }
+    if (a === "--parent") { opts.parent = args[++i]; continue; }
+    if (a === "--grep") { opts.grep = args[++i]; continue; }
+    if (a === "--from") { opts.from = Number(args[++i]); opts.len = Number(args[++i]); continue; }
     if (a === "--fields") { opts.fields = parseFieldsArg(args[++i]); continue; }
     if (a === "--expect-text") { (opts.expectText ||= []).push(args[++i]); continue; }
     if (a === "--expect-url") { opts.expectUrl = args[++i]; continue; }
@@ -85,7 +88,7 @@ export function splitTop(script) {
 }
 
 export function parseStep(raw) {
-  const match = raw.match(/^(click|select|type|enter|scroll|wait|run)\b\s*(.*)$/);
+  const match = raw.match(/^(click|select|type|enter|scroll|wait|run|open|read)\b\s*(.*)$/);
   if (!match) throw new Error(`Cannot parse step: ${raw}`);
   const [, op, rest] = match;
   const argv = rest.match(/"[^"]*"|'[^']*'|\S+/g) || [];
@@ -93,12 +96,18 @@ export function parseStep(raw) {
   switch (op) {
     case "click":
     case "select":
-      return { op, id: unq(argv[0]) };
+      // Second quoted arg = label guard: after a navigation ids are untrusted,
+      // the guard makes a wrong id fail BEFORE the click.
+      return { op, id: unq(argv[0]), label: argv[1] ? unq(argv[1]) : undefined };
     case "type": {
       const enter = argv.includes("--enter");
       const vals = argv.filter((a) => a !== "--enter");
       return { op, id: unq(vals[0]), text: unq(vals.slice(1).join(" ")), enter };
     }
+    case "open":
+      return { op, url: unq(argv[0]) };
+    case "read":
+      return { op, parent: unq(argv[0]) || undefined };
     case "enter":
       return { op };
     case "scroll":
@@ -109,9 +118,17 @@ export function parseStep(raw) {
     }
     default: { // run
       const onlyIdx = argv.indexOf("--only");
-      const drop = onlyIdx >= 0 ? new Set([onlyIdx, onlyIdx + 1]) : null; // -1+1=0 would drop the goal
-      const goal = unq(argv.filter((a, i) => !drop?.has(i)).join(" "));
-      return { op: "run", goal, only: onlyIdx >= 0 ? unq(argv[onlyIdx + 1]) : undefined };
+      const parentIdx = argv.indexOf("--parent");
+      const expectUrlIdx = argv.indexOf("--expect-url");
+      const drop = new Set([onlyIdx, onlyIdx + 1, parentIdx, parentIdx + 1,
+        expectUrlIdx, expectUrlIdx + 1].filter((i) => i >= 0)); // -1+1=0 would drop the goal
+      const goal = unq(argv.filter((a, i) => !drop.has(i)).join(" "));
+      return {
+        op: "run", goal,
+        only: onlyIdx >= 0 ? unq(argv[onlyIdx + 1]) : undefined,
+        parent: parentIdx >= 0 ? unq(argv[parentIdx + 1]) : undefined,
+        expectUrl: expectUrlIdx >= 0 ? unq(argv[expectUrlIdx + 1]) : undefined
+      };
     }
   }
 }
@@ -125,7 +142,14 @@ function printRun(result) {
   console.log(`outcome: ${result.outcome}${result.reason ? ` — ${result.reason}` : ""}`);
   console.log(`metrics: ${result.metrics?.steps ?? 0} steps · ${result.metrics?.modelCalls ?? 0} jev calls · ${Math.round((result.metrics?.elapsedMs ?? 0) / 100) / 10}s`);
   console.log(`url: ${result.url || ""}`);
+  printConsole(result.console);
   if (result.outcome === "needs_verification") console.log("element table below — verify before claiming success (shot for visual).");
+}
+
+function printConsole(lines) {
+  if (!lines?.length) return;
+  console.log("console (tail):");
+  for (const l of lines) console.log(`  ${l.level.padEnd(7)} ${l.text}`);
 }
 
 const HELP = `9remote browser — agent-driven Chrome via the host engine
@@ -134,9 +158,14 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
                                              # opens AND prints the element table
                                              # --wait: hold until the page shows the text (SPA-ready marker)
   9remote browser state                      numbered element table
-  9remote browser read [--tail]              filtered page TEXT (cheaper than shot)
-  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--fields "L=text;..."] [--prompt "text"]
+  9remote browser console                    page console ring (errors first clue when nothing works)
+  9remote browser read [--tail]              markdown-lite page content (cheaper than shot)
+                                             # --parent SECTION: read one tree section only
+                                             # --grep RE: keep matching lines only
+                                             # --from OFFSET LEN: window into a long page
+  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--parent SECTION] [--fields "L=text;..."] [--prompt "text"]
                                              # --only: Jev sees only matching element labels
+                                             # --parent: Jev sees only the named tree section (same-label controls in other sections drop out)
                                              # --fields: Jev picks the fields, engine types YOUR text
                                              #   (password values are masked, never sent to the model)
                                              # --expect-text "..." (repeatable) / --expect-url / --expect-title:
@@ -156,7 +185,13 @@ const HELP = `9remote browser — agent-driven Chrome via the host engine
   9remote browser download [--timeout MS]      wait for the next completed download, print its path
   9remote browser drag <from> <to>             HTML5 drag: press at <from>, release over <to>
   9remote browser chain "click e1; type e2 'hi' --enter; wait 'result'"  # many steps, ONE call
-  9remote browser chain "run 'open pricing'; type e5 'hi'; run 'pick team plan' --only 'Plan'"
+  9remote browser chain --parent Shipping "click e4 'Continue'; select e7 'Express'"
+                                             # --parent scopes every step's element lookup to
+                                             # one tree section; click/select take a label guard
+                                             # ('Continue') — wrong id fails BEFORE the click
+  9remote browser chain "open /login; run 'sign in' --expect-url /dashboard; click e4 'Profile'"
+                                             # open/run --expect-url DECLARE navigation; an
+                                             # undeclared route change stops the chain at once
                                                # batch Jev sub-goals in one chain too
   9remote browser enter                      press Enter
   9remote browser shot                       writes /tmp/9remote-shot-*.jpg, prints the path
@@ -201,15 +236,24 @@ export async function cmdBrowser(args) {
       printState(data);
       return;
     }
+    case "console": {
+      const data = mustOk(await call("console", payload()));
+      const lines = data.lines || [];
+      if (!lines.length) console.log("(console empty)");
+      for (const l of lines) console.log(`${l.level.padEnd(7)} ${l.text}`);
+      return;
+    }
     case "read": {
-      // Read the page's filtered text — far cheaper than a screenshot and the
-      // only way to actually read article content.
-      const data = mustOk(await call("state", payload()));
-      const headings = (data.headings || []).join(" › ");
-      if (headings) console.log(`## ${headings}`);
+      // Markdown-lite content read — --parent scopes to a tree section,
+      // --grep keeps matching lines, --from OFFSET LEN windows long pages.
+      const data = mustOk(await call("read", payload()));
       const text = data.text || "";
+      const from = data.from || 0;
+      if (from > 0 || (data.total || 0) > from + text.length) {
+        console.log(`[chunk ${from}-${from + text.length} of ${data.total ?? "?"} chars]`);
+      }
       console.log(opts.tail ? text.slice(Math.floor(text.length / 2)) : text);
-      if (!text.trim()) console.log("(no readable text in view — scroll or open an article first)");
+      if (!text.trim()) console.log("(no readable text — wrong section name? read without --parent lists sections in the error)");
       return;
     }
     case "run": {
@@ -328,8 +372,13 @@ export async function cmdBrowser(args) {
       if (!data?.results) { mustOk(data); return; }
       for (const r of data.results) {
         console.log(`  ${r.ok ? "ok" : "FAIL"} #${r.step} ${r.summary || r.op}${r.error ? ` — ${r.error}` : ""}`);
+        if (r.op === "read" && r.text) {
+          for (const line of r.text.split("\n").slice(0, 5)) console.log(`      ${line}`);
+          if (r.text.split("\n").length > 5) console.log("      …");
+        }
       }
       if (data.failedStep) console.error(`chain stopped at step ${data.failedStep}`);
+      printConsole(data.console);
       if (data.state) printState(data.state);
       return;
     }

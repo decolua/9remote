@@ -9,7 +9,7 @@ import { getIO } from "../../transport/server.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { kvGet, kvSet } from "../terminal/ptyDaemonClient.js";
 import { testConfig } from "./jevClient.js";
-import { DEFAULT_POLICY, checkExpectations } from "./agentLoop.js";
+import { DEFAULT_POLICY, checkExpectations, scopeByParent } from "./agentLoop.js";
 export { checkExpectations };
 import {
   attachStatus, closeProfile, listTabs, openAttachGuide, readStepFrame, framePathFor,
@@ -17,7 +17,7 @@ import {
   switchTab, closeTab
 } from "./engine.js";
 import { ensureExtensionInstall, extStatus } from "./extRelay.js";
-import { AUTO_CONTINUE_CHUNKS, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
+import { AUTO_CONTINUE_CHUNKS, CONSOLE_FAIL_TAIL, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
 import { installSkillForEngine, removeAllInstalledSkills, SKILL_ENGINES } from "./skill.js";
 import { globalAiManager } from "../ai/aiManager.js";
 import { getLiveConversations } from "../terminal/statusManager.js";
@@ -183,6 +183,24 @@ export async function invoke(action, payload = {}) {
       }, async (session) => session.steady()) };
     case "state":
       return { ok: true, ...(await withSession(sessionOpts(payload), (session) => session.current())) };
+    case "console":
+      // Console ring — read-only, no session side effects (same shape as state)
+      return { ok: true, lines: await withSession(sessionOpts(payload), (session) => session.consoleLog) };
+    case "read": {
+      // Markdown-lite read; --parent scopes to a tree section, --from/--len
+      // window past the cap, --grep filters lines host-side.
+      const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
+      const from = Number.isFinite(+payload.from) && +payload.from > 0 ? Math.floor(+payload.from) : 0;
+      const len = Number.isFinite(+payload.len) && +payload.len > 0 ? Math.floor(+payload.len) : null;
+      const read = await withSession(sessionOpts(payload), (session) => session.readSection(parent, from, len));
+      if (typeof payload.grep === "string" && payload.grep.trim()) {
+        let re;
+        try { re = new RegExp(payload.grep, "i"); }
+        catch { throw new Error(`Invalid --grep pattern: ${payload.grep}`); }
+        read.text = read.text.split("\n").filter((line) => re.test(line)).join("\n");
+      }
+      return { ok: true, from, ...read };
+    }
     case "run": {
       requireRunConfig();
       const taskId = `t-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`;
@@ -209,11 +227,15 @@ export async function invoke(action, payload = {}) {
         maxMs: clampMs(payload.maxMs),
         resume: payload.resume || null,
         only: payload.only || null,
+        parent: payload.parent || null,
         onStep: emitStep
         });
       });
       // The report reuses the loop's own last step frame — no extra capture.
       const image = result.metrics.steps ? readStepFrame(runOpts) : null;
+      // A failed run explains itself in-response (same rationale as the chain tail).
+      const consoleTail = (result.outcome === "action_error" || result.outcome === "no_progress")
+        ? await consoleAfter(payload) : null;
       // A report failure must not swallow the run result — the agent would
       // retry the whole Jev loop and re-run every action.
       let report = null;
@@ -224,7 +246,8 @@ export async function invoke(action, payload = {}) {
       // The run's own last-step frame rides along — the agent reads this file
       // instead of shooting a fresh, possibly-moved screenshot.
       return { ok: true, taskId, ...result, report, verification,
-        frame: framePathFor(runOpts), state: await stateAfter(payload) };
+        frame: framePathFor(runOpts), ...(consoleTail ? { console: consoleTail } : {}),
+        state: await stateAfter(payload) };
     }
     case "click": {
       const opts = sessionOpts(payload);
@@ -353,7 +376,7 @@ export async function invoke(action, payload = {}) {
       return { ok: true, ...requestCancel(opts.profile) };
     }
     case "chain":
-      return await runChain(sessionOpts(payload), payload.steps);
+      return await runChain(sessionOpts(payload), payload.steps, payload.parent || null);
     case "close": {
       const opts = sessionOpts(payload);
       return { ok: true, ...(await closeProfile(opts.profile)) };
@@ -368,11 +391,11 @@ export async function invoke(action, payload = {}) {
 // Expectations never enter the Jev prompt; they only judge, so this cannot be gamed.
 export async function runAutoContinue(session, {
   goal, decide = undefined, expect = null, config: cfg = config, policy = null,
-  maxSteps = 12, maxMs = 45000, only = null, resume = null, onStep = null, fields = null
+  maxSteps = 12, maxMs = 45000, only = null, parent = null, resume = null, onStep = null, fields = null
 } = {}) {
   const runOpts = () => ({
     goal, config: cfg, policy: policy || policyFromConfig(),
-    maxSteps, maxMs, only, onStep, fields, expect,
+    maxSteps, maxMs, only, parent, onStep, fields, expect,
     ...(decide ? { decide } : {})
   });
   let combined = await runTask(session, { ...runOpts(), resume });
@@ -412,10 +435,23 @@ const stateAfter = async (payload) => {
   } catch { return null; }
 };
 
+// Console tail for a failed run — same session, read-only slice.
+const consoleAfter = async (payload) => {
+  try { return await withSession(sessionOpts(payload), (s) => s.consoleLog.slice(-CONSOLE_FAIL_TAIL)); }
+  catch { return null; }
+};
+
 // ---- chain: many steps in ONE call (openclaw batch pattern) -------------------
-const CHAIN_OPS = new Set(["click", "select", "type", "enter", "scroll", "wait", "run"]);
+const CHAIN_OPS = new Set(["click", "select", "type", "enter", "scroll", "wait", "run", "open", "read"]);
 const MAX_CHAIN_STEPS = 30;
 const WAIT_TEXT_CAP_MS = 3000;
+
+// Only a verified-claim outcome may continue a chain — every other outcome
+// means the page is NOT what the LLM predicted, so the remaining guesses are void.
+export function chainRunError(result) {
+  if (result?.outcome === "needs_verification") return null;
+  return new Error(`run ${result?.outcome || "unknown"}: ${result?.reason || "no reason"}`);
+}
 
 async function waitText(session, text) {
   const deadline = Date.now() + WAIT_TEXT_CAP_MS;
@@ -427,14 +463,18 @@ async function waitText(session, text) {
   return false;
 }
 
-async function runChain(opts, steps) {
+async function runChain(opts, steps, chainParent = null) {
   if (!Array.isArray(steps) || !steps.length || steps.length > MAX_CHAIN_STEPS) {
     throw new Error(`chain needs 1..${MAX_CHAIN_STEPS} steps`);
   }
   return withSession(opts, async (session) => {
     const results = [];
+    let lastUrl = null;       // url the previous step ended on (null = first step)
+    let idsUntrusted = false; // a navigation happened — bare id steps need a label guard
+    const scopeOf = (step) => step.parent || chainParent || null;
     for (let i = 0; i < steps.length; i++) {
       const step = steps[i];
+      const parent = scopeOf(step);
       let summary = step.op;
       if (session.cancelRequested) {
         session.cancelRequested = false; // consume-once: the next chain starts clean
@@ -443,58 +483,100 @@ async function runChain(opts, steps) {
       }
       try {
         if (!CHAIN_OPS.has(step.op)) throw new Error(`Unknown chain op: ${step.op}`);
-        if (step.op === "run") {
+        if (step.op === "open") {
+          if (!step.url) throw new Error("Missing field: url");
+          const prevUrl = lastUrl;
+          await session.openOrReuseTab(String(step.url));
+          lastUrl = (await session.current()).url;
+          idsUntrusted = prevUrl === null || prevUrl !== lastUrl;
+          summary = `open ${String(step.url).slice(0, 40)}`;
+        } else if (step.op === "read") {
+          const read = await session.readSection(parent);
+          results.push({ step: i + 1, op: step.op, ok: true,
+            summary: `read ${read.text.length} chars`, text: read.text });
+          continue;
+        } else if (step.op === "run") {
           requireRunConfig(); // chain must not bypass the enabled gate
           if (!step.goal) throw new Error("Missing field: goal");
+          if (lastUrl !== null && (await session.current()).url !== lastUrl) {
+            throw new Error(`unexpected navigation to ${(await session.current()).url} — the page left ${lastUrl}; re-plan from the returned state`);
+          }
+          const fragments = (Array.isArray(step.expectText) ? step.expectText : [step.expectText])
+            .filter((t) => typeof t === "string" && t.trim());
+          const expect = (step.expectUrl || step.expectTitle || fragments.length)
+            ? { url: step.expectUrl || null, title: step.expectTitle || null, text: fragments }
+            : null;
           const result = await runTask(session, {
             goal: String(step.goal),
             config,
             policy: policyFromConfig(),
             only: step.only || null,
+            parent,
             fields: sanitizeFields(step.fields),
             maxSteps: clampSteps(step.maxSteps),
             maxMs: clampMs(step.maxMs),
+            expect,
             onStep: emitStep
           });
-          summary = `run -> ${result.outcome}`;
-          if (result.outcome === "decision_error" || result.outcome === "action_error") {
-            throw new Error(result.reason);
+          const runError = chainRunError(result);
+          if (runError) throw runError;
+          if (expect) {
+            const verification = checkExpectations(await session.observe(), expect);
+            if (!verification.passed) {
+              throw new Error(`expect not met after run: ${Object.entries(verification.checks)
+                .filter(([, ok]) => !ok).map(([check]) => check).join(", ")}`);
+            }
           }
+          if (step.expectUrl) { // the run was declared to end elsewhere — adopt the new page
+            lastUrl = (await session.current()).url;
+            idsUntrusted = true;
+          }
+          summary = `run -> ${result.outcome}`;
         } else {
           const state = await session.current();
-          const find = (target, expectedKind = null) => {
+          if (lastUrl !== null && state.url !== lastUrl) {
+            throw new Error(`unexpected navigation to ${state.url} — the page left ${lastUrl}; re-plan from the returned state`);
+          }
+          lastUrl = state.url;
+          const pool = scopeByParent(state.actions, parent);
+          // Fail-fast lookup: no first-match-wins. Ambiguity throws, a wrong
+          // id under a label guard throws BEFORE the click, and bare ids are
+          // refused outright once the page has navigated.
+          const find = (target, expectedKind = null, guard = null) => {
             if (!target) throw new Error("Missing element target");
-            let action = state.actions.find((a) => a.id === target);
-            if (!action) {
-              const lower = String(target).toLowerCase();
-              const pool = expectedKind ? state.actions.filter((a) => a.kind === expectedKind) : state.actions;
-              action = pool.find((a) => a.label?.toLowerCase() === lower ||
-                (a.kind === "select" && (a.value === target || a.label?.toLowerCase().endsWith(`→ ${lower}`) || a.label?.toLowerCase().endsWith(`-> ${lower}`))));
-              if (!action) {
-                action = pool.find((a) => a.label?.toLowerCase().includes(lower));
-              }
-              if (!action && expectedKind) {
-                action = state.actions.find((a) => a.label?.toLowerCase() === lower ||
-                  (a.kind === "select" && (a.value === target || a.label?.toLowerCase().endsWith(`→ ${lower}`) || a.label?.toLowerCase().endsWith(`-> ${lower}`)))) ||
-                  state.actions.find((a) => a.label?.toLowerCase().includes(lower));
-              }
+            if (guard == null && idsUntrusted && /^e\d+$/.test(String(target))) {
+              throw new Error("page navigated — id steps need a label guard (click e4 'Label')");
             }
+            const lower = String(target).toLowerCase();
+            const kindPool = expectedKind ? pool.filter((a) => a.kind === expectedKind) : pool;
+            const labelHit = (a) => a.label?.toLowerCase() === lower ||
+              (a.kind === "select" && (a.value === target || a.label?.toLowerCase().endsWith(`→ ${lower}`) || a.label?.toLowerCase().endsWith(`-> ${lower}`)));
+            let candidates = pool.filter((a) => a.id === target);
+            if (!candidates.length) candidates = kindPool.filter(labelHit);
+            if (!candidates.length) candidates = kindPool.filter((a) => a.label?.toLowerCase().includes(lower));
+            if (candidates.length > 1) {
+              throw new Error(`ambiguous "${target}"${parent ? ` in ${parent}` : ""}: ` +
+                candidates.slice(0, 5).map((a) => `[${a.id}] "${a.label || a.kind}"`).join(", ") +
+                (candidates.length > 5 ? ` …(+${candidates.length - 5})` : ""));
+            }
+            const action = candidates[0];
             if (!action) {
-              const pool = expectedKind ? state.actions.filter((a) => a.kind === expectedKind) : state.actions;
-              const suggestions = (pool.length ? pool : state.actions)
-                .slice(0, 5)
-                .map((a) => `[${a.id}] "${a.label || a.kind}"`);
-              const hint = suggestions.length ? `. Available: ${suggestions.join(", ")}` : "";
-              throw new Error(`Element "${target}" not observed${hint}`);
+              const list = (kindPool.length ? kindPool : pool).slice(0, 5)
+                .map((a) => `[${a.id}] "${a.label || a.kind}"`).join(", ");
+              throw new Error(`Element "${target}" not observed${parent ? ` in ${parent}` : ""}` +
+                `${list ? `. Available${parent ? ` (${parent})` : ""}: ${list}` : ""}`);
+            }
+            if (guard != null && String(action.label || "") !== String(guard)) {
+              throw new Error(`label mismatch: ${action.id} is "${action.label}", expected "${guard}" — the page changed under this id`);
             }
             return action;
           };
           if (step.op === "click" || step.op === "select") {
-            const action = find(step.id, step.op);
+            const action = find(step.id, step.op, step.label ?? null);
             await session.act(action);
             summary = `${step.op} ${action.id} (${String(action.label || "").slice(0, 40)})`;
           } else if (step.op === "type") {
-            const action = find(step.id, "fill");
+            const action = find(step.id, "fill", step.label ?? null);
             if (action.kind !== "fill") throw new Error(`${step.id} is not an editable field`);
             await session.act(action, String(step.text ?? ""));
             if (step.enter) await session.pressEnter();
@@ -517,10 +599,15 @@ async function runChain(opts, steps) {
         results.push({ step: i + 1, op: step.op, ok: true, summary });
       } catch (e) {
         results.push({ step: i + 1, op: step.op, ok: false, error: e.message });
-        // Fail fast: return where the chain broke plus the live page state.
+        // Fail fast: return where the chain broke plus the live page state,
+        // cropped to the failing step's section so the LLM re-plans in place.
         let broken = null;
         try { broken = await session.current(); } catch { /* keep results anyway */ }
-        return { ok: false, failedStep: i + 1, results, state: broken };
+        if (broken && parent) broken = { ...broken, actions: scopeByParent(broken.actions, parent) };
+        // Console tail rides along — a JS error usually IS why the step broke,
+        // and the agent must not spend a round trip asking for it.
+        return { ok: false, failedStep: i + 1, results, state: broken,
+          console: session.consoleLog.slice(-CONSOLE_FAIL_TAIL) };
       }
     }
     let finalState = null;

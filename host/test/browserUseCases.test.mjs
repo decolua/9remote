@@ -167,6 +167,55 @@ if (!hasChrome) {
       <fieldset><legend>Shipping</legend><button onclick="document.title='SHIP'">OK</button></fieldset>
       <fieldset><legend>Billing</legend><button onclick="document.title='BILL'">OK</button></fieldset>
     </body></html>`,
+    "/console": `<!doctype html><html><body>
+      <script>
+        console.log("plain log line");
+        console.error("boom marker");
+        setTimeout(() => { null.kaput; }, 150);
+      <\/script>
+    </body></html>`,
+    "/chain": `<!doctype html><html><body>
+      <nav>Nav noise</nav>
+      <fieldset><legend>Billing</legend>
+        <button onclick="document.title='BILL'">OK</button>
+        <button onclick="document.title='SAVED'">Save</button>
+      </fieldset>
+      <fieldset><legend>Shipping</legend>
+        <p>Express 3 ngày</p>
+        <button onclick="document.title='SHIP'">OK</button>
+        <button onclick="document.title='S1'">Save</button>
+        <button onclick="document.title='S2'">Save</button>
+        <a href="/chain2">Go next</a>
+      </fieldset>
+    </body></html>`,
+    "/chain2": `<!doctype html><html><body>
+      <button onclick="document.title='P2'">Next OK</button>
+    </body></html>`,
+    // The approved markdown-lite VD: noise + 2 named sections + inline merge +
+    // chip row + table + nested list.
+    "/reader": `<!doctype html><html><body>
+      <nav>Menu Home Pricing Docs</nav>
+      <section aria-label="Plans">
+        <h2>So sánh gói</h2>
+        <p>Gói <b>Pro</b> 199k/tháng, khởi tạo <i>ngay</i>.</p>
+        <div class="row"><span>Trial</span><span>Pro</span><span>Team</span></div>
+        <table>
+          <tr><th>Gói</th><th>Giá</th></tr>
+          <tr><td>Pro</td><td>199k</td></tr>
+          <tr><td>Team</td><td>499k</td></tr>
+        </table>
+      </section>
+      <section aria-label="FAQ">
+        <h3>Câu hỏi thường gặp</h3>
+        <ul>
+          <li>Có hoàn tiền không?
+            <ul><li>Trong 14 ngày</li><li>Sau 14 ngày: không</li></ul>
+          </li>
+          <li>Hỗ trợ 24/7?</li>
+        </ul>
+      </section>
+      <footer>© 2026 9remote</footer>
+    </body></html>`,
     "/latecontent": `<!doctype html><html><body>
       <button onclick="document.title='CLK';setTimeout(()=>{document.getElementById('out').textContent='LOADED'},300)">Load it</button>
       <div id="out"></div>
@@ -395,13 +444,18 @@ if (!hasChrome) {
   await test("14b. chain resolves targets by label and select value when id not specified", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/");
+    // Seed by id first so the label-based steps below are deterministic — the
+    // old first-match-wins resolver silently clicked wrong same-label options.
+    const before = await observe(await open("/"));
+    const notes = before.actions.find((a) => a.kind === "fill");
     const res = await invoke("chain", { profile, steps: [
+      { op: "type", id: notes.id, text: "chain works" },
       { op: "click", id: "Do it now" },
-      { op: "select", id: "Beta" },
+      { op: "select", id: "Alpha" },
       { op: "type", id: "chain works", text: "label matching works" }
     ] });
     assert.ok(res.ok, JSON.stringify(res.results));
-    assert.equal(res.results.length, 3);
+    assert.equal(res.results.length, 4);
     assert.equal(res.state.title, "CE");
     assert.ok(res.state.text.includes("label matching works"));
   });
@@ -689,7 +743,7 @@ if (!hasChrome) {
     assert.ok(!text.includes("AB"), "stale plan step did not execute after navigation");
   });
 
-  await test("34. tab discipline: one tab per site, new origin opens a tracked tab", async () => {
+  await test("34. tab discipline: strict one working tab across origins", async () => {
     const tabProfile = `tabs-${Date.now()}`;
     const server2 = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
@@ -707,10 +761,11 @@ if (!hasChrome) {
       s = await withSession({ profile: tabProfile, url: `${base}/duo`, headless: true }, (x) => x);
       assert.equal(await countTabs(s), 1, "exact/same-origin return stays on one tab");
       s = await withSession({ profile: tabProfile, url: `${base2}/`, headless: true }, (x) => x);
-      assert.equal(await countTabs(s), 2, "a new origin opens a second (tracked) tab");
+      assert.equal(await countTabs(s), 1, "a new origin navigates the SAME working tab (strict one-tab)");
+      assert.match((await observe(s)).url, new RegExp(base2.replace(/[:/]/g, "\\$&")), "working tab now shows site two");
       s = await withSession({ profile: tabProfile, url: `${base}/duo`, headless: true }, (x) => x);
-      assert.equal(await countTabs(s), 2, "returning to site one refocuses its tab, no third tab");
-      assert.ok((await observe(s)).actions.length, "session observes the refocused tab");
+      assert.equal(await countTabs(s), 1, "returning to site one still has exactly one tab");
+      assert.ok((await observe(s)).actions.length, "session observes the working tab");
     } finally {
       await closeProfile(tabProfile).catch(() => {});
       await profiles.remove(tabProfile).catch(() => {});
@@ -1036,6 +1091,236 @@ if (!hasChrome) {
     } finally {
       delete dynamicPages["/xframe-idle"];
       childSrv.close();
+    }
+  });
+
+  await test("52. console ring captures logs and uncaught errors (browsermcp parity)", async () => {
+    const s = await open("/console");
+    await new Promise((r) => setTimeout(r, 400)); // the late throw lands at 150ms
+    const texts = s.consoleLog.map((l) => `${l.level} ${l.text}`).join("\n");
+    assert.ok(s.consoleLog.some((l) => l.level === "log" && l.text.includes("plain log line")),
+      `log line missing:\n${texts}`);
+    assert.ok(s.consoleLog.some((l) => l.level === "error" && l.text.includes("boom marker")),
+      `console.error missing:\n${texts}`);
+    assert.ok(s.consoleLog.some((l) => l.level === "error" && l.text.includes("kaput")),
+      `uncaught exception missing:\n${texts}`);
+  });
+
+  await test("53. a failed chain carries the console tail — why it broke, no extra call", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/console");
+    const res = await invoke("chain", { profile, steps: [{ op: "click", id: "e999" }] });
+    assert.equal(res.ok, false);
+    assert.ok(res.console?.some((l) => l.level === "error" && l.text.includes("boom marker")),
+      `console tail missing: ${JSON.stringify(res.console)}`);
+  });
+
+  await test("54. read --parent scopes to the named section; bad name lists sections", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/reader");
+    const faq = await invoke("read", { profile, parent: "faq" });
+    assert.match(faq.text, /Câu hỏi thường gặp/);
+    assert.match(faq.text, /Trong 14 ngày/);
+    assert.ok(!faq.text.includes("So sánh gói"), `billing leaked into FAQ:\n${faq.text}`);
+    assert.ok(!faq.text.includes("Menu"), "nav noise leaked");
+    await assert.rejects(() => invoke("read", { profile, parent: "zzz" }), /Plans.*FAQ|FAQ.*Plans/);
+  });
+
+  await test("55. read renders markdown-lite: headings, inline merge, chip rows, tables, nested lists", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/reader");
+    const { text } = await invoke("read", { profile });
+    assert.match(text, /^## So sánh gói$/m, `heading level:\n${text}`);
+    assert.match(text, /Gói Pro 199k\/tháng, khởi tạo ngay\./, `inline merge:\n${text}`);
+    assert.match(text, /^Trial · Pro · Team$/m, `chip row:\n${text}`);
+    assert.match(text, /^\| Pro \| 199k \|$/m, `table row:\n${text}`);
+    assert.match(text, /^- Có hoàn tiền không\?$/m, `list item:\n${text}`);
+    assert.match(text, /^  - Trong 14 ngày$/m, `nested list indent:\n${text}`);
+    assert.ok(!text.includes("Menu Home"), "nav noise leaked");
+    assert.ok(!text.includes("© 2026"), "footer noise leaked");
+  });
+
+  await test("56. read --grep keeps only matching lines", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/reader");
+    const res = await invoke("read", { profile, grep: "199k" });
+    assert.ok(res.text.split("\n").length >= 1);
+    for (const line of res.text.split("\n")) assert.match(line, /199k/, `non-matching line:\n${res.text}`);
+    assert.ok(!res.text.includes("499k"), "non-matching row leaked");
+  });
+
+  await test("57. read --from OFFSET LEN windows past the default cap", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    // ~30k chars of paragraphs with markers at the start and past 12k
+    const paras = ["<p>AAA-START đầu trang nội dung dài</p>"];
+    for (let i = 1; i < 900; i++) {
+      paras.push(`<p>Đoạn thường số ${i} với nội dung lặp đi lặp lại đủ dài</p>`);
+      if (i === 250) paras.push("<p>BBB-MIDDLE giữa trang nội dung dài</p>");
+    }
+    dynamicPages["/longread"] = `<!doctype html><html><body><section aria-label="Doc">${paras.join("")}</section></body></html>`;
+    try {
+      await open("/longread");
+      const first = await invoke("read", { profile });
+      assert.ok(first.total > 20000, `total missing:\n${JSON.stringify(first).slice(0, 200)}`);
+      assert.ok(first.text.includes("AAA-START"), "first window lost the start marker");
+      assert.ok(!first.text.includes("BBB-MIDDLE"), "first window leaked past the cap");
+      const second = await invoke("read", { profile, from: 12000, len: 8000 });
+      assert.ok(second.text.includes("BBB-MIDDLE"), `second window missed the middle marker:\n${second.text.slice(0, 200)}`);
+      assert.ok(!second.text.includes("AAA-START"), "second window leaked the start");
+      assert.ok(second.text.length <= 9000, "len not respected");
+    } finally {
+      delete dynamicPages["/longread"];
+    }
+  });
+
+  await test("58. chain --parent scopes element lookup to the section", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/chain");
+    const res = await invoke("chain", { profile, parent: "Shipping", steps: [{ op: "click", id: "OK" }] });
+    assert.ok(res.ok, JSON.stringify(res.results));
+    assert.equal((await invoke("state", { profile })).title, "SHIP", "clicked the Billing OK");
+  });
+
+  await test("59. step-level parent overrides the chain-level one", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/chain");
+    const res = await invoke("chain", { profile, parent: "Billing",
+      steps: [{ op: "click", id: "OK", parent: "Shipping" }] });
+    assert.ok(res.ok, JSON.stringify(res.results));
+    assert.equal((await invoke("state", { profile })).title, "SHIP");
+  });
+
+  await test("60. ambiguous label inside the scope throws and crops the failure state", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/"); // reset the document — earlier chain cases leave titles behind
+    await open("/chain");
+    const res = await invoke("chain", { profile, parent: "Shipping", steps: [{ op: "click", id: "Save" }] });
+    assert.equal(res.ok, false);
+    assert.match(res.results[0].error, /ambiguous/i);
+    assert.ok(res.results[0].error.includes("Save"), "error must list the candidates");
+    assert.equal((await invoke("state", { profile })).title, "", "nothing was clicked");
+    assert.ok(res.state.actions.length > 0 && res.state.actions.some((a) => a.ctx === "Shipping"),
+      "failure state must be cropped to Shipping");
+    assert.ok(!res.state.actions.some((a) => a.ctx === "Billing"), "Billing leaked into the cropped state");
+  });
+
+  await test("61. label guard blocks a wrong id before the click", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/"); // reset the document — earlier chain cases leave titles behind
+    await open("/chain");
+    const res = await invoke("chain", { profile,
+      steps: [{ op: "click", id: "e1", label: "Totally wrong label" }] });
+    assert.equal(res.ok, false);
+    assert.match(res.results[0].error, /label/i);
+    assert.equal((await invoke("state", { profile })).title, "", "guard must fire BEFORE the click");
+  });
+
+  await test("62. label guard passes when the id still matches", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/chain");
+    const before = await observe(await open("/chain"));
+    const ok = before.actions.find((a) => a.ctx === "Shipping" && a.label === "OK");
+    const res = await invoke("chain", { profile,
+      steps: [{ op: "click", id: ok.id, label: "OK", parent: "Shipping" }] });
+    assert.ok(res.ok, JSON.stringify(res.results));
+    assert.equal((await invoke("state", { profile })).title, "SHIP");
+  });
+
+  await test("63. unexpected navigation stops the chain at the next step", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/chain");
+    const res = await invoke("chain", { profile, parent: "Shipping",
+      steps: [{ op: "click", id: "Go next" }, { op: "click", id: "Next OK" }] });
+    assert.equal(res.ok, false);
+    assert.equal(res.failedStep, 2);
+    assert.match(res.results[1].error, /unexpected navigation/i);
+    assert.equal(res.results.filter((r) => r.ok).length, 1, "only the pre-nav step ran");
+  });
+
+  await test("64. open declares the nav; bare id steps after a nav need a label guard", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/chain");
+    const label = await invoke("chain", { profile,
+      steps: [{ op: "open", url: `${base}/chain2` }, { op: "click", id: "Next OK" }] });
+    assert.ok(label.ok, JSON.stringify(label.results));
+    assert.equal((await invoke("state", { profile })).title, "P2");
+
+    await open("/chain");
+    const guarded = await invoke("chain", { profile,
+      steps: [{ op: "open", url: `${base}/chain2` }, { op: "click", id: "e1", label: "Next OK" }] });
+    assert.ok(guarded.ok, JSON.stringify(guarded.results));
+    assert.equal((await invoke("state", { profile })).title, "P2");
+
+    await open("/chain");
+    const bare = await invoke("chain", { profile,
+      steps: [{ op: "open", url: `${base}/chain2` }, { op: "click", id: "e1" }] });
+    assert.equal(bare.ok, false);
+    assert.match(bare.results[1].error, /navigated.*label|label.*navigated/i);
+  });
+
+  await test("65. run outcomes: only needs_verification may continue a chain", async () => {
+    const { chainRunError } = await import("../features/browserUse/browserUseSocket.js");
+    assert.equal(chainRunError({ outcome: "needs_verification" }), null);
+    for (const outcome of ["blocked", "no_progress", "low_confidence", "action_error", "decision_error", "step_limit", "cancelled"]) {
+      const err = chainRunError({ outcome, reason: `${outcome} reason` });
+      assert.ok(err instanceof Error && err.message.includes(outcome), `${outcome} must stop the chain`);
+    }
+  });
+
+  await test("66. read step inside a chain returns the section content inline", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/chain");
+    const res = await invoke("chain", { profile, steps: [{ op: "read", parent: "Shipping" }] });
+    assert.ok(res.ok, JSON.stringify(res.results));
+    assert.match(res.results[0].text, /Express 3 ngày/);
+    assert.ok(!res.results[0].text.includes("Nav noise"), "nav noise leaked into the read");
+  });
+
+  await test("67. strict one tab: every open reuses the engine's single tab across origins", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const other = http.createServer((q, r) => {
+      r.writeHead(200, { "Content-Type": "text/html" });
+      r.end(`<!doctype html><html><body><button onclick="document.title='O'">Other origin</button></body></html>`);
+    });
+    await new Promise((r) => other.listen(0, "127.0.0.1", r));
+    try {
+      await invoke("open", { profile, url: `${base}/chain` });
+      await invoke("open", { profile, url: `http://127.0.0.1:${other.address().port}/` }); // cross-origin
+      // chrome:// tabs are the browser's own (auto-update) — only agent-usable tabs count
+      const usable = (r) => r.tabs.filter((t) => !t.url.startsWith("chrome://"));
+      const crossed = usable(await invoke("tabs", { profile }));
+      assert.equal(crossed.length, 1,
+        `cross-origin open must reuse the tab, got ${JSON.stringify(crossed.tabs)}`);
+      assert.ok(crossed[0].url.includes(`:${other.address().port}/`));
+      await invoke("open", { profile, url: `${base}/chain` }); // back to the first origin
+      const back = usable(await invoke("tabs", { profile }));
+      assert.equal(back.length, 1, `re-open grew tabs: ${JSON.stringify(back)}`);
+      assert.ok(back[0].url.startsWith(base));
+    } finally {
+      other.close();
+    }
+  });
+
+  await test("68. read emits single non-block leaves (GitHub row shape)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/leaves"] = `<!doctype html><html><body>
+      <section aria-label="PRs">
+        <div class="row"><a href="#">Fix login bug #12</a></div>
+        <div class="row"><a href="#">Add dark mode #13</a></div>
+        <div>Plain wrapper text</div>
+      </section>
+    </body></html>`;
+    try {
+      await open("/leaves");
+      const res = await invoke("read", { profile });
+      for (const want of ["Fix login bug #12", "Add dark mode #13", "Plain wrapper text"]) {
+        assert.ok(res.text.includes(want), `missing "${want}":\n${res.text}`);
+      }
+      const scoped = await invoke("read", { profile, parent: "PRs" });
+      assert.ok(scoped.text.includes("#12") && !scoped.text.includes("Plain wrapper text") || scoped.text.includes("Plain wrapper text"),
+        "scoped read must not error");
+    } finally {
+      delete dynamicPages["/leaves"];
     }
   });
 

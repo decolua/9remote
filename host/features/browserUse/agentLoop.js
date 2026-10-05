@@ -19,6 +19,17 @@ const jevSafe = (s) => String(s ?? "").toWellFormed()
 // One criteria entry per actionable element. Text fields are not offered to Jev
 // unless the caller supplied `fields` — then the ENGINE types the agent-provided
 // text; the model only picks the target and never sees the text itself.
+// Section scoping: the calling LLM has already read the tree, so it names the
+// section and the table shrinks to it — same-label controls in other sections
+// never reach Jev. Same contract as the `only` filter: controls always survive.
+export function scopeByParent(actions, parent) {
+  if (!parent) return actions;
+  const needle = String(parent).toLowerCase();
+  const hit = (a) => (a.path || []).some((seg) => String(seg).toLowerCase().includes(needle)) ||
+    String(a.ctx || "").toLowerCase().includes(needle);
+  return actions.filter((a) => a.kind === "scroll" || a.kind === "wait" || hit(a));
+}
+
 export function buildActionSpace(actions, fields = null) {
   // Provider hard cap: a question with >255 criteria is HTTP 400. Plan criteria
   // ride SKIP + all targets + scroll controls — trim the tail (page order).
@@ -230,6 +241,7 @@ export async function runTask(session, {
   onStep = null,
   resume = null,
   only = null,
+  parent = null,
   fields = null,
   expect = null
 } = {}) {
@@ -312,9 +324,9 @@ export async function runTask(session, {
     }
     if (Date.now() - started > maxMs) return finish("step_limit", "time budget");
     if (modelCalls >= MAX_MODEL_CALLS) return finish("step_limit", "model-call budget");
-    const actions = onlyRe
+    const actions = scopeByParent(onlyRe
       ? page.actions.filter((a) => a.kind === "scroll" || a.kind === "wait" || onlyRe.test(a.label))
-      : page.actions;
+      : page.actions, parent);
     const space = buildActionSpace(actions, fields);
     // A pattern matching nothing YET is fine while scrolling can reveal more —
     // fail fast only when even the controls cannot change the picture.

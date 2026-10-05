@@ -29,10 +29,19 @@ browser after enabling remote debugging.
 9remote browser open <url> [--attach]                    # opens AND prints the element table (reuses tab if open)
 9remote browser tabs [--attach]                          # list open tabs (title, url, id)
 9remote browser state                                    # numbered element table of current page
-9remote browser read [--tail]                            # filtered page TEXT — read content with this, never with shot
-9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--fields "L=text;..."] [--prompt "text"] [--expect-text "..." ...]
+9remote browser console                                  # page console ring — JS errors/logs (last 100)
+9remote browser read [--parent SECTION] [--grep RE] [--from OFFSET LEN] [--tail]
+                                                          # markdown-lite content: headings, lists,
+                                                          # tables (| a | b |), chip rows (a · b);
+                                                          # --parent scopes to one tree section,
+                                                          # --grep keeps matching lines only,
+                                                          # --from OFFSET LEN windows past the cap
+                                                          # (the reply carries total chars — page on)
+9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--parent SECTION] [--fields "L=text;..."] [--prompt "text"] [--expect-text "..." ...]
                                                             # Jev loop until DONE/BLOCKED; --only narrows
-                                                            # the table; --fields supplies text YOU chose
+                                                            # the table; --parent scopes it to one tree
+                                                            # section (same-label controls elsewhere drop
+                                                            # out); --fields supplies text YOU chose
                                                             # (Jev picks the matching fields, engine types,
                                                             # passwords masked); --expect-* declares end
                                                             # conditions the engine verifies on a fresh read
@@ -41,6 +50,13 @@ browser after enabling remote debugging.
                                                             # native dialog, it NEVER appears in the element table
 9remote browser type <id> "<exact text>" [--enter]       # type text YOU chose; --enter sends it
 9remote browser chain "click e1; type e2 'hi' --enter; select e3; wait 'Saved'"
+9remote browser chain --parent SECTION "open URL; read 'Other section'; click e4 'Label'; run 'goal' --expect-url /next"
+                                                          # one call, fail-fast: --parent scopes
+                                                          # element lookup; click/select second quoted
+                                                          # arg = label guard; open/--expect-url declare
+                                                          # navigation (undeclared route change stops
+                                                          # the chain); a run step stops the chain
+                                                          # unless Jev reached needs_verification
                                                           # known multi-step sequence in ONE call;
                                                           # steps may also be run "<sub-goal>"
 9remote browser enter                                    # press Enter (send/submit)
@@ -75,11 +91,19 @@ browser after enabling remote debugging.
   When the whole sequence is known upfront (form filling, open→type→submit),
   use \`chain\` instead of several commands: one call, one result table, and it
   stops at the first failing step with the live page state.
+- The element table nests ids under tree sections. When the same label (Save,
+  Edit, Open) appears in several sections, pass \`run --parent <section>\` — Jev
+  then chooses inside that section only. YOU know the section from the table;
+  Jev does not have to guess.
 - \`--only\` matches CLICK/SELECT element labels only — text fields are never
   offered to Jev (typing is yours). If a command fails, change approach or
   report the error — never read the tool's source code to debug it.
 - Let Jev scroll inside \`run\` (it has SCROLL) instead of clicking scroll
   controls yourself step by step.
+- When a run ends \`no_progress\`/\`blocked\` or a click visibly does nothing, check
+  the console: a failed \`run\`/\`chain\` response already carries the last few
+  lines (a JS error is usually the reason); \`9remote browser console\` reads the
+  full ring.
 - Form journeys: pass known values via \`run --fields "Email=a@b.c;Password=…"\` —
   Jev picks the fields, the engine types your exact text (password values are
   masked and never sent to the model). Prefer it over one \`type\` per field.

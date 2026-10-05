@@ -11,11 +11,11 @@ import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
 import { getExtClient } from "./extRelay.js";
-import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate } from "./snapshot.js";
+import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate, readExpression } from "./snapshot.js";
 import { MAX_ELEMENTS } from "./constants.js";
 import {
-  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, EXT_PROFILE, LAUNCH_TIMEOUT_MS, NAV_WAIT_COMMIT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
-  OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT,
+  ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, CONSOLE_BUFFER_MAX, CONSOLE_TEXT_CAP, EXT_PROFILE, LAUNCH_TIMEOUT_MS, NAV_WAIT_COMMIT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
+  OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT, SETTLE_POLL_MS,
   SCREENSHOT_QUALITY, SETTLE_CAP_MS, SETTLE_MIN_CLICK_MS, SETTLE_MIN_FILL_MS, SETTLE_MIN_HYDRATE_MS, SETTLE_MIN_LINK_MS, SETTLE_MIN_SPA_MS, SETTLE_QUIET_MS,
   STEP_FRAME_QUALITY, STEP_FRAME_SCALE, VIEWPORT, WAIT_TEXT_POLL_MS, WAIT_TEXT_TIMEOUT_MS
 } from "./constants.js";
@@ -260,10 +260,13 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     navReq: null,           // last main-frame nav REQUEST {ts, disposition}
     navCommit: 0,           // ts of the last main-frame navigation commit
     iframes: new Map(),     // OOPIF targetId -> {sessionId, url} (auto-attached)
+    consoleLog: [],         // console ring — the "why did nothing happen" signal
 
     async setup() {
       await call("Page.enable");
       await call("DOM.enable"); // uploadFile resolves nodes via DOM.requestNode
+      await call("Runtime.enable"); // console + exception events for the ring
+      await call("Log.enable").catch(() => {}); // network/script errors; absent in some modes
       // Cross-origin iframes are separate processes invisible to this session —
       // auto-attach gives each an addressable child session (orca OOPIF pattern).
       await call("Target.setAutoAttach",
@@ -295,6 +298,17 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       session.lastState = null;
     },
 
+    // Markdown-lite content read for the `read` op — scoped to a named tree
+    // section when parent is given (same vocabulary as run's --parent). from/len
+    // window past the default cap on long pages.
+    async readSection(parent = null, from = 0, len = null) {
+      const result = await evaluate(client, session.sessionId, readExpression(parent, from, len));
+      if (result?.error) {
+        throw new Error(`No section matches "${parent}". Available: ${(result.sections || []).join(", ")}`);
+      }
+      return result;
+    },
+
     // Switch the session onto another tab (attach mode tab discipline).
     async adopt(targetId) {
       if (targetId === session.targetId) return;
@@ -305,44 +319,41 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       session.lastState = null;
     },
 
-    // Human tab discipline — one tab per site: exact URL refocuses its tab,
-    // same-origin reuses that site's tab, a blank held tab gets used, a new
-    // site opens a tracked tab. A user's tab on another origin is never hijacked.
+    // Strict one-tab discipline: the engine keeps a single working tab reused
+    // for EVERY origin. Only engine-created tabs qualify (ownsTargets) — a
+    // user's tab showing the same URL is never adopted. Leftover engine tabs
+    // from earlier opens are collapsed back to one; user tabs stay untouched.
     async openOrReuseTab(targetUrl) {
       if (!targetUrl) return;
       try {
         if (session.lastState?.url && urlsMatch(session.lastState.url, targetUrl)) return; // already there
         const { targetInfos = [] } = await client.call("Target.getTargets");
         const pages = targetInfos.filter((t) => t.type === "page");
-        const exact = pages.find((t) => urlsMatch(t.url, targetUrl));
-        if (exact) {
-          await session.adopt(exact.targetId);
-          return;
-        }
-        const sameOrigin = pages.find((t) => urlsSameOrigin(t.url, targetUrl));
-        if (sameOrigin) {
-          await session.adopt(sameOrigin.targetId);
+        const mine = pages.filter((t) => session.ownsTargets.has(t.targetId));
+        const work = mine.find((t) => t.targetId === session.targetId) || mine[0];
+        if (work) {
+          if (work.targetId !== session.targetId) await session.adopt(work.targetId);
           await session.navigate(targetUrl);
-          return;
-        }
-        const held = pages.find((t) => t.targetId === session.targetId && isBlankTabUrl(t.url));
-        if (held) {
-          await session.navigate(targetUrl); // use the blank tab we already hold
-          return;
-        }
-        const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
-        session.ownsTargets.add(target.targetId);
-        await session.adopt(target.targetId);
-        // A fresh target starts at about:blank whose readyState is already
-        // "complete" — wait for the target origin to land before trusting it.
-        if (!isBlankTabUrl(targetUrl)) {
-          const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
-          while (Date.now() < deadline) {
-            const href = await evaluate(client, session.sessionId, "location.href").catch(() => null);
-            if (href && urlsSameOrigin(href, targetUrl) &&
-                await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
-            await new Promise((r) => setTimeout(r, 50));
+        } else {
+          const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
+          session.ownsTargets.add(target.targetId);
+          await session.adopt(target.targetId);
+          // A fresh target starts at about:blank whose readyState is already
+          // "complete" — wait for the target origin to land before trusting it.
+          if (!isBlankTabUrl(targetUrl)) {
+            const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
+            while (Date.now() < deadline) {
+              const href = await evaluate(client, session.sessionId, "location.href").catch(() => null);
+              if (href && urlsSameOrigin(href, targetUrl) &&
+                  await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
+              await new Promise((r) => setTimeout(r, 50));
+            }
           }
+        }
+        for (const t of mine) {
+          if (t.targetId === session.targetId) continue;
+          try { await client.call("Target.closeTarget", { targetId: t.targetId }); } catch { /* already gone */ }
+          session.ownsTargets.delete(t.targetId);
         }
       } catch {
         await session.navigate(targetUrl);
@@ -686,7 +697,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
         const minMs = Math.max(fillMin, freshDoc ? SETTLE_MIN_HYDRATE_MS : 0,
           spaRoute ? SETTLE_MIN_SPA_MS : 0, SETTLE_QUIET_MS);
         if (Date.now() - changedAt >= SETTLE_QUIET_MS && Date.now() - started >= minMs) break;
-        await new Promise((r) => setTimeout(r, 50));
+        await new Promise((r) => setTimeout(r, SETTLE_POLL_MS));
       }
       // Navigation-aware tail: frameRequestedNavigation fires at the CLICK,
       // long before a slow server commits — settle alone would serve the OLD
@@ -702,12 +713,12 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
           if (session.navCommit >= req.ts) {
             let marker = null;
             try { marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION); }
-            catch { changedAt = Date.now(); await new Promise((r) => setTimeout(r, 50)); continue; }
+            catch { changedAt = Date.now(); await new Promise((r) => setTimeout(r, SETTLE_POLL_MS)); continue; }
             const key = Array.isArray(marker) ? marker.join("\u0001") : null;
             if (key === null || key !== prevKey) { prevKey = key; changedAt = Date.now(); }
             if (key !== null && Date.now() - changedAt >= SETTLE_QUIET_MS) break;
           }
-          await new Promise((r) => setTimeout(r, 50));
+          await new Promise((r) => setTimeout(r, SETTLE_POLL_MS));
         }
       }
     },
@@ -809,6 +820,9 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     // the latest step, overwritten in place. clip+scale does the resize inside
     // Chrome, so no image library is involved.
     async stepFrame() {
+      // Debug tail only on the engine's own Chrome — captureScreenshot forces
+      // a compositor frame and visibly flashes a real (extension/attach) browser.
+      if (mode !== "own") return;
       const result = await call("Page.captureScreenshot", {
         format: SCREENSHOT_FORMAT,
         quality: STEP_FRAME_QUALITY,
@@ -901,11 +915,19 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
   // Popup adoption (orca pattern): a page OUR tab spawned (full-screen chat,
   // window.open, target=_blank) moves the session there, the way a user's
   // focus follows the click — without it the table never changes and the
-  // agent re-clicks the opener, spawning duplicate tabs.
+  // agent re-clicks the opener, spawning duplicate tabs. Strict one-tab: the
+  // popup BECOMES the working tab and the previous engine tab is closed.
   unsubs.push(client.on("Target.targetCreated", (p) => {
     const t = p.targetInfo || {};
     if (t.type !== "page" || t.openerId !== session.targetId) return;
-    void session.adopt(t.targetId).catch(() => {});
+    const prevTab = session.targetId;
+    void session.adopt(t.targetId).then(async () => {
+      session.ownsTargets.add(t.targetId);
+      if (prevTab && prevTab !== t.targetId && session.ownsTargets.has(prevTab)) {
+        try { await client.call("Target.closeTarget", { targetId: prevTab }); } catch { /* already gone */ }
+        session.ownsTargets.delete(prevTab);
+      }
+    }).catch(() => {});
   }));
 
   // OOPIF registry: cross-origin iframes get their own CDP session; snapshots
@@ -932,6 +954,30 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     }
     if (sid !== session.sessionId || p.frame?.parentId) return;
     session.navCommit = Date.now();
+  }));
+
+  // Console ring (browsermcp getConsoleLogs pattern): JS logs/errors and
+  // uncaught exceptions are the only signal when an action changes nothing.
+  // Cap-only — entries stay across navigations, the agent judges recency.
+  const pushConsole = (level, text) => {
+    const line = String(text || "").replace(/\s+/g, " ").trim().slice(0, CONSOLE_TEXT_CAP);
+    if (!line) return;
+    session.consoleLog.push({ level, text: line });
+    if (session.consoleLog.length > CONSOLE_BUFFER_MAX) session.consoleLog.shift();
+  };
+  const sessionOf = (sid) => sid === session.sessionId ||
+    [...session.iframes.values()].some((i) => i.sessionId === sid);
+  unsubs.push(client.on("Runtime.consoleAPICalled", (e, sid) => {
+    if (!sessionOf(sid)) return;
+    pushConsole(e.type, (e.args || []).map((a) => a.value ?? a.description ?? "").join(" "));
+  }));
+  unsubs.push(client.on("Runtime.exceptionThrown", (e, sid) => {
+    if (!sessionOf(sid)) return;
+    pushConsole("error", e.exceptionDetails?.exception?.description || e.exceptionDetails?.text);
+  }));
+  unsubs.push(client.on("Log.entryAdded", (e, sid) => {
+    if (!sessionOf(sid) || e.entry?.level !== "error") return; // info-level log entries are noise
+    pushConsole("error", e.entry.text);
   }));
 
   // An open js dialog (alert/confirm/prompt) blocks EVERY later CDP command —
@@ -988,7 +1034,7 @@ function stale(message) {
 
 // Dead-session signatures: the browser WS dropped (Chrome restarted/quit) or the
 // target died while the WS lives (user closed the tab in attach mode).
-const DEAD_SESSION = /Session with given id|No target with given id|CDP connection closed|Target closed/i;
+const DEAD_SESSION = /Session with given id|No target with given id|CDP connection closed|Target closed|Tab was closed|detached/i;
 
 // The attach session's last tab, persisted so a host restart resumes the SAME
 // tab instead of grabbing whatever sits first in the tab strip.
@@ -1129,23 +1175,16 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
   try {
     let targetId;
     let created = false;
-    if (mode !== "own") { // real-browser modes share the same tab discipline
+    if (mode !== "own") {
+      // Real-browser modes resume the remembered tab (only ever an engine
+      // tab) or create a fresh one carrying the URL — a user's tab is never
+      // adopted, no matter how well its URL matches.
       const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
       const pageTargets = targetInfos.filter((t) => t.type === "page");
-      const matched = url ? pageTargets.find((t) => urlsMatch(t.url, url)) : null;
-      if (matched) {
-        targetId = matched.targetId;
-      } else if (!url) {
-        // A reborn attach session (host restart) returns to the tab it drove
-        // last time — falling back to the first tab drives the wrong page.
-        const remembered = readRememberedAttachTarget();
-        const alive = remembered && pageTargets.find((t) => t.targetId === remembered);
-        targetId = (alive || pageTargets[0] || {}).targetId;
-        if (!targetId) {
-          const target = await client.call("Target.createTarget", { url: "about:blank", background: false });
-          targetId = target.targetId;
-          created = true;
-        }
+      const remembered = readRememberedAttachTarget();
+      const alive = remembered && pageTargets.find((t) => t.targetId === remembered);
+      if (alive) {
+        targetId = alive.targetId;
       } else {
         const target = await client.call("Target.createTarget", { url: url || "about:blank", background: false });
         targetId = target.targetId;
@@ -1164,7 +1203,12 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
         }
       }
     }
-    const attached = await client.call("Target.attachToTarget", { targetId, flatten: true });
+    let attached;
+    try {
+      attached = await client.call("Target.attachToTarget", { targetId, flatten: true });
+    } catch (e) {
+      throw e;
+    }
     const session = makeSession({
       profile, mode, port, child, client, sessionId: attached.sessionId, targetId, headless,
       shared: mode !== "own" // a borrowed browser outlives every session
@@ -1172,8 +1216,12 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
     if (created) session.ownsTargets.add(targetId);
     await session.setup();
     if (mode !== "own") {
-      rememberAttachTarget(targetId);
-      try { await client.call("Page.bringToFront", {}, attached.sessionId); } catch { /* ignore */ }
+      // Remember and focus ONLY engine-created tabs — a resumed user tab must
+      // not be re-driven on the next host restart, nor brought to the front.
+      if (session.ownsTargets.has(targetId)) {
+        rememberAttachTarget(targetId);
+        try { await client.call("Page.bringToFront", {}, attached.sessionId); } catch { /* ignore */ }
+      }
     }
     sessions.set(profile, session);
     logger.info(`session open: profile=${profile} mode=${mode} port=${port}`);
