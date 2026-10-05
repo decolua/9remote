@@ -224,7 +224,7 @@ await test("codex trust writes a trusted_hash under codex's own key", async () =
   });
   seen.push(r);
   const toml = readToml();
-  assert.ok(toml.includes(`[hooks.state."${CODEX_HOOKS}:stop:1:0"]`), "key names the group's real index");
+  assert.ok(toml.includes(`[hooks.state.'${CODEX_HOOKS}:stop:1:0']`), "key names the group's real index");
   assert.ok(toml.includes('trusted_hash = "sha256:stop-1"'), "hash written");
   assert.deepEqual(r.missing, [], "nothing left untrusted");
 });
@@ -249,8 +249,55 @@ await test("codex trust works when config.toml does not exist yet", async () => 
   });
   const toml = readToml();
   assert.ok(toml.includes("[hooks.state."), "config.toml created with the trust entry");
-  assert.ok(toml.includes(`[hooks.state."${CODEX_HOOKS}:user_prompt_submit:1:0"]`), "every event trusted");
+  assert.ok(toml.includes(`[hooks.state.'${CODEX_HOOKS}:user_prompt_submit:1:0']`), "every event trusted");
   assert.deepEqual(r.missing, [], "nothing left untrusted");
+});
+
+await test("codex trust writes backslash keys as TOML literal strings", async () => {
+  seedForeign();
+  fs.rmSync(CODEX_TOML, { force: true });
+  m.enableToolHook("codex");
+  const hooks = readHooks().hooks;
+  const reported = Object.entries(hooks).flatMap(([ev, groups]) =>
+    groups.map((g, i) => (ours(g) ? { key: `${CODEX_HOOKS}:${snake(ev)}:${i}:0`, hash: `sha256:${snake(ev)}-${i}` } : null))
+  ).filter(Boolean);
+  const r = await m.reconcileCodexHookTrust({ run: async () => reported });
+  const toml = readToml();
+  assert.equal(r.entries.length, 5, "all our handlers trusted");
+  for (const e of r.entries) {
+    if (!e.key.includes("\\")) continue;
+    assert.ok(toml.includes(`[hooks.state.'${e.key}']`), "backslash key written as literal string");
+    assert.ok(!toml.includes(`[hooks.state."${e.key}"]`), "backslash key never written as basic string");
+  }
+});
+
+await test("codex trust updates an existing literal-string entry instead of duplicating it", async () => {
+  seedForeign();
+  m.enableToolHook("codex");
+  fs.writeFileSync(CODEX_TOML, `[hooks.state.'${CODEX_HOOKS}:stop:1:0']\ntrusted_hash = "sha256:old"\n`);
+  await m.reconcileCodexHookTrust({ run: async () => [{ key: `${CODEX_HOOKS}:stop:1:0`, hash: "sha256:new" }] });
+  const toml = readToml();
+  assert.ok(toml.includes('trusted_hash = "sha256:new"'), "hash updated in place");
+  assert.ok(!toml.includes("sha256:old"), "stale hash replaced");
+  assert.equal(toml.split("[hooks.state.").length - 1, 1, "entry not duplicated");
+});
+
+await test("codex trust re-recognizes legacy basic-string entries (pre-fix format)", async () => {
+  seedForeign();
+  m.enableToolHook("codex");
+  fs.writeFileSync(CODEX_TOML, `[hooks.state."${CODEX_HOOKS}:stop:1:0"]\ntrusted_hash = "sha256:old"\n`);
+  await m.reconcileCodexHookTrust({ run: async () => [{ key: `${CODEX_HOOKS}:stop:1:0`, hash: "sha256:new" }] });
+  const toml = readToml();
+  assert.ok(toml.includes('trusted_hash = "sha256:new"'), "legacy entry updated in place");
+  assert.equal(toml.split("[hooks.state.").length - 1, 1, "no duplicate appended");
+});
+
+await test("codex disable drops literal-string trust entries", () => {
+  seedForeign();
+  m.enableToolHook("codex");
+  fs.writeFileSync(CODEX_TOML, `[hooks.state.'${CODEX_HOOKS}:stop:1:0']\ntrusted_hash = "sha256:x"\n`);
+  m.disableToolHook("codex");
+  assert.ok(!readToml().includes("[hooks.state."), "single-quoted trust entry removed");
 });
 
 await test("codex trust reports a key codex did not answer for", async () => {

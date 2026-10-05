@@ -289,7 +289,8 @@ const CODEX_EVENT_KEY = (ev) => ev.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowe
 const CODEX_EVENT_OF_KEY = Object.fromEntries(
   Object.keys(CODEX_HOOK_EVENTS).map((ev) => [CODEX_EVENT_KEY(ev), ev])
 );
-const CODEX_STATE_HEAD = /^\[hooks\.state\."(?<key>[^"]+)"\]$/m;
+// Keys are absolute paths: backslashes are invalid escapes inside TOML basic strings, so read both quote styles.
+const CODEX_STATE_HEAD = /^\[hooks\.state\.(?:"(?<dq>[^"]*)"|'(?<sq>[^']*)')\]$/m;
 const CODEX_APP_SERVER_TIMEOUT_MS = 15000;
 
 function codexHookList(bin) {
@@ -369,15 +370,15 @@ function upsertCodexTrust(filePath, entries) {
     const match = lines[i].match(CODEX_STATE_HEAD);
     const next = lines[i + 1] || "";
     if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
-    const hash = remaining.get(match.groups.key);
+    const hash = remaining.get(match.groups.dq ?? match.groups.sq);
     if (hash === undefined) { out.push(lines[i], next); i++; continue; }
-    remaining.delete(match.groups.key);
+    remaining.delete(match.groups.dq ?? match.groups.sq);
     out.push(lines[i], `trusted_hash = "${hash}"`);
     i++;
   }
   for (const [key, hash] of remaining) {
     if (out.length && out[out.length - 1] !== "") out.push("");
-    out.push(`[hooks.state."${key}"]`, `trusted_hash = "${hash}"`);
+    out.push(`[hooks.state.'${key}']`, `trusted_hash = "${hash}"`);
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, out.join("\n"), "utf8");
@@ -410,7 +411,7 @@ function dropCodexTrust(filePath, goneKeys) {
     const match = lines[i].match(CODEX_STATE_HEAD);
     const next = lines[i + 1] || "";
     if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
-    if (!goneKeys.has(match.groups.key)) { out.push(lines[i], next); i++; continue; }
+    if (!goneKeys.has(match.groups.dq ?? match.groups.sq)) { out.push(lines[i], next); i++; continue; }
     i++;
     if (out[out.length - 1] === "") out.pop();
   }
