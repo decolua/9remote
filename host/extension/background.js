@@ -27,7 +27,7 @@ function send(frame) {
 async function detachQuiet(tid, idle = false) {
   attached.delete(tid);
   if (!idle) idleDetached.delete(tid);
-  try { await chrome.debugger.detach({ targetId: tid }); } catch { /* already gone */ }
+  try { await chrome.debugger.detach({ tabId: Number(tid) }); } catch { /* already gone */ }
 }
 
 // Restore what the user was watching when a popup stole the focus. Only called
@@ -50,7 +50,7 @@ function snapBackFocus(tid) {
 const SHIM = {
   "Target.getTargets": async () => {
     const targets = await chrome.debugger.getTargets();
-    return { targetInfos: targets.map((t) => ({ targetId: String(t.id), type: t.type, title: t.title, url: t.url })) };
+    return { targetInfos: targets.map((t) => ({ targetId: String(t.tabId ?? t.id), type: t.type, title: t.title, url: t.url })) };
   },
   "Target.createTarget": async ({ url }) => {
     // Always background: agent tabs never steal the user's focus (focus
@@ -70,7 +70,7 @@ const SHIM = {
     if (attached.has(tid)) return { sessionId: tid }; // session heal re-attaches its own target
     // One attached page at a time — mirrors engine usage, avoids stacked infobars.
     for (const prev of [...attached]) if (prev !== tid) detachQuiet(prev);
-    await chrome.debugger.attach({ targetId: tid }, "1.3");
+    await attachDebugger(tid);
     attached.add(tid);
     // A popup our click spawned takes the focus Chrome gives it — hand it back
     // to the tab the user was actually reading. The agent drives in background.
@@ -94,6 +94,30 @@ const SHIM = {
 
 let inputAt = 0; // last Input.* dispatch — gates popup adoption below
 
+
+// The debugger target registers a beat after tabs.create — a cold attach can
+// fail with "No target with given id" even though the tab exists. Retry while
+// the tab is alive per chrome.tabs (source of truth), and surface the full
+// picture when Chrome still refuses.
+async function attachDebugger(tid) {
+  for (let i = 0; i < 10; i++) {
+    try {
+      await chrome.debugger.attach({ tabId: Number(tid) }, "1.3");
+      return;
+    } catch (e) {
+      const tabs = await chrome.tabs.query({}).catch(() => []);
+      const alive = tabs.some((t) => String(t.id) === tid);
+      if (!alive) {
+        throw new Error(`attach tid=${tid}: tab not in chrome.tabs (closed?) — ${e.message}`);
+      }
+      if (i === 9) {
+        throw new Error(`attach tid=${tid}: tab alive but Chrome refuses — ${e.message}`);
+      }
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }
+}
+
 async function dispatch(method, params, targetId) {
   if (SHIM[method]) return SHIM[method](params || {});
   if (targetId == null) throw new Error(`${method} is not available via the extension`);
@@ -104,26 +128,25 @@ async function dispatch(method, params, targetId) {
   // other failures (e.g. DevTools open on the tab) must surface as themselves.
   if (!attached.has(tid)) {
     idleDetached.delete(tid);
-    try {
-      await chrome.debugger.attach({ targetId: tid }, "1.3");
-      attached.add(tid);
-    } catch (e) {
-      throw /no target|not found|cannot access/i.test(e?.message || "")
-        ? new Error(`No target with given id: ${targetId}`)
-        : e;
-    }
+    await attachDebugger(tid);
+    attached.add(tid);
   }
   try {
-    return await chrome.debugger.sendCommand({ targetId: tid }, method, params || {});
+    return await chrome.debugger.sendCommand({ tabId: Number(tid) }, method, params || {});
   } catch (e) {
-    // A detached/closed target must look dead to the host's DEAD_SESSION heal.
-    if (!attached.has(tid)) throw new Error(`No target with given id: ${targetId}`);
+    // A dead target must look dead to the host's DEAD_SESSION heal. The worker
+    // can sleep through a tab close (no onDetach), leaving a stale attach —
+    // drop it and normalize the error instead of surfacing Chrome's wording.
+    if (/no target|closed|detached|not found/i.test(e?.message || "")) {
+      detachQuiet(tid);
+      throw new Error(`No target with given id: ${targetId}`);
+    }
     throw e;
   }
 }
 
 chrome.debugger.onEvent.addListener((source, method, params) => {
-  send({ t: "event", method, params, sessionId: String(source.targetId) });
+  send({ t: "event", method, params, sessionId: String(source.tabId ?? source.targetId) });
 });
 // Synthesize Target.targetCreated the engine's popup adoption listens for —
 // chrome.debugger never surfaces browser-level target events.
@@ -163,10 +186,10 @@ setInterval(() => {
 // "Cancel" on the debug infobar, DevTools open, or tab close — surface it the
 // way CDP would so the engine drops and rebuilds the session instead of wedging.
 chrome.debugger.onDetach.addListener((source) => {
-  attached.delete(source.targetId);
-  idleDetached.delete(String(source.targetId)); // user cancelled — stay detached
+  attached.delete(String(source.tabId ?? source.targetId));
+  idleDetached.delete(String(source.tabId ?? source.targetId)); // user cancelled — stay detached
   send({ t: "event", method: "Target.detachedFromTarget", params: {
-    sessionId: String(source.targetId), targetId: String(source.targetId)
+    sessionId: String(source.tabId ?? source.targetId), targetId: String(source.tabId ?? source.targetId)
   } });
 });
 
@@ -204,7 +227,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
 function connect() {
   if (paused) return; // never dial out while the kill switch is on
   ws = new WebSocket(RELAY_URL);
-  ws.onopen = () => send({ t: "hello", proto: 1 });
+  ws.onopen = () => send({ t: "hello", proto: 2 });
   ws.onmessage = async (ev) => {
     let m;
     try { m = JSON.parse(ev.data); } catch { return; }

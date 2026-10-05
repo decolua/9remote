@@ -66,6 +66,7 @@ export function attachBrowserRelay(server, port) {
       try { m = JSON.parse(raw.toString()); } catch { return; }
       if (m.t === "result") resolveCall(m);
       else if (m.t === "event") dispatchEvent(m);
+      if (m.t === "hello") logger.info(`extension hello proto=${m.proto}`);
       // pong / hello need no action — frames themselves keep the worker alive
     });
     s.on("close", () => {
@@ -89,7 +90,7 @@ function resolveCall(m) {
   if (!entry) return;
   inflight.delete(m.id);
   clearTimeout(entry.timer);
-  if (m.error) entry.reject(new Error(m.error));
+  if (m.error) entry.reject(new Error(`${entry.method}: ${m.error}`));
   else entry.resolve(m.result ?? {});
 }
 
@@ -128,7 +129,7 @@ export function getExtClient() {
       const id = nextId++;
       return new Promise((resolve, reject) => {
         const timer = setTimeout(() => { inflight.delete(id); reject(new Error(`CDP timeout: ${method}`)); }, timeoutMs);
-        inflight.set(id, { resolve, reject, timer });
+        inflight.set(id, { resolve, reject, timer, method });
         send({ t: "call", id, method, params, targetId: sessionId });
       });
     },
