@@ -4,6 +4,9 @@
  */
 
 export function vibrate(duration = 10) {
+  // Tauri desktop: WebKit reports MacIntel + maxTouchPoints>1 (trackpad), which would
+  // falsely trip the iOS haptic fallback below and inject DOM churn into every click.
+  if (window.__TAURI__) return;
   // Android Expo shell: navigator.vibrate exists in Android WebView but is a no-op
   // there, so the native bridge must win. UA gate — DEVICE_INFO is injected post-load
   // and can be missing. iOS keeps its WebView haptic path below.
