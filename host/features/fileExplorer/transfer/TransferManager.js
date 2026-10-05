@@ -5,7 +5,7 @@
 import fs from "fs";
 import path from "path";
 import { Writable } from "stream";
-import archiver from "archiver";
+import { ZipArchive } from "archiver";
 import { CHANNELS, FILE_TRANSFER } from "../../../lib/transportConstants.js";
 import { encodeFileFrame, decodeFileFrame } from "../../../transport/fileFrame.js";
 import { AckTracker } from "./ackTracker.js";
@@ -235,7 +235,7 @@ export class TransferManager {
   _streamZip(downloadId, dirPath) {
     const pm = this._pm;
     let offset = 0, cancelled = false;
-    const archive = archiver("zip", { zlib: { level: 1 } }); // level 1 = fast
+    const archive = new ZipArchive({ zlib: { level: 1 } }); // level 1 = fast
 
     const sender = new Writable({
       write(chunk, _enc, callback) {
