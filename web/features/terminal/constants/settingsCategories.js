@@ -1,8 +1,8 @@
 // Desktop settings dialog nav — order and labels live here, not in the component.
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 
-// Browser-use settings hidden pending release — flip to true to re-expose
-const BROWSER_USE_UI_ENABLED = false;
+// Browser-use settings — released
+const BROWSER_USE_UI_ENABLED = true;
 
 export const SETTINGS_CATEGORIES = [
   { id: "general", labelKey: "menu.settingsGeneral", icon: "Settings" },
