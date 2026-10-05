@@ -262,6 +262,86 @@ await test("codex trust reports a key codex did not answer for", async () => {
   assert.ok(!fs.existsSync(CODEX_TOML), "nothing written on an empty answer");
 });
 
+// Windows hook keys are absolute paths with backslashes; raw \ in a TOML basic
+// string is an invalid escape — what made codex refuse to start on 3.0.34.
+// A dir literally named "C:\Users\win" reproduces the shape on POSIX.
+await test("codex trust escapes backslash keys and stays idempotent", async () => {
+  if (process.platform === "win32") return; // names with \ are not addressable there
+  const winHome = path.join(TMP, "C:\\Users\\win");
+  fs.mkdirSync(winHome, { recursive: true });
+  process.env.HOME = winHome;
+  try {
+    m.enableToolHook("codex");
+    const hooksFile = path.join(winHome, ".codex", "hooks.json");
+    const tomlFile = path.join(winHome, ".codex", "config.toml");
+    const run = async () => Object.entries(JSON.parse(fs.readFileSync(hooksFile, "utf8")).hooks)
+      .flatMap(([ev, groups]) => groups.map((g, i) => ((g?.hooks || []).some((h) => h.command.includes("&tool=codex"))
+        ? { key: `${hooksFile}:${snake(ev)}:${i}:0`, hash: `sha256:${snake(ev)}` } : null)).filter(Boolean));
+    await m.reconcileCodexHookTrust({ run });
+    await m.reconcileCodexHookTrust({ run });
+    const toml = fs.readFileSync(tomlFile, "utf8");
+    const stopKey = `${hooksFile}:stop:0:0`;
+    assert.ok(toml.includes(`[hooks.state."${stopKey.replace(/\\/g, "\\\\")}"]`), "backslashes written escaped");
+    assert.ok(!toml.includes(`[hooks.state."${stopKey}"]`), "no raw single-backslash header");
+    assert.equal(toml.split("[hooks.state.").length - 1, 5, "five events, no duplicates on re-run");
+  } finally { process.env.HOME = TMP; }
+});
+
+await test("codex trust repairs an unescaped block and disable removes it", async () => {
+  if (process.platform === "win32") return;
+  const winHome = path.join(TMP, "C:\\Users\\win2");
+  fs.mkdirSync(winHome, { recursive: true });
+  process.env.HOME = winHome;
+  try {
+    m.enableToolHook("codex");
+    const hooksFile = path.join(winHome, ".codex", "hooks.json");
+    const tomlFile = path.join(winHome, ".codex", "config.toml");
+    const stopKey = `${hooksFile}:stop:0:0`;
+    // What 3.0.34 wrote: raw backslashes — invalid TOML that stops codex starting.
+    fs.writeFileSync(tomlFile, `model = "gpt-5"\n\n[hooks.state."${stopKey}"]\ntrusted_hash = "sha256:stale"\n`);
+    await m.reconcileCodexHookTrust({ run: async () => [{ key: stopKey, hash: "sha256:fresh" }] });
+    let toml = fs.readFileSync(tomlFile, "utf8");
+    assert.ok(!toml.includes(`[hooks.state."${stopKey}"]`), "unescaped header rewritten");
+    assert.ok(toml.includes(`[hooks.state."${stopKey.replace(/\\/g, "\\\\")}"]`), "rewritten in escaped form");
+    assert.ok(!toml.includes("sha256:stale"), "stale hash replaced");
+    assert.ok(toml.includes('model = "gpt-5"'), "user config preserved");
+    m.disableToolHook("codex");
+    toml = fs.readFileSync(tomlFile, "utf8");
+    assert.ok(!toml.includes("[hooks.state."), "our entries removed on disable");
+    assert.ok(toml.includes('model = "gpt-5"'), "user config still preserved");
+  } finally { process.env.HOME = TMP; }
+});
+
+await test("codex trust resolves without crashing when the binary is missing", async () => {
+  const r = await m.reconcileCodexHookTrust({ bin: "9r-not-a-real-binary" });
+  assert.equal(r.skipped, true, "skips gracefully on spawn failure");
+});
+
+await test("codex trust collapses an escaped+unescaped duplicate pair", async () => {
+  if (process.platform === "win32") return;
+  const winHome = path.join(TMP, "C:\\Users\\win3");
+  fs.mkdirSync(winHome, { recursive: true });
+  process.env.HOME = winHome;
+  try {
+    m.enableToolHook("codex");
+    const hooksFile = path.join(winHome, ".codex", "hooks.json");
+    const tomlFile = path.join(winHome, ".codex", "config.toml");
+    const stopKey = `${hooksFile}:stop:0:0`;
+    // codex wrote its own escaped entry; 3.0.34 appended a raw one next to it —
+    // two tables with the same key, which codex refuses to parse.
+    fs.writeFileSync(tomlFile, [
+      `[hooks.state."${stopKey.replace(/\\/g, "\\\\")}"]`,
+      'trusted_hash = "sha256:codex-own"',
+      `[hooks.state."${stopKey}"]`,
+      'trusted_hash = "sha256:ours-broken"',
+    ].join("\n") + "\n");
+    await m.reconcileCodexHookTrust({ run: async () => [{ key: stopKey, hash: "sha256:fresh" }] });
+    const toml = fs.readFileSync(tomlFile, "utf8");
+    assert.equal(toml.split("[hooks.state.").length - 1, 1, "one table, not a duplicate pair");
+    assert.ok(toml.includes('trusted_hash = "sha256:fresh"'), "our hash won");
+  } finally { process.env.HOME = TMP; }
+});
+
 await test("codex enable clears the legacy notify block and restores the user's line", () => {
   fs.mkdirSync(path.join(TMP, ".codex"), { recursive: true });
   fs.writeFileSync(path.join(TMP, ".codex", "9remote-notify.sh"), "#!/bin/sh\n");

@@ -312,6 +312,9 @@ function codexHookList(bin) {
     const timer = setTimeout(() => finish([]), CODEX_APP_SERVER_TIMEOUT_MS);
     child.on("error", () => finish([]));
     child.on("exit", () => finish([]));
+    // A codex that dies before reading stdin (broken config) EPIPEs the write —
+    // without a listener that crash takes the whole host down.
+    child.stdin.on("error", () => finish([]));
     child.stdout.on("data", (d) => {
       buf += d;
       let i;
@@ -343,6 +346,13 @@ function codexHookList(bin) {
 // Codex returns "sha256:<hex>"; stored verbatim to prevent double-prefixing.
 const codexHashValue = (hash) => (/^sha256:/.test(hash) ? hash : `sha256:${hash}`);
 
+// TOML basic strings treat \ as an escape — raw Windows paths ("C:\Users\…") break
+// codex's config parse ("too few unicode value digits"). Always write keys escaped.
+const tomlEscapeKey = (k) => k.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+// Match keys however they were written: escaped (current) or raw (pre-fix, broken).
+// ponytail: collapses backslash runs — real file paths never contain "\\".
+const sameCodexKey = (a, b) => a.replace(/\\+/g, "\\") === b.replace(/\\+/g, "\\");
+
 function codexHandlersIn(filePath) {
   const hooks = readJsonFile(filePath).hooks || {};
   const out = [];
@@ -369,15 +379,21 @@ function upsertCodexTrust(filePath, entries) {
     const match = lines[i].match(CODEX_STATE_HEAD);
     const next = lines[i + 1] || "";
     if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
-    const hash = remaining.get(match.groups.key);
-    if (hash === undefined) { out.push(lines[i], next); i++; continue; }
-    remaining.delete(match.groups.key);
-    out.push(lines[i], `trusted_hash = "${hash}"`);
-    i++;
+    const hit = [...remaining.entries()].find(([k]) => sameCodexKey(k, match.groups.key));
+    if (hit) {
+      remaining.delete(hit[0]);
+      out.push(`[hooks.state."${tomlEscapeKey(hit[0])}"]`, `trusted_hash = "${hit[1]}"`);
+      i++;
+      continue;
+    }
+    // A second copy of a key we already placed (old versions appended theirs next to
+    // codex's own escaped entry) is a duplicate table — drop it, the first copy wins.
+    if (entries.some((e) => sameCodexKey(e.key, match.groups.key))) { i++; continue; }
+    out.push(lines[i], next); i++;
   }
   for (const [key, hash] of remaining) {
     if (out.length && out[out.length - 1] !== "") out.push("");
-    out.push(`[hooks.state."${key}"]`, `trusted_hash = "${hash}"`);
+    out.push(`[hooks.state."${tomlEscapeKey(key)}"]`, `trusted_hash = "${hash}"`);
   }
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, out.join("\n"), "utf8");
@@ -410,7 +426,7 @@ function dropCodexTrust(filePath, goneKeys) {
     const match = lines[i].match(CODEX_STATE_HEAD);
     const next = lines[i + 1] || "";
     if (!match || !/^\s*trusted_hash\s*=/.test(next)) { out.push(lines[i]); continue; }
-    if (!goneKeys.has(match.groups.key)) { out.push(lines[i], next); i++; continue; }
+    if (![...goneKeys].some((g) => sameCodexKey(g, match.groups.key))) { out.push(lines[i], next); i++; continue; }
     i++;
     if (out[out.length - 1] === "") out.pop();
   }
