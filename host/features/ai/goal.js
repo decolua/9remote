@@ -54,6 +54,8 @@ export function readThreadGoal(threadId, cwd) {
 
     child.on("error", () => done(null));
     child.on("close", () => done(null));
+    // EPIPE lands on stdin, not the child, when codex dies before reading it.
+    child.stdin.on("error", () => done(null));
     send({ jsonrpc: "2.0", id: 1, method: "initialize", params: { clientInfo: CLIENT_INFO } });
   });
 }

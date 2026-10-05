@@ -9,6 +9,8 @@ function run(cmd, args, input) {
     if (p.stderr) p.stderr.on("data", (d) => { err += d.toString(); });
     p.on("error", reject);
     p.on("close", (code) => (code === 0 ? resolve() : reject(new Error(err.trim() || `${cmd} exited ${code}`))));
+    // A tool exiting before consuming stdin EPIPEs the write — close already rejects.
+    p.stdin.on("error", () => {});
     if (input != null) p.stdin.write(input);
     p.stdin.end();
   });

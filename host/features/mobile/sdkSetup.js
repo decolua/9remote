@@ -663,6 +663,8 @@ function runToolCancelable(toolPath, args, { onStdout, stdinput } = {}) {
   let kill = () => {};
   const done = new Promise((resolve, reject) => {
     const child = spawn(toolPath, args, { env: javaEnv(), stdio: ["pipe", "pipe", "pipe"] });
+    // A tool failing before reading stdin EPIPEs the write — "error"/"close" handle the exit.
+    child.stdin.on("error", () => {});
     if (stdinput) child.stdin.write(stdinput.repeat(20));
     // Close stdin so unexpected prompts exit on EOF instead of hanging.
     child.stdin.end();

@@ -117,6 +117,8 @@ function initWinTray({ port, onQuit, onOpenUI }) {
       { windowsHide: true, stdio: ["pipe", "pipe", "pipe"] }
     );
   } catch { return null; }
+  // A tray process that died EPIPEs the next send — exit handling is elsewhere.
+  ps.stdin.on("error", () => {});
 
   const send = (cmd) => { try { if (ps.stdin.writable) ps.stdin.write(`${JSON.stringify(cmd)}\n`, "utf8"); } catch {} };
 

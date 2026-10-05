@@ -22,6 +22,8 @@ export class LocalProc {
     // The spawn is asynchronous: a missing binary reports through "error", which
     // without a listener would surface as an unhandled event and take the agent down.
     child.on("error", (err) => this.onExit?.({ code: null, signal: null, error: err.message }));
+    // A CLI dying mid-write EPIPEs its stdin — close below already reports the exit.
+    child.stdin.on("error", () => {});
     this._pump(child.stdout);
     this._pump(child.stderr);
     child.on("close", (code, signal) => {

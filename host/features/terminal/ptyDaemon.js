@@ -226,6 +226,8 @@ function createProc(procId, { bin, args = [], cwd, env, windowsVerbatimArguments
   };
   pump(child.stdout);
   pump(child.stderr);
+  // A CLI dying mid-write EPIPEs its stdin — exit is reported via "close" below.
+  child.stdin.on("error", () => {});
 
   child.on("error", (err) => {
     proc.exited = true;
