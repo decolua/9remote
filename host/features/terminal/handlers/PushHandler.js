@@ -31,16 +31,17 @@ export function setupPushHandlers(socket, io) {
     }
   });
 
-  // Proxy sessions over the socket bus — the tunnel URL may be stale/absent on RTC or LAN
-  socket.on("startProxySession", (port, callback) => {
-    if (!port) return;
-    const sessionId = startProxySession(port);
-    if (typeof callback === "function") callback(sessionId ? { ok: true, sessionId } : { error: "bad-port" });
+  // Proxy sessions over the socket bus — the tunnel URL may be stale/absent on RTC or LAN.
+  // target: localhost port, or a public site hostname for host-proxy browsing.
+  socket.on("startProxySession", (target, callback) => {
+    if (!target) return;
+    const sessionId = startProxySession(target);
+    if (typeof callback === "function") callback(sessionId ? { ok: true, sessionId } : { error: "bad-target" });
   });
 
-  socket.on("endProxySession", (port, callback) => {
-    if (!port) return;
-    endProxySession(port);
+  socket.on("endProxySession", (target, callback) => {
+    if (!target) return;
+    endProxySession(target);
     if (typeof callback === "function") callback({ ok: true });
   });
 
