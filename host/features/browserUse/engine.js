@@ -11,11 +11,13 @@ import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
 import { getExtClient } from "./extRelay.js";
-import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate, readExpression } from "./snapshot.js";
+import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate, readExpression, snapshotExpression, stableDomExpression } from "./snapshot.js";
 import { MAX_ELEMENTS } from "./constants.js";
 import {
   ATTACH_GUIDE_STEPS, ATTACH_GUIDE_URL, ATTACH_PROBE_TIMEOUT_MS, BLANK_OBSERVE_MS, CONSOLE_BUFFER_MAX, CONSOLE_TEXT_CAP, EXT_PROFILE, LAUNCH_TIMEOUT_MS, NAV_WAIT_COMMIT_MS, OBSERVE_SETTLE_RETRIES, OBSERVE_SETTLE_RETRY_MS,
   OBSERVE_STALE_RETRIES, SCREENSHOT_FORMAT, SETTLE_POLL_MS,
+  FILL_BONUS_MAX_CHARS, FILL_MS_PER_CHAR, IFRAME_ATTACH_CAP_MS, IFRAME_FRAME_CAP_MS, OBSERVE_IFRAME_CAP_MS,
+  OBSERVE_IFRAME_MIN_MS,
   SCREENSHOT_QUALITY, SETTLE_CAP_MS, SETTLE_MIN_CLICK_MS, SETTLE_MIN_FILL_MS, SETTLE_MIN_HYDRATE_MS, SETTLE_MIN_LINK_MS, SETTLE_MIN_SPA_MS, SETTLE_QUIET_MS,
   STEP_FRAME_QUALITY, STEP_FRAME_SCALE, VIEWPORT, WAIT_TEXT_POLL_MS, WAIT_TEXT_TIMEOUT_MS
 } from "./constants.js";
@@ -239,7 +241,7 @@ function isBlankTabUrl(url) {
   return !url || url === "about:blank" || /^chrome:\/\/new-tab-page/.test(url);
 }
 
-function makeSession({ profile, mode, port, child, client, sessionId, targetId, headless = false, shared = false }) {
+function makeSession({ profile, sessionKey = null, mode, port, child, client, sessionId, targetId, headless = false, shared = false }) {
   const call = (method, params = {}) => client.call(method, params, session.sessionId);
   const enter = (type) => ({
     type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
@@ -248,11 +250,12 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
   const unsubs = []; // client.on unsubscribe fns — drained in close() (shared clients)
 
   const session = {
-    profile, mode, port, targetId, sessionId, headless, client,
+    profile, sessionKey, mode, port, targetId, sessionId, headless, client,
     lastState: null,
     docOrigin: null, docUrl: null,
     cancelRequested: false,
     ownsTargets: new Set(), // tabs the ENGINE created — close() cleans only these
+    tabOrder: [],           // stable targetId order across getTargets calls
     dialogLog: [],          // auto-dismissed js dialogs (bounded, agent-visible)
     pendingPromptText: null, // one-shot answer armed before a click that triggers window.prompt()
     downloads: new Map(),   // guid -> {filename, path, done, delivered}
@@ -317,47 +320,97 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       session.sessionId = attached.sessionId;
       await session.setup();
       session.lastState = null;
+      await session.stampTitle().catch(() => {});
     },
 
-    // Strict one-tab discipline: the engine keeps a single working tab reused
-    // for EVERY origin. Only engine-created tabs qualify (ownsTargets) — a
-    // user's tab showing the same URL is never adopted. Leftover engine tabs
-    // from earlier opens are collapsed back to one; user tabs stay untouched.
-    async openOrReuseTab(targetUrl) {
+    async switchTab(selector) {
+      const pages = await pageTargets(session);
+      const target = resolveTab(pages, selector);
+      const idx = pages.findIndex((p) => p.targetId === target.targetId) + 1;
+      await session.adopt(target.targetId);
+      try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
+      await session.stampTitle().catch(() => {});
+      const nowState = await session.current();
+      return { ok: true, index: idx, id: target.targetId, url: nowState.url || target.url, title: formatStampedTitle(idx, target.title) };
+    },
+
+    async stampTitle() {
+      // Own mode keeps the REAL page title — tests and agents read it as page
+      // state. Only a browser the user is watching (extension/attach) gets the
+      // 🚀 [N] marker; `tabs` renders the prefix display-only there.
+      if (session.mode === "own") return;
+      try {
+        const pages = await pageTargets(session);
+        const idx = pages.findIndex((p) => p.targetId === session.targetId);
+        if (idx >= 0) {
+          const tabNum = idx + 1;
+          await evaluate(client, session.sessionId, `(() => {
+            const raw = document.title || '';
+            const clean = raw.replace(/^🚀\\s*\\[\\d+\\]\\s*/, '').trim();
+            document.title = clean ? ('🚀 [' + ${tabNum} + '] ' + clean) : ('🚀 [' + ${tabNum} + ']');
+          })()`);
+        }
+      } catch { /* ignore */ }
+    },
+
+    // Working tab management: reuse existing tab if targetUrl matches, navigate
+    // current tab if open, or spawn a fresh tab if none or newTab requested.
+    async openOrReuseTab(targetUrl, { newTab = false } = {}) {
       if (!targetUrl) return;
       try {
-        if (session.lastState?.url && urlsMatch(session.lastState.url, targetUrl)) return; // already there
-        const { targetInfos = [] } = await client.call("Target.getTargets");
-        const pages = targetInfos.filter((t) => t.type === "page");
-        const mine = pages.filter((t) => session.ownsTargets.has(t.targetId));
-        const work = mine.find((t) => t.targetId === session.targetId) || mine[0];
-        if (work) {
-          if (work.targetId !== session.targetId) await session.adopt(work.targetId);
-          await session.navigate(targetUrl);
-        } else {
-          const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
-          session.ownsTargets.add(target.targetId);
-          await session.adopt(target.targetId);
-          // A fresh target starts at about:blank whose readyState is already
-          // "complete" — wait for the target origin to land before trusting it.
-          if (!isBlankTabUrl(targetUrl)) {
-            const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
-            while (Date.now() < deadline) {
-              const href = await evaluate(client, session.sessionId, "location.href").catch(() => null);
-              if (href && urlsSameOrigin(href, targetUrl) &&
-                  await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
-              await new Promise((r) => setTimeout(r, 50));
+        // An identical re-open is a no-op — never reset a live observation.
+        if (!newTab && session.lastState?.url && urlsMatch(session.lastState.url, targetUrl)) {
+          await session.stampTitle().catch(() => {});
+          return;
+        }
+        const pages = await pageTargets(session);
+        if (!newTab) {
+          // Only a session WITHOUT a working tab may adopt a same-url tab —
+          // stateful pages (wizards, tests) must never swap onto a stale twin.
+          const mine = pages.filter((t) => session.ownsTargets.has(t.targetId));
+          if (!mine.length) {
+            const other = pages.find((t) => t.targetId !== session.targetId && urlsMatch(t.url, targetUrl));
+            if (other) {
+              await session.adopt(other.targetId);
+              await session.stampTitle().catch(() => {});
+              return;
             }
           }
+          const work = mine.find((t) => t.targetId === session.targetId) || mine[0];
+          if (work) {
+            if (work.targetId !== session.targetId) await session.adopt(work.targetId);
+            await session.navigate(targetUrl);
+            await session.stampTitle().catch(() => {});
+            return;
+          }
         }
-        for (const t of mine) {
-          if (t.targetId === session.targetId) continue;
-          try { await client.call("Target.closeTarget", { targetId: t.targetId }); } catch { /* already gone */ }
-          session.ownsTargets.delete(t.targetId);
+        const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
+        session.ownsTargets.add(target.targetId);
+        await session.adopt(target.targetId);
+        // A fresh target starts at about:blank whose readyState is already
+        // "complete" — wait for the target origin to land before trusting it.
+        if (!isBlankTabUrl(targetUrl)) {
+          const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
+          while (Date.now() < deadline) {
+            const href = await evaluate(client, session.sessionId, "location.href").catch(() => null);
+            if (href && urlsSameOrigin(href, targetUrl) &&
+                await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
+            await new Promise((r) => setTimeout(r, 50));
+          }
         }
+        await session.stampTitle().catch(() => {});
       } catch {
         await session.navigate(targetUrl);
+        await session.stampTitle().catch(() => {});
       }
+    },
+
+    // Windowed one-shot table read (the `ls` op): bakes from/len into the
+    // snapshot expression. observe() keeps the historical default window.
+    async listState(win = {}) {
+      const state = await evaluate(client, session.sessionId, snapshotExpression(win));
+      await mergeIframes(state);
+      return state;
     },
 
     async observe() {
@@ -481,26 +534,40 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
         if (action.kind === 'fill' && (e.readOnly || e.getAttribute('aria-readonly') === 'true')) return null;
         // Full-page tables carry below-fold elements — bring the target into the
         // viewport before point-hitting it (orca scrollIntoView pattern).
-        const center = (r) => ({ x: r.x + r.width / 2, y: r.y + r.height / 2 });
+        const frameEl = e.ownerDocument !== document ? e.ownerDocument.defaultView?.frameElement : null;
+        const center = (rect) => ({ x: rect.x + rect.width / 2, y: rect.y + rect.height / 2 });
         let r = e.getBoundingClientRect();
+        if (frameEl) {
+          const fr = frameEl.getBoundingClientRect();
+          r = { x: fr.x + r.x, y: fr.y + r.y, width: r.width, height: r.height };
+        }
         if (!r.width || !r.height) return null;
         let p = center(r);
         if (p.x < 0 || p.y < 0 || p.x >= innerWidth || p.y >= innerHeight) {
           e.scrollIntoView({ block: 'center', inline: 'center' });
           r = e.getBoundingClientRect();
+          if (frameEl) {
+            const fr = frameEl.getBoundingClientRect();
+            r = { x: fr.x + r.x, y: fr.y + r.y, width: r.width, height: r.height };
+          }
           p = center(r);
           if (!r.width || !r.height || p.x < 0 || p.y < 0 || p.x >= innerWidth || p.y >= innerHeight) return null;
         }
         // Occlusion gate across shadow boundaries: elementFromPoint retargets a
         // shadow node to its host chain, and a click can land on slotted light
         // content — accept when e and hit share a composed ancestry either way.
-        const hit = document.elementFromPoint(p.x, p.y);
-        if (!hit) return null;
-        const up = (el) => { const chain = []; let n = el;
-          while (n) { chain.push(n); n = n.assignedSlot || n.parentElement || (n.getRootNode()?.host || null); }
-          return chain; };
-        const hitChain = up(hit);
-        if (!e.contains(hit) && !up(e).some((a) => a === hit) && !hitChain.some((n) => n === e || e.contains(n))) return null;
+        // Fills focus directly (no mouse click), so bypass occlusion gate.
+        if (action.kind !== 'fill') {
+          const hit = document.elementFromPoint(p.x, p.y);
+          if (!hit) return null;
+          const up = (el) => { const chain = []; let n = el;
+            while (n) { chain.push(n); n = n.assignedSlot || n.parentElement || (n.getRootNode()?.host || null); }
+            return chain; };
+          const hitChain = up(hit);
+          const isHit = e.contains(hit) || up(e).some((a) => a === hit) || hitChain.some((n) => n === e || e.contains(n)) ||
+            (frameEl && (hit === frameEl || frameEl.contains(hit) || hit.contains(frameEl)));
+          if (!isHit) return null;
+        }
         if (action.kind === 'select') {
           if (e.tagName !== 'SELECT' || ![...e.options].some(o => o.value === action.value && !o.disabled)) return null;
           e.value = action.value;
@@ -524,6 +591,116 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     // Last-resort click: run the click INSIDE the page, bypassing coordinate
     // dispatch and the occlusion gate — for targets an overlay keeps covering.
     // Not a trusted event; most handlers accept it, some will not.
+    // One fast scroll hop for the burst loop: scroll instantly, then a tiny
+    // evaluate checks the needles against VIEWPORT-VISIBLE text only (full
+    // innerText would match content far below the fold) — ~30ms vs ~1s per hop.
+    async scrollBurstStep(delta, needles) {
+      const r = await evaluate(client, session.sessionId, `(n => {
+        window.scrollBy({ top: ${Number(delta) || 0}, left: 0, behavior: 'instant' });
+        const vis = [];
+        const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = w.nextNode()) && vis.length < 400) {
+          const range = document.createRange();
+          range.selectNodeContents(node);
+          const b = range.getBoundingClientRect();
+          if (b.bottom >= 0 && b.top <= window.innerHeight && b.width > 0) vis.push(node.textContent);
+        }
+        const t = vis.join("\\n");
+        return { y: Math.round(window.scrollY), hit: n.length > 0 && n.every((s) => t.includes(s)) };
+      })(${JSON.stringify(needles.map(String))})`);
+      session.lastState = null;
+      return r ?? { y: 0, hit: false };
+    },
+
+    // Scroll so document-absolute Y lands mid-viewport (same centering as
+    // scrollIntoView) — the coordinate primitive behind every scroll form.
+    async scrollToY(y) {
+      const target = Math.max(0, Math.floor(Number(y) || 0));
+      await evaluate(client, session.sessionId,
+        `window.scrollTo({ top: Math.max(0, ${target} - Math.round(window.innerHeight / 2)), left: 0, behavior: 'instant' })`);
+      await session.settle();
+      session.lastState = null;
+      return { scrolledTo: target };
+    },
+
+    // Center a snapshot element in view — scrollIntoView walks nested scroll
+    // containers (modal bodies, chat lists), not just the document.
+    async scrollToAction(action) {
+      if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
+      const ok = await evaluate(client, action.frame || session.sessionId, `(node => {
+        const e = window.__9rFast?.nodes.get(node);
+        if (!e?.isConnected) return false;
+        e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+        return true;
+      })(${action.node})`);
+      if (!ok) throw stale("scroll-to: element gone");
+      await session.settle();
+      session.lastState = null;
+      return { scrolledTo: action.id };
+    },
+
+    // Scroll to an in-DOM text node (even inside nested scroll containers) via scrollIntoView.
+    async scrollToText(needle) {
+      const ok = await evaluate(client, session.sessionId, `(needle => {
+        const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+        let node;
+        const lower = needle.toLowerCase();
+        while ((node = walker.nextNode())) {
+          if (node.textContent.toLowerCase().includes(lower)) {
+            const el = node.parentElement;
+            if (el && el.isConnected) {
+              el.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
+              return true;
+            }
+          }
+        }
+        return false;
+      })(${JSON.stringify(needle)})`);
+      if (ok) {
+        await session.settle();
+        session.lastState = null;
+        return { found: true };
+      }
+      return { found: false };
+    },
+
+    // Whole burst in ONE evaluate: an in-page loop hops until the needle shows
+    // in viewport text or the page bottoms out (3s page-side cap). Returns
+    // where it landed so the caller can decide found vs end-of-page.
+    async scrollBurstTo(needles) {
+      const r = await evaluate(client, session.sessionId, `(n => new Promise(resolve => {
+        const step = Math.max(400, Math.round(window.innerHeight * 0.85));
+        const t0 = performance.now();
+        const visibleText = () => {
+          const vis = [];
+          const w = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+          let node;
+          while ((node = w.nextNode()) && vis.length < 400) {
+            const range = document.createRange();
+            range.selectNodeContents(node);
+            const b = range.getBoundingClientRect();
+            if (b.bottom >= 0 && b.top <= window.innerHeight && b.width > 0) vis.push(node.textContent);
+          }
+          return vis.join("\\n");
+        };
+        let hops = 0;
+        const hop = () => {
+          if (hops >= 60 || performance.now() - t0 > 3000) return resolve({ found: false, hops, y: Math.round(window.scrollY) });
+          const before = Math.round(window.scrollY);
+          window.scrollBy({ top: step, left: 0, behavior: 'instant' });
+          hops++;
+          if (Math.round(window.scrollY) === before && hops > 1) return resolve({ found: false, hops, y: before, bottom: true });
+          const t = visibleText();
+          if (n.length && n.every((s) => t.includes(s))) return resolve({ found: true, hops, y: Math.round(window.scrollY) });
+          setTimeout(hop, 0);
+        };
+        hop();
+      }))(${JSON.stringify((Array.isArray(needles) ? needles : [needles]).map(String))})`, { awaitPromise: true, timeoutMs: 8000 });
+      session.lastState = null;
+      return r ?? { found: false, hops: 0, y: 0 };
+    },
+
     async jsClick(action) {
       if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
       const ok = await evaluate(client, action.frame || session.sessionId, `(node => {
@@ -539,16 +716,26 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       return { executed: action.id, via: "js" };
     },
 
-    async act(action, text = null) {
+    async act(action, text = null, { nowait = false } = {}) {
+      const seenDialogs = session.dialogLog.length;
       if (action.kind === "wait") {
         await new Promise((r) => setTimeout(r, 100));
         return { executed: action.id };
       }
       if (action.kind === "scroll") {
-        await call("Input.dispatchMouseEvent",
-          { type: "mouseWheel", x: 550, y: 650, deltaX: 0, deltaY: action.delta });
+        await evaluate(client, session.sessionId, `window.scrollBy({ top: ${action.delta || 0}, left: 0, behavior: 'instant' })`);
+        if (nowait) { session.lastState = null; return { executed: action.id }; }
         await session.settle();
         return { executed: action.id };
+      }
+      // Chrome swallows default actions (anchor navigation!) on background tabs —
+      // surface the tab first so the click lands where the user can see it.
+      if (mode !== "own") await call("Page.bringToFront", {}, session.sessionId).catch(() => {});
+      // Anchor clicks navigate via the default action, which a physical CDP
+      // click unreliably triggers (background tabs, overlays). A JS .click()
+      // fires navigation deterministically — same result, no missed clicks.
+      if (action.kind === "click" && (action.role === "link" || action.tag === "a")) {
+        return await session.jsClick(action);
       }
       if (typeof action.node !== "number") {
         throw stale("Action does not reference an observed node");
@@ -564,8 +751,13 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
         }
       }
       if (action.kind === "fill") await session.type(action, text);
-      await session.settle(action);
-      return { executed: action.id };
+      if (nowait) { session.lastState = null; return { executed: action.id }; }
+      await session.settle(action, text);
+      // A js dialog this action opened (auto-dismissed) rides the result —
+      // a native prompt is invisible in the DOM table, this is the agent's
+      // only signal it should re-click with an armed answer.
+      const dialogs = session.dialogLog.slice(seenDialogs);
+      return { executed: action.id, ...(dialogs.length ? { dialog: dialogs[dialogs.length - 1] } : {}) };
     },
 
     async type(action, text) {
@@ -659,19 +851,22 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       return { uploaded: file };
     },
 
-    // Bounded adaptive settling — wait until the page goes QUIET (unchanged
-    // marker for 150ms), with higher minimums after fills (autosuggest debounce)
-    // and on freshly-hydrated documents. Capped, never spends a Jev call.
-    async settle(action = null) {
-      const fillMin = action?.kind === "fill" ? SETTLE_MIN_FILL_MS
+    // Bounded adaptive settling — wait until the page goes QUIET. The quiet
+    // window is an in-page MutationObserver (chrome-devtools-mcp pattern): the
+    // page signals quiescence itself, so settling costs zero marker polls that
+    // steal the page's main thread. Floors keep their domain meaning (autosuggest
+    // debounce after fills, hydration grace, late SPA mounts).
+    async settle(action = null, text = null) {
+      const fillMin = action?.kind === "fill"
+        ? SETTLE_MIN_FILL_MS + FILL_MS_PER_CHAR * Math.min((text ?? "").length, FILL_BONUS_MAX_CHARS)
         : (action?.kind === "click" || action?.kind === "select")
           ? (action?.role === "link" ? SETTLE_MIN_LINK_MS : SETTLE_MIN_CLICK_MS) : 0;
       const started = Date.now();
-      let changedAt = started, prev = null, prevFrame = null, freshDoc = false, spaRoute = false;
-      while (Date.now() - started < SETTLE_CAP_MS) {
-        let marker = null;
-        try { marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION); }
-        catch { changedAt = Date.now(); continue; /* navigating mid-wait */ }
+      // One marker read classifies the document (fresh doc vs SPA route) — the
+      // quiet wait itself no longer polls the marker.
+      let freshDoc = false, spaRoute = false;
+      try {
+        const marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION);
         if (Array.isArray(marker)) {
           if (marker[0] !== session.docOrigin) {
             session.docOrigin = marker[0];
@@ -680,24 +875,26 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
             spaRoute = true; // same document, new URL — SPA view still mounts
           }
           session.docUrl = marker[1];
-          const key = marker.join("\u0001");
-          if (prev === null || key !== prev) { prev = key; changedAt = Date.now(); }
-        } else {
-          changedAt = Date.now();
         }
-        // A frame-targeted action can navigate ITS frame while the main marker
-        // sits still — quiet requires the frame's marker stable too.
-        if (action?.frame) {
-          try {
-            const fm = await evaluate(client, action.frame, MARKER_EXPRESSION);
-            const fk = Array.isArray(fm) ? fm.join("\u0001") : null;
-            if (fk === null || fk !== prevFrame) { prevFrame = fk; changedAt = Date.now(); }
-          } catch { changedAt = Date.now(); /* frame mid-navigation */ }
-        }
-        const minMs = Math.max(fillMin, freshDoc ? SETTLE_MIN_HYDRATE_MS : 0,
-          spaRoute ? SETTLE_MIN_SPA_MS : 0, SETTLE_QUIET_MS);
-        if (Date.now() - changedAt >= SETTLE_QUIET_MS && Date.now() - started >= minMs) break;
-        await new Promise((r) => setTimeout(r, SETTLE_POLL_MS));
+      } catch { /* navigating right after the action — the retry loop below holds */ }
+      const minMs = Math.max(fillMin, freshDoc ? SETTLE_MIN_HYDRATE_MS : 0,
+        spaRoute ? SETTLE_MIN_SPA_MS : 0, SETTLE_QUIET_MS);
+      while (Date.now() - started < SETTLE_CAP_MS) {
+        const capLeft = Math.max(50, started + SETTLE_CAP_MS - Date.now());
+        try {
+          await evaluate(client, session.sessionId, stableDomExpression(SETTLE_QUIET_MS, minMs, capLeft),
+            { awaitPromise: true, timeoutMs: capLeft + 500 });
+          break;
+        } catch { /* context destroyed mid-wait (navigation) — retry until the cap */ }
+      }
+      // A frame-targeted action can navigate ITS frame while the main document
+      // sits still — quiet requires the frame quiet too.
+      if (action?.frame) {
+        try {
+          const capLeft = Math.max(50, started + SETTLE_CAP_MS - Date.now());
+          await evaluate(client, action.frame, stableDomExpression(SETTLE_QUIET_MS, 0, capLeft),
+            { awaitPromise: true, timeoutMs: capLeft + 500 });
+        } catch { /* frame mid-navigation — the nav tail bounds the wait */ }
       }
       // Navigation-aware tail: frameRequestedNavigation fires at the CLICK,
       // long before a slow server commits — settle alone would serve the OLD
@@ -725,7 +922,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
 
     async screenshot() {
       const result = await call("Page.captureScreenshot",
-        { format: SCREENSHOT_FORMAT, quality: SCREENSHOT_QUALITY });
+        { format: SCREENSHOT_FORMAT, quality: SCREENSHOT_QUALITY, optimizeForSpeed: true });
       return result.data; // base64 jpeg
     },
 
@@ -742,19 +939,24 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       return { clicked: { x, y } };
     },
 
-    async scrollBy(px) {
-      if (!Number.isFinite(px) || px === 0) throw new Error("scroll needs a nonzero pixel amount");
-      await call("Input.dispatchMouseEvent",
-        { type: "mouseWheel", x: 550, y: 650, deltaX: 0, deltaY: px });
+    async scrollBy(directionOrPx) {
+      if (typeof directionOrPx === "string") {
+        const sign = directionOrPx === "up" ? -1 : 1;
+        await evaluate(client, session.sessionId, `window.scrollBy({ top: Math.round(window.innerHeight * 0.85 * ${sign}), left: 0, behavior: 'instant' })`);
+      } else {
+        const px = Number(directionOrPx);
+        if (!Number.isFinite(px) || px === 0) throw new Error("scroll needs a nonzero pixel amount or direction");
+        await evaluate(client, session.sessionId, `window.scrollBy({ top: ${px}, left: 0, behavior: 'instant' })`);
+      }
       await session.settle();
       session.lastState = null;
-      return { scrolled: px };
+      return { scrolled: directionOrPx };
     },
 
     async scrollToEdge(edge) {
       if (!["top", "bottom"].includes(edge)) throw new Error(`scroll edge must be top or bottom, got "${edge}"`);
       const height = await evaluate(client, session.sessionId, "document.documentElement.scrollHeight");
-      await evaluate(client, session.sessionId, `window.scrollTo(0, ${edge === "top" ? 0 : height})`);
+      await evaluate(client, session.sessionId, `window.scrollTo({ top: ${edge === "top" ? 0 : height}, left: 0, behavior: 'instant' })`);
       await session.settle();
       session.lastState = null;
       return { scrolledTo: edge };
@@ -787,18 +989,24 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
 
     async hoverById(id) {
       let state = await session.current();
-      let action = state.actions.find((a) => a.id === id);
+      let action = state.actions.find((a) => matchActionId(a, id));
       if (!action) { // the table shifted between the caller's observe and now — one fresh retry
         state = await session.observe();
-        action = state.actions.find((a) => a.id === id);
+        action = state.actions.find((a) => matchActionId(a, id));
       }
       if (!action) throw new Error(`Element ${id} not observed on the current page`);
+      await session.hoverAction(action);
+      return { hovered: id };
+    },
+
+    // Shared by single hover and the chain hover step — resolve already done.
+    async hoverAction(action) {
       if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
       const point = await session.pointFor(action);
       if (!point) throw stale("Target changed or is covered");
       await call("Input.dispatchMouseEvent", { type: "mouseMoved", x: point.x, y: point.y });
       await session.settle();
-      return { hovered: id };
+      return { hovered: action.id };
     },
 
     // Bounded wait until the text shows up in page text or element labels —
@@ -826,6 +1034,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       const result = await call("Page.captureScreenshot", {
         format: SCREENSHOT_FORMAT,
         quality: STEP_FRAME_QUALITY,
+        optimizeForSpeed: true,
         clip: { x: 0, y: 0, width: VIEWPORT.width, height: VIEWPORT.height, scale: STEP_FRAME_SCALE }
       });
       fs.mkdirSync(framesRoot(), { recursive: true });
@@ -833,7 +1042,7 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
     },
 
     async close() {
-      sessions.delete(profile);
+      sessions.delete(sessionKey || profile);
       // Shared connections (attach probe, extension relay) outlive the session —
       // its event handlers must not pile up on them across rebuilds.
       for (const off of unsubs) off();
@@ -854,17 +1063,35 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
   // Snapshot every auto-attached OOPIF and splice its table into the main
   // state: ids continue the parent sequence, each action carries its frame
   // session, and markers append so fresh() sees frame-only changes too.
+  // Correctness over speed on iframe pages: GIS-style frames are INSERTED
+  // seconds after the parent settled and paint their buttons AFTER load —
+  // so re-quiet the parent, give targets time to attach, and settle each
+  // frame's own DOM before snapshotting it.
   async function mergeIframes(state) {
+    // Re-quiet BEFORE counting frames, with a grace floor: a GIS-style iframe
+    // is INSERTED up to seconds after the parent settled — quiet alone resolves
+    // in 150ms on a still page and would miss the frame entirely. Correctness
+    // over speed: every observe on this page pays the floor once.
+    try {
+      await evaluate(client, session.sessionId,
+        stableDomExpression(SETTLE_QUIET_MS, OBSERVE_IFRAME_MIN_MS, OBSERVE_IFRAME_CAP_MS),
+        { awaitPromise: true, timeoutMs: OBSERVE_IFRAME_CAP_MS + 500 });
+    } catch { /* navigating — snapshot what is there */ }
     const inDom = await evaluate(client, session.sessionId,
       "document.querySelectorAll('iframe').length").catch(() => 0);
     if (!inDom) return;
-    const deadline = Date.now() + 600; // targets attach async — give them a beat
+    const deadline = Date.now() + IFRAME_ATTACH_CAP_MS; // targets attach async
     while (session.iframes.size < inDom && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 60));
     }
     if (!session.iframes.size) return;
     let seq = state.actions.length;
     for (const info of session.iframes.values()) {
+      try {
+        await evaluate(client, info.sessionId,
+          stableDomExpression(SETTLE_QUIET_MS, 0, IFRAME_FRAME_CAP_MS),
+          { awaitPromise: true, timeoutMs: IFRAME_FRAME_CAP_MS + 500 });
+      } catch { /* frame navigating — snapshot whatever is there */ }
       let child = null;
       try { child = await evaluate(client, info.sessionId, SNAPSHOT_EXPRESSION); }
       catch { continue; /* frame navigating */ }
@@ -872,11 +1099,15 @@ function makeSession({ profile, mode, port, child, client, sessionId, targetId, 
       if (child.url) info.url = child.url; // targetInfo.url is "" right after attach
       let host = "iframe";
       try { host = `iframe: ${new URL(info.url).hostname}`; } catch { /* keep */ }
+      const off = await iframeOffset(info.sessionId);
       for (const a of child.actions) {
         if (a.kind === "wait" || a.kind === "scroll") continue; // parent owns controls
         if (state.actions.length >= MAX_ELEMENTS) { state.omitted_actions++; continue; } // choice cap budget
-        a.id = `e${++seq}`;
+        a.id = `${a.pfx || 'ifr'}${++seq}`;
         a.frame = info.sessionId;
+        if (off && a.rect) {
+          a.rect = { x: Math.round(a.rect.x + off.x), y: Math.round(a.rect.y + off.y), w: a.rect.w, h: a.rect.h };
+        }
         a.path = Array.isArray(a.path) ? [host, ...a.path] : [host];
         if (!a.ctx) a.ctx = host;
         state.actions.push(a);
@@ -1092,21 +1323,37 @@ async function dropSession(session) {
 // Open (or reuse) a session for a profile. Serialized per profile. Self-healing:
 // a session whose browser/tab died is dropped and relaunched ONCE, so a Chrome
 // restart or a closed tab never wedges every later command until host restart.
+// Map-key resolution shared by withSession and the read-only peek below.
+function resolveSessionKey(options = {}) {
+  const mode = options.mode === "attach" || options.mode === "extension" ? options.mode : "own";
+  // The profile may carry "#tabKey" (per-agent isolation) — the MAP key is the
+  // whole string, the BASE (before #) names the own-mode profile dir.
+  const keyed = typeof options.profile === "string" && options.profile.includes("#");
+  const rawProfile = mode === "attach" ? (keyed ? options.profile : ATTACH_PROFILE)
+    : mode === "extension" ? (keyed ? options.profile : EXT_PROFILE)
+    : (options.profile || "default");
+  return {
+    mode,
+    sessionKey: rawProfile,
+    base: rawProfile.includes("#") ? rawProfile.slice(0, rawProfile.indexOf("#")) : rawProfile
+  };
+}
+
 export async function withSession(options = {}, fn) {
   const mode = options.mode === "attach" || options.mode === "extension" ? options.mode : "own";
-  const profile = mode === "attach" ? ATTACH_PROFILE : mode === "extension" ? EXT_PROFILE : (options.profile || "default");
-  return serialize(profile, async () => {
-    let existing = sessions.get(profile);
+  const { sessionKey, base } = resolveSessionKey(options);
+  return serialize(sessionKey, async () => {
+    let existing = sessions.get(sessionKey);
     // Dead WS or a settings mode switch: the old browser no longer matches.
     if (existing?.client?.closed || (existing && options.mode && existing.mode !== options.mode)) {
       await dropSession(existing);
       existing = null;
     }
-    let session = existing || await launchSession({ ...options, profile });
+    let session = existing || await launchSession({ ...options, profile: base, sessionKey });
     const runWith = async (s) => {
       // One tab per site in BOTH modes (see openOrReuseTab); an identical URL
       // is a no-op, so re-opening never resets a live observation.
-      if (options.url) await s.openOrReuseTab(options.url);
+      if (options.url) await s.openOrReuseTab(options.url, { newTab: Boolean(options.newTab) });
       return fn(s);
     };
     try {
@@ -1114,13 +1361,14 @@ export async function withSession(options = {}, fn) {
     } catch (e) {
       if (!existing || !DEAD_SESSION.test(e.message)) throw e;
       await dropSession(session);
-      session = await launchSession({ ...options, profile });
+      session = await launchSession({ ...options, profile: base, sessionKey });
       return runWith(session);
     }
   });
 }
 
-async function launchSession({ profile = "default", url, mode = "own", attachPort = null, headless = false }) {
+async function launchSession({ profile = "default", sessionKey = null, url, mode = "own", attachPort = null, headless = false }) {
+  const mapKey = sessionKey || profile;
   let port;
   let child = null;
   let bin = null;
@@ -1136,9 +1384,12 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
   } else {
     bin = resolveChromeBinary();
     if (!bin) throw new Error("No Chrome/Chromium binary found on this machine");
-    if (!safeProfileName(profile)) throw new Error(`Invalid profile name: "${profile}"`);
+    // A keyed session gets its own profile dir — two Chrome instances cannot
+    // share one user-data-dir (SingletonLock aborts the second).
+    const dirName = sessionKey ? sessionKey.replace(/#/g, "-") : profile;
+    if (!safeProfileName(dirName)) throw new Error(`Invalid profile name: "${dirName}"`);
     port = await reservePort();
-    const dir = path.join(profilesRoot(), profile);
+    const dir = path.join(profilesRoot(), dirName);
     fs.mkdirSync(dir, { recursive: true });
     const args = [
       `--user-data-dir=${dir}`,
@@ -1181,7 +1432,9 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
       // adopted, no matter how well its URL matches.
       const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
       const pageTargets = targetInfos.filter((t) => t.type === "page");
-      const remembered = readRememberedAttachTarget();
+      // Keyed sessions (per-agent tabs) are short-lived — only the shared
+      // engine remembers its tab across host restarts.
+      const remembered = sessionKey ? null : readRememberedAttachTarget();
       const alive = remembered && pageTargets.find((t) => t.targetId === remembered);
       if (alive) {
         targetId = alive.targetId;
@@ -1210,7 +1463,7 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
       throw e;
     }
     const session = makeSession({
-      profile, mode, port, child, client, sessionId: attached.sessionId, targetId, headless,
+      profile, sessionKey, mode, port, child, client, sessionId: attached.sessionId, targetId, headless,
       shared: mode !== "own" // a borrowed browser outlives every session
     });
     if (created) session.ownsTargets.add(targetId);
@@ -1218,13 +1471,13 @@ async function launchSession({ profile = "default", url, mode = "own", attachPor
     if (mode !== "own") {
       // Remember and focus ONLY engine-created tabs — a resumed user tab must
       // not be re-driven on the next host restart, nor brought to the front.
-      if (session.ownsTargets.has(targetId)) {
+      if (session.ownsTargets.has(targetId) && !sessionKey) {
         rememberAttachTarget(targetId);
         try { await client.call("Page.bringToFront", {}, attached.sessionId); } catch { /* ignore */ }
       }
     }
-    sessions.set(profile, session);
-    logger.info(`session open: profile=${profile} mode=${mode} port=${port}`);
+    sessions.set(mapKey, session);
+    logger.info(`session open: profile=${mapKey} mode=${mode} port=${port}`);
     return session;
   } catch (e) {
     // A half-open session must not orphan the Chrome we just spawned.
@@ -1251,28 +1504,28 @@ export async function observe(target) {
   return session.observe();
 }
 
-export async function clickById(target, id, { promptText } = {}) {
+export async function clickById(target, id, { promptText, nowait = false } = {}) {
   const session = toSession(target);
   const run = () => {
     // Armed BEFORE the click: a window.prompt() this click triggers is a native
     // dialog (no DOM, not in the table) — this is the only way to answer it.
     session.pendingPromptText = typeof promptText === "string" ? promptText : null;
-    return clickAction(session, id);
+    return clickAction(session, id, { nowait });
   };
   return typeof target === "string" ? serialize(target, run) : run();
 }
 
-export async function typeById(target, id, text, { enter = false } = {}) {
+export async function typeById(target, id, text, { enter = false, nowait = false } = {}) {
   const session = toSession(target);
   const run = async () => {
     let state = await session.current();
-    let action = state.actions.find((a) => a.id === id && a.kind === "fill");
+    let action = state.actions.find((a) => matchActionId(a, id) && a.kind === "fill");
     if (!action) { // the table shifted between the caller's observe and now — one retry
       state = await session.observe();
-      action = state.actions.find((a) => a.id === id && a.kind === "fill");
+      action = state.actions.find((a) => matchActionId(a, id) && a.kind === "fill");
     }
     if (!action) throw new Error(`Field ${id} not observed (or not editable)`);
-    await session.act(action, text);
+    await session.act(action, text, { nowait });
     if (enter) await session.pressEnter(); // same serialized hop — one round trip
     return { typed: text };
   };
@@ -1291,17 +1544,37 @@ export async function shoot(target) {
   return typeof target === "string" ? serialize(target, run) : run();
 }
 
-async function clickAction(session, id) {
+export function matchActionId(action, target) {
+  if (!target || !action) return false;
+  const t = String(target).toLowerCase();
+  const aid = String(action.id || "").toLowerCase();
+  if (aid === t) return true;
+  // Backward compatibility: e4 or bare 4 matches btn4, inp4, a4
+  if (/^e\d+(-\d+)?$/i.test(t)) {
+    const targetSuffix = t.slice(1);
+    const actionSuffix = aid.replace(/^[a-z]+/i, "");
+    if (actionSuffix === targetSuffix) return true;
+    if (String(action.node) === targetSuffix) return true;
+  }
+  if (/^\d+(-\d+)?$/.test(t)) {
+    const actionSuffix = aid.replace(/^[a-z]+/i, "");
+    if (actionSuffix === t) return true;
+    if (String(action.node) === t) return true;
+  }
+  return false;
+}
+
+async function clickAction(session, id, { nowait = false } = {}) {
   const state = await session.current();
-  const action = state.actions.find((a) => a.id === id);
+  const action = state.actions.find((a) => matchActionId(a, id));
   if (!action) throw new Error(`Element ${id} not observed on the current page`);
-  return session.act(action);
+  return session.act(action, null, { nowait });
 }
 
 function toSession(target) {
   if (target && typeof target === "object") return target;
   const session = sessions.get(target);
-  if (!session) throw new Error(`No open session for profile "${target}"`);
+  if (!session) throw new Error(`No open session for profile "${target}" — the host restarted or the tab was closed; run \`9remote browser open <url>\` first`);
   return session;
 }
 
@@ -1314,53 +1587,103 @@ export function requestCancel(profile) {
   return { profile, cancelRequested: true };
 }
 
+const STAMP_RE = /^🚀\s*\[\d+\]\s*/;
+
+export function cleanStampedTitle(title) {
+  return String(title || "").replace(STAMP_RE, "").trim();
+}
+
+export function formatStampedTitle(index, rawTitle) {
+  const clean = cleanStampedTitle(rawTitle);
+  return clean ? `🚀 [${index}] ${clean}` : `🚀 [${index}]`;
+}
+
+export function syncTabOrder(session, rawTargets) {
+  if (!session.tabOrder) session.tabOrder = [];
+  const currentIds = new Set(rawTargets.map((t) => t.targetId));
+  session.tabOrder = session.tabOrder.filter((id) => currentIds.has(id));
+  for (const t of rawTargets) {
+    if (!session.tabOrder.includes(t.targetId)) {
+      session.tabOrder.push(t.targetId);
+    }
+  }
+  const byId = new Map(rawTargets.map((t) => [t.targetId, t]));
+  return session.tabOrder.map((id) => byId.get(id)).filter(Boolean);
+}
+
+export function resolveTab(pages, selector) {
+  if (!pages?.length) throw new Error("No open tabs");
+  if (selector == null) throw new Error("Missing tab selector");
+  const s = String(selector).trim();
+  const m = s.match(/^#?(\d+)$/);
+  if (m) {
+    const idx = Number(m[1]);
+    if (idx < 1 || idx > pages.length) {
+      throw new Error(`No tab #${idx} — ${pages.length} open`);
+    }
+    return pages[idx - 1];
+  }
+  const lower = s.toLowerCase();
+  const idHit = pages.find((t) => t.targetId?.toLowerCase() === lower) ||
+    pages.find((t) => t.targetId?.toLowerCase().startsWith(lower));
+  if (idHit) return idHit;
+
+  const norm = (str) => cleanStampedTitle(str).toLowerCase();
+  const match = pages.find((t) => norm(t.title).includes(lower) || t.url?.toLowerCase().includes(lower));
+  if (match) return match;
+
+  throw new Error(`No tab matching "${selector}" (${pages.length} open)`);
+}
+
+async function pageTargets(session) {
+  const { targetInfos = [] } = await session.client.call("Target.getTargets");
+  const raw = targetInfos.filter((t) => t.type === "page");
+  return syncTabOrder(session, raw);
+}
+
 export async function listTabs(options = {}) {
   return withSession(options, async (session) => {
     try {
-      const { targetInfos = [] } = await session.client.call("Target.getTargets");
-      return targetInfos
-        .filter((t) => t.type === "page")
-        .map((t) => ({ id: t.targetId, title: t.title, url: t.url, active: t.targetId === session.targetId }));
+      const pages = await pageTargets(session);
+      return pages.map((t, i) => ({
+        index: i + 1,
+        id: t.targetId,
+        title: formatStampedTitle(i + 1, t.title),
+        url: t.url,
+        active: t.targetId === session.targetId
+      }));
     } catch {
       return [];
     }
   });
 }
 
-async function pageTargets(session) {
-  const { targetInfos = [] } = await session.client.call("Target.getTargets");
-  return targetInfos.filter((t) => t.type === "page");
+// Switch the session onto tab by index, id, url or title.
+export async function switchTab(options, selector) {
+  return withSession(options, (session) => session.switchTab(selector));
 }
 
-// Switch the session onto tab #n (1-based, the order `tabs` prints).
-export async function switchTab(options, index) {
+// Close one tab: active, or by index / target selector.
+export async function closeTab(options, selector = null) {
   return withSession(options, async (session) => {
     const pages = await pageTargets(session);
-    const target = pages[index - 1];
-    if (!target) throw new Error(`No tab #${index} — ${pages.length} open`);
-    await session.adopt(target.targetId);
-    try { await session.client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
-    return { ok: true, url: target.url, title: target.title };
-  });
-}
-
-// Close one tab: the active one, or #n when asked. Another tab is only
-// closable when the engine opened it — the user's tabs stay theirs.
-export async function closeTab(options, index = null) {
-  return withSession(options, async (session) => {
-    const pages = await pageTargets(session);
-    const target = index ? pages[index - 1] : pages.find((t) => t.targetId === session.targetId);
-    if (!target) throw new Error(`No tab #${index || ""}`);
+    const target = selector != null ? resolveTab(pages, selector) : pages.find((t) => t.targetId === session.targetId);
+    if (!target) throw new Error(`No tab matching "${selector || "active"}"`);
     const isActive = target.targetId === session.targetId;
     if (!isActive && !session.ownsTargets.has(target.targetId)) {
-      throw new Error(`Refusing to close tab #${index} — engine-opened or active tabs only`);
+      throw new Error(`Refusing to close tab ${selector} — engine-opened or active tabs only`);
     }
     await session.client.call("Target.closeTarget", { targetId: target.targetId });
     session.ownsTargets.delete(target.targetId);
+    if (session.tabOrder) session.tabOrder = session.tabOrder.filter((id) => id !== target.targetId);
     if (isActive) {
       const rest = pages.filter((p) => p.targetId !== target.targetId);
-      if (rest.length) await session.adopt(rest[0].targetId); // keep the session alive on a neighbour
-      else sessions.delete(session.profile); // nothing left — next command relaunches
+      if (rest.length) {
+        await session.adopt(rest[0].targetId);
+        await session.stampTitle().catch(() => {});
+      } else {
+        sessions.delete(session.sessionKey || session.profile);
+      }
     }
     return { ok: true, closed: target.url };
   });
