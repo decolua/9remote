@@ -156,6 +156,28 @@ export const Composer = memo(function Composer({
     if (isFocused && !modalOpen && hasKeyboard) textareaRef.current?.focus({ preventScroll: true });
   }, [isFocused, modalOpen, hasKeyboard]);
 
+  // Browser pane "Send to AI": fill this composer when the event names this
+  // session. Dedupes the sender's mount-race retry by content equality.
+  useEffect(() => {
+    const onBrowserPrompt = (e) => {
+      if (e.detail?.sessionId !== sessionId) return;
+      const incoming = String(e.detail.text || "");
+      if (!incoming) return;
+      setText((prev) => (prev === incoming || prev.includes(incoming) ? prev : (prev ? `${prev}\n${incoming}` : incoming)));
+      if (textareaRef.current && !textareaRef.current.value.includes(incoming)) {
+        const next = textareaRef.current.value
+          ? `${textareaRef.current.value}\n${incoming}`
+          : incoming;
+        textareaRef.current.value = next;
+        textareaRef.current.style.height = "auto";
+        textareaRef.current.style.height = `${Math.min(textareaRef.current.scrollHeight, 120)}px`;
+        textareaRef.current.focus();
+      }
+    };
+    window.addEventListener("9r:ai-prompt", onBrowserPrompt);
+    return () => window.removeEventListener("9r:ai-prompt", onBrowserPrompt);
+  }, [sessionId]);
+
   useEffect(() => {
     const onClick = (e) => {
       if (modelMenuRef.current && !modelMenuRef.current.contains(e.target)) {

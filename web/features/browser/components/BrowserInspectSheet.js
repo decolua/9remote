@@ -1,14 +1,19 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Copy, MessageSquare, Sparkles, X } from "@/shared/components/ui/Icon";
+import { useEffect, useRef, useState } from "react";
+import { Check, Copy, Send, Sparkles, X } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
-export default function BrowserInspectSheet({ element, onAddAnnotation, onClose }) {
+export default function BrowserInspectSheet({ element, autoFocusNote = false, at = null, onAddAnnotation, onClose }) {
   const [note, setNote] = useState("");
   const [copiedSel, setCopiedSel] = useState(false);
   const [copiedAi, setCopiedAi] = useState(false);
   const [added, setAdded] = useState(false);
+  const noteRef = useRef(null);
+
+  useEffect(() => {
+    if (autoFocusNote) noteRef.current?.focus();
+  }, [autoFocusNote]);
 
   if (!element) return null;
 
@@ -53,7 +58,17 @@ export default function BrowserInspectSheet({ element, onAddAnnotation, onClose 
   };
 
   return (
-    <div className="absolute inset-x-0 bottom-0 z-30 bg-surface border-t border-border-subtle shadow-2xl p-3 flex flex-col gap-2.5 max-h-[60%] overflow-y-auto animate-in slide-in-from-bottom duration-150">
+    <div
+      className={`z-30 bg-surface border border-border-subtle shadow-2xl p-3 flex flex-col gap-2.5 overflow-y-auto animate-in fade-in duration-150 ${
+        at
+          ? "absolute w-[300px] max-w-[90%] max-h-[60%] rounded-xl"
+          : "absolute inset-x-0 bottom-0 max-h-[60%] border-t rounded-t-xl"
+      }`}
+      style={at ? {
+        left: `min(${at.x}px, calc(100% - 310px))`,
+        top: `min(${at.y}px, calc(100% - 120px))`
+      } : undefined}
+    >
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 min-w-0">
           <span className="px-1.5 py-0.5 rounded bg-brand-500/10 text-brand-500 font-mono text-xs font-semibold uppercase">
@@ -84,6 +99,7 @@ export default function BrowserInspectSheet({ element, onAddAnnotation, onClose 
 
       <div className="flex flex-col gap-1.5">
         <input
+          ref={noteRef}
           type="text"
           value={note}
           onChange={(e) => setNote(e.target.value)}
@@ -112,7 +128,7 @@ export default function BrowserInspectSheet({ element, onAddAnnotation, onClose 
           onClick={handleAddNote}
           className="px-3 py-1.5 bg-surface-2 hover:bg-surface-3 text-text rounded-brand text-xs font-medium flex items-center justify-center gap-1.5 transition-colors"
         >
-          {added ? <Check size={13} className="text-emerald-500" /> : <MessageSquare size={13} />}
+          {added ? <Check size={13} className="text-emerald-500" /> : <Send size={13} />}
           {added ? "Saved" : "Add Note"}
         </button>
       </div>
