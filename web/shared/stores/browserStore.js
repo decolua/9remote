@@ -2,9 +2,10 @@
 
 import { create } from "zustand";
 
-// Remote browser pane state: tab list pushed by the host (browserUse:tabs) plus
-// which tab the pane is viewing. Open/close lives in the view stack
-// (currentView.type === "browser") — one source of truth for the pane.
+// Remote browser pane state: client-side tabs (host-proxy browsing — each tab
+// names a public host or a localhost port) plus which tab the pane is viewing.
+// Open/close lives in the view stack (currentView.type === "browser") — one
+// source of truth for the pane.
 export const useBrowserStore = create((set) => ({
   tabs: [],
   activeTargetId: null,

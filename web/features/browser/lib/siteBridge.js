@@ -82,7 +82,7 @@ function onProxyMessage(event) {
     return;
   }
   if (msg.type === "site:nav") {
-    window.dispatchEvent(new CustomEvent(SITE_NAV_EVENT, { detail: { port: msg.port, path: msg.path } }));
+    window.dispatchEvent(new CustomEvent(SITE_NAV_EVENT, { detail: { port: msg.port, host: msg.host, path: msg.path } }));
     return;
   }
   // Noted but unused: the shell is addressed by its src, not by messages.
@@ -97,7 +97,7 @@ function onProxyMessage(event) {
   }
   // The worker reporting why a page could not be served at all.
   if (msg.type === "site-error") {
-    window.dispatchEvent(new CustomEvent(SITE_ERROR_EVENT, { detail: { message: msg.message, port: msg.port } }));
+    window.dispatchEvent(new CustomEvent(SITE_ERROR_EVENT, { detail: { message: msg.message, port: msg.port, host: msg.host } }));
     return;
   }
 }
@@ -128,7 +128,8 @@ export function fetchLocalSites(sock) {
   });
 }
 
-// Address bar parsing: "localhost:3000/x", ":3000", "3000", "/x" (current port)
+// Address bar parsing: "localhost:3000/x", ":3000", "3000", "/x" (current port),
+// or a public hostname (host-proxy browsing, served by the agent over the bus).
 export function parseSiteAddress(input, currentPort) {
   const s = (input || "").trim();
   if (!s) return null;
@@ -139,5 +140,7 @@ export function parseSiteAddress(input, currentPort) {
   m = s.match(/^(\d{1,5})(\/.*)?$/);
   if (m && Number(m[1]) >= 1 && Number(m[1]) <= 65535) return { port: Number(m[1]), path: m[2] || "/" };
   if (s.startsWith("/") && currentPort) return { port: currentPort, path: s };
+  m = s.match(/^(?:https?:\/\/)?([a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+)(\/.*)?$/i);
+  if (m && !/\d+\.\d+\.\d+\.\d+/.test(m[1])) return { host: m[1].toLowerCase(), path: m[2] || "/" };
   return null;
 }

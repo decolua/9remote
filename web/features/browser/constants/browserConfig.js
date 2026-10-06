@@ -46,8 +46,6 @@ export function isSitesOrigin(origin) {
  * Returns null for a port that is not a real one rather than interpolating it.
  */
 export function siteProxySrc(port, path, tick = 0) {
-  const n = Number(port);
-  if (!Number.isInteger(n) || n < 1 || n > 65535) return null;
   // No sites origin on this deploy — an unset src beats "null/proxy.html".
   if (!SITES_ORIGIN) return null;
   // The tick goes in the QUERY, not the fragment: changing only a fragment is a
@@ -55,7 +53,10 @@ export function siteProxySrc(port, path, tick = 0) {
   // instead of reloading. The address itself stays in the fragment, which never
   // reaches the server.
   const q = tick ? `?r=${tick}` : "";
-  return `${SITES_ORIGIN}/proxy.html${q}#port=${n}&path=${encodeURIComponent(path || "/")}`;
+  const frag = typeof port === "string" && port
+    ? `host=${encodeURIComponent(port)}`
+    : `port=${Number(port)}`;
+  return `${SITES_ORIGIN}/proxy.html${q}#${frag}&path=${encodeURIComponent(path || "/")}`;
 }
 
 export const SITE_NAV_EVENT = "site-nav";

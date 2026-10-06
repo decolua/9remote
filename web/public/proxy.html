@@ -55,8 +55,15 @@
   function parseHash() {
     var h = new URLSearchParams((location.hash || "").replace(/^#/, ""));
     var port = Number(h.get("port"));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return null;
-    return { port: port, path: h.get("path") || "/" };
+    if (Number.isInteger(port) && port >= 1 && port <= 65535) {
+      return { port: port, path: h.get("path") || "/" };
+    }
+    var host = (h.get("host") || "").toLowerCase();
+    // Same shape the SW accepts: dotted hostname, no IP literals or ports.
+    if (/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(host)) {
+      return { host: host, path: h.get("path") || "/" };
+    }
+    return null;
   }
 
   // ── SW side ───────────────────────────────────────────────────────────────
@@ -77,14 +84,14 @@
     }
 
     if (msg.type === "site-nav") {
-      post({ type: "site:nav", port: msg.port, path: msg.path });
+      post({ type: "site:nav", port: msg.port, host: msg.host, path: msg.path });
       return;
     }
 
     // The worker could not serve a page at all. Its own reply is plain text that
     // the frame renders as a bare white page, so relay the reason upward.
     if (msg.type === "site-error") {
-      post({ type: "site-error", message: msg.message, port: msg.port });
+      post({ type: "site-error", message: msg.message, port: msg.port, host: msg.host });
       return;
     }
 
@@ -129,8 +136,9 @@
 
   // ── Boot ──────────────────────────────────────────────────────────────────
 
-  function show(port, path) {
-    var src = "/browse/" + Number(port) + (path || "/");
+  function show(target, path) {
+    var seg = target.host || Number(target.port);
+    var src = "/browse/" + seg + (path || "/");
     if (!frame) {
       frame = document.createElement("iframe");
       frame.title = "local site";
@@ -164,7 +172,7 @@
     var start = function () {
       var target = parseHash();
       if (!target) return fail("9Remote: no site address");
-      show(target.port, target.path);
+      show(target, target.path);
       post({ type: "site:ready" });
     };
     if (navigator.serviceWorker.controller) return start();
