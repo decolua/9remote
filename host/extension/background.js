@@ -48,6 +48,14 @@ function snapBackFocus(tid) {
 // routed to chrome.tabs / chrome.debugger equivalents. Everything else rides
 // sendCommand untouched, so engine changes never require an extension update.
 const SHIM = {
+  // Drop chrome.debugger for a tab on demand (engine `undbg` op): Google GIS
+  // hides its sign-in button while a debugger is attached — detaching lets the
+  // page render clean; the next engine call re-attaches automatically.
+  "SHIM.Debugger.detach": async ({ targetId }) => {
+    const tid = String(targetId);
+    await detachQuiet(tid);
+    return { detached: true };
+  },
   "Target.getTargets": async () => {
     const targets = await chrome.debugger.getTargets();
     return { targetInfos: targets.map((t) => ({ targetId: String(t.tabId ?? t.id), type: t.type, title: t.title, url: t.url })) };
@@ -134,12 +142,17 @@ async function dispatch(method, params, targetId) {
   try {
     return await chrome.debugger.sendCommand({ tabId: Number(tid) }, method, params || {});
   } catch (e) {
-    // A dead target must look dead to the host's DEAD_SESSION heal. The worker
-    // can sleep through a tab close (no onDetach), leaving a stale attach —
-    // drop it and normalize the error instead of surfacing Chrome's wording.
     if (/no target|closed|detached|not found/i.test(e?.message || "")) {
-      detachQuiet(tid);
-      throw new Error(`No target with given id: ${targetId}`);
+      // The idle soft-detach timer can fire between our attach check and the
+      // send — re-attach ONCE and retry before declaring the target dead.
+      try {
+        await attachDebugger(tid);
+        attached.add(tid);
+        return await chrome.debugger.sendCommand({ tabId: Number(tid) }, method, params || {});
+      } catch {
+        detachQuiet(tid);
+        throw new Error(`No target with given id: ${targetId}`);
+      }
     }
     throw e;
   }

@@ -75,9 +75,11 @@ const STEPS = [
 const IS_WIN = process.platform === "win32";
 const SPINNER_INTERVAL_MS = IS_WIN ? 120 : 80;
 
-process.on("exit", () => process.stdout.write("\x1b[?25h"));
+// Restore the cursor only when THIS module actually hid it (spinner/progress)
+// — piping the CLI through a non-TTY must not emit stray escape sequences.
+process.on("exit", () => { if (_cursorHidden && process.stdout.isTTY) process.stdout.write("\x1b[?25h"); });
 const onSig = (sig, code) => {
-  process.stdout.write("\x1b[?25h");
+  if (_cursorHidden && process.stdout.isTTY) process.stdout.write("\x1b[?25h");
   if (process.listenerCount(sig) <= 1) process.exit(code);
 };
 process.on("SIGINT", () => onSig("SIGINT", 130));
