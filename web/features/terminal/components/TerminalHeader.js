@@ -94,12 +94,18 @@ function TerminalHeader({
   isDesktop = true,
 }) {
   const { t } = useI18n();
-  // Host browser tabs live in the same strip (orca unified-tab pattern): the
-  // push fills the store, clicking raises the browser pane on the view stack.
+  // Browser tabs live in the same strip (orca unified-tab pattern). They are
+  // client-side now (host-proxy browsing): clicking raises the browser pane,
+  // closing drops the tab — the pane ends the orphaned proxy session.
   const browserTabs = useBrowserStore((s) => s.tabs);
+  const activeBrowserTargetId = useBrowserStore((s) => s.activeTargetId);
+  const isBrowserView = useTerminalStore((s) => {
+    const stack = s.viewStack;
+    return Boolean(stack && stack[stack.length - 1]?.type === "browser");
+  });
   const setActiveBrowserTab = useBrowserStore((s) => s.setActive);
-  const pushView = useTerminalStore((s) => s.pushView);
   useBrowserTabs(busRef, connected);
+  const pushView = useTerminalStore((s) => s.pushView);
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
   const fullModes = useTerminalStore((s) => s.fullModes || {});
   const fullMode = fullModes[activeWorkspaceId ?? UNGROUPED_KEY] ?? false;
@@ -468,31 +474,56 @@ function TerminalHeader({
               </div>
             );
           })}
-          {browserTabs.map((tab) => (
-            <div
-              key={tab.id}
-              role="button"
-              tabIndex={0}
-              onClick={() => {
-                vibrate();
-                setActiveBrowserTab(tab.id);
-                pushView({ type: "browser" });
-              }}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" || e.key === " ") {
-                  e.preventDefault();
-                  setActiveBrowserTab(tab.id);
+          {(browserTabs.length ? browserTabs : (connected ? [{ id: "", pseudo: true }] : [])).map((tab) => {
+            const isActive = isBrowserView && (activeBrowserTargetId === tab.id || (!activeBrowserTargetId && tab.active));
+            return (
+              <div
+                key={tab.id || "browser-new"}
+                role="button"
+                tabIndex={0}
+                onClick={() => {
+                  vibrate();
+                  if (!tab.pseudo) setActiveBrowserTab(tab.id);
                   pushView({ type: "browser" });
-                }
-              }}
-              className="term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x"
-            >
-              <Globe size={13} className="w-3.5 h-3.5 shrink-0 text-brand-500" />
-              <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={cleanTabTitle(tab.title) || t("sites.browserTab")}>
-                {cleanTabTitle(tab.title) || t("sites.browserTab")}
-              </span>
-            </div>
-          ))}
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    if (!tab.pseudo) setActiveBrowserTab(tab.id);
+                    pushView({ type: "browser" });
+                  }
+                }}
+                className={`term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
+                  isActive ? "term-tab-active" : ""
+                }`}
+              >
+                <Globe size={13} className="w-3.5 h-3.5 shrink-0 text-brand-500" />
+                <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={cleanTabTitle(tab.title) || t("sites.browserTab")}>
+                  {cleanTabTitle(tab.title) || t("sites.browserTab")}
+                </span>
+                {!tab.pseudo && (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      vibrate();
+                      // Close the real Chrome tab; the next tabs.push reconciles the strip.
+                      busRef?.current?.emit?.("browser:invoke", { action: "close", payload: { targetId: tab.id } }, () => {});
+                      const st = useBrowserStore.getState();
+                      const next = st.tabs.filter((tb) => tb.id !== tab.id);
+                      useBrowserStore.setState({
+                        tabs: next,
+                        activeTargetId: st.activeTargetId === tab.id ? (next[0]?.id || null) : st.activeTargetId
+                      });
+                    }}
+                    className="p-0.5 rounded opacity-50 hover:opacity-100 hover:bg-surface-3 shrink-0"
+                    title={t("common.close")}
+                  >
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+            );
+          })}
           {onCreateSession && (
             <div className="sticky right-0 z-10 ml-1 pl-1 flex items-center flex-shrink-0 bg-bg">
               <button

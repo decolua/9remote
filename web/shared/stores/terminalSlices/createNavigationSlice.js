@@ -66,9 +66,18 @@ export const createNavigationSlice = (set, get) => ({
   // View stack actions
   pushView: (view) => set((state) => {
     const stack = Array.isArray(state.viewStack) ? state.viewStack : [];
-    const base = OVERLAY_VIEWS.includes(view?.type)
+    const isOverlay = OVERLAY_VIEWS.includes(view?.type);
+    const base = isOverlay
       ? stack
       : stack.filter((v, i) => !(OVERLAY_VIEWS.includes(v?.type) && i === stack.length - 1));
+    // Re-raising the SAME overlay (browser tab clicked twice) replaces the top
+    // entry — appending would make Back step through duplicates. Non-overlay
+    // views keep the historical append semantics untouched.
+    if (isOverlay && base.length && base[base.length - 1]?.type === view?.type) {
+      const next = [...base];
+      next[next.length - 1] = view;
+      return { viewStack: next };
+    }
     return { viewStack: [...base, view] };
   }),
 
