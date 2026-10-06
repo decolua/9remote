@@ -5,11 +5,11 @@ export const DEFAULT_VIEWPORT = { width: 1120, height: 780 };
 export const CDP_CALL_TIMEOUT_MS = 30000;
 export const LAUNCH_TIMEOUT_MS = 15000;
 
-export const STREAM_QUALITY = 60;
-export const STREAM_EVERY_NTH = 2;
-export const STREAM_MIN_INTERVAL_MS = 120;
+export const STREAM_QUALITY = 99;
+export const STREAM_EVERY_NTH = 1;
+export const STREAM_MIN_INTERVAL_MS = 33;
 export const STREAM_ACK_TIMEOUT_MS = 4000;
-export const STREAM_MAX_EDGE = 1280;
+export const STREAM_MAX_EDGE = 1920;
 export const STREAM_INPUT_BATCH_MAX = 50;
 
 export const TABS_POLL_MS = 2000;

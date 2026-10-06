@@ -1,5 +1,3 @@
-import fs from "node:fs";
-
 export function parseNetscapeCookies(text) {
   const cookies = [];
   const lines = String(text || "").split("\n");
@@ -40,14 +38,15 @@ export function parseCookiesJson(text) {
   return [];
 }
 
-export function parseCookiesFromFile(filePath) {
-  if (!fs.existsSync(filePath)) throw new Error(`File not found: ${filePath}`);
-  const content = fs.readFileSync(filePath, "utf8");
-  const fromJson = parseCookiesJson(content);
-  if (fromJson.length > 0) return fromJson;
-  return parseNetscapeCookies(content);
+// Content sniffer for pasted imports: JSON first, Netscape flat format second.
+export function parseCookiesContent(text) {
+  const raw = String(text || "");
+  const fromJson = parseCookiesJson(raw);
+  return fromJson.length > 0 ? fromJson : parseNetscapeCookies(raw);
 }
 
+// No file-path import by design: a client-supplied path would be an
+// arbitrary-file-read primitive. Pasted content only (JSON or Netscape).
 export async function importCookiesToSession(client, sessionId, cookies) {
   if (!Array.isArray(cookies) || !cookies.length) return { imported: 0 };
   const valid = cookies.filter((c) => c && c.name && c.value && c.domain);
