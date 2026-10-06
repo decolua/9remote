@@ -9,6 +9,8 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { useBrowserStore, cleanTabTitle } from "@/shared/stores/browserStore";
+import { useBrowserTabs } from "@/features/browser/hooks/useBrowserTabs";
 import { useFleetStore } from "@/shared/stores/fleetStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { connForSession, connOf, useAllSessionStatus } from "@/shared/transport/hostConn";
@@ -92,6 +94,12 @@ function TerminalHeader({
   isDesktop = true,
 }) {
   const { t } = useI18n();
+  // Host browser tabs live in the same strip (orca unified-tab pattern): the
+  // push fills the store, clicking raises the browser pane on the view stack.
+  const browserTabs = useBrowserStore((s) => s.tabs);
+  const setActiveBrowserTab = useBrowserStore((s) => s.setActive);
+  const pushView = useTerminalStore((s) => s.pushView);
+  useBrowserTabs(busRef, connected);
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
   const fullModes = useTerminalStore((s) => s.fullModes || {});
   const fullMode = fullModes[activeWorkspaceId ?? UNGROUPED_KEY] ?? false;
@@ -460,6 +468,31 @@ function TerminalHeader({
               </div>
             );
           })}
+          {browserTabs.map((tab) => (
+            <div
+              key={tab.id}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                vibrate();
+                setActiveBrowserTab(tab.id);
+                pushView({ type: "browser" });
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setActiveBrowserTab(tab.id);
+                  pushView({ type: "browser" });
+                }
+              }}
+              className="term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x"
+            >
+              <Globe size={13} className="w-3.5 h-3.5 shrink-0 text-brand-500" />
+              <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={cleanTabTitle(tab.title) || t("sites.browserTab")}>
+                {cleanTabTitle(tab.title) || t("sites.browserTab")}
+              </span>
+            </div>
+          ))}
           {onCreateSession && (
             <div className="sticky right-0 z-10 ml-1 pl-1 flex items-center flex-shrink-0 bg-bg">
               <button

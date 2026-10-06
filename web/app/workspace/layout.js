@@ -49,6 +49,7 @@ import { useApiKeyStorage, KEYS_CHANGED_EVENT } from "@/shared/hooks/useApiKeySt
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
 import BrowserView from "@/features/browser/components/BrowserView";
+import BrowserPane from "@/features/browser/components/BrowserPane";
 import WorkspaceList from "@/features/fileExplorer/components/WorkspaceList";
 import AgentDashboardView from "@/features/session/components/AgentDashboardView";
 import FileExplorer from "@/features/fileExplorer/components/FileExplorer";
@@ -1014,6 +1015,16 @@ export default function WorkspaceLayout({ children }) {
             connected={currentView.hostKey ? rowLive(fleetHostsMap[currentView.hostKey]) : connected}
             initialPort={currentView.port}
             initialPath={currentView.path}
+            onBack={storePopView}
+          />
+        )}
+
+        {/* Remote browser pane — the host's real Chrome over a CDP screencast.
+            Store-only overlay like the site view: Back stays predictable. */}
+        {currentView.type === "browser" && (
+          <BrowserPane
+            busRef={currentView.hostKey ? connOf(currentView.hostKey).busRef : busRef}
+            connected={currentView.hostKey ? rowLive(fleetHostsMap[currentView.hostKey]) : connected}
             onBack={storePopView}
           />
         )}
