@@ -198,7 +198,10 @@ export function checkExpectations(state, { url = null, title = null, text = [] }
     .join("\n");
   // Select/combobox values never appear in page text (NOISE-filtered) — their
   // labels ("Frontend Engineer → …") are the only visible trace, so they count.
+  // Click/fill labels are OFFERS, not outcomes: the full-page table lists
+  // buttons the user never reached, so matching one would fake completion.
   const controlLabels = (state.actions || [])
+    .filter((a) => a.kind === "select")
     .map((a) => a.label || "")
     .join("\n");
   const haystack = `${state.text || ""}\n${fields}\n${controlLabels}`;
@@ -413,25 +416,33 @@ export async function runTask(session, {
       const needles = expect.text.filter((t) => t && String(t).trim()).map(String);
       let burst = 0;
       let prevY = page.scroll?.y ?? 0;
+      const yBefore = prevY; // burst progress = did the page actually move
       let hit = false;
       while (burst < SCROLL_BURST_MAX && steps.length < maxSteps && !session.cancelRequested) {
         if (Date.now() - started > maxMs) break;
         const hop = session.scrollBurstStep
           ? await session.scrollBurstStep(action.delta, needles).catch(() => null)
           : null;
-        if (!hop) { // engine without the fast hop — fall back to a plain scroll act
+        if (!hop) {
+          // No fast hop available (old engine, or CDP failing mid-burst): one
+          // plain scroll, then hand the decision back to the model — the slow
+          // path must not loop with full settles and no bottom detection.
           try { await session.act(action); }
           catch (e) { return finish("action_error", e.message); }
+          burst++;
+          break;
         }
         burst++;
-        if (hop?.hit) { hit = true; break; }
-        if (hop && hop.y === prevY && burst > 1) break; // hit bottom — nothing more to reveal
-        if (hop) prevY = hop.y;
+        if (hop.hit) { hit = true; break; }
+        if (hop.y === prevY && burst > 1) break; // hit bottom — nothing more to reveal
+        prevY = hop.y;
       }
       try { page = await session.observe(); }
       catch (err) { return finish("action_error", `post-action observation failed: ${err.message}`); }
       lastContent = contentKey(page);
-      history.push({ action: `${action.label} ×${burst}`, kind: "scroll", text: null, page_changed: true });
+      lastScrollY = page.scroll?.y ?? 0; // the burst continues the scroll lineage
+      const moved = (page.scroll?.y ?? 0) !== yBefore;
+      history.push({ action: `${action.label} ×${burst}`, kind: "scroll", text: null, page_changed: moved });
       emit({ operation, label: `${action.label} ×${burst}`, result: "ok" });
       if (hit && checkExpectations(page, expect).passed) {
         return finish("needs_verification", "target verified on page state");

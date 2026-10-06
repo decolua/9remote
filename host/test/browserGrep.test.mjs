@@ -102,3 +102,11 @@ test("grepContent: no match returns empty text, matched 0", () => {
   assert.equal(r.matched, 0);
   assert.equal(r.text, "");
 });
+
+test("grepContent: invert + lineNumbers numbers the kept lines (grep -nv)", () => {
+  const r = grepContent(PAGE, { pattern: "Chuột", invert: true, lineNumbers: true });
+  // grep(1): `seq 3 | grep -nv 2` -> "1:1\n3:3" — numbers survive -v
+  assert.ok(r.matched > 0);
+  assert.ok(r.text.split("\n").every((l) => /^\d+:/.test(l)), `every -v line must carry N: — got:\n${r.text}`);
+  assert.ok(!r.text.split("\n").some((l) => /^\d+-/.test(l)), "-v carries no context lines");
+});

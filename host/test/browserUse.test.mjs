@@ -10,8 +10,9 @@ import http from "node:http";
 
 import { validateChoice, resolveJevConfig } from "../features/browserUse/jevClient.js";
 import {
-  buildActionSpace, shouldBlockNoChange, buildQuestions
+  buildActionSpace, shouldBlockNoChange, buildQuestions, checkExpectations
 } from "../features/browserUse/agentLoop.js";
+import { parseStep } from "../cli/modes/browserCmd.js";
 import { urlsMatch } from "../features/browserUse/engine.js";
 let pass = 0, fail = 0;
 const test = async (name, fn) => {
@@ -20,6 +21,26 @@ const test = async (name, fn) => {
 };
 
 console.log("browserUse contracts...");
+
+await test("checkExpectations: a CLICK label below the fold is NOT page content", () => {
+  // The full-page table lists buttons the user never scrolled to — an expect
+  // text matching a button label must not read as goal completion.
+  const state = { text: "", actions: [{ kind: "click", label: "Order confirmed" }] };
+  const r = checkExpectations(state, { text: ["Order confirmed"] });
+  assert.equal(r.passed, false, "click labels are offers, not outcomes");
+});
+
+await test("checkExpectations: a SELECT label counts (values never hit page text)", () => {
+  const state = { text: "", actions: [{ kind: "select", label: "Frontend Engineer → golang" }] };
+  const r = checkExpectations(state, { text: ["golang"] });
+  assert.equal(r.passed, true, "combobox state only surfaces via its label");
+});
+
+await test("parseStep: wait carries both text and ms — 'wait \"ready\" 1500'", () => {
+  const step = parseStep('wait "ready" 1500');
+  assert.equal(step.text, "ready");
+  assert.equal(step.ms, 1500);
+});
 
 await test("validateChoice accepts a calibrated answer", () => {
   const answer = { choice: "CLICK", confidence: 0.9, probabilities: { CLICK: 0.9, DONE: 0.1 } };

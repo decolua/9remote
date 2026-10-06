@@ -301,9 +301,10 @@ export function readExpression(parent, from = 0, len = null) {
   // READER visibility: content-visibility:auto (GitHub timeline) reports
   // checkVisibility=false while textContent stays readable — gate on intent
   // markers only, not rendered-ness.
-  const visible = e => !e.closest('[aria-hidden="true"],[inert],[hidden]');
+  const visible = e => !e.closest('[aria-hidden="true"],[inert],[hidden],details:not([open]),template');
   const NOISE='nav,header,aside,form,button,select,option,label,dialog,'+
-    '[role="banner"],[role="navigation"],[role="complementary"],'+
+    '[role="banner"],[role="navigation"],[role="complementary"],[role="menu"],[role="listbox"],'+
+    '.select-menu,.select-menu-modal,details-menu,'+
     '.ad,.ads,.advert,.cookie,.cookies,[class*="cookie-"],[id*="cookie"],.popup,.modal,.sidebar,.breadcrumb';
   const SEG_SEL='section,nav,aside,main,article,dialog,form,fieldset,[role="dialog"],'+
     '[role="region"],[role="group"],[role="tablist"],[role="tabpanel"],'+
@@ -327,7 +328,7 @@ export function readExpression(parent, from = 0, len = null) {
   // Inline run: text of descendants, stopping at any block boundary. Anchors
   // become [label](url) so grep --links and readers see the destination.
   const inlineText=e=>[...e.childNodes].map(n=>n.nodeType===3?n.textContent:
-    (n.nodeType===1&&!isBlock(n)&&!n.matches('script,style,noscript,template')&&n.getAttribute('aria-hidden')!=='true')?
+    (n.nodeType===1&&!isBlock(n)&&!n.matches('script,style,noscript,template')&&visible(n)&&!noiseSkip(n))?
       (n.tagName==='A'&&n.href&&!n.href.startsWith('javascript:')?
         '['+inlineText(n)+']('+n.href+')':inlineText(n)):'').join(' ');
   const clean=s=>String(s||'').replace(/\\s+/g,' ').replace(/\\s+([.,;:!?])/g,'$1').trim();
@@ -397,7 +398,11 @@ export function readExpression(parent, from = 0, len = null) {
   for(const l of lines){
     cum+=l.length+1;
     if(cum<=from) continue;
-    out.push(l); taken+=l.length+1;
+    let pushLine = l;
+    if(taken + pushLine.length > maxLen) {
+      pushLine = pushLine.slice(0, Math.max(0, maxLen - taken));
+    }
+    out.push(pushLine); taken+=pushLine.length+1;
     if(taken>=maxLen) break;
   }
   return {url:location.href,title:document.title,text:out.join('\\n'),total,sections:[...new Set(named)]};

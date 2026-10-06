@@ -143,11 +143,13 @@ export function parseStep(raw) {
       if (/^#?\d+$/.test(first)) return { op, tab: first };
       return { op, url: first, newTab: argv.includes("--new") };
     }
+    case "read":
     case "cat":
-      return { op, parent: at("--parent"), head: numAt("--head"), tail: numAt("--tail") };
+      return { op: "read", parent: at("--parent"), head: numAt("--head"), tail: numAt("--tail") };
+    case "search":
     case "grep":
       return {
-        op, pattern: unq(argv[0] ?? ""),
+        op: "search", pattern: unq(argv[0] ?? ""),
         context: numAt("-C"), before: numAt("-B"), after: numAt("-A"),
         lineNumbers: !argv.includes("--no-numbers"),
         invert: argv.includes("-v"), max: numAt("-m"),
@@ -166,7 +168,11 @@ export function parseStep(raw) {
     }
     case "wait": {
       const first = argv[0];
-      return first && /^["']/.test(first) ? { op, text: unq(first) } : { op, ms: Number(first) || 300 };
+      if (first && /^["']/.test(first)) {
+        const ms = Number(unq(argv[1]));
+        return Number.isFinite(ms) && ms > 0 ? { op, text: unq(first), ms } : { op, text: unq(first) };
+      }
+      return { op, ms: Number(first) || 300 };
     }
     default: { // run — flags below must NEVER leak into (or eat) the goal text
       const FLAGS = ["--only", "--parent", "--expect-url", "--expect-text", "--fields", "--max-steps", "--prompt"];
@@ -210,53 +216,35 @@ function printConsole(lines) {
   for (const l of lines) console.log(`  ${l.level.padEnd(7)} ${l.text}`);
 }
 
-const HELP = `9remote browser — agent-driven Chrome via the host engine (terminal vocabulary)
+const HELP = `9remote browser — agent-driven Chrome via the host engine (chain-first)
 
-  # ---- navigate ----
-  9remote browser go <url> [--new] [--wait "text"]   # navigate AND print the table (reuses a tab already on the url)
-  9remote browser go tab <#n|id|title|url>           # switch tab instead of navigating
-  9remote browser ls [--from N] [--tail [N]] [--parent SECTION]  # element table windowed like less
-  9remote browser tabs [--attach]                    # list open tabs (* = active, #n = index)
+  # ---- PRIMARY: ONE-SHOT CHAIN (MANDATORY FOR ALL MULTI-STEP AUTOMATION) ----
+  # ALWAYS execute tasks in ONE chain call. Never call commands sequentially.
+  # 9remote browser chain --steps '[
+  #   {"op":"go","url":"https://github.com/trending?since=weekly"},
+  #   {"op":"search","pattern":"stars this week","context":2},
+  #   {"op":"read","parent":"Main"}
+  # ]'
+  #
+  # Chain ops (12 verbs): go, wait, click, type, select, hover, enter, scroll, run, search, read, find.
+  # Branching: {"op":"click","label":"Skip","when":{"text":"Skip tutorial"}}
+  # Label Guess: {"op":"click","tryLabels":["Sign In","Log In","Đăng nhập"]}
 
-  # ---- read / search (content) ----
-  9remote browser grep "<pattern>" [-C N] [-B N] [-A N] [-n] [-v] [-m N] [-q] [--links] [--parent S]
-                                             # grep(1) over page text; --links lists [label] -> url
-                                             # -q: zero hits is a check result, not exit 1
-  9remote browser cat [--parent SECTION] [--head N] [--tail N] [--from N --len N]
-                                             # full markdown-lite page read
-  9remote browser find "<needle>"           # find(1) over the element table (id/label/role/href)
-  9remote browser console                   # page console ring (JS errors when nothing works)
+  # ---- INSPECTION / DIAGNOSIS ONLY ----
+  9remote browser ls [--from N] [--tail [N]] [--parent S]   # inspect current element table
+  9remote browser tabs [--attach]                            # list open tabs (* = active)
+  9remote browser console                                   # page JS error ring (last 100)
+  9remote browser shot                                      # screenshot /tmp/9remote-shot-*.jpg
 
-  # ---- act ----
-  9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only REGEX] [--parent SECTION] [--fields "L=text;..."] [--prompt "text"]
-                                             # --only: Jev sees only matching element labels
-                                             # --parent: Jev sees only the named tree section
-                                             # --fields: Jev picks the fields, engine types YOUR text
-                                             # --expect-text "..." / --expect-url / --expect-title:
-                                             #   verified on a fresh read — only PASSED is success
-  9remote browser click <id> [--wait "text"] [--prompt "text"]   # --prompt answers a window.prompt()
-  9remote browser clickxy <x> <y>           click exact page coordinates (custom widgets)
+  # ---- STANDALONE VERBS (Prefer chain for multi-step tasks) ----
+  9remote browser go <url> [--new] [--wait "text"]
+  9remote browser search "<pattern>" [-C N] [-B N] [-A N] [-n] [-v] [-m N] [-q] [--links]
+  9remote browser read [--parent S] [--head N] [--tail N] [--from N --len N]
+  9remote browser find "<needle>"
+  9remote browser click <id> [--prompt "text"]
   9remote browser type <id> "<text>" [--enter]
-  9remote browser select <id> "<option>"
-  9remote browser hover <id>                move the mouse onto an element (hover menus)
-  9remote browser key <enter|escape|tab|arrow...>
-  9remote browser scroll <top|bottom|down|up|to X|y N|px>
-  9remote browser enter | back | forward | reload
-  9remote browser wait "<text>"             bounded wait until text/element appears
-  9remote browser upload <id> <file-path>   set a file on an observed file input
-  9remote browser download [--timeout MS]   wait for the next completed download
-  9remote browser drag <from> <to>          HTML5 drag: press at <from>, release over <to>
-  9remote browser tabclose [<#n|id|title>]  close the active tab (or by selector)
-
-  # ---- batch (ONE spawn, N commands; a failing line does not stop the rest) ----
-  9remote browser sh < script.txt           # each line = one command; trailing "&" suppresses its table
-  9remote browser chain "go /login; grep 'Sign in'; click btn1 'Continue'; run 'submit' --expect-url /ok"
-                                             # many steps, ONE call, fail-fast at the first wrong step
-  9remote browser chain --steps '<JSON>'    # canonical form: [{"op":"go","url":...},{"op":"grep","pattern":...},
-                                             # {"op":"click","label":"Buy","when":{"text":"In stock"}}, ...]
-                                             # when-guards skip steps whose precondition is unmet (if/else)
-
-  9remote browser shot                      writes /tmp/9remote-shot-*.jpg, prints the path
+  9remote browser run "<goal>" [--url URL] [--max-steps N] [--fields "L=v;..."]
+  9remote browser sh < script.txt
   9remote browser close | attach | status`;
 
 const requiredArg = (rest, name) => {
@@ -282,6 +270,8 @@ export async function cmdBrowser(args) {
   switch (sub) {
     case undefined:
     case "help":
+    case "--help":
+    case "-h":
       console.log(HELP);
       return;
     case "tabs": {
@@ -314,7 +304,7 @@ export async function cmdBrowser(args) {
     case "undbg": {
       const data = mustOk(await call("undbg", { ...payload(), ms: Number(opts.ms) || undefined }));
       console.log(`debugger detached ${data.ms}ms — state re-served after re-attach`);
-      if (opts.state !== false) printState(data.state);
+      if (opts.state !== false && data.state) printState(data.state); // mid-nav: stateAfter may be null
       break;
     }
     case "clear": {
@@ -329,10 +319,11 @@ export async function cmdBrowser(args) {
       for (const l of lines) console.log(`${l.level.padEnd(7)} ${l.text}`);
       return;
     }
+    case "read":
     case "cat": {
       // Markdown-lite page read — --parent scopes to a tree section, --head/--tail
       // cut the rendered lines, --from/--len window past the cap.
-      const data = mustOk(await call("cat", payload()));
+      const data = mustOk(await call("read", payload()));
       const text = data.text || "";
       const from = data.from || 0;
       if (from > 0 || (data.total || 0) > from + text.length) {
@@ -342,9 +333,10 @@ export async function cmdBrowser(args) {
       if (!text.trim()) console.log("(no readable text — wrong section name? ls shows sections in the tree)");
       return;
     }
+    case "search":
     case "grep": {
-      // grep(1) over page content; exit code 1 on zero hits (unless -q).
-      const data = mustOk(await call("grep", payload({ pattern: rest.join(" ") })));
+      // search/grep over page content; exit code 1 on zero hits (unless -q).
+      const data = mustOk(await call("search", payload({ pattern: rest.join(" ") })));
       if (data.text) console.log(data.text);
       console.log(`(${data.matched ?? 0} matches)`);
       if (!data.quiet && !(data.matched > 0)) process.exitCode = 1;
@@ -493,9 +485,10 @@ export async function cmdBrowser(args) {
       // nesting supported); the text DSL stays for quick one-liners.
       let steps;
       if (opts.stepsJson) {
+        // THROW, never exit: an sh batch catches per line and keeps going.
         try { steps = JSON.parse(opts.stepsJson); }
-        catch { console.error("--steps is not valid JSON"); process.exit(1); }
-        if (!Array.isArray(steps) || !steps.length) { console.error("--steps needs a non-empty JSON array"); process.exit(1); }
+        catch { throw new Error("--steps is not valid JSON"); }
+        if (!Array.isArray(steps) || !steps.length) throw new Error("--steps needs a non-empty JSON array");
       } else {
         steps = splitTop(rest.join(" ")).map(parseStep);
       }
@@ -531,9 +524,8 @@ export async function cmdBrowser(args) {
       return;
     }
     default:
-      console.error(`Unknown browser subcommand: ${sub}\n`);
-      console.log(HELP);
-      process.exit(1);
+      // THROW, never exit: an sh batch catches per line and keeps going.
+      throw new Error(`Unknown browser subcommand: ${sub}\n${HELP}`);
   }
   } catch (e) {
     // mustOk throws so `sh` batches can catch per line and keep going; a

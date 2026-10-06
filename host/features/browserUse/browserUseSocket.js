@@ -46,7 +46,7 @@ export async function loadConfig() {
   return config;
 }
 
-export function setConfig(patch = {}) {
+export function setConfig(patch = {}, { persist = true, syncSkill = true } = {}) {
   const wasEnabled = !!config.enabled;
   const next = { ...config };
   for (const key of ["enabled", "preset", "endpoint", "model", "apiKey", "headless"]) {
@@ -57,9 +57,10 @@ export function setConfig(patch = {}) {
     next.minConfidence = Math.min(1, Math.max(0, patch.minConfidence));
   }
   config = next;
-  void kvSet(KV_KEY, config).catch((e) => logger.error(`config persist failed: ${e.message}`));
-  // The skill follows the switch: on = engines in use, off = removed everywhere.
-  if (!!config.enabled !== wasEnabled) {
+  // Tests pass {persist:false, syncSkill:true→false}: a transient enable must
+  // never install/uninstall the skill on agents running on this host.
+  if (persist) void kvSet(KV_KEY, config).catch((e) => logger.error(`config persist failed: ${e.message}`));
+  if (syncSkill && !!config.enabled !== wasEnabled) {
     if (config.enabled) void syncSkillForActiveEngines().catch((e) => logger.debug(`skill sync skipped: ${e.message}`));
     else removeAllInstalledSkills();
   }
@@ -194,8 +195,10 @@ export async function invoke(action, payload = {}) {
       const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
       const len = Number.isFinite(+payload.len) && +payload.len > 0 ? Math.floor(+payload.len) : 248;
       const from = Number.isFinite(+payload.from) && +payload.from > 0 ? Math.floor(+payload.from) : 0;
-      // --tail N carries its own window size; a bare --tail uses the default len.
-      const tailN = Number.isFinite(+payload.tail) && +payload.tail > 0 ? Math.floor(+payload.tail) : len;
+      // --tail N carries its own window size; a bare --tail uses the default len
+      // (+true === 1 must not shrink the window to a single element).
+      const tailN = payload.tail === true ? len
+        : Number.isFinite(+payload.tail) && +payload.tail > 0 ? Math.floor(+payload.tail) : len;
       const state = await withSession(sessionOpts(payload), async (session) => {
         if (payload.tail) {
           // Deep collect once, window the tail host-side (synthetic controls re-append).
@@ -259,6 +262,7 @@ export async function invoke(action, payload = {}) {
     case "console":
       // Console ring — read-only, no session side effects (same shape as state)
       return { ok: true, lines: await withSession(sessionOpts(payload), (session) => session.consoleLog) };
+    case "read":
     case "cat": {
       // Markdown-lite page read; parent scopes to a tree section, from/len
       // window past the cap, head/tail cut the rendered lines.
@@ -272,17 +276,39 @@ export async function invoke(action, payload = {}) {
       read.text = lines.join("\n");
       return { ok: true, from, ...read };
     }
+    case "search":
     case "grep": {
-      // grep(1) over page content: context, line numbers, invert, links, caps.
+      // search/grep over page content: context, line numbers, invert, links, caps.
       const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
-      const read = await withSession(sessionOpts(payload), (session) => session.readSection(parent));
-      const r = grepContent(read.text, {
+      let read = await withSession(sessionOpts(payload), (session) => session.readSection(parent));
+      let r = grepContent(read.text, {
         pattern: payload.pattern ?? "",
         context: payload.context, before: payload.before, after: payload.after,
         lineNumbers: payload.lineNumbers !== false && payload.n !== false,
         invert: Boolean(payload.invert), max: payload.max, links: Boolean(payload.links),
         head: payload.head, tail: payload.tail
       });
+      // Self-heal: If 0 matches on non-quiet, wait brief grace and re-read once
+      // to absorb late rendering / hydration race (GitHub trending pattern).
+      if (!r.matched && !payload.quiet && !payload.invert && String(payload.pattern || "").trim()) {
+        try {
+          const fresh = await withSession(sessionOpts(payload), async (session) => {
+            await new Promise((res) => setTimeout(res, 800));
+            await session.settle();
+            return session.readSection(parent);
+          });
+          if (fresh?.text && fresh.text !== read.text) {
+            read = fresh;
+            r = grepContent(read.text, {
+              pattern: payload.pattern ?? "",
+              context: payload.context, before: payload.before, after: payload.after,
+              lineNumbers: payload.lineNumbers !== false && payload.n !== false,
+              invert: Boolean(payload.invert), max: payload.max, links: Boolean(payload.links),
+              head: payload.head, tail: payload.tail
+            });
+          }
+        } catch {}
+      }
       return { ok: true, ...r, quiet: Boolean(payload.quiet) };
     }
     case "find": {
@@ -500,7 +526,7 @@ export async function invoke(action, payload = {}) {
       return { ok: true, ...requestCancel(opts.profile) };
     }
     case "chain":
-      return await runChain(sessionOpts(payload), payload.steps, payload.parent || null);
+      return await runChain({ ...sessionOpts(payload), decide: payload.decide }, payload.steps, payload.parent || null);
     case "close": {
       const opts = sessionOpts(payload);
       return { ok: true, ...(await closeProfile(opts.profile)) };
@@ -571,7 +597,7 @@ const dialogsAfter = async (payload) => {
 };
 
 // ---- chain: many steps in ONE call (openclaw batch pattern) -------------------
-const CHAIN_OPS = new Set(["go", "wait", "click", "type", "select", "hover", "enter", "scroll", "run", "cat", "grep", "find"]);
+const CHAIN_OPS = new Set(["go", "wait", "click", "type", "select", "hover", "enter", "scroll", "run", "cat", "grep", "find", "read", "search"]);
 const MAX_CHAIN_STEPS = 50;
 const MAX_CHAIN_DEPTH = 3; // root chain + 2 nested run.steps levels
 const WAIT_TEXT_CAP_MS = 3000;
@@ -663,29 +689,44 @@ async function runChain(opts, steps, chainParent = null) {
             idsUntrusted = prevUrl === null || prevUrl !== lastUrl;
             summary = `go ${String(step.url).slice(0, 40)}`;
           }
-        } else if (step.op === "cat") {
+        } else if (step.op === "cat" || step.op === "read") {
           const read = await session.readSection(parent);
           let lines = String(read.text || "").split("\n");
           if (Number.isFinite(+step.head) && +step.head > 0) lines = lines.slice(0, Math.floor(+step.head));
           else if (Number.isFinite(+step.tail) && +step.tail > 0) lines = lines.slice(-Math.floor(+step.tail));
           const text = lines.join("\n");
           results.push({ step: stepNo, op: step.op, ok: true,
-            summary: `cat ${text.length} chars`, text });
+            summary: `${step.op} ${text.length} chars`, text });
           continue;
-        } else if (step.op === "grep") {
-          const read = await session.readSection(parent);
-          const r = grepContent(read.text, {
+        } else if (step.op === "grep" || step.op === "search") {
+          let read = await session.readSection(parent);
+          let r = grepContent(read.text, {
             pattern: step.pattern ?? "", context: step.context, before: step.before, after: step.after,
             lineNumbers: step.lineNumbers !== false, invert: Boolean(step.invert),
             max: step.max, links: Boolean(step.links), head: step.head, tail: step.tail
           });
-          // grep(1) semantics: a miss exits 1 — a non-quiet grep IS an assertion;
-          // quiet:true turns it into a pure branch check (when-guards decide next).
+          // Self-heal: If 0 matches on a non-quiet search, wait brief grace and re-read once
+          // to absorb late rendering / hydration race (GitHub trending pattern).
           if (!r.matched && !step.quiet && !step.invert && String(step.pattern || "").trim()) {
-            throw new Error(`grep "${step.pattern}": no match`);
+            try {
+              await new Promise((res) => setTimeout(res, 800));
+              await session.settle();
+              const freshRead = await session.readSection(parent);
+              if (freshRead?.text && freshRead.text !== read.text) {
+                read = freshRead;
+                r = grepContent(read.text, {
+                  pattern: step.pattern ?? "", context: step.context, before: step.before, after: step.after,
+                  lineNumbers: step.lineNumbers !== false, invert: Boolean(step.invert),
+                  max: step.max, links: Boolean(step.links), head: step.head, tail: step.tail
+                });
+              }
+            } catch {}
+          }
+          if (!r.matched && !step.quiet && !step.invert && String(step.pattern || "").trim()) {
+            throw new Error(`${step.op} "${step.pattern}": no match`);
           }
           results.push({ step: stepNo, op: step.op, ok: true,
-            summary: `grep "${String(step.pattern || "(links)").slice(0, 20)}" → ${r.matched} hits`,
+            summary: `${step.op} "${String(step.pattern || "(links)").slice(0, 20)}" → ${r.matched} hits`,
             text: r.text, matched: r.matched });
           continue;
         } else if (step.op === "find") {
@@ -715,6 +756,9 @@ async function runChain(opts, steps, chainParent = null) {
           const result = await runTask(session, {
             goal: String(step.goal),
             config,
+            // In-process callers (tests) may stub the model; over the wire the
+            // function never survives JSON serialization, so this stays local.
+            decide: typeof opts.decide === "function" ? opts.decide : undefined,
             // A chain run step may lower Jev's confidence gate — long multi-step
             // goals read as uncertain even when each action is sound.
             policy: Number.isFinite(Number(step.minConfidence))
@@ -748,7 +792,8 @@ async function runChain(opts, steps, chainParent = null) {
             if (depth + 1 >= MAX_CHAIN_DEPTH) {
               throw new Error(`chain nesting too deep — max ${MAX_CHAIN_DEPTH} levels`);
             }
-            await execSteps(step.steps, depth + 1);
+            const sub = await execSteps(step.steps, depth + 1);
+            if (sub && !sub.ok) return sub; // never swallow: the chain stops HERE
           }
         } else {
           let state = await session.current();
@@ -841,22 +886,29 @@ async function runChain(opts, steps, chainParent = null) {
             // a native prompt gate in the same shot ("prompt":"SEC-42").
             if (typeof step.prompt === "string") session.pendingPromptText = step.prompt;
             const actStart = Date.now();
-            const done = await session.act(action);
-            if (done.dialog?.type === "prompt") {
-              throw new Error(`window.prompt(${JSON.stringify(done.dialog.message)}) opened and was auto-answered "" — ` +
-                `re-click with a prompt field: {"op":"click","id":"${action.id}","prompt":"answer"}`);
+            try {
+              const done = await session.act(action);
+              if (done.dialog?.type === "prompt") {
+                throw new Error(`window.prompt(${JSON.stringify(done.dialog.message)}) opened and was auto-answered "" — ` +
+                  `re-click with a prompt field: {"op":"click","id":"${action.id}","prompt":"answer"}`);
+              }
+            } finally {
+              // A failed act must not leave the answer armed for whoever
+              // triggers the next dialog on this session.
+              if (typeof step.prompt === "string") session.pendingPromptText = null;
             }
             summary = `${step.op} ${action.id} (${String(action.label || "").slice(0, 40)})`;
-            if (typeof step.prompt === "string") session.pendingPromptText = null;
             // A SPA route (pushState, same document) may legitimately follow a
             // click — adopt the new url so the next step is not failed on a
             // stale guard. A FULL navigation this click committed stays
-            // un-adopted: the next step's guard throws "unexpected navigation"
-            // (the chain never declared the move; only go/expectUrl may).
+            // un-adopted at depth 0: the next step's guard throws "unexpected
+            // navigation" (the chain never declared the move; only go/expectUrl
+            // may). Inside a run.steps sub-chain multi-page funnels ARE the
+            // point — accept the move.
             const req = session.navReq;
             const fullNav = req && !["newTab", "download"].includes(req.disposition) &&
               session.navCommit >= req.ts && req.ts >= actStart - 200;
-            if (!fullNav) {
+            if (!fullNav || depth > 0) {
               const nowUrl = (await session.current()).url;
               if (nowUrl !== lastUrl) { lastUrl = nowUrl; idsUntrusted = true; }
             }

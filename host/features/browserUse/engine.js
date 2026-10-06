@@ -318,6 +318,9 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
       const attached = await client.call("Target.attachToTarget", { targetId, flatten: true });
       session.targetId = targetId;
       session.sessionId = attached.sessionId;
+      // The old tab's OOPIF targets are not ours anymore — leaving them pooled
+      // lets mergeIframes stitch the PREVIOUS page's rows into this tab's table.
+      session.iframes.clear();
       await session.setup();
       session.lastState = null;
       await session.stampTitle().catch(() => {});
@@ -701,7 +704,7 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
       return r ?? { found: false, hops: 0, y: 0 };
     },
 
-    async jsClick(action) {
+    async jsClick(action, { nowait = false } = {}) {
       if (typeof action.node !== "number") throw stale("Action does not reference an observed node");
       const ok = await evaluate(client, action.frame || session.sessionId, `(node => {
         const e = window.__9rFast?.nodes.get(node);
@@ -711,7 +714,7 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
         return true;
       })(${action.node})`);
       if (!ok) throw stale("js-click: element gone or hidden");
-      await session.settle(action);
+      if (!nowait) await session.settle(action);
       session.lastState = null;
       return { executed: action.id, via: "js" };
     },
@@ -735,7 +738,7 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
       // click unreliably triggers (background tabs, overlays). A JS .click()
       // fires navigation deterministically — same result, no missed clicks.
       if (action.kind === "click" && (action.role === "link" || action.tag === "a")) {
-        return await session.jsClick(action);
+        return await session.jsClick(action, { nowait });
       }
       if (typeof action.node !== "number") {
         throw stale("Action does not reference an observed node");
@@ -1061,8 +1064,9 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
   };
 
   // Snapshot every auto-attached OOPIF and splice its table into the main
-  // state: ids continue the parent sequence, each action carries its frame
-  // session, and markers append so fresh() sees frame-only changes too.
+  // state: ids are frame-scoped (stable across main-list shifts), each action
+  // carries its frame session, and markers append so fresh() sees frame-only
+  // changes too.
   // Correctness over speed on iframe pages: GIS-style frames are INSERTED
   // seconds after the parent settled and paint their buttons AFTER load —
   // so re-quiet the parent, give targets time to attach, and settle each
@@ -1085,8 +1089,12 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
       await new Promise((r) => setTimeout(r, 60));
     }
     if (!session.iframes.size) return;
-    let seq = state.actions.length;
+    let frameNo = 0;
     for (const info of session.iframes.values()) {
+      frameNo++;
+      // Frame-scoped counter: ids stay stable when the MAIN list shifts (the
+      // old `${mainLength + n}` scheme renumbered on every insert above).
+      let childSeq = 0;
       try {
         await evaluate(client, info.sessionId,
           stableDomExpression(SETTLE_QUIET_MS, 0, IFRAME_FRAME_CAP_MS),
@@ -1103,7 +1111,7 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
       for (const a of child.actions) {
         if (a.kind === "wait" || a.kind === "scroll") continue; // parent owns controls
         if (state.actions.length >= MAX_ELEMENTS) { state.omitted_actions++; continue; } // choice cap budget
-        a.id = `${a.pfx || 'ifr'}${++seq}`;
+        a.id = `${a.pfx || 'ifr'}f${frameNo}_${++childSeq}`;
         a.frame = info.sessionId;
         if (off && a.rect) {
           a.rect = { x: Math.round(a.rect.x + off.x), y: Math.round(a.rect.y + off.y), w: a.rect.w, h: a.rect.h };
@@ -1117,6 +1125,10 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
         { sessionId: info.sessionId, url: info.url, marker: child.marker }];
       state.contentMarker = [...(state.contentMarker || []), child.contentMarker];
     }
+    // Rows appended AFTER the page-side window: recount so element_from/
+    // total_elements describe the table actually served (main + iframe).
+    state.total_elements = state.actions.filter((a) => typeof a.node === "number").length
+      + (state.omitted_actions || 0);
   }
 
   // Parent-space origin of an iframe session: match its target URL against the
@@ -1682,6 +1694,9 @@ export async function closeTab(options, selector = null) {
         await session.adopt(rest[0].targetId);
         await session.stampTitle().catch(() => {});
       } else {
+        // Last tab: tearing the map entry alone leaks the Chrome child holding
+        // the user-data-dir — close the session first.
+        await session.close().catch(() => {});
         sessions.delete(session.sessionKey || session.profile);
       }
     }

@@ -1596,6 +1596,298 @@ if (!hasChrome) {
     } finally { delete dynamicPages["/laterender"]; }
   });
 
+  // ---- review fixes (TDD batch): chain semantics, windowing, tabs, burst ----
+
+  await test("85. a failing sub-chain fail-fasts the ROOT chain (run step attribution)", async () => {
+    const { invoke, setConfig, loadConfig } = await import("../features/browserUse/browserUseSocket.js");
+    const enabledBefore = (await loadConfig()).enabled; // restore after; silent = no skill side effects
+    setConfig({ enabled: true }, { persist: false, syncSkill: false });
+    try {
+      await open("/chain");
+      const doneNow = ({ questions }) =>
+        Promise.resolve({ answers: { operation: op(questions, "DONE") }, model: "fake" });
+      const res = await invoke("chain", { profile, decide: doneNow, steps: [
+        { op: "run", goal: "noop", steps: [
+          { op: "click", id: "btn-khong-ton-tai" } // sub-step must break the parent
+        ] },
+        { op: "grep", pattern: "Nav noise" } // must NEVER run after the sub failure
+      ] });
+      assert.equal(res.ok, false, "sub-chain failure must surface, not be swallowed");
+      assert.ok(res.results.some((r) => r.ok === false), "the failing sub-step is reported");
+      assert.ok(!res.results.some((r) => r.op === "grep"), "steps after the sub failure must not run");
+      assert.ok(res.state, "live state must ride the failure for the re-plan");
+    } finally { setConfig({ enabled: enabledBefore }, { persist: false, syncSkill: false }); }
+  });
+
+  await test("86. bare ls --tail returns the default window, not one element", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/long"); // 400 buttons
+    const res = await invoke("ls", { profile, tail: true });
+    const real = res.actions.filter((a) => typeof a.node === "number");
+    assert.ok(real.length >= 200, `bare --tail must reuse the default len — got ${real.length} real elements`);
+  });
+
+  await test("87. an armed prompt answer does not leak past a failed click", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/prompt2"] = `<!doctype html><html><body>
+      <button id="b" onclick="document.getElementById('out').textContent =
+        window.prompt('Paste image URL') ?? 'CANCELLED'">Paste a URL</button>
+      <div id="out">none</div>
+      <div style="position:relative;height:40px">
+        <button onclick="document.title='NOPE'">Covered arm target</button>
+        <div style="position:absolute;inset:0;background:#ccc;opacity:.6"></div>
+      </div>
+    </body></html>`;
+    try {
+      await open("/prompt2");
+      // 1) A chain click whose ACT throws (target covered) while carrying a
+      //    prompt answer — the arm must not survive the failure.
+      const covered = (await observe(await open("/prompt2"))).actions.find((a) => /covered arm target/i.test(a.label));
+      const failed = await invoke("chain", { profile, steps: [
+        { op: "click", id: covered.id, prompt: "LEAKED-ANSWER" }
+      ] });
+      assert.equal(failed.ok, false, "setup: the covered click must fail (STALE)");
+      // 2) The NEXT blind prompt click must be answered "" (auto), not LEAKED-ANSWER.
+      const st = await observe(await open("/prompt2"));
+      const btn = st.actions.find((a) => a.label === "Paste a URL");
+      const blind = await invoke("click", { profile, id: btn.id, label: "Paste a URL" });
+      assert.equal(blind.ok, false);
+      assert.match(blind.error, /--prompt/);
+      assert.ok(!JSON.stringify(blind).includes("LEAKED-ANSWER"), "the stale answer leaked into the next dialog");
+    } finally { delete dynamicPages["/prompt2"]; }
+  });
+
+  await test("88. sub-chain (depth>0) accepts a full navigation click", async () => {
+    const { invoke, setConfig, loadConfig } = await import("../features/browserUse/browserUseSocket.js");
+    const enabledBefore = (await loadConfig()).enabled; // restore after; silent = no skill side effects
+    setConfig({ enabled: true }, { persist: false, syncSkill: false });
+    try {
+      await open("/chain");
+      const doneNow = ({ questions }) =>
+        Promise.resolve({ answers: { operation: op(questions, "DONE") }, model: "fake" });
+      const res = await invoke("chain", { profile, decide: doneNow, steps: [
+        { op: "run", goal: "noop", steps: [
+          { op: "click", label: "Go next" },  // full navigation to /chain2
+          { op: "click", label: "Next OK" }   // must run on the NEW page
+        ] }
+      ] });
+      assert.ok(res.ok, `nested funnel must be accepted at depth>0: ${JSON.stringify(res.results)}`);
+      assert.equal((await invoke("ls", { profile })).title, "P2");
+    } finally { setConfig({ enabled: enabledBefore }, { persist: false, syncSkill: false }); }
+  });
+
+  await test("89. switchTab resets the iframe pool — no cross-tab iframe bleed", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const tabProfile = `rev-tabs-${Date.now()}`;
+    let served = 0;
+    const childSrv = http.createServer((q, r) => {
+      served++;
+      r.writeHead(200, { "Content-Type": "text/html" });
+      r.end(`<!doctype html><html><body><button id="inner">iframe inner ${served}</button></body></html>`);
+    });
+    await new Promise((r) => childSrv.listen(0, "localhost", r));
+    try {
+      const frameUrl = `http://localhost:${childSrv.address().port}/`;
+      // BOTH tabs carry an iframe — tab 2 must only ever show its own frame
+      dynamicPages["/withframe"] = `<!doctype html><html><body>
+        <iframe src="${frameUrl}?a" style="width:300px;height:120px"></iframe>
+      </body></html>`;
+      dynamicPages["/withframe2"] = `<!doctype html><html><body>
+        <iframe src="${frameUrl}?b" style="width:300px;height:120px"></iframe>
+      </body></html>`;
+      await invoke("go", { profile: tabProfile, url: `${base}/withframe`, headless: true });
+      const t1 = await invoke("ls", { profile: tabProfile });
+      const t1Label = t1.actions.find((a) => /iframe inner \d/i.test(a.label))?.label;
+      assert.ok(t1Label, "setup: iframe observed on tab 1");
+      await invoke("go", { profile: tabProfile, url: `${base}/withframe2`, newTab: true, headless: true });
+      const t2 = await invoke("ls", { profile: tabProfile });
+      const t2Labels = t2.actions.filter((a) => /iframe inner \d/i.test(a.label)).map((a) => a.label);
+      assert.equal(t2Labels.length, 1, `tab 2 must merge exactly ONE iframe — got [${t2Labels.join(", ")}]`);
+      assert.notEqual(t2Labels[0], t1Label, "tab 2 inherited tab 1's iframe target (pool not reset on adopt)");
+      // Round trip: back on tab 1 its own frame rows must come back — Chrome
+      // does not re-fire attachedToTarget, so a hard clear loses them forever.
+      await invoke("go", { profile: tabProfile, tab: 1, headless: true });
+      const back = await invoke("ls", { profile: tabProfile });
+      assert.ok(back.actions.some((a) => a.label === t1Label),
+        `tab 1 must keep its iframe rows after a round trip — got [${back.actions.filter((a) => /iframe inner/i.test(a.label)).map((a) => a.label).join(", ")}]`);
+    } finally {
+      delete dynamicPages["/withframe"]; delete dynamicPages["/withframe2"];
+      const { closeProfile } = await import("../features/browserUse/engine.js");
+      await closeProfile(tabProfile).catch(() => {});
+      childSrv.close();
+    }
+  });
+
+  await test("90. windowed ls keeps element_from/total consistent with appended iframe rows", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const tabProfile = `rev-win-${Date.now()}`;
+    const childSrv = http.createServer((q, r) => {
+      r.writeHead(200, { "Content-Type": "text/html" });
+      r.end(`<!doctype html><html><body><button id="inner">iframe inner button</button></body></html>`);
+    });
+    await new Promise((r) => childSrv.listen(0, "localhost", r));
+    try {
+      const frameUrl = `http://localhost:${childSrv.address().port}/`;
+      dynamicPages["/withframe"] = `<!doctype html><html><body>
+        ${'<button style="font-size:6px;height:6px;padding:0">Item</button>'.repeat(40)}
+        <iframe src="${frameUrl}" style="width:300px;height:120px"></iframe>
+      </body></html>`;
+      await invoke("go", { profile: tabProfile, url: `${base}/withframe`, headless: true });
+      const res = await invoke("ls", { profile: tabProfile, from: 10 });
+      const real = res.actions.filter((a) => typeof a.node === "number");
+      assert.equal(res.total_elements, real.length + (res.omitted_actions || 0),
+        `total must count main+iframe rows actually served — total=${res.total_elements} real=${real.length} omitted=${res.omitted_actions || 0}`);
+    } finally {
+      delete dynamicPages["/withframe"];
+      const { closeProfile } = await import("../features/browserUse/engine.js");
+      await closeProfile(tabProfile).catch(() => {});
+      childSrv.close();
+    }
+  });
+
+  await test("91. nowait link click skips the settle (fire-and-forget)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/slowland"] = `<!doctype html><html><body><h1>SLOWLAND ARRIVED</h1></body></html>`;
+    // serve it after 1500ms — a settled click would wait for the land
+    const slow = http.createServer((q, r) => setTimeout(() => {
+      r.writeHead(200, { "Content-Type": "text/html" });
+      r.end(dynamicPages["/slowland"]);
+    }, 1500));
+    await new Promise((r) => slow.listen(0, "127.0.0.1", r));
+    try {
+      dynamicPages["/linkout"] = `<!doctype html><html><body>
+        <a href="http://127.0.0.1:${slow.address().port}/">Go slow land</a>
+      </body></html>`;
+      const st = await observe(await open("/linkout"));
+      const link = st.actions.find((a) => a.role === "link" || a.tag === "a");
+      const t0 = Date.now();
+      const res = await invoke("click", { profile, id: link.id, nowait: true });
+      const elapsed = Date.now() - t0;
+      assert.ok(res.ok, JSON.stringify(res));
+      assert.ok(elapsed < 1200, `nowait link click must not pay the settle — took ${elapsed}ms`);
+    } finally {
+      delete dynamicPages["/slowland"]; delete dynamicPages["/linkout"];
+      slow.close();
+    }
+  });
+
+  await test("92. closing the LAST tab tears the engine session down", async () => {
+    const { sessionStatus } = await import("../features/browserUse/engine.js");
+    const { invoke: inv } = await import("../features/browserUse/browserUseSocket.js");
+    const lastProfile = `rev-last-${Date.now()}`;
+    await inv("go", { profile: lastProfile, url: `${base}/`, headless: true });
+    assert.ok((await sessionStatus()).some((s) => s.profile === lastProfile), "setup: session alive");
+    await inv("close", { profile: lastProfile });
+    assert.ok(!(await sessionStatus()).some((s) => s.profile === lastProfile),
+      "the engine session must be gone after the last tab closes");
+    // A leaked Chrome child keeps the user-data-dir locked — reopening the
+    // same profile immediately must still work.
+    const reopen = await inv("ls", { profile: lastProfile, headless: true });
+    assert.ok(reopen.url, "reopening the profile right after close must succeed");
+    await inv("close", { profile: lastProfile });
+  });
+
+  await test("93. iframe element ids survive main-list shifts", async () => {
+    const tabProfile = `rev-ifrid-${Date.now()}`;
+    const childSrv = http.createServer((q, r) => {
+      r.writeHead(200, { "Content-Type": "text/html" });
+      r.end(`<!doctype html><html><body><button id="inner">iframe inner button</button></body></html>`);
+    });
+    await new Promise((r) => childSrv.listen(0, "localhost", r));
+    try {
+      const frameUrl = `http://localhost:${childSrv.address().port}/`;
+      dynamicPages["/shiftframe"] = `<!doctype html><html><body>
+        <button onclick="document.getElementById('zone').insertAdjacentHTML('afterbegin','<button>Extra node</button>')">Add node before iframe</button>
+        <div id="zone"></div>
+        <iframe src="${frameUrl}" style="width:300px;height:120px"></iframe>
+      </body></html>`;
+      const s = await withSession({ profile: tabProfile, url: `${base}/shiftframe`, headless: true }, (x) => x);
+      const before = (await observe(s)).actions.find((a) => /iframe inner button/i.test(a.label));
+      assert.ok(before, "setup: iframe button observed");
+      const adder = (await observe(s)).actions.find((a) => /add node before iframe/i.test(a.label));
+      await s.act(adder); // main list shifts — iframe ids must not renumber
+      const after = (await observe(s)).actions.find((a) => /iframe inner button/i.test(a.label));
+      assert.equal(after?.id, before.id, `iframe id must be stable — ${before.id} -> ${after?.id}`);
+    } finally {
+      delete dynamicPages["/shiftframe"];
+      const { closeProfile } = await import("../features/browserUse/engine.js");
+      await closeProfile(tabProfile).catch(() => {});
+      childSrv.close();
+    }
+  });
+
+  // Fake bottomed page shared by tests 94/95: the scroll never moves y.
+  const bottomedSession = () => ({
+    cancelRequested: false,
+    async observe() {
+      return { url: "http://t/", title: "T", text: "filler text",
+        actions: [{ id: "scroll_down", kind: "scroll", label: "Scroll down", delta: 600 }],
+        scroll: { y: 4200 }, marker: ["o", "u"], contentMarker: ["c"] };
+    },
+    async steady() { return this.observe(); },
+    async fresh() { return true; },
+    async act() { return { executed: "scroll_down" }; },
+    async scrollBurstStep() { return { found: false, hops: 1, y: 4200 }; }
+  });
+
+  await test("94. scroll burst that cannot move the page counts as stale (no_progress)", async () => {
+    const decide = ({ questions }) =>
+      Promise.resolve({ answers: { operation: op(questions, "SCROLL_DOWN") }, model: "fake" });
+    const result = await runTask(bottomedSession(), { goal: "find KHÔNG-TỒN-TẠI-XYZ", decide, maxSteps: 8, maxMs: 10000,
+      expect: { text: ["KHÔNG-TỒN-TẠI-XYZ"] } });
+    assert.equal(result.outcome, "no_progress",
+      `a burst that moves nothing is stale — got ${result.outcome}: ${result.reason}`);
+  });
+
+  await test("95. engine without scrollBurstStep falls back to ONE plain scroll per decision", async () => {
+    const noHop = () => {
+      const s = bottomedSession();
+      delete s.scrollBurstStep; // old engine / missing fast hop
+      return s;
+    };
+    const decide = ({ questions }) =>
+      Promise.resolve({ answers: { operation: op(questions, "SCROLL_DOWN") }, model: "fake" });
+    const result = await runTask(noHop(), { goal: "find KHÔNG-TỒN-TẠI-XYZ", decide, maxSteps: 4, maxMs: 10000,
+      expect: { text: ["KHÔNG-TỒN-TẠI-XYZ"] } });
+    const scrolls = result.history.filter((h) => h.kind === "scroll");
+    assert.ok(scrolls.length >= 2, `setup: several scroll decisions must run — ${result.outcome}: ${result.reason}`);
+    assert.ok(scrolls.every((h) => !/×\d+/.test(h.action) || /×1\b/.test(h.action)),
+      `the slow fallback must not fan out — got ${scrolls.map((h) => h.action).join(", ")}`);
+  });
+
+  await test("96. grep self-heals through a lazy-rendering page (GitHub trending pattern)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/lazy"] = `<!doctype html><html><body>
+      <nav>Site chrome nav</nav>
+      <div id="app">Loading</div>
+      <script>setTimeout(() => {
+        document.getElementById('app').innerHTML =
+          '<article>Project Alpha — 1,234 stars this week — fast tool</article>';
+      }, 700);<\/script>
+    </body></html>`;
+    try {
+      await open("/lazy");
+      // The read lands while the page still says "Loading" — one re-read must
+      // absorb the late render instead of serving a guaranteed miss.
+      const r = await invoke("grep", { profile, pattern: "stars this week", context: 1 });
+      assert.ok(r.matched >= 1, `grep must see the late-rendered rows — got ${r.matched} matches`);
+      assert.match(r.text, /Project Alpha/);
+    } finally { delete dynamicPages["/lazy"]; }
+  });
+
+  await test("97. bare cat caps the served text (agent context budget)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/longtext"] = `<!doctype html><html><body>
+      ${Array.from({ length: 4000 }, (_, i) => `<p>Paragraph ${i} of the long story.</p>`).join("\n")}
+    </body></html>`;
+    try {
+      await open("/longtext");
+      const r = await invoke("cat", { profile });
+      assert.ok((r.text || "").length <= 17000, `default cat must stay small — got ${(r.text || "").length} chars`);
+      assert.ok((r.total || 0) > (r.text || "").length, "total must reveal the rest for --from reads");
+    } finally { delete dynamicPages["/longtext"]; }
+  });
+
   await closeProfile(profile).catch(() => {});
   await profiles.remove(profile).catch(() => {});
   server.close();

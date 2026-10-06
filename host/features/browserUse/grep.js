@@ -45,13 +45,14 @@ export function grepContent(text, opts = {}) {
     if (matches(source[i], matcher, caseSensitive) !== invert) hitIdx.push(i);
   }
 
+  const showNums = Boolean(opts.lineNumbers);
   let out;
   if (invert) {
-    out = hitIdx.map((i) => source[i]); // grep -v carries no context
+    // grep -v carries no context, but -n still numbers the kept lines
+    out = hitIdx.map((i) => (showNums ? `${i + 1}: ${source[i]}` : source[i]));
   } else {
     const before = num(opts.before) || num(opts.context);
     const after = num(opts.after) || num(opts.context);
-    const showNums = Boolean(opts.lineNumbers);
     // Merge windows that overlap or touch (GNU grep: no separator when contiguous).
     const groups = [];
     for (const idx of hitIdx) {
