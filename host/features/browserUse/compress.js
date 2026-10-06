@@ -93,12 +93,19 @@ export function findCycle(items, maxPeriod = 50) {
   return null;
 }
 
-const esc = (s) => String(s ?? "").replace(/\n/g, " ");
-const lineOf = (el, label) => {
+const esc = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+const cleanLabel = (s, max = 80) => {
+  const c = esc(s);
+  return c.length > max ? c.slice(0, max - 1) + "…" : c;
+};
+const lineOf = (el, label, coords = false) => {
   const value = el.value ? ` =${esc(el.value).slice(0, 30)}` : "";
   const state = el.checked ? ` [${el.checked}]` : "";
+  const href = el.href ? ` -> ${cleanLabel(el.href, 70)}` : "";
+  const pt = coords && el.rect
+    ? ` [${Math.round(el.rect.x + (el.rect.w ? el.rect.w / 2 : 0))},${Math.round(el.rect.y + (el.rect.h ? el.rect.h / 2 : 0))}]` : "";
   // Synthetic controls (scroll/wait) have no role — their kind is the role
-  return `${el.id} ${el.role || el.kind} "${esc(label)}"${state}${value}`;
+  return `${el.id} ${el.role || el.kind} "${cleanLabel(label)}"${state}${value}${href}${pt}`;
 };
 
 // Page gist shared by every renderer so the benchmark only measures element
@@ -145,16 +152,16 @@ export function renderFlatGrouped(state) {
 function cycleBlock(items, cycle, byId) {
   const { period, cycles: count, constant } = cycle;
   if (period === 1 && constant[0]) {
-    return [`${items[0].role} "${esc(items[0].label)}" ×${count}: ` +
+    return [`${items[0].role} "${cleanLabel(items[0].label)}" ×${count}: ` +
       items.map((el) => el.id).join(" ")];
   }
   const slots = Array.from({ length: period }, (_, j) =>
-    constant[j] ? `${items[j].role} "${esc(items[j].label)}"` : items[j].role);
+    constant[j] ? `${items[j].role} "${cleanLabel(items[j].label)}"` : items[j].role);
   const rows = [];
   for (let c = 0; c < count; c++) {
     rows.push(Array.from({ length: period }, (_, j) => {
       const el = items[c * period + j];
-      return constant[j] ? el.id : `${el.id} ${esc(byId.get(el.id))}`;
+      return constant[j] ? el.id : `${el.id} ${cleanLabel(byId.get(el.id))}`;
     }).join(" · "));
   }
   return [`row ×${count} [${slots.join(", ")}]`, ...rows];
@@ -169,7 +176,7 @@ function encodeItems(items, byId) {
   return collapseRuns(items).flatMap((run) => {
     const same = new Set(run.items.map((el) => el.label));
     if (same.size === 1 && run.items.length > 1) {
-      return [`${run.items[0].role} "${esc(run.items[0].label)}" ×${run.items.length}: ` +
+      return [`${run.items[0].role} "${cleanLabel(run.items[0].label)}" ×${run.items.length}: ` +
         run.items.map((el) => el.id).join(" ")];
     }
     return run.items.map((el) => lineOf(el, byId.get(el.id)));
@@ -194,7 +201,7 @@ function maxCycles(items, start, period) {
 // Guards: period 1 only for uniform labels (dense list); a uniform-signature
 // cycle (all-link HN rows) must repeat at least one label — a run of unique
 // labels like a nav bar has no constant slot and never forms a pseudo-cycle.
-function encodeSection(items, byId) {
+function encodeSection(items, byId, coords = false) {
   let best = null; // {start, len, cycle, density}
   const better = (density, len, period) =>
     !best || density > best.density + 1e-9 ||
@@ -219,10 +226,10 @@ function encodeSection(items, byId) {
       }
     }
   }
-  if (!best) return items.map((el) => lineOf(el, byId.get(el.id)));
-  const before = items.slice(0, best.start).map((el) => lineOf(el, byId.get(el.id)));
+  if (!best) return items.map((el) => lineOf(el, byId.get(el.id), coords));
+  const before = items.slice(0, best.start).map((el) => lineOf(el, byId.get(el.id), coords));
   const block = cycleBlock(items.slice(best.start, best.start + best.len), best.cycle, byId);
-  const rest = encodeSection(items.slice(best.start + best.len), byId);
+  const rest = encodeSection(items.slice(best.start + best.len), byId, coords);
   return [...before, ...block, ...rest];
 }
 
@@ -250,7 +257,7 @@ const indent = (depth) => "  ".repeat(depth);
 
 // Tree lines nested by path segments — the ariaSnapshot/orca shape. Pure walk
 // with no page gist: the live loop embeds these lines into its own state.page.
-export function renderTreeLines(elements) {
+export function renderTreeLines(elements, { coords = false } = {}) {
   const fixed = dedupeOrdinals(elements.map((el) => el.label));
   const byId = new Map(elements.map((el, i) => [el.id, fixed[i]]));
   const lines = [];
@@ -261,7 +268,7 @@ export function renderTreeLines(elements) {
         .map((el) => ({ ...el, path: el.path.slice(1) }));
       const here = group.filter((el) => (el.path?.length ?? 1) <= 1);
       // Leaves collapse repeating row cycles (tables/grids); lone items stay plain
-      for (const line of encodeSection(here, byId)) lines.push(`${indent(depth + 1)}${line}`);
+      for (const line of encodeSection(here, byId, coords)) lines.push(`${indent(depth + 1)}${line}`);
       if (deeper.length) walk(deeper, depth + 1);
     }
   };
