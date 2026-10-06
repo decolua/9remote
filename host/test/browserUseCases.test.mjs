@@ -383,7 +383,7 @@ if (!hasChrome) {
     const res = await invoke("click", { profile, id: action.id });
     assert.ok(res.ok && res.state?.actions, "state returned with the action");
     assert.equal(res.state.title, "DIV-CLICKED");
-    const cached = await invoke("state", { profile });
+    const cached = await invoke("ls", { profile });
     assert.equal(cached.title, "DIV-CLICKED", "state action agrees (cached path)");
   });
 
@@ -673,7 +673,7 @@ if (!hasChrome) {
     const text = state.text || "";
     assert.ok(text.includes("Nội dung chính của bài viết"), "article content kept");
     assert.ok(state.headings.includes("Bài viết"), "heading kept");
-    for (const noise of ["Accept all cookies", "Mua ngay", "Quyên góp", "Điều khoản", "Trang chủ"]) {
+    for (const noise of ["Accept all cookies", "Mua ngay", "Quyên góp", "Trang chủ"]) {
       assert.ok(!text.includes(noise), `filtered out: ${noise}`);
     }
     // Elements are untouched — only the body text is filtered.
@@ -1118,18 +1118,18 @@ if (!hasChrome) {
   await test("54. read --parent scopes to the named section; bad name lists sections", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/reader");
-    const faq = await invoke("read", { profile, parent: "faq" });
+    const faq = await invoke("cat", { profile, parent: "faq" });
     assert.match(faq.text, /Câu hỏi thường gặp/);
     assert.match(faq.text, /Trong 14 ngày/);
     assert.ok(!faq.text.includes("So sánh gói"), `billing leaked into FAQ:\n${faq.text}`);
     assert.ok(!faq.text.includes("Menu"), "nav noise leaked");
-    await assert.rejects(() => invoke("read", { profile, parent: "zzz" }), /Plans.*FAQ|FAQ.*Plans/);
+    await assert.rejects(() => invoke("cat", { profile, parent: "zzz" }), /Plans.*FAQ|FAQ.*Plans/);
   });
 
   await test("55. read renders markdown-lite: headings, inline merge, chip rows, tables, nested lists", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/reader");
-    const { text } = await invoke("read", { profile });
+    const { text } = await invoke("cat", { profile });
     assert.match(text, /^## So sánh gói$/m, `heading level:\n${text}`);
     assert.match(text, /Gói Pro 199k\/tháng, khởi tạo ngay\./, `inline merge:\n${text}`);
     assert.match(text, /^Trial · Pro · Team$/m, `chip row:\n${text}`);
@@ -1137,19 +1137,19 @@ if (!hasChrome) {
     assert.match(text, /^- Có hoàn tiền không\?$/m, `list item:\n${text}`);
     assert.match(text, /^  - Trong 14 ngày$/m, `nested list indent:\n${text}`);
     assert.ok(!text.includes("Menu Home"), "nav noise leaked");
-    assert.ok(!text.includes("© 2026"), "footer noise leaked");
+    assert.ok(text.includes("© 2026"), "footer is content (license/terms must be greppable)");
   });
 
-  await test("56. read --grep keeps only matching lines", async () => {
+  await test("56. grep keeps only matching lines", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/reader");
-    const res = await invoke("read", { profile, grep: "199k" });
+    const res = await invoke("grep", { profile, pattern: "199k" });
     assert.ok(res.text.split("\n").length >= 1);
     for (const line of res.text.split("\n")) assert.match(line, /199k/, `non-matching line:\n${res.text}`);
     assert.ok(!res.text.includes("499k"), "non-matching row leaked");
   });
 
-  await test("57. read --from OFFSET LEN windows past the default cap", async () => {
+  await test("57. cat --from OFFSET LEN windows past the default cap", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     // ~30k chars of paragraphs with markers at the start and past 12k
     const paras = ["<p>AAA-START đầu trang nội dung dài</p>"];
@@ -1160,11 +1160,11 @@ if (!hasChrome) {
     dynamicPages["/longread"] = `<!doctype html><html><body><section aria-label="Doc">${paras.join("")}</section></body></html>`;
     try {
       await open("/longread");
-      const first = await invoke("read", { profile });
+      const first = await invoke("cat", { profile });
       assert.ok(first.total > 20000, `total missing:\n${JSON.stringify(first).slice(0, 200)}`);
       assert.ok(first.text.includes("AAA-START"), "first window lost the start marker");
       assert.ok(!first.text.includes("BBB-MIDDLE"), "first window leaked past the cap");
-      const second = await invoke("read", { profile, from: 12000, len: 8000 });
+      const second = await invoke("cat", { profile, from: 12000, len: 8000 });
       assert.ok(second.text.includes("BBB-MIDDLE"), `second window missed the middle marker:\n${second.text.slice(0, 200)}`);
       assert.ok(!second.text.includes("AAA-START"), "second window leaked the start");
       assert.ok(second.text.length <= 9000, "len not respected");
@@ -1178,7 +1178,7 @@ if (!hasChrome) {
     await open("/chain");
     const res = await invoke("chain", { profile, parent: "Shipping", steps: [{ op: "click", id: "OK" }] });
     assert.ok(res.ok, JSON.stringify(res.results));
-    assert.equal((await invoke("state", { profile })).title, "SHIP", "clicked the Billing OK");
+    assert.equal((await invoke("ls", { profile })).title, "SHIP", "clicked the Billing OK");
   });
 
   await test("59. step-level parent overrides the chain-level one", async () => {
@@ -1187,7 +1187,7 @@ if (!hasChrome) {
     const res = await invoke("chain", { profile, parent: "Billing",
       steps: [{ op: "click", id: "OK", parent: "Shipping" }] });
     assert.ok(res.ok, JSON.stringify(res.results));
-    assert.equal((await invoke("state", { profile })).title, "SHIP");
+    assert.equal((await invoke("ls", { profile })).title, "SHIP");
   });
 
   await test("60. ambiguous label inside the scope throws and crops the failure state", async () => {
@@ -1198,7 +1198,7 @@ if (!hasChrome) {
     assert.equal(res.ok, false);
     assert.match(res.results[0].error, /ambiguous/i);
     assert.ok(res.results[0].error.includes("Save"), "error must list the candidates");
-    assert.equal((await invoke("state", { profile })).title, "", "nothing was clicked");
+    assert.equal((await invoke("ls", { profile })).title, "", "nothing was clicked");
     assert.ok(res.state.actions.length > 0 && res.state.actions.some((a) => a.ctx === "Shipping"),
       "failure state must be cropped to Shipping");
     assert.ok(!res.state.actions.some((a) => a.ctx === "Billing"), "Billing leaked into the cropped state");
@@ -1212,7 +1212,7 @@ if (!hasChrome) {
       steps: [{ op: "click", id: "e1", label: "Totally wrong label" }] });
     assert.equal(res.ok, false);
     assert.match(res.results[0].error, /label/i);
-    assert.equal((await invoke("state", { profile })).title, "", "guard must fire BEFORE the click");
+    assert.equal((await invoke("ls", { profile })).title, "", "guard must fire BEFORE the click");
   });
 
   await test("62. label guard passes when the id still matches", async () => {
@@ -1223,7 +1223,7 @@ if (!hasChrome) {
     const res = await invoke("chain", { profile,
       steps: [{ op: "click", id: ok.id, label: "OK", parent: "Shipping" }] });
     assert.ok(res.ok, JSON.stringify(res.results));
-    assert.equal((await invoke("state", { profile })).title, "SHIP");
+    assert.equal((await invoke("ls", { profile })).title, "SHIP");
   });
 
   await test("63. unexpected navigation stops the chain at the next step", async () => {
@@ -1241,19 +1241,19 @@ if (!hasChrome) {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/chain");
     const label = await invoke("chain", { profile,
-      steps: [{ op: "open", url: `${base}/chain2` }, { op: "click", id: "Next OK" }] });
+      steps: [{ op: "go", url: `${base}/chain2` }, { op: "click", id: "Next OK" }] });
     assert.ok(label.ok, JSON.stringify(label.results));
-    assert.equal((await invoke("state", { profile })).title, "P2");
+    assert.equal((await invoke("ls", { profile })).title, "P2");
 
     await open("/chain");
     const guarded = await invoke("chain", { profile,
-      steps: [{ op: "open", url: `${base}/chain2` }, { op: "click", id: "e1", label: "Next OK" }] });
+      steps: [{ op: "go", url: `${base}/chain2` }, { op: "click", id: "e1", label: "Next OK" }] });
     assert.ok(guarded.ok, JSON.stringify(guarded.results));
-    assert.equal((await invoke("state", { profile })).title, "P2");
+    assert.equal((await invoke("ls", { profile })).title, "P2");
 
     await open("/chain");
     const bare = await invoke("chain", { profile,
-      steps: [{ op: "open", url: `${base}/chain2` }, { op: "click", id: "e1" }] });
+      steps: [{ op: "go", url: `${base}/chain2` }, { op: "click", id: "e1" }] });
     assert.equal(bare.ok, false);
     assert.match(bare.results[1].error, /navigated.*label|label.*navigated/i);
   });
@@ -1270,7 +1270,7 @@ if (!hasChrome) {
   await test("66. read step inside a chain returns the section content inline", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/chain");
-    const res = await invoke("chain", { profile, steps: [{ op: "read", parent: "Shipping" }] });
+    const res = await invoke("chain", { profile, steps: [{ op: "cat", parent: "Shipping" }] });
     assert.ok(res.ok, JSON.stringify(res.results));
     assert.match(res.results[0].text, /Express 3 ngày/);
     assert.ok(!res.results[0].text.includes("Nav noise"), "nav noise leaked into the read");
@@ -1284,15 +1284,15 @@ if (!hasChrome) {
     });
     await new Promise((r) => other.listen(0, "127.0.0.1", r));
     try {
-      await invoke("open", { profile, url: `${base}/chain` });
-      await invoke("open", { profile, url: `http://127.0.0.1:${other.address().port}/` }); // cross-origin
+      await invoke("go", { profile, url: `${base}/chain` });
+      await invoke("go", { profile, url: `http://127.0.0.1:${other.address().port}/` }); // cross-origin
       // chrome:// tabs are the browser's own (auto-update) — only agent-usable tabs count
       const usable = (r) => r.tabs.filter((t) => !t.url.startsWith("chrome://"));
       const crossed = usable(await invoke("tabs", { profile }));
       assert.equal(crossed.length, 1,
         `cross-origin open must reuse the tab, got ${JSON.stringify(crossed.tabs)}`);
       assert.ok(crossed[0].url.includes(`:${other.address().port}/`));
-      await invoke("open", { profile, url: `${base}/chain` }); // back to the first origin
+      await invoke("go", { profile, url: `${base}/chain` }); // back to the first origin
       const back = usable(await invoke("tabs", { profile }));
       assert.equal(back.length, 1, `re-open grew tabs: ${JSON.stringify(back)}`);
       assert.ok(back[0].url.startsWith(base));
@@ -1312,16 +1312,288 @@ if (!hasChrome) {
     </body></html>`;
     try {
       await open("/leaves");
-      const res = await invoke("read", { profile });
+      const res = await invoke("cat", { profile });
       for (const want of ["Fix login bug #12", "Add dark mode #13", "Plain wrapper text"]) {
         assert.ok(res.text.includes(want), `missing "${want}":\n${res.text}`);
       }
-      const scoped = await invoke("read", { profile, parent: "PRs" });
+      const scoped = await invoke("cat", { profile, parent: "PRs" });
       assert.ok(scoped.text.includes("#12") && !scoped.text.includes("Plain wrapper text") || scoped.text.includes("Plain wrapper text"),
         "scoped read must not error");
     } finally {
       delete dynamicPages["/leaves"];
     }
+  });
+
+  await test("69. element ids survive list shifts (stable node ids, not indexes)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/idstable"] = `<!doctype html><html><body>
+      <div id="zone"></div>
+      <button id="save">Save</button>
+      <button id="close">Close</button>
+      <script>window.save.onclick = () => setTimeout(() =>
+        window.zone.insertAdjacentHTML('afterbegin', '<button>Undo</button>'), 250);<\/script>
+    </body></html>`;
+    try {
+      const st1 = await observe(await open("/idstable"));
+      const save1 = st1.actions.find((a) => a.label === "Save");
+      assert.ok(save1, "Save observed");
+      const res = await invoke("click", { profile, id: save1.id, label: "Save" });
+      assert.ok(res.ok, JSON.stringify(res));
+      const st2 = await observe(await open("/idstable"));
+      const save2 = st2.actions.find((a) => a.label === "Save");
+      assert.ok(st2.actions.some((a) => a.label === "Undo"), "Undo appeared after the click");
+      assert.equal(save2.id, save1.id, `id must be stable across a list shift: ${save1.id} -> ${save2.id}`);
+    } finally { delete dynamicPages["/idstable"]; }
+  });
+
+  await test("70. fill settle scales with text length (long paste, late reaction)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/longfill"] = `<!doctype html><html><body>
+      <input id="q" placeholder="Search"><div id="out">idle</div>
+      <script>window.q.addEventListener('input', () => setTimeout(() => {
+        document.getElementById('out').textContent = 'SEARCH DONE ' + q.value.length; }, 700));<\/script>
+    </body></html>`;
+    try {
+      const st = await observe(await open("/longfill"));
+      const field = st.actions.find((a) => a.kind === "fill");
+      assert.ok(field, "input observed as fill");
+      const res = await invoke("type", { profile, id: field.id, text: "x".repeat(60) });
+      assert.ok(res.ok, JSON.stringify(res));
+      assert.match(res.state.text, /SEARCH DONE 60/,
+        `late reaction missed — settle returned too early:\n${res.state.text}`);
+    } finally { delete dynamicPages["/longfill"]; }
+  });
+
+  await test("71. a reaction landing inside the click floor is served, not skipped", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/churn"] = `<!doctype html><html><body>
+      <button id="b">Go churn</button><div id="out"></div>
+      <script>window.b.onclick = () => { b.className = 's1';
+        setTimeout(() => { b.textContent = 'Done state'; out.textContent = 'CHURN DONE'; }, 250); };<\/script>
+    </body></html>`;
+    try {
+      const st = await observe(await open("/churn"));
+      const go = st.actions.find((a) => a.label === "Go churn");
+      assert.ok(go, "churn button observed");
+      const res = await invoke("click", { profile, id: go.id, label: "Go churn" });
+      assert.ok(res.ok, JSON.stringify(res));
+      assert.match(res.state.text, /CHURN DONE/,
+        `the in-floor reaction must be in the returned state (url=${res.state?.url}):\n${res.state?.text}`);
+    } finally { delete dynamicPages["/churn"]; }
+  });
+
+  await test("72. a late-inserted iframe whose button renders after load is observed (GIS pattern)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const childPages = {
+      "/gis-child": `<!doctype html><html><body>
+        <div id="host"></div>
+        <script>setTimeout(() => { document.getElementById('host').innerHTML =
+          '<button onclick="document.title=\\'OAUTH\\'">Tiếp tục bằng tên Anh</button>'; }, 300);<\/script>
+      </body></html>`
+    };
+    const childSrv = http.createServer((q, r) => {
+      r.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+      r.end(childPages[q.url.split("?")[0]] ?? childPages["/gis-child"]);
+    });
+    await new Promise((r) => childSrv.listen(0, "localhost", r));
+    dynamicPages["/gis"] = `<!doctype html><html><body>
+      <button onclick="document.title='OUT'">Đăng nhập</button>
+      <script>setTimeout(() => { const f = document.createElement('iframe');
+        f.src = 'http://localhost:${childSrv.address().port}/gis-child';
+        f.style = 'width:300px;height:120px'; document.body.appendChild(f); }, 250);<\/script>
+    </body></html>`;
+    try {
+      const s = await open("/gis");
+      const st = await observe(s);
+      const inner = (st.actions ?? []).find((a) => /tiếp tục bằng tên anh/i.test(a.label ?? ""));
+      assert.ok(inner, `the late iframe button must be in the table — iframes=${
+        await engine.withSession({ profile }, (s2) => s2.iframes.size)
+      } got: ${JSON.stringify(st.actions.map((a) => a.label))}`);
+    } finally {
+      delete dynamicPages["/gis"];
+      childSrv.close();
+    }
+  });
+
+  await test("73. a click that opens window.prompt reports itself; --prompt answers it", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/prompt"] = `<!doctype html><html><body>
+      <button id="b" onclick="document.getElementById('out').textContent =
+        window.prompt('Paste image URL') ?? 'CANCELLED'">Paste a URL</button>
+      <div id="out">none</div>
+    </body></html>`;
+    try {
+      const st = await observe(await open("/prompt"));
+      const btn = st.actions.find((a) => a.label === "Paste a URL");
+      assert.ok(btn, "prompt button observed");
+      // 1) No --prompt: the auto-accept answers "" — the response must SAY a
+      //    native prompt opened (the agent cannot guess) and point at --prompt.
+      const blind = await invoke("click", { profile, id: btn.id, label: "Paste a URL" });
+      assert.equal(blind.ok, false, "blind prompt click must fail fast");
+      assert.equal(blind.dialog?.type, "prompt", `dialog info missing: ${JSON.stringify(blind.dialog)}`);
+      assert.match(blind.error, /--prompt/);
+      // 2) With --prompt the answer lands in the page.
+      const answered = await invoke("click", { profile, id: btn.id, label: "Paste a URL",
+        promptText: "https://x.img/9.png" });
+      assert.ok(answered.ok, JSON.stringify(answered));
+      assert.match(answered.state.text, /9\.png/, `page must receive the prompt answer:\n${answered.state.text}`);
+    } finally { delete dynamicPages["/prompt"]; }
+  });
+
+  await test("74. tabKey isolates concurrent drivers — two keys, two engines, no yanking", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const shared = "isoshared";
+    dynamicPages["/isoA"] = `<!doctype html><html><body><button onclick="">Alpha page</button></body></html>`;
+    dynamicPages["/isoB"] = `<!doctype html><html><body><button onclick="">Beta page</button></body></html>`;
+    try {
+      await invoke("go", { profile: shared, url: `${base}/isoA`, tabKey: "sessa" });
+      await invoke("go", { profile: shared, url: `${base}/isoB`, tabKey: "sessb" });
+      const a = await invoke("ls", { profile: shared, tabKey: "sessa" });
+      const b = await invoke("ls", { profile: shared, tabKey: "sessb" });
+      assert.ok(a.url.endsWith("/isoA"), `tab A was yanked to ${a.url}`);
+      assert.ok(b.url.endsWith("/isoB"), `tab B was yanked to ${b.url}`);
+      assert.ok(a.actions.some((x) => x.label === "Alpha page") &&
+        b.actions.some((x) => x.label === "Beta page"),
+        `engines mixed up: A=${JSON.stringify(a.actions.map((x) => x.label))} B=${JSON.stringify(b.actions.map((x) => x.label))}`);
+    } finally {
+      delete dynamicPages["/isoA"]; delete dynamicPages["/isoB"];
+      const { closeProfile } = await import("../features/browserUse/engine.js");
+      await closeProfile(`${shared}#sessa`).catch(() => {});
+      await closeProfile(`${shared}#sessb`).catch(() => {});
+    }
+  });
+
+  await test("75. clear wipes site data for an origin (GIS cooldown reset)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/clearme"] = `<!doctype html><html><body>
+      <div id="out">BOOT</div>
+      <script>if (location.search.includes("seed=1")) localStorage.setItem("marker", "KEEPME");
+        document.getElementById("out").textContent = localStorage.getItem("marker") || "EMPTY";<\/script>
+    </body></html>`;
+    try {
+      await open("/clearme?seed=1");
+      const before = await invoke("cat", { profile });
+      assert.match(before.text, /KEEPME/, "marker stored");
+      const res = await invoke("clear", { profile, origin: base });
+      assert.ok(res.ok, JSON.stringify(res));
+      await open("/clearme");
+      const after = await invoke("cat", { profile });
+      assert.match(after.text, /EMPTY/, `marker must be gone after clear: ${after.text}`);
+    } finally { delete dynamicPages["/clearme"]; }
+  });
+
+  await test("76. undbg detaches the debugger and the next op re-attaches", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    await open("/duo");
+    // Own mode has no separate debugger to drop — the op must say so clearly
+    // (the real detach flow needs the extension and is validated live).
+    await assert.rejects(() => invoke("undbg", { profile, ms: 600 }),
+      /extension-mode only/);
+  });
+
+  await test("77. renderTreeLines with coords includes [x,y] center points", async () => {
+    const { renderTreeLines } = await import("../features/browserUse/compress.js");
+    const actions = [
+      { id: "e1", node: 1, role: "button", label: "Save", kind: "click", rect: { x: 100, y: 200, w: 50, h: 20 } },
+      { id: "e2", node: 2, role: "link", label: "Cancel", kind: "click", rect: { x: 300, y: 400, w: 40, h: 10 } }
+    ];
+    const withCoords = renderTreeLines(actions, { coords: true });
+    assert.match(withCoords, /e1 button "Save" \[125,210\]/);
+    assert.match(withCoords, /e2 link "Cancel" \[320,405\]/);
+    const withoutCoords = renderTreeLines(actions, { coords: false });
+    assert.ok(!withoutCoords.includes("[125,210]"));
+  });
+
+  await test("78. visible iframe is observed as an actionable element with coordinates", async () => {
+    dynamicPages["/iframe-elem"] = `<!doctype html><html><body>
+      <iframe src="about:blank" title="Widget Frame" style="position:absolute;left:50px;top:80px;width:200px;height:100px"></iframe>
+    </body></html>`;
+    try {
+      const s = await open("/iframe-elem");
+      const st = await observe(s);
+      const frameEl = st.actions.find((a) => a.role === "iframe" || /widget frame/i.test(a.label));
+      assert.ok(frameEl, `iframe must be observed — got: ${JSON.stringify(st.actions.map(a => a.label))}`);
+      assert.ok(frameEl.rect, "iframe must have rect coordinates");
+      assert.equal(frameEl.rect.x, 50);
+      assert.equal(frameEl.rect.y, 80);
+      const { renderTreeLines } = await import("../features/browserUse/compress.js");
+      const tree = renderTreeLines(st.actions, { coords: true });
+      // Center follows the real border-box rect (UA default border 2px → 204px wide),
+      // so a dispatched click lands on the visible frame.
+      const cx = Math.round(frameEl.rect.x + frameEl.rect.w / 2);
+      const cy = Math.round(frameEl.rect.y + frameEl.rect.h / 2);
+      assert.match(tree, new RegExp(`iframe.*\\[${cx},${cy}\\]`));
+    } finally {
+      delete dynamicPages["/iframe-elem"];
+    }
+  });
+
+  await test("79. semantic tag prefixes in element IDs and 80-char label truncation", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    const longText = "This is a very long button label that exceeds eighty characters easily so we can verify truncation behavior";
+    dynamicPages["/semantic-tags"] = `<!doctype html><html><body>
+      <button onclick="document.title='BTN'">${longText}</button>
+      <a href="#">Link item</a>
+      <input type="text" placeholder="Type here">
+    </body></html>`;
+    try {
+      const s = await open("/semantic-tags");
+      const st = await observe(s);
+      const btn = st.actions.find((a) => a.role === "button");
+      const link = st.actions.find((a) => a.role === "link");
+      const inp = st.actions.find((a) => a.role === "textbox");
+      assert.ok(btn?.id?.startsWith("btn"), `button id must start with 'btn', got ${btn?.id}`);
+      assert.ok(link?.id?.startsWith("a"), `link id must start with 'a', got ${link?.id}`);
+      assert.ok(inp?.id?.startsWith("inp"), `input id must start with 'inp', got ${inp?.id}`);
+
+      // Backward compatibility: click using legacy 'e' prefix works
+      const legacyId = `e${btn.node}`;
+      const res = await invoke("click", { profile, id: legacyId });
+      assert.ok(res.ok, "legacy e-prefix click must succeed");
+
+      // Verify label truncation in tree rendering
+      const { renderTreeLines } = await import("../features/browserUse/compress.js");
+      const tree = renderTreeLines(st.actions);
+      assert.ok(!tree.includes(longText), "full long text should not appear in tree");
+      assert.ok(tree.includes("…"), "truncated text must include ellipsis");
+    } finally {
+      delete dynamicPages["/semantic-tags"];
+    }
+  });
+
+  await test("83. tryLabels: one-shot click guesses label variants until one lands", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/trylabels"] = `<!doctype html><html><body>
+      <button onclick="document.title='OK-83'">Sign in</button>
+    </body></html>`;
+    try {
+      await open("/trylabels");
+      // First two guesses do not exist; the third is the real label.
+      const res = await invoke("chain", { profile, steps: [
+        { op: "click", label: "Đăng nhập", tryLabels: ["Login", "Sign in"] }
+      ] });
+      assert.ok(res.ok, JSON.stringify(res.results));
+      assert.equal((await invoke("ls", { profile })).title, "OK-83");
+    } finally { delete dynamicPages["/trylabels"]; }
+  });
+
+  await test("84. not-observed miss re-observes once (late render race)", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/laterender"] = `<!doctype html><html><body>
+      <script>setTimeout(() => {
+        const b=document.createElement('button');b.textContent='Nhấn đây';
+        b.onclick=()=>document.title='OK-84';document.body.appendChild(b);
+      }, 400);<\/script>
+    </body></html>`;
+    try {
+      await open("/laterender");
+      const res = await invoke("chain", { profile, steps: [
+        { op: "wait", ms: 100 },
+        { op: "click", label: "Nhấn đây" }
+      ] });
+      assert.ok(res.ok, `late render must be absorbed by the re-observe: ${JSON.stringify(res.results)}`);
+      assert.equal((await invoke("ls", { profile })).title, "OK-84");
+    } finally { delete dynamicPages["/laterender"]; }
   });
 
   await closeProfile(profile).catch(() => {});

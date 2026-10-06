@@ -17,7 +17,7 @@ name: 9remote-browser
 description: Drive the machine's Chrome through the 9remote host — Jev (fast, free) does clicks and navigation, you do text and verification. Use when the user asks to open, read, fill, click or check something in a browser on this machine. Do not use merely because a task could involve a web page; plain fetch/curl is enough for public data.
 ---
 
-# 9remote browser operations
+# 9remote browser operations — terminal vocabulary
 
 \`9remote browser\` talks to the host's browser engine over its local API. The engine
 spawns an isolated Chrome profile by default (safe); the user may attach their real
@@ -26,42 +26,36 @@ browser after enabling remote debugging.
 ## Command reference
 
 \`\`\`bash
-9remote browser open <url> [--attach]                    # opens AND prints the element table (reuses tab if open)
-9remote browser tabs [--attach]                          # list open tabs (title, url, id)
-9remote browser state                                    # numbered element table of current page
-9remote browser console                                  # page console ring — JS errors/logs (last 100)
-9remote browser read [--parent SECTION] [--grep RE] [--from OFFSET LEN] [--tail]
-                                                          # markdown-lite content: headings, lists,
-                                                          # tables (| a | b |), chip rows (a · b);
-                                                          # --parent scopes to one tree section,
-                                                          # --grep keeps matching lines only,
-                                                          # --from OFFSET LEN windows past the cap
-                                                          # (the reply carries total chars — page on)
-9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--parent SECTION] [--fields "L=text;..."] [--prompt "text"] [--expect-text "..." ...]
-                                                            # Jev loop until DONE/BLOCKED; --only narrows
-                                                            # the table; --parent scopes it to one tree
-                                                            # section (same-label controls elsewhere drop
-                                                            # out); --fields supplies text YOU chose
-                                                            # (Jev picks the matching fields, engine types,
-                                                            # passwords masked); --expect-* declares end
-                                                            # conditions the engine verifies on a fresh read
-9remote browser click <id>                               # click element by table id (e.g. e3)
-9remote browser click <id> --prompt "text"               # the click opens a window.prompt() modal? answer it here —
-                                                            # native dialog, it NEVER appears in the element table
-9remote browser type <id> "<exact text>" [--enter]       # type text YOU chose; --enter sends it
-9remote browser chain "click e1; type e2 'hi' --enter; select e3; wait 'Saved'"
-9remote browser chain --parent SECTION "open URL; read 'Other section'; click e4 'Label'; run 'goal' --expect-url /next"
-                                                          # one call, fail-fast: --parent scopes
-                                                          # element lookup; click/select second quoted
-                                                          # arg = label guard; open/--expect-url declare
-                                                          # navigation (undeclared route change stops
-                                                          # the chain); a run step stops the chain
-                                                          # unless Jev reached needs_verification
-                                                          # known multi-step sequence in ONE call;
-                                                          # steps may also be run "<sub-goal>"
-9remote browser enter                                    # press Enter (send/submit)
-9remote browser shot                                     # writes a jpeg, prints its path — view via your file tool
-9remote browser close
+# ---- navigate ----
+9remote browser go <url> [--new] [--wait "text"]   # navigate AND print the table (reuses a tab already on the url)
+9remote browser go tab <#n|id|title|url>           # switch tab instead of navigating
+9remote browser ls [--from N] [--tail [N]] [--parent SECTION]  # element table, windowed like less
+9remote browser tabs [--attach]                    # list open tabs (* #1 [id] 🚀 [1] Title — URL)
+
+# ---- read / search ----
+9remote browser grep "<pattern>" [-C N] [-n] [-v] [-m N] [-q] [--links] [--parent S]
+                                                     # grep(1) over page text; --links lists label -> url
+9remote browser cat [--parent S] [--head N] [--tail N] [--from N --len N]
+                                                     # full markdown-lite page read
+9remote browser find "<needle>"                     # find(1) over the ELEMENT table (id/label/role/href)
+9remote browser console                             # page console ring — JS errors (last 100)
+
+# ---- act ----
+9remote browser run "<sub-goal>" [--url URL] [--max-steps N] [--only RE] [--parent SECTION] [--fields "L=text;..."] [--expect-text "..." ...]
+                                                     # Jev loop until DONE/BLOCKED; --expect-* verified on a
+                                                     # fresh read — only PASSED is success
+9remote browser click <id> [--prompt "text"]        # click table id; --prompt answers a window.prompt()
+9remote browser type <id> "<exact text>" [--enter]  # type text YOU chose
+9remote browser select <id> "<option>" | hover <id> | key <enter...> | enter
+9remote browser scroll <top|bottom|down|up|to X|y N>
+9remote browser wait "<text>"                       # bounded wait until text/element appears
+9remote browser shot                                # jpeg screenshot (visual confirmation ONLY)
+
+# ---- batch: ONE spawn, N commands ----
+9remote browser sh < script.txt                     # each line = one command; a failing line does NOT stop
+                                                     # the rest; trailing "&" suppresses that line's table
+9remote browser chain "go /login; grep 'Sign in'; click btn1 'Continue'"
+9remote browser chain --steps '<JSON>'              # canonical: typed, nestable, when-guards
 \`\`\`
 
 ## Division of labor
@@ -69,8 +63,7 @@ browser after enabling remote debugging.
 - Jev handles navigation, clicks, toggles, scrolling — call \`run\` with a narrow
   sub-goal and let it click through; each decision is ~1s and free.
 - YOU handle text, judgment and the final check: \`type\` with the exact string
-  (keep diacritics verbatim), \`enter\` to send, then verify with the returned
-  element table or \`shot\` for visuals.
+  (keep diacritics verbatim), \`enter\` to send, then verify with \`grep\` or \`ls\`.
 
 ## Outcome handling
 
@@ -83,58 +76,79 @@ browser after enabling remote debugging.
 
 ## Rules
 
-- Round trips are the cost: every CLI call spends one of your turns. \`open\`,
-  \`click\`, \`type\` (use \`--enter\`) and \`run\` all RETURN the new element table
-  in the same response — never follow them with \`state\`. Chain fixed-order shell
-  steps with \`&&\` in one call. On element-dense pages pass \`run --only <regex>\`
-  so Jev chooses among matching labels only — faster and less error-prone.
-  When the whole sequence is known upfront (form filling, open→type→submit),
-  use \`chain\` instead of several commands: one call, one result table, and it
-  stops at the first failing step with the live page state.
-- The element table nests ids under tree sections. When the same label (Save,
-  Edit, Open) appears in several sections, pass \`run --parent <section>\` — Jev
-  then chooses inside that section only. YOU know the section from the table;
-  Jev does not have to guess.
-- \`--only\` matches CLICK/SELECT element labels only — text fields are never
-  offered to Jev (typing is yours). If a command fails, change approach or
-  report the error — never read the tool's source code to debug it.
-- Let Jev scroll inside \`run\` (it has SCROLL) instead of clicking scroll
-  controls yourself step by step.
-- When a run ends \`no_progress\`/\`blocked\` or a click visibly does nothing, check
-  the console: a failed \`run\`/\`chain\` response already carries the last few
-  lines (a JS error is usually the reason); \`9remote browser console\` reads the
-  full ring.
-- Form journeys: pass known values via \`run --fields "Email=a@b.c;Password=…"\` —
-  Jev picks the fields, the engine types your exact text (password values are
-  masked and never sent to the model). Prefer it over one \`type\` per field.
-- Declare an expect for EVERY movement goal, even plain scrolling
-  (\`run "scroll to the footer" --expect-text "Guidelines"\`) — auto-continue then
-  drives it to the end in one command instead of many single-scroll runs.
-- When a task needs 2+ consecutive clicks following links, describe the
-  destination in ONE \`run\` — do not click ids one by one.
-- \`--only\` fragments must be long enough to be specific — a bare "2" matches
-  every label containing the digit 2.
-- \`state\` is only for re-reading mid-task. \`shot\` is ONLY final visual confirmation
-  (layout, colors, images — things text cannot tell). NEVER use screenshots to locate,
-  count or identify elements: the element table is the single source of truth for ids,
-  and a screenshot shows none of them.
-- Declare measurable end conditions up front: \`run --expect-text "Order confirmed" --expect-url ...\`.
-  The engine verifies them on a fresh read and AUTO-CONTINUES the Jev loop until they
-  pass (bounded chunks) — one command can carry the whole journey to a verified end.
-  Goal should name the DESTINATION (the outcome), not a single action — Jev handles
-  the steps itself. Only a PASSED verification is success; a DONE claim alone is
-  never proof. \`--expect-text\` matches visible page text AND filled field values.
-- Never automatically rerun a failed task that may have mutated the site — reconcile the
-  actual state first, then continue.
-- Write sequential sub-goals as ONE goal in order ("open X, then click Y, then
-  open Z") — the run loop executes the chain itself; do not split into many runs.
-- When sub-goals need your own typing or a different \`--only\` between them, batch
-  them as ONE \`chain\` of \`run\` steps instead of one \`run\` per turn:
-  \`chain "run 'select community r/selfhosted'; type eTags 'tools'; run 'publish' --only 'Post'"\`.
-  The runs share the session, each step reports its own outcome, and the chain
-  stops at the first failure with the live table — one CLI call, one of your turns.
-- In \`--attach\` mode, \`open <url>\` automatically reuses an existing tab if it matches the URL; use \`tabs --attach\` to inspect open tabs.
-- NEVER write custom Node.js scripts or raw WebSocket code to connect to DevToolsActivePort. Always use \`9remote browser ...\` commands — the host engine manages the connection and prevents duplicate security prompts.
+- ⚡⚡⚡ ONESHOT PATTERN: ONE chain CALL per task — chain and run NESTED BOTH WAYS. ⚡⚡⚡
+  Every task (form, navigation, funnel, search) MUST be ONE \`chain\` call. \`run\` steps live
+  inside the chain, and a \`run\` step may carry its own \`steps\` sub-chain (chain ⇄ run nesting).
+  NEVER issue single browser commands. NEVER split a task into multiple single clicks/types.
+
+- 🚀 SPECULATE FORWARD — a wrong guess costs NOTHING (fail-fast stops exactly there), a right
+  guess saves a whole round trip. Fill the chain to the END of the task (up to 50 steps):
+  predict the NEXT page's buttons before seeing them — click/type by \`label\` (labels survive
+  renumbered ids), add \`tryLabels\` for label variants (\`"tryLabels":["Đăng nhập","Sign in","Log in"]\`),
+  branch with \`when\` guards, verify inline with \`grep\`. The engine re-observes once on a
+  not-observed miss and tries every variant before the chain breaks — so guess aggressively.
+  When it does break, the response names the step and returns the live table: re-plan the
+  REMAINING steps in one new chain. Two shots is the ceiling, one is the target.
+
+  **CANONICAL FORM — \`--steps '<JSON>'\`:**
+  \`\`\`bash
+  9remote browser chain --steps '[
+    {"op":"go","url":"http://shop.com"},
+    {"op":"grep","pattern":"Logitech"},
+    {"op":"run","goal":"lọc Phụ kiện và bấm Mua ngay Chuột MX","expectUrl":"/shop/cart",
+     "steps":[{"op":"click","label":"Tiếp tục thanh toán"}]},
+    {"op":"type","label":"Mã giảm giá","text":"SALE50"},
+    {"op":"click","label":"Áp dụng","when":{"text":"SALE50"}},
+    {"op":"grep","pattern":"Tổng tiền"}
+  ]'
+  \`\`\`
+  Step types (12 ops — terminal verbs):
+  - Navigate: \`{"op":"go","url":...}\` | \`{"op":"go","tab":2|"H1"}\` (\`"new":true\` forces a fresh tab) | \`{"op":"wait","text":...,"ms":N}\`
+  - Act: \`{"op":"click"|"select","id":"btn7","label":"guard","prompt":"answer","tryLabels":["Variant B","Variant C"]}\` |
+    \`{"op":"type","id":"inp1","text":"...","enter":true,"tryLabels":[...]}\` | \`{"op":"enter"}\` |
+    \`{"op":"hover","id":"a1"}\` | \`{"op":"scroll","to":"btn7"|"text"|"y":4200,"direction":"down"}\` |
+    \`{"op":"run","goal":...,"only":...,"parent":...,"fields":{...},"expectText":[...],"expectUrl":...,"steps":[sub-chain]}\`
+  - Read: \`{"op":"cat","parent":...,"head":N,"tail":N}\` |
+    \`{"op":"grep","pattern":...,"context":N,"lineNumbers":true,"invert":false,"max":N,"links":false,"quiet":true,"head":N,"tail":N,"parent":...}\` |
+    \`{"op":"find","pattern":"nút gửi"}\`
+  - **when-guard (if/else)**: any step may carry \`"when":{"text":"Còn hàng"}\` (or \`textNot\`/\`url\`) —
+    unmet ⇒ the step is SKIPPED, not failed. Complementary guards = if/else. A non-quiet
+    \`grep\` with zero hits FAILS the chain (assertion); \`"quiet":true\` turns it into a branch check.
+  - \`run.steps\` sub-chain: max 3 nesting levels, 30 steps total (nested included). A sub-step
+    failure fail-fasts the whole chain, attributed to the parent run step.
+  - Reading steps (\`cat\`/\`grep\`/\`find\`) return their text INSIDE the chain results —
+    verify mid-journey without losing the oneshot.
+
+  **WHEN THE CHAIN BREAKS (fail-fast):** the response names the exact step, returns the LIVE
+  element table at the break point and which steps were skipped/failed. Immediately issue ONE
+  NEW chain for the REMAINING steps only — never fall back to single commands.
+
+- Zero/minimal reasoning (Action-first): read the element table and immediately call the
+  matching CLI command. No long speculative analysis while driving the browser.
+- Round trips are the cost: every CLI call spends one of your turns. \`go\`, \`click\`,
+  \`type\` (--enter) and \`run\` all RETURN the new element table — never follow with \`ls\`.
+  Prefer \`grep\` over \`cat\` (filtered beats full). Batch shell steps with \`&&\`.
+- \`ls\` windowing: dense pages cap at 248 elements — the header says
+  \`[elements 1-248 of 731]\`; call \`ls --from 248\` (next window), \`ls --tail\` (last),
+  \`ls --parent "Section"\` (one subtree).
+- Element table lines carry link destinations: \`a5 link "Docs" -> https://...\` —
+  use them with \`go\` instead of clicking blind.
+- \`--only\` matches CLICK/SELECT labels only; text fields are never offered to Jev.
+  If a command fails, change approach or report the error — never read the tool's source.
+- Let Jev scroll inside \`run\` (it has SCROLL) instead of clicking scroll controls yourself.
+- When a run ends \`no_progress\`/\`blocked\` or a click does nothing, check the console:
+  failed responses carry the last lines; \`9remote browser console\` reads the full ring.
+- Form journeys: \`run --fields "Email=a@b.c;Password=…"\` — engine types your exact text,
+  passwords masked and never sent to the model.
+- Declare an expect for EVERY movement goal (\`--expect-text "Order confirmed"\`); the engine
+  verifies on a fresh read and AUTO-CONTINUES the loop until they pass.
+- \`shot\` is ONLY final visual confirmation (layout, colors). NEVER use screenshots to
+  locate or identify elements — the element table is the single source of truth.
+- Never automatically rerun a failed task that may have mutated the site — reconcile
+  the state first (\`ls\`/\`grep\`), then continue.
+- Write sequential sub-goals as ONE goal in order; batch mixed needs as ONE chain of steps.
+- NEVER write custom Node.js scripts or raw WebSocket code to reach DevTools. Always use
+  \`9remote browser ...\` commands.
 - Never type into or click elements of pages the user did not ask you to touch.
 `;
 

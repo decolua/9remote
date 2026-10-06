@@ -14,11 +14,13 @@ export { checkExpectations };
 import {
   attachStatus, closeProfile, listTabs, openAttachGuide, readStepFrame, framePathFor,
   requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter,
-  switchTab, closeTab
+  switchTab, closeTab, matchActionId
 } from "./engine.js";
 import { ensureExtensionInstall, extStatus } from "./extRelay.js";
-import { AUTO_CONTINUE_CHUNKS, CONSOLE_FAIL_TAIL, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
+import { AUTO_CONTINUE_CHUNKS, CONSOLE_FAIL_TAIL, ELEMENT_DEEP_CAP, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
+import { grepContent } from "./grep.js";
 import { installSkillForEngine, removeAllInstalledSkills, SKILL_ENGINES } from "./skill.js";
+import { renderTreeLines } from "./compress.js";
 import { globalAiManager } from "../ai/aiManager.js";
 import { getLiveConversations } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
@@ -176,30 +178,128 @@ export async function invoke(action, payload = {}) {
       const opts = sessionOpts(payload);
       return { ok: true, tabs: await listTabs(opts) };
     }
-    case "open":
-      // Returns the element table too — kills the open→state double round trip.
+    case "go": {
+      // url → navigate (tab reuse built in); tab selector → switch; new → fresh tab.
+      const tabSel = payload.tab ?? payload.target ?? null;
+      if (tabSel != null && !payload.url) {
+        return { ok: true, ...(await switchTab(sessionOpts(payload), tabSel)), state: await stateAfter(payload) };
+      }
+      // Returns the element table too — kills the go→ls double round trip.
       return { ok: true, ...(await waitGate(payload)), state: await withSession({
-        ...sessionOpts(payload), url: required(payload, "url")
+        ...sessionOpts(payload), url: required(payload, "url"), newTab: Boolean(payload.newTab)
       }, async (session) => session.steady()) };
-    case "state":
-      return { ok: true, ...(await withSession(sessionOpts(payload), (session) => session.current())) };
+    }
+    case "ls": {
+      // Windowed element table: from/len page-side; tail/parent host-side.
+      const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
+      const len = Number.isFinite(+payload.len) && +payload.len > 0 ? Math.floor(+payload.len) : 248;
+      const from = Number.isFinite(+payload.from) && +payload.from > 0 ? Math.floor(+payload.from) : 0;
+      // --tail N carries its own window size; a bare --tail uses the default len.
+      const tailN = Number.isFinite(+payload.tail) && +payload.tail > 0 ? Math.floor(+payload.tail) : len;
+      const state = await withSession(sessionOpts(payload), async (session) => {
+        if (payload.tail) {
+          // Deep collect once, window the tail host-side (synthetic controls re-append).
+          const s = await session.listState({ len: ELEMENT_DEEP_CAP, cap: ELEMENT_DEEP_CAP });
+          const real = s.actions.filter((a) => typeof a.node === "number");
+          const synth = s.actions.filter((a) => typeof a.node !== "number");
+          s.actions = [...real.slice(Math.max(0, real.length - tailN)), ...synth];
+          s.element_from = Math.max(0, real.length - tailN);
+          return s;
+        }
+        return session.listState({ from, len, cap: from > 0 ? ELEMENT_DEEP_CAP : undefined });
+      });
+      if (parent) state.actions = scopeByParent(state.actions, parent);
+      return { ok: true, ...state,
+        dialogs: await withSession(sessionOpts(payload), (session) => session.dialogLog) };
+    }
+    case "undbg": {
+      // Drop chrome.debugger for the working tab and let the page breathe:
+      // Google GIS refuses to render its button (FedCM cooldown) while a
+      // debugger is attached — detach, wait, then serve a fresh state. The
+      // next CDP call re-attaches automatically (shim retry).
+      const opts = sessionOpts(payload);
+      if (opts.mode !== "extension") {
+        throw new Error("undbg is extension-mode only — in other modes the debugger IS the engine connection");
+      }
+      const ms = Math.min(60000, Math.max(500, Number(payload.ms) || 15000));
+      const url = typeof payload.url === "string" && /^https?:\/\//i.test(payload.url) ? payload.url : null;
+      const result = await withSession(opts, async (session) => {
+        // Arm a delayed navigation BEFORE detaching (if one is wanted): the
+        // page then loads while NO debugger is attached — GIS decides to render
+        // its button at load time, so a post-hoc detach changes nothing.
+        if (url) {
+          await session.client.call("Runtime.evaluate",
+            { expression: `setTimeout(() => { location.href = ${JSON.stringify(url)} }, 200)` },
+            session.sessionId);
+        }
+        await session.client.call("SHIM.Debugger.detach", { targetId: session.sessionId });
+        await new Promise((r) => setTimeout(r, ms));
+        session.lastState = null; // serve a fresh table, not the pre-detach cache
+        return { detached: true, ms, ...(url ? { url } : {}) };
+      });
+      return { ok: true, ...result, state: await stateAfter(payload) };
+    }
+    case "clear": {
+      // Wipe site data for one origin — resets GIS One-Tap cooldowns ("button
+      // vanished") without touching the signed-in Google profile cookies.
+      const opts = sessionOpts(payload);
+      const origin = /^https?:\/\/[a-z0-9.-]+(:\d+)?$/i.test(String(payload.origin ?? "")) ? payload.origin : null;
+      let usedOrigin = origin;
+      const result = await withSession(opts, async (session) => {
+        if (!usedOrigin) {
+          const url = (await session.current()).url;
+          usedOrigin = new URL(url).origin;
+        }
+        await session.client.call("Storage.clearDataForOrigin",
+          { origin: usedOrigin, storageTypes: "all" }, session.sessionId);
+        return { cleared: usedOrigin };
+      });
+      return { ok: true, ...result };
+    }
     case "console":
       // Console ring — read-only, no session side effects (same shape as state)
       return { ok: true, lines: await withSession(sessionOpts(payload), (session) => session.consoleLog) };
-    case "read": {
-      // Markdown-lite read; --parent scopes to a tree section, --from/--len
-      // window past the cap, --grep filters lines host-side.
+    case "cat": {
+      // Markdown-lite page read; parent scopes to a tree section, from/len
+      // window past the cap, head/tail cut the rendered lines.
       const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
       const from = Number.isFinite(+payload.from) && +payload.from > 0 ? Math.floor(+payload.from) : 0;
       const len = Number.isFinite(+payload.len) && +payload.len > 0 ? Math.floor(+payload.len) : null;
       const read = await withSession(sessionOpts(payload), (session) => session.readSection(parent, from, len));
-      if (typeof payload.grep === "string" && payload.grep.trim()) {
-        let re;
-        try { re = new RegExp(payload.grep, "i"); }
-        catch { throw new Error(`Invalid --grep pattern: ${payload.grep}`); }
-        read.text = read.text.split("\n").filter((line) => re.test(line)).join("\n");
-      }
+      let lines = String(read.text || "").split("\n");
+      if (Number.isFinite(+payload.head) && +payload.head > 0) lines = lines.slice(0, Math.floor(+payload.head));
+      else if (Number.isFinite(+payload.tail) && +payload.tail > 0) lines = lines.slice(-Math.floor(+payload.tail));
+      read.text = lines.join("\n");
       return { ok: true, from, ...read };
+    }
+    case "grep": {
+      // grep(1) over page content: context, line numbers, invert, links, caps.
+      const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
+      const read = await withSession(sessionOpts(payload), (session) => session.readSection(parent));
+      const r = grepContent(read.text, {
+        pattern: payload.pattern ?? "",
+        context: payload.context, before: payload.before, after: payload.after,
+        lineNumbers: payload.lineNumbers !== false && payload.n !== false,
+        invert: Boolean(payload.invert), max: payload.max, links: Boolean(payload.links),
+        head: payload.head, tail: payload.tail
+      });
+      return { ok: true, ...r, quiet: Boolean(payload.quiet) };
+    }
+    case "find": {
+      // Element-table filter (find(1)): id, label, role or href substring.
+      const needle = String(required(payload, "pattern") || "").toLowerCase();
+      const state = await withSession(sessionOpts(payload), async (session) => {
+        const win = Number.isFinite(+payload.from) && +payload.from > 0
+          ? { from: Math.floor(+payload.from), len: ELEMENT_DEEP_CAP, cap: ELEMENT_DEEP_CAP }
+          : { len: ELEMENT_DEEP_CAP, cap: ELEMENT_DEEP_CAP };
+        return session.listState(win);
+      });
+      const hits = state.actions.filter((a) =>
+        String(a.id || "").toLowerCase().includes(needle) ||
+        String(a.label || "").toLowerCase().includes(needle) ||
+        String(a.role || "").toLowerCase().includes(needle) ||
+        String(a.href || "").toLowerCase().includes(needle));
+      return { ok: true, matched: hits.length, total: state.actions.length, actions: hits };
     }
     case "run": {
       requireRunConfig();
@@ -236,6 +336,7 @@ export async function invoke(action, payload = {}) {
       // A failed run explains itself in-response (same rationale as the chain tail).
       const consoleTail = (result.outcome === "action_error" || result.outcome === "no_progress")
         ? await consoleAfter(payload) : null;
+      const dialogTail = consoleTail ? await dialogsAfter(payload) : null;
       // A report failure must not swallow the run result — the agent would
       // retry the whole Jev loop and re-run every action.
       let report = null;
@@ -247,13 +348,24 @@ export async function invoke(action, payload = {}) {
       // instead of shooting a fresh, possibly-moved screenshot.
       return { ok: true, taskId, ...result, report, verification,
         frame: framePathFor(runOpts), ...(consoleTail ? { console: consoleTail } : {}),
+        ...(dialogTail?.length ? { dialogs: dialogTail } : {}),
         state: await stateAfter(payload) };
     }
     case "click": {
       const opts = sessionOpts(payload);
-      return { ok: true, ...(await clickById(opts.profile, required(payload, "id"),
-        { promptText: typeof payload.promptText === "string" ? payload.promptText : null })),
-        ...(await waitGate(payload)), state: await stateAfter(payload) };
+      const result = await clickById(opts.profile, required(payload, "id"),
+        { promptText: typeof payload.promptText === "string" ? payload.promptText : null,
+          nowait: Boolean(payload.nowait) });
+      // A prompt answered with "" (no --prompt armed) is a failed action in
+      // spirit — fail fast and tell the agent the one way to answer it.
+      if (result.dialog?.type === "prompt" && typeof payload.promptText !== "string") {
+        return { ok: false,
+          error: `click opened window.prompt(${JSON.stringify(result.dialog.message)}) and it was auto-answered "" — ` +
+            `click the same id again with --prompt "your answer"`,
+          dialog: result.dialog, state: await stateAfter(payload) };
+      }
+      if (payload.nowait) return { ok: true, ...result };
+      return { ok: true, ...result, ...(await waitGate(payload)), state: await stateAfter(payload) };
     }
     case "clickxy": {
       const opts = sessionOpts(payload);
@@ -263,9 +375,23 @@ export async function invoke(action, payload = {}) {
     }
     case "scroll": {
       const opts = sessionOpts(payload);
-      const action = payload.edge
-        ? (session2) => session2.scrollToEdge(payload.edge)
-        : (session2) => session2.scrollBy(Number(payload.px));
+      let action;
+      if (payload.edge) action = (s) => s.scrollToEdge(payload.edge);
+      else if (Number.isFinite(Number(payload.y))) action = (s) => s.scrollToY(Number(payload.y));
+      else if (typeof payload.to === "string" && payload.to.trim()) {
+        const needle = payload.to.trim();
+        action = async (s) => {
+          const state = await s.current();
+          const el = state.actions.find((a) => matchActionId(a, needle)) ||
+            state.actions.find((a) => String(a.label || "").replace(/\s+/g, " ").trim().toLowerCase() === needle.toLowerCase());
+          if (el) return s.scrollToAction(el);
+          const burst = await s.scrollBurstTo([needle]);
+          if (!burst.found) {
+            throw new Error(`scroll to "${needle}": not found before ${burst.bottom ? "page bottom" : "burst cap"} (y=${burst.y})`);
+          }
+          return burst;
+        };
+      } else action = (s) => s.scrollBy(payload.direction || (["down", "up"].includes(String(payload.px)) ? String(payload.px) : (Number(payload.px) || "down")));
       await withSession(opts, action);
       return { ok: true, state: await stateAfter(payload) };
     }
@@ -296,27 +422,25 @@ export async function invoke(action, payload = {}) {
         session.waitText(required(payload, "text"), Number(payload.timeoutMs) || undefined));
       return { ok: true, found, state };
     }
-    case "tab": {
-      return { ok: true, ...(await switchTab(sessionOpts(payload), Number(required(payload, "index")))),
-        state: await stateAfter(payload) };
-    }
     case "tabclose": {
-      return { ok: true, ...(await closeTab(sessionOpts(payload), payload.index ? Number(payload.index) : null)) };
+      const target = payload.target ?? payload.id ?? payload.index ?? null;
+      return { ok: true, ...(await closeTab(sessionOpts(payload), target)) };
     }
     case "type": {
       const opts = sessionOpts(payload);
       const result = await withSession(opts, async (session) => {
         let state = await session.current();
-        let action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "fill");
+        let action = state.actions.find((a) => matchActionId(a, required(payload, "id")) && a.kind === "fill");
         if (!action) { // table shifted since the caller's observe — one retry
           state = await session.observe();
-          action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "fill");
+          action = state.actions.find((a) => matchActionId(a, required(payload, "id")) && a.kind === "fill");
         }
         if (!action) throw new Error(`Field ${required(payload, "id")} not observed (or not editable)`);
-        await session.act(action, required(payload, "text"));
+        await session.act(action, required(payload, "text"), { nowait: Boolean(payload.nowait) });
         if (payload.enter) await session.pressEnter();
         return { typed: payload.text };
       });
+      if (payload.nowait) return { ok: true, ...result };
       return { ok: true, ...result, ...(await waitGate(payload)), state: await stateAfter(payload) };
     }
     case "upload": {
@@ -325,10 +449,10 @@ export async function invoke(action, payload = {}) {
       if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
       const result = await withSession(opts, async (session) => {
         let state = await session.current();
-        let action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "upload");
+        let action = state.actions.find((a) => matchActionId(a, required(payload, "id")) && a.kind === "upload");
         if (!action) { // table shifted since the caller's observe — one retry
           state = await session.observe();
-          action = state.actions.find((a) => a.id === required(payload, "id") && a.kind === "upload");
+          action = state.actions.find((a) => matchActionId(a, required(payload, "id")) && a.kind === "upload");
         }
         if (!action) throw new Error(`${required(payload, "id")} is not an observed file input`);
         return await session.uploadFile(action, file);
@@ -440,11 +564,30 @@ const consoleAfter = async (payload) => {
   try { return await withSession(sessionOpts(payload), (s) => s.consoleLog.slice(-CONSOLE_FAIL_TAIL)); }
   catch { return null; }
 };
+// Dialog ring for a failed run — a swallowed prompt often explains the failure.
+const dialogsAfter = async (payload) => {
+  try { return await withSession(sessionOpts(payload), (s) => s.dialogLog); }
+  catch { return null; }
+};
 
 // ---- chain: many steps in ONE call (openclaw batch pattern) -------------------
-const CHAIN_OPS = new Set(["click", "select", "type", "enter", "scroll", "wait", "run", "open", "read"]);
-const MAX_CHAIN_STEPS = 30;
+const CHAIN_OPS = new Set(["go", "wait", "click", "type", "select", "hover", "enter", "scroll", "run", "cat", "grep", "find"]);
+const MAX_CHAIN_STEPS = 50;
+const MAX_CHAIN_DEPTH = 3; // root chain + 2 nested run.steps levels
 const WAIT_TEXT_CAP_MS = 3000;
+
+// when-guard: a step whose precondition is unmet is SKIPPED, not failed —
+// complementary guards on two steps compose into if/else (shell && / ||).
+async function whenMet(session, when) {
+  try {
+    const state = await session.current();
+    const hay = `${state.text || ""}\n${(state.actions || []).map((a) => `${a.label} ${a.href || ""}`).join("\n")}`.toLowerCase();
+    if (typeof when.url === "string" && !String(state.url || "").toLowerCase().includes(when.url.toLowerCase())) return false;
+    if (typeof when.text === "string" && !hay.includes(when.text.toLowerCase())) return false;
+    if (typeof when.textNot === "string" && hay.includes(when.textNot.toLowerCase())) return false;
+    return true;
+  } catch { return false; } // unreadable page = precondition unknown = skip
+}
 
 // Only a verified-claim outcome may continue a chain — every other outcome
 // means the page is NOT what the LLM predicted, so the remaining guesses are void.
@@ -453,47 +596,110 @@ export function chainRunError(result) {
   return new Error(`run ${result?.outcome || "unknown"}: ${result?.reason || "no reason"}`);
 }
 
-async function waitText(session, text) {
-  const deadline = Date.now() + WAIT_TEXT_CAP_MS;
+async function waitText(session, text, timeoutMs = WAIT_TEXT_CAP_MS) {
+  const needle = String(text || "").toLowerCase();
+  const deadline = Date.now() + Math.max(500, Number(timeoutMs) || WAIT_TEXT_CAP_MS);
   while (Date.now() < deadline) {
     const state = await session.current();
-    if (state.text?.includes(text)) return true;
+    const hay = `${state.text || ""}\n${(state.actions || []).map((a) => a.label).join("\n")}`.toLowerCase();
+    if (hay.includes(needle)) return true;
     await new Promise((r) => setTimeout(r, 100));
   }
   return false;
 }
 
+// Total step count across nested sub-chains — the flatten bound for MAX_CHAIN_STEPS.
+const countChainSteps = (steps) => steps.reduce((n, s) =>
+  n + 1 + (Array.isArray(s.steps) ? countChainSteps(s.steps) : 0), 0);
+
 async function runChain(opts, steps, chainParent = null) {
-  if (!Array.isArray(steps) || !steps.length || steps.length > MAX_CHAIN_STEPS) {
-    throw new Error(`chain needs 1..${MAX_CHAIN_STEPS} steps`);
+  if (!Array.isArray(steps) || !steps.length) throw new Error(`chain needs 1..${MAX_CHAIN_STEPS} steps`);
+  const total = countChainSteps(steps);
+  if (total > MAX_CHAIN_STEPS) {
+    throw new Error(`chain has ${total} steps (nested included) — max is ${MAX_CHAIN_STEPS}`);
   }
   return withSession(opts, async (session) => {
     const results = [];
     let lastUrl = null;       // url the previous step ended on (null = first step)
     let idsUntrusted = false; // a navigation happened — bare id steps need a label guard
     const scopeOf = (step) => step.parent || chainParent || null;
-    for (let i = 0; i < steps.length; i++) {
-      const step = steps[i];
+    // Step numbers are issued at step START (a run parent numbers before its
+    // sub-steps), so ids stay unique across nesting regardless of push order.
+    let stepCounter = 0;
+    // Recursive executor: a `run` step may carry `steps` (sub-chain) executed
+    // right after the run passes its expects — chain ⇄ run nesting in ONE call.
+    // depth > 0 = sub-chain: a click/select that navigates is ACCEPTED (lastUrl
+    // adopted) — multi-page funnels are the whole point of nesting.
+    const execSteps = async (subSteps, depth) => {
+      for (let i = 0; i < subSteps.length; i++) {
+      const step = subSteps[i];
       const parent = scopeOf(step);
       let summary = step.op;
+      const stepNo = ++stepCounter;
       if (session.cancelRequested) {
         session.cancelRequested = false; // consume-once: the next chain starts clean
-        results.push({ step: i + 1, op: step.op, ok: false, error: "cancelled" });
-        return { ok: false, failedStep: i + 1, results, state: await stateAfterSafe(session) };
+        results.push({ step: stepNo, op: step.op, ok: false, error: "cancelled" });
+        return { ok: false, failedStep: stepNo, results, state: await stateAfterSafe(session) };
       }
       try {
         if (!CHAIN_OPS.has(step.op)) throw new Error(`Unknown chain op: ${step.op}`);
-        if (step.op === "open") {
-          if (!step.url) throw new Error("Missing field: url");
-          const prevUrl = lastUrl;
-          await session.openOrReuseTab(String(step.url));
-          lastUrl = (await session.current()).url;
-          idsUntrusted = prevUrl === null || prevUrl !== lastUrl;
-          summary = `open ${String(step.url).slice(0, 40)}`;
-        } else if (step.op === "read") {
+        if (step.when && !(await whenMet(session, step.when))) {
+          results.push({ step: stepNo, op: step.op, ok: true, skipped: true,
+            summary: `when not met — skipped` });
+          continue;
+        }
+        if (step.op === "go") {
+          const tabSel = step.tab ?? step.target ?? null;
+          if (tabSel != null && !step.url) {
+            const tabResult = await session.switchTab(tabSel);
+            lastUrl = (await session.current()).url;
+            idsUntrusted = true;
+            summary = `go tab #${tabResult.index || tabSel} (${String(tabResult.title || tabResult.url || "").slice(0, 30)})`;
+          } else {
+            if (!step.url) throw new Error("Missing field: url");
+            const prevUrl = lastUrl;
+            await session.openOrReuseTab(String(step.url), { newTab: Boolean(step.newTab) });
+            lastUrl = (await session.current()).url;
+            idsUntrusted = prevUrl === null || prevUrl !== lastUrl;
+            summary = `go ${String(step.url).slice(0, 40)}`;
+          }
+        } else if (step.op === "cat") {
           const read = await session.readSection(parent);
-          results.push({ step: i + 1, op: step.op, ok: true,
-            summary: `read ${read.text.length} chars`, text: read.text });
+          let lines = String(read.text || "").split("\n");
+          if (Number.isFinite(+step.head) && +step.head > 0) lines = lines.slice(0, Math.floor(+step.head));
+          else if (Number.isFinite(+step.tail) && +step.tail > 0) lines = lines.slice(-Math.floor(+step.tail));
+          const text = lines.join("\n");
+          results.push({ step: stepNo, op: step.op, ok: true,
+            summary: `cat ${text.length} chars`, text });
+          continue;
+        } else if (step.op === "grep") {
+          const read = await session.readSection(parent);
+          const r = grepContent(read.text, {
+            pattern: step.pattern ?? "", context: step.context, before: step.before, after: step.after,
+            lineNumbers: step.lineNumbers !== false, invert: Boolean(step.invert),
+            max: step.max, links: Boolean(step.links), head: step.head, tail: step.tail
+          });
+          // grep(1) semantics: a miss exits 1 — a non-quiet grep IS an assertion;
+          // quiet:true turns it into a pure branch check (when-guards decide next).
+          if (!r.matched && !step.quiet && !step.invert && String(step.pattern || "").trim()) {
+            throw new Error(`grep "${step.pattern}": no match`);
+          }
+          results.push({ step: stepNo, op: step.op, ok: true,
+            summary: `grep "${String(step.pattern || "(links)").slice(0, 20)}" → ${r.matched} hits`,
+            text: r.text, matched: r.matched });
+          continue;
+        } else if (step.op === "find") {
+          const needle = String(step.pattern ?? required(step, "pattern")).toLowerCase();
+          const state = await session.current();
+          const pool = parent ? scopeByParent(state.actions, parent) : state.actions;
+          const hits = pool.filter((a) =>
+            String(a.id || "").toLowerCase().includes(needle) ||
+            String(a.label || "").toLowerCase().includes(needle) ||
+            String(a.role || "").toLowerCase().includes(needle) ||
+            String(a.href || "").toLowerCase().includes(needle));
+          results.push({ step: stepNo, op: step.op, ok: true,
+            summary: `find "${needle.slice(0, 20)}" → ${hits.length}/${pool.length}`,
+            text: renderTreeLines(hits, { coords: true }) });
           continue;
         } else if (step.op === "run") {
           requireRunConfig(); // chain must not bypass the enabled gate
@@ -509,7 +715,11 @@ async function runChain(opts, steps, chainParent = null) {
           const result = await runTask(session, {
             goal: String(step.goal),
             config,
-            policy: policyFromConfig(),
+            // A chain run step may lower Jev's confidence gate — long multi-step
+            // goals read as uncertain even when each action is sound.
+            policy: Number.isFinite(Number(step.minConfidence))
+              ? { ...policyFromConfig(), minConfidence: Math.min(1, Math.max(0, Number(step.minConfidence))) }
+              : policyFromConfig(),
             only: step.only || null,
             parent,
             fields: sanitizeFields(step.fields),
@@ -532,26 +742,50 @@ async function runChain(opts, steps, chainParent = null) {
             idsUntrusted = true;
           }
           summary = `run -> ${result.outcome}`;
+          // Nested sub-chain: executed after the run verified PASS. A sub-step
+          // failure propagates (fail-fast) attributed to this parent step.
+          if (Array.isArray(step.steps) && step.steps.length) {
+            if (depth + 1 >= MAX_CHAIN_DEPTH) {
+              throw new Error(`chain nesting too deep — max ${MAX_CHAIN_DEPTH} levels`);
+            }
+            await execSteps(step.steps, depth + 1);
+          }
         } else {
-          const state = await session.current();
+          let state = await session.current();
+          // A main-frame nav the previous click's settle never saw committed
+          // (location.href assignments fire no frameRequestedNavigation) —
+          // settle once more before ruling, so the failure names the NAV
+          // instead of a vanishing element.
+          if (lastUrl !== null && state.url === lastUrl &&
+              session.navReq && session.navReq.ts > session.navCommit) {
+            state = await session.steady();
+          }
           if (lastUrl !== null && state.url !== lastUrl) {
             throw new Error(`unexpected navigation to ${state.url} — the page left ${lastUrl}; re-plan from the returned state`);
           }
           lastUrl = state.url;
-          const pool = scopeByParent(state.actions, parent);
+          let pool = scopeByParent(state.actions, parent);
+          const refreshPool = async () => {
+            const fresh = await session.observe();
+            pool = scopeByParent(fresh.actions, parent);
+            return fresh;
+          };
           // Fail-fast lookup: no first-match-wins. Ambiguity throws, a wrong
           // id under a label guard throws BEFORE the click, and bare ids are
           // refused outright once the page has navigated.
-          const find = (target, expectedKind = null, guard = null) => {
+          // Label-only steps (no id) resolve by exact label — chain ids survive
+          // wizard steps that renumber the table between renders.
+          const find = (target, expectedKind = null, guard = null, labelOnly = false) => {
             if (!target) throw new Error("Missing element target");
-            if (guard == null && idsUntrusted && /^e\d+$/.test(String(target))) {
-              throw new Error("page navigated — id steps need a label guard (click e4 'Label')");
+            if (!labelOnly && guard == null && idsUntrusted && /^([a-z]*)\d+(-\d+)?$/i.test(String(target))) {
+              throw new Error(`page navigated — id steps need a label guard (click ${target} 'Label')`);
             }
             const lower = String(target).toLowerCase();
             const kindPool = expectedKind ? pool.filter((a) => a.kind === expectedKind) : pool;
-            const labelHit = (a) => a.label?.toLowerCase() === lower ||
+            const normHit = (s) => String(s ?? "").toLowerCase().replace(/\s+/g, " ").trim();
+            const labelHit = (a) => normHit(a.label) === normHit(target) ||
               (a.kind === "select" && (a.value === target || a.label?.toLowerCase().endsWith(`→ ${lower}`) || a.label?.toLowerCase().endsWith(`-> ${lower}`)));
-            let candidates = pool.filter((a) => a.id === target);
+            let candidates = pool.filter((a) => matchActionId(a, target));
             if (!candidates.length) candidates = kindPool.filter(labelHit);
             if (!candidates.length) candidates = kindPool.filter((a) => a.label?.toLowerCase().includes(lower));
             if (candidates.length > 1) {
@@ -566,39 +800,128 @@ async function runChain(opts, steps, chainParent = null) {
               throw new Error(`Element "${target}" not observed${parent ? ` in ${parent}` : ""}` +
                 `${list ? `. Available${parent ? ` (${parent})` : ""}: ${list}` : ""}`);
             }
-            if (guard != null && String(action.label || "") !== String(guard)) {
+            // Whitespace-insensitive guard: the printed table collapses runs of
+            // spaces, so an agent copying the label verbatim from it must still
+            // match a DOM label containing double spaces.
+            const norm = (s) => String(s ?? "").replace(/\s+/g, " ").trim();
+            if (guard != null && norm(action.label) !== norm(guard)) {
               throw new Error(`label mismatch: ${action.id} is "${action.label}", expected "${guard}" — the page changed under this id`);
             }
             return action;
           };
+          // One-shot booster: try every guessed label (tryLabels), and on a
+          // not-observed miss re-observe ONCE (render race) before giving up.
+          // Config errors (ambiguous, guard mismatch, bare-id-after-nav) still
+          // fail fast — those are wrong guesses about the WRONG thing.
+          const findAny = async (step, kind) => {
+            const variants = step.id
+              ? [step.id]
+              : [step.label, ...(Array.isArray(step.tryLabels) ? step.tryLabels : [])]
+                .filter((x) => typeof x === "string" && x.trim());
+            if (!variants.length) throw new Error("Missing element target");
+            let lastErr = null;
+            for (let round = 0; round < 2; round++) {
+              for (const v of variants) {
+                try {
+                  return step.id
+                    ? find(v, kind, step.label ?? null)
+                    : find(v, kind, null, true);
+                } catch (e) {
+                  if (!/not observed/i.test(e.message)) throw e;
+                  lastErr = e;
+                }
+              }
+              if (round === 0) await refreshPool();
+            }
+            throw lastErr;
+          };
           if (step.op === "click" || step.op === "select") {
-            const action = find(step.id, step.op, step.label ?? null);
-            await session.act(action);
+            const action = await findAny(step, step.op);
+            // Arm a prompt answer BEFORE the click so a chained click can pass
+            // a native prompt gate in the same shot ("prompt":"SEC-42").
+            if (typeof step.prompt === "string") session.pendingPromptText = step.prompt;
+            const actStart = Date.now();
+            const done = await session.act(action);
+            if (done.dialog?.type === "prompt") {
+              throw new Error(`window.prompt(${JSON.stringify(done.dialog.message)}) opened and was auto-answered "" — ` +
+                `re-click with a prompt field: {"op":"click","id":"${action.id}","prompt":"answer"}`);
+            }
             summary = `${step.op} ${action.id} (${String(action.label || "").slice(0, 40)})`;
+            if (typeof step.prompt === "string") session.pendingPromptText = null;
+            // A SPA route (pushState, same document) may legitimately follow a
+            // click — adopt the new url so the next step is not failed on a
+            // stale guard. A FULL navigation this click committed stays
+            // un-adopted: the next step's guard throws "unexpected navigation"
+            // (the chain never declared the move; only go/expectUrl may).
+            const req = session.navReq;
+            const fullNav = req && !["newTab", "download"].includes(req.disposition) &&
+              session.navCommit >= req.ts && req.ts >= actStart - 200;
+            if (!fullNav) {
+              const nowUrl = (await session.current()).url;
+              if (nowUrl !== lastUrl) { lastUrl = nowUrl; idsUntrusted = true; }
+            }
           } else if (step.op === "type") {
-            const action = find(step.id, "fill", step.label ?? null);
-            if (action.kind !== "fill") throw new Error(`${step.id} is not an editable field`);
+            const action = await findAny(step, "fill");
+            if (action.kind !== "fill") throw new Error(`${action.id} is not an editable field`);
             await session.act(action, String(step.text ?? ""));
             if (step.enter) await session.pressEnter();
             summary = `type ${action.id}${step.enter ? " +enter" : ""}`;
           } else if (step.op === "enter") {
             await session.pressEnter();
+          } else if (step.op === "hover") {
+            // Resolve any element kind (menu items are often links or divs),
+            // then move the mouse onto it — menus revealed by :hover appear.
+            const action = await findAny(step, null);
+            await session.hoverAction(action);
+            summary = `hover ${action.id} (${String(action.label || "").slice(0, 40)})`;
           } else if (step.op === "scroll") {
-            const id = step.direction === "up" ? "scroll_up" : "scroll_down";
-            await session.act(find(id));
-            summary = `scroll ${step.direction || "down"}`;
+            if (Number.isFinite(Number(step.y))) {
+              // Coordinate primitive: document-absolute Y centered mid-viewport.
+              await session.scrollToY(Number(step.y));
+              summary = `scroll y=${Math.round(Number(step.y))}`;
+            } else if (typeof step.to === "string" && step.to.trim()) {
+              const needle = step.to.trim();
+              // Element id/label hit wins (live resolve, nested containers);
+              // anything else is a text needle hunted by the one-shot burst.
+              const el = pool.find((a) => matchActionId(a, needle)) ||
+                pool.find((a) => String(a.label || "").replace(/\s+/g, " ").trim()
+                  .toLowerCase() === needle.toLowerCase());
+              if (el) {
+                await session.scrollToAction(el);
+                summary = `scroll to ${el.id} (${String(el.label || "").slice(0, 30)})`;
+              } else {
+                const textScroll = await session.scrollToText?.(needle);
+                if (textScroll?.found) {
+                  summary = `scroll to "${needle.slice(0, 30)}"`;
+                } else {
+                  const burst = await session.scrollBurstTo([needle]);
+                  if (!burst.found) {
+                    throw new Error(`scroll to "${needle}": not found before ${burst.bottom ? "page bottom" : "burst cap"} (y=${burst.y})`);
+                  }
+                  summary = `scroll to text "${needle.slice(0, 30)}" ×${burst.hops}`;
+                }
+              }
+            } else {
+              const id = step.direction === "up" ? "scroll_up" : "scroll_down";
+              await session.act(find(id));
+              summary = `scroll ${step.direction || "down"}`;
+            }
           } else if (step.op === "wait") {
             await session.settle();
-            if (step.ms) await new Promise((r) => setTimeout(r, Math.min(5000, Number(step.ms) || 0)));
+            const ms = Math.min(10000, Number(step.ms) || 0);
+            if (ms && !step.text) await new Promise((r) => setTimeout(r, ms));
             if (step.text) {
-              if (!(await waitText(session, String(step.text)))) throw new Error(`Timed out waiting for text: ${step.text}`);
+              const waitLimit = ms || WAIT_TEXT_CAP_MS;
+              if (!(await waitText(session, String(step.text), waitLimit))) {
+                throw new Error(`Timed out waiting for text: ${step.text}`);
+              }
               summary = `wait "${String(step.text).slice(0, 30)}"`;
             }
           }
         }
-        results.push({ step: i + 1, op: step.op, ok: true, summary });
+        results.push({ step: stepNo, op: step.op, ok: true, summary });
       } catch (e) {
-        results.push({ step: i + 1, op: step.op, ok: false, error: e.message });
+        results.push({ step: stepNo, op: step.op, ok: false, error: e.message });
         // Fail fast: return where the chain broke plus the live page state,
         // cropped to the failing step's section so the LLM re-plans in place.
         let broken = null;
@@ -606,10 +929,13 @@ async function runChain(opts, steps, chainParent = null) {
         if (broken && parent) broken = { ...broken, actions: scopeByParent(broken.actions, parent) };
         // Console tail rides along — a JS error usually IS why the step broke,
         // and the agent must not spend a round trip asking for it.
-        return { ok: false, failedStep: i + 1, results, state: broken,
+        return { ok: false, failedStep: stepNo, results, state: broken,
           console: session.consoleLog.slice(-CONSOLE_FAIL_TAIL) };
       }
-    }
+      }
+    };
+    const outcome = await execSteps(steps, 0); // null = completed cleanly
+    if (outcome) return outcome;
     let finalState = null;
     try { finalState = await session.current(); } catch { /* keep results anyway */ }
     return { ok: true, results, state: finalState };
@@ -625,10 +951,16 @@ const stateAfterSafe = async (session) => {
 const MODES = ["own", "attach", "extension"];
 const sessionOpts = (payload = {}) => {
   const mode = MODES.includes(payload.mode) ? payload.mode : config.mode;
+  // tabKey isolates concurrent drivers (one agent session each): "base#key"
+  // gives the key its own engine+tab instead of yanking the shared one.
+  const tabKey = mode !== "attach" && /^[a-z0-9][a-z0-9_-]{0,40}$/i.test(payload.tabKey ?? "")
+    ? String(payload.tabKey).toLowerCase() : null;
+  const base = mode === "attach" ? "__attach__" : mode === "extension" ? "__extension__" : (payload.profile || "default");
   return {
-    profile: mode === "attach" ? "__attach__" : mode === "extension" ? "__extension__" : (payload.profile || "default"),
+    profile: tabKey ? `${base}#${tabKey}` : base,
     mode,
-    headless: config.headless
+    headless: config.headless,
+    newTab: Boolean(payload.newTab)
   };
 };
 

@@ -184,6 +184,32 @@ if (!hasChrome) {
     } finally { await profiles.remove(profile).catch(() => {}); server.close(); }
   });
 
+  await test("e2e: scroll burst fans one SCROLL decision into consecutive hops", async () => {
+    const blocks = Array.from({ length: 80 }, (_, i) =>
+      `<div style="height:150px">block ${i}</div>`).join("");
+    const server = http.createServer((req, res) => { res.writeHead(200, { "Content-Type": "text/html" }); res.end(`<!doctype html><html><body>${blocks}
+      <p id="tail">LICENSE-VN-BURST-TEST</p></body></html>`); });
+    await new Promise((r) => server.listen(0, "127.0.0.1", r));
+    const url = `http://127.0.0.1:${server.address().port}/`;
+    const profile = `e2e-burst-${Date.now()}`;
+    try {
+      let calls = 0;
+      const scrollOnlyDecide = async ({ questions }) => {
+        calls++;
+        const keys = Object.keys(questions.operation.criteria);
+        const probabilities = Object.fromEntries(keys.map((k) => [k, k === "SCROLL_DOWN" ? 1 : 0]));
+        return { answers: { operation: { choice: "SCROLL_DOWN", confidence: 0.99, probabilities } }, model: "fake", usage: {} };
+      };
+      const result = await withSession({ profile, url, headless: true }, (session) =>
+        runTask(session, { goal: "scroll to the license", decide: scrollOnlyDecide,
+          maxSteps: 20, maxMs: 30000, expect: { url: null, title: null, text: ["LICENSE-VN-BURST-TEST"] } }));
+      assert.equal(result.outcome, "needs_verification", `outcome: ${result.outcome} — ${result.reason}`);
+      assert.equal(calls, 1, `burst must cost ONE decision, used ${calls}`);
+      assert.match(result.steps[0].label ?? "", /×\d+/, "first step should be a burst hop run");
+      server.close();
+    } finally { await profiles.remove(profile).catch(() => {}); server.close(); }
+  });
+
   await test("e2e: repeated stale falls back to an in-page JS click", async () => {
     // Overlay TRAVELS with the button — scrollIntoView cannot escape it, so
     // coordinate dispatch stays stale until the js-click fallback fires.
@@ -200,11 +226,12 @@ if (!hasChrome) {
       let calls = 0;
       const stubbornDecide = async ({ questions }) => {
         calls++;
+        const target = Object.keys(questions.click_target?.criteria || {})[0];
         const click = { choice: "CLICK", confidence: 1, probabilities: { CLICK: 1, DONE: 0, BLOCKED: 0, WAIT: 0 } };
         const done = { choice: "DONE", confidence: 1, probabilities: { CLICK: 0, DONE: 1, BLOCKED: 0, WAIT: 0 } };
         // CLICK twice (two stales trigger the fallback), then DONE
         return { answers: calls <= 2
-          ? { operation: click, click_target: { choice: "e1", confidence: 1, probabilities: { e1: 1 } } }
+          ? { operation: click, click_target: { choice: target, confidence: 1, probabilities: { [target]: 1 } } }
           : { operation: done }, model: "fake", usage: {} };
       };
       const result = await withSession({ profile, url, headless: true }, (session) =>
