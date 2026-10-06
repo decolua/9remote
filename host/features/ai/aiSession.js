@@ -781,18 +781,24 @@ export class AiSession {
       if (data?.async && data?.handle) this.armAsyncWatchdog(data.id, data.parentToolUseId);
       else if (data?.id) this.clearAsyncWatchdog(data.id);
 
-      // If there are queued prompts waiting, interrupt the loop after this tool finishes
-      // so the next queued prompt can be injected without waiting for the full loop.
+      // Queued prompts waiting: fold one into the RUNNING turn between LLM requests
+      // — no interrupt, the agent just sees it on its next request.
       if (!data?.async && !data?.parentToolUseId && this.promptQueue?.length > 0 && !this._stoppingForQueue) {
-        const hasPendingTools = Boolean(this.adapter?.toolCalls && this.adapter.toolCalls.size > 0);
-        if (!hasPendingTools && (typeof this.adapter?.interrupt === "function" || typeof this.adapter?.signal === "function")) {
-          this._stoppingForQueue = true;
-          setTimeout(() => {
-            this._stoppingForQueue = false;
-            if (this.isTurnRunning && this.promptQueue?.length > 0) {
-              this.stop();
-            }
-          }, 0);
+        if (typeof this.adapter?.injectPrompt === "function") {
+          this._injectQueuedPrompt();
+        } else {
+          // Engines without injection: interrupt the loop after this tool so the
+          // queued prompt can start a new turn without waiting for the full loop.
+          const hasPendingTools = Boolean(this.adapter?.toolCalls && this.adapter.toolCalls.size > 0);
+          if (!hasPendingTools && (typeof this.adapter?.interrupt === "function" || typeof this.adapter?.signal === "function")) {
+            this._stoppingForQueue = true;
+            setTimeout(() => {
+              this._stoppingForQueue = false;
+              if (this.isTurnRunning && this.promptQueue?.length > 0) {
+                this.stop();
+              }
+            }, 0);
+          }
         }
       }
     }
@@ -806,6 +812,22 @@ export class AiSession {
       this.applyPendingOptions();
       this._saveKvState(false);
       this._drainQueue();
+    }
+  }
+
+  // Fold the next queued prompt into the RUNNING turn — the CLI queues it
+  // internally and includes it in its next LLM request. Nothing is interrupted.
+  _injectQueuedPrompt() {
+    const next = this.promptQueue.shift();
+    this.emitQueueUpdate();
+    this.emitNormalized("user_message", { text: next.text, attachments: attachmentMeta(next.attachments) });
+    try {
+      this.adapter.injectPrompt(next.text, next.attachments);
+    } catch (err) {
+      // Not lost — back at the head of the queue for the next boundary or drain.
+      this.promptQueue.unshift(next);
+      this.emitQueueUpdate();
+      this.emitNormalized("error", { message: `Queued prompt was not injected: ${err.message}` });
     }
   }
 

@@ -334,7 +334,8 @@ test("a prompt and an interrupt go out in the CLI's own shape", () => {
   const stop = JSON.parse(written.at(-1));
   assert.equal(stop.type, "control_request");
   assert.equal(stop.request.subtype, "interrupt");
-  assert.equal(stop.request.cancel_queued, true);
+  // false since queue injection: an injected message must survive a Stop.
+  assert.equal(stop.request.cancel_queued, false);
 });
 
 test("the CLI's own echo of our interrupt is swallowed", () => {

@@ -431,6 +431,16 @@ export class ClaudeAdapter {
     this._send(prompt, attachments, false);
   }
 
+  // Mid-turn injection: the CLI queues the message itself and folds it into its
+  // next LLM request of the running turn — turn state must not change here.
+  injectPrompt(prompt, attachments = null) {
+    this.rpc.notify(
+      "user",
+      { message: { role: "user", content: buildContent(prompt, attachments) } },
+      () => this.onEvent?.("error", { message: `The CLI refused a queued message: ${prompt}` })
+    );
+  }
+
   // The CLI executes a /-prefixed message as its own command, so the rename lands
   // in its session store — no turn state, a command produces no turn to wait for.
   renameThread(name) {
@@ -523,7 +533,9 @@ export class ClaudeAdapter {
       // False when the write did not go out — a `true` against a dead pipe desyncs pane and agent.
       const sent = this.rpc.notify("control_request", {
         request_id: `int-${Date.now()}`,
-        request: { subtype: "interrupt", cancel_queued: true }
+        // cancel_queued: false — an injected queued message was already shown as
+        // sent; a Stop must not silently drop it, it rides the next turn instead.
+        request: { subtype: "interrupt", cancel_queued: false }
       });
       if (sent) this._interrupted = true;
       return sent;
