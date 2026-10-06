@@ -4,7 +4,7 @@
 // import here — the loop never touches CDP directly.
 import { validateChoice, decide as jevDecide } from "./jevClient.js";
 import { renderTreeLines } from "./compress.js";
-import { MAX_CHOICES, MAX_MODEL_CALLS, MAX_MS_DEFAULT, MAX_STEPS_DEFAULT, MIN_CONFIDENCE_DEFAULT, PLAN_MAX } from "./constants.js";
+import { MAX_CHOICES, MAX_MODEL_CALLS, MAX_MS_DEFAULT, MAX_STEPS_DEFAULT, MIN_CONFIDENCE_DEFAULT, PLAN_MAX, SCROLL_BURST_MAX } from "./constants.js";
 
 export const DEFAULT_POLICY = {
   minConfidence: MIN_CONFIDENCE_DEFAULT
@@ -196,7 +196,12 @@ export function checkExpectations(state, { url = null, title = null, text = [] }
     .filter((a) => a.kind === "fill" && a.value)
     .map((a) => `${a.label}: ${a.value}`)
     .join("\n");
-  const haystack = `${state.text || ""}\n${fields}`;
+  // Select/combobox values never appear in page text (NOISE-filtered) — their
+  // labels ("Frontend Engineer → …") are the only visible trace, so they count.
+  const controlLabels = (state.actions || [])
+    .map((a) => a.label || "")
+    .join("\n");
+  const haystack = `${state.text || ""}\n${fields}\n${controlLabels}`;
   const checks = {};
   if (url) checks.url = state.url === url || (typeof state.url === "string" && state.url.includes(url));
   if (title) checks.title = state.title === title || (typeof state.title === "string" && state.title.includes(title));
@@ -262,6 +267,7 @@ export async function runTask(session, {
   // Markers are arrays off the wire — compare by VALUE (JSON), never by reference.
   const contentKey = (p) => JSON.stringify(p.contentMarker || p.marker);
   let lastContent = contentKey(page); // progress ignores scroll offsets
+  let lastScrollY = page.scroll?.y ?? 0;
   const finish = (outcome, reason = "") => ({
     outcome, reason, steps, history, url: page.url, title: page.title,
     metrics: {
@@ -296,7 +302,7 @@ export async function runTask(session, {
     const urlBefore = page.url; // plan ids survive content changes, not URL moves
     // Clicks/selects can open menus that change the DOM without moving the
     // URL — never serve the pre-click table to the next decision.
-    const mustReobserve = action.kind === "click" || action.kind === "select";
+    const mustReobserve = action.kind === "click" || action.kind === "select" || action.kind === "scroll";
     if (!mustReobserve && await session.fresh(page)) {
       changed = false;
     } else {
@@ -304,8 +310,13 @@ export async function runTask(session, {
       // half-finished loop into an error the agent would retry from scratch.
       try { page = await session.observe(); }
       catch (err) { return `post-action observation failed: ${err.message}`; }
-      changed = contentKey(page) !== lastContent;
+      if (action.kind === "scroll") {
+        changed = (page.scroll?.y ?? 0) !== lastScrollY;
+      } else {
+        changed = contentKey(page) !== lastContent;
+      }
     }
+    lastScrollY = page.scroll?.y ?? 0;
     pageMoved = changed && page.url !== urlBefore;
     lastContent = contentKey(page);
     history.push({ action: action.label, kind: action.kind, text: null, page_changed: changed });
@@ -391,6 +402,42 @@ export async function runTask(session, {
     if (!action) {
       emit({ operation, label: "", result: "rejected" });
       return finish("decision_error", `no executable action for ${operation}`);
+    }
+
+    // Scroll burst: when the goal declares expect-text not yet visible, one Jev
+    // SCROLL decision fans out into consecutive scrolls (no model call between)
+    // until the text appears or the page hits bottom — a 60-post feed costs one
+    // decision + ~2s instead of twelve ~2s decisions.
+    if (action.kind === "scroll" && expect?.text?.filter((t) => t && String(t).trim()).length
+        && !checkExpectations(page, expect).passed) {
+      const needles = expect.text.filter((t) => t && String(t).trim()).map(String);
+      let burst = 0;
+      let prevY = page.scroll?.y ?? 0;
+      let hit = false;
+      while (burst < SCROLL_BURST_MAX && steps.length < maxSteps && !session.cancelRequested) {
+        if (Date.now() - started > maxMs) break;
+        const hop = session.scrollBurstStep
+          ? await session.scrollBurstStep(action.delta, needles).catch(() => null)
+          : null;
+        if (!hop) { // engine without the fast hop — fall back to a plain scroll act
+          try { await session.act(action); }
+          catch (e) { return finish("action_error", e.message); }
+        }
+        burst++;
+        if (hop?.hit) { hit = true; break; }
+        if (hop && hop.y === prevY && burst > 1) break; // hit bottom — nothing more to reveal
+        if (hop) prevY = hop.y;
+      }
+      try { page = await session.observe(); }
+      catch (err) { return finish("action_error", `post-action observation failed: ${err.message}`); }
+      lastContent = contentKey(page);
+      history.push({ action: `${action.label} ×${burst}`, kind: "scroll", text: null, page_changed: true });
+      emit({ operation, label: `${action.label} ×${burst}`, result: "ok" });
+      if (hit && checkExpectations(page, expect).passed) {
+        return finish("needs_verification", "target verified on page state");
+      }
+      if (shouldBlockNoChange(history)) return finish("no_progress", "three actions changed nothing");
+      continue;
     }
 
     // Mechanical repeat guard: the same clickable already fired and MOVED the
