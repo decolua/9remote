@@ -66,8 +66,9 @@ export const AiBashCard = memo(function AiBashCard({
 
   return (
     <div className="my-1 text-xs" id={anchorId(paneSessionId, "shell", id)}>
-      {/* $ command, capped at two lines. Named group — see AiToolCard: a bare `group`
-          nested in the message's own made every tool's actions appear on message hover. */}
+      {/* $ command, capped at two lines until expanded — then shown in full. Named
+          group — see AiToolCard: a bare `group` nested in the message's own made
+          every tool's actions appear on message hover. */}
       <div
         onClick={() => setExpanded(!expanded)}
         className="flex items-start justify-between py-1 px-0 hover:bg-surface-2/40 cursor-pointer data-pane-control select-none transition-colors group/tool"
@@ -83,7 +84,7 @@ export const AiBashCard = memo(function AiBashCard({
             )}
           </span>
           <span className="text-text-muted select-none shrink-0 font-mono text-[11px] leading-relaxed">$</span>
-          <span className="font-mono text-[11px] leading-relaxed text-text line-clamp-2 min-w-0" title={command}>
+          <span className={`font-mono text-[11px] leading-relaxed text-text min-w-0 ${expanded ? "" : "line-clamp-2"}`} title={command}>
             {command || name}
           </span>
           {isBackground && (

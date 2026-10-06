@@ -47,6 +47,8 @@ export const AiToolCard = memo(function AiToolCard({
   // Workspace-relative, deep segments dropped from the head — the row has one line for
   // this text, so the shorter form is what keeps a real file name visible in it.
   const displayCmd = !isCommand && pathArg && rawCmd === pathArg ? shortenPath(rawCmd, workspacePath) : rawCmd;
+  // Full input goes in the expanded body only — the header stays a 2-line hint.
+  const inputText = typeof input === "string" ? input : input && Object.keys(input).length ? JSON.stringify(input, null, 2) : "";
   const filePath = input?.file_path || input?.path || input?.file || "";
   const DoneIcon = DONE_ICONS[getToolCategory(engine, name)] || CheckCircle2;
 
@@ -137,6 +139,9 @@ export const AiToolCard = memo(function AiToolCard({
       {/* Expanded Output with subtle left accent line */}
       {expanded && (
         <div className="mt-1 ml-3.5 pl-3 border-l-2 border-border-subtle/80 bg-surface-2/20 rounded-r-brand p-2 overflow-x-auto max-h-[260px] overflow-y-auto font-mono text-[11px] select-text">
+          {inputText && (
+            <div className="text-text-muted whitespace-pre-wrap break-all leading-relaxed mb-1.5">{inputText}</div>
+          )}
           {error && (
             <div className="text-danger mb-1.5 whitespace-pre-wrap">{error}</div>
           )}
