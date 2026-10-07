@@ -86,6 +86,10 @@ function settleAllRunningRows(messages = []) {
   return changed ? next : null;
 }
 
+// A re-delivered result (replay/reconnect) changes nothing — keep row identities or every duplicate re-renders the pane until React's update guard trips.
+const resultChanges = (existing, data) =>
+  existing.status !== (data.status || "done") || Object.keys(data).some((k) => existing[k] !== data[k]);
+
 export const useAiStore = create(
   persist(
     (set, get) => ({
@@ -443,26 +447,21 @@ export const useAiStore = create(
       updateToolResult: (sessionId, resultData) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          const list = [...curr.messages];
           // The tool may live in an EARLIER segment — scan from the end
-          for (let i = list.length - 1; i >= 0; i--) {
-            const msg = list[i];
+          for (let i = curr.messages.length - 1; i >= 0; i--) {
+            const msg = curr.messages[i];
             if (!msg?.tools) continue;
             const existingIdx = msg.tools.findIndex((t) => t.id === resultData.id);
-            if (existingIdx !== -1) {
-              const tools = [...msg.tools];
-              tools[existingIdx] = { ...tools[existingIdx], ...resultData, status: resultData.status || "done" };
-              list[i] = { ...msg, tools };
-              break;
-            }
-            // A result for an unknown id (after reload) is dropped, not duplicated.
+            if (existingIdx === -1) continue;
+            if (!resultChanges(msg.tools[existingIdx], resultData)) return state;
+            const tools = [...msg.tools];
+            tools[existingIdx] = { ...tools[existingIdx], ...resultData, status: resultData.status || "done" };
+            const list = [...curr.messages];
+            list[i] = { ...msg, tools };
+            return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages: list } } };
           }
-          return {
-            bySession: {
-              ...state.bySession,
-              [sessionId]: { ...curr, messages: list }
-            }
-          };
+          // A result for an unknown id (after reload) is dropped, not duplicated.
+          return state;
         });
       },
 
@@ -491,24 +490,30 @@ export const useAiStore = create(
       nestToolResult: (sessionId, resultData) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
-          const list = [...curr.messages];
-          for (let i = list.length - 1; i >= 0; i--) {
-            const msg = list[i];
+          for (let i = curr.messages.length - 1; i >= 0; i--) {
+            const msg = curr.messages[i];
             const tools = updateToolTree(
               msg?.tools,
               (t) => (t.children || []).some((c) => c.id === resultData.id),
-              (parent) => ({
-                ...parent,
-                children: parent.children.map((c) =>
-                  c.id === resultData.id ? { ...c, ...resultData, status: resultData.status || "done" } : c
-                )
-              })
+              (parent) => {
+                const child = parent.children.find((c) => c.id === resultData.id);
+                if (child && !resultChanges(child, resultData)) return parent;
+                return {
+                  ...parent,
+                  children: parent.children.map((c) =>
+                    c.id === resultData.id ? { ...c, ...resultData, status: resultData.status || "done" } : c
+                  )
+                };
+              }
             );
             if (!tools) continue;
+            // updateToolTree clones the array even when the node came back unchanged.
+            if (tools.every((t, j) => t === msg.tools[j])) return state;
+            const list = [...curr.messages];
             list[i] = { ...msg, tools };
-            break;
+            return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages: list } } };
           }
-          return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages: list } } };
+          return state;
         });
       },
 
