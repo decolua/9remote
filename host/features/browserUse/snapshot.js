@@ -327,10 +327,19 @@ export function readExpression(parent, from = 0, len = null) {
   const isBlock=e=>e.nodeType===1&&e.matches(BLOCK);
   // Inline run: text of descendants, stopping at any block boundary. Anchors
   // become [label](url) so grep --links and readers see the destination.
+  // URLs are shortened: same-origin -> path-only (the page origin rides the
+  // response), cross-origin -> host/path — repeating https://host hundreds of
+  // times wasted a third of the read budget on link-heavy pages.
+  const shortUrl=u=>{try{
+    const url=new URL(u,location.href);
+    if(url.origin!==location.origin) return url.host+url.pathname+url.search+url.hash;
+    if(url.pathname===location.pathname&&url.search===location.search) return url.hash||url.pathname;
+    return url.pathname+url.search+url.hash;
+  }catch{return u}};
   const inlineText=e=>[...e.childNodes].map(n=>n.nodeType===3?n.textContent:
     (n.nodeType===1&&!isBlock(n)&&!n.matches('script,style,noscript,template')&&visible(n)&&!noiseSkip(n))?
       (n.tagName==='A'&&n.href&&!n.href.startsWith('javascript:')?
-        '['+inlineText(n)+']('+n.href+')':inlineText(n)):'').join(' ');
+        '['+inlineText(n)+']('+shortUrl(n.href)+')':inlineText(n)):'').join(' ');
   const clean=s=>String(s||'').replace(/\\s+/g,' ').replace(/\\s+([.,;:!?])/g,'$1').trim();
   const lines=[]; let len=0;
   const push=(raw,indent)=>{const t=clean(raw); if(!t) return false;

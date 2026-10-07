@@ -46,6 +46,8 @@ export async function loadConfig() {
   return config;
 }
 
+// Exported for tests: {persist:false, syncSkill:false} enables transiently
+// without touching the daemon KV or agents' installed skills.
 export function setConfig(patch = {}, { persist = true, syncSkill = true } = {}) {
   const wasEnabled = !!config.enabled;
   const next = { ...config };
@@ -262,8 +264,7 @@ export async function invoke(action, payload = {}) {
     case "console":
       // Console ring — read-only, no session side effects (same shape as state)
       return { ok: true, lines: await withSession(sessionOpts(payload), (session) => session.consoleLog) };
-    case "read":
-    case "cat": {
+    case "read": {
       // Markdown-lite page read; parent scopes to a tree section, from/len
       // window past the cap, head/tail cut the rendered lines.
       const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
@@ -276,18 +277,23 @@ export async function invoke(action, payload = {}) {
       read.text = lines.join("\n");
       return { ok: true, from, ...read };
     }
-    case "search":
-    case "grep": {
+    case "search": {
       // search/grep over page content: context, line numbers, invert, links, caps.
       const parent = typeof payload.parent === "string" && payload.parent.trim() ? payload.parent : null;
       let read = await withSession(sessionOpts(payload), (session) => session.readSection(parent));
-      let r = grepContent(read.text, {
-        pattern: payload.pattern ?? "",
+      const grepOpts = {
         context: payload.context, before: payload.before, after: payload.after,
         lineNumbers: payload.lineNumbers !== false && payload.n !== false,
         invert: Boolean(payload.invert), max: payload.max, links: Boolean(payload.links),
         head: payload.head, tail: payload.tail
-      });
+      };
+      let r = grepContent(read.text, { ...grepOpts, pattern: payload.pattern ?? "" });
+      if (!r.matched && !payload.quiet && !payload.invert) {
+        for (const variant of searchUrlVariants(payload.pattern)) {
+          const rv = grepContent(read.text, { ...grepOpts, pattern: variant });
+          if (rv.matched) { r = rv; break; }
+        }
+      }
       // Self-heal: If 0 matches on non-quiet, wait brief grace and re-read once
       // to absorb late rendering / hydration race (GitHub trending pattern).
       if (!r.matched && !payload.quiet && !payload.invert && String(payload.pattern || "").trim()) {
@@ -525,8 +531,36 @@ export async function invoke(action, payload = {}) {
       const opts = sessionOpts(payload);
       return { ok: true, ...requestCancel(opts.profile) };
     }
-    case "chain":
-      return await runChain({ ...sessionOpts(payload), decide: payload.decide }, payload.steps, payload.parent || null);
+    case "chain": {
+      const opts = sessionOpts(payload);
+      const owed = chainDebt.get(opts.profile) || null;
+      const res = await runChain({ ...opts, decide: payload.decide, goal: payload.goal || null },
+        payload.steps, payload.parent || null);
+      // Debt bookkeeping: a break with pending steps owes them; anything else clears.
+      if (res.ok === false && Array.isArray(res.pending) && res.pending.length) {
+        chainDebt.set(opts.profile, res.pending.map((s) => s.op));
+      } else {
+        chainDebt.delete(opts.profile);
+      }
+      const allRead = Array.isArray(payload.steps) && payload.steps.length > 0 &&
+        payload.steps.every((s) => READ_ONLY_CHAIN_OPS.has(s.op));
+      if (allRead) {
+        const n = (readOnlyStreaks.get(opts.profile) || 0) + 1;
+        readOnlyStreaks.set(opts.profile, n);
+        if (n >= 2) res.note = `${n} read-only chains in a row — declare the reads inside the action chain`;
+      } else {
+        readOnlyStreaks.delete(opts.profile);
+      }
+      // A lone action step is a single verb in chain clothing — same shot burner.
+      if (res.ok !== false && payload.steps?.length === 1 && ACTION_CHAIN_OPS.has(payload.steps[0].op)) {
+        res.note = [res.note, "1-step action chain — pack the WHOLE journey into this one call"].filter(Boolean).join("; ");
+      }
+      if (owed) {
+        res.note = [res.note, `previous chain broke owing [${owed.join(", ")}] — finish those steps in this chain`]
+          .filter(Boolean).join("; ");
+      }
+      return res;
+    }
     case "close": {
       const opts = sessionOpts(payload);
       return { ok: true, ...(await closeProfile(opts.profile)) };
@@ -597,8 +631,30 @@ const dialogsAfter = async (payload) => {
 };
 
 // ---- chain: many steps in ONE call (openclaw batch pattern) -------------------
-const CHAIN_OPS = new Set(["go", "wait", "click", "type", "select", "hover", "enter", "scroll", "run", "cat", "grep", "find", "read", "search"]);
+// Canonical names first (text/elements/shot/upload/delegate); the rest are hidden
+// aliases kept for old scripts — the skill only ever teaches the canonical set.
+const CHAIN_OPS = new Set(["go", "wait", "click", "type", "select", "hover", "enter", "scroll", "upload", "read", "search", "find", "run", "shot"]);
+const READ_ONLY_CHAIN_OPS = new Set(["read", "search", "find", "shot"]);
+
+// Links render path-only on the same origin (shortUrl) — an absolute pattern
+// like "https://host/path" would never match. Same text, other spellings.
+const searchUrlVariants = (pattern) => {
+  const raw = String(pattern || "").trim();
+  if (!/^https?:\/\//i.test(raw)) return [];
+  try {
+    const u = new URL(raw);
+    const short = u.pathname + u.search + u.hash;
+    return [short, u.host + short].filter((v) => v && v !== raw);
+  } catch { return []; }
+};
 const MAX_CHAIN_STEPS = 50;
+// Consecutive read-only chains per profile: exploration via one-poke-per-call
+// is the same shot burner as action ping-pong, so the second in a row gets called out.
+const readOnlyStreaks = new Map();
+// Chain debt: ops a broken chain still owed. The next chain on the profile is
+// reminded once — the repair shot must finish the journey, not start a fragment.
+const chainDebt = new Map();
+const ACTION_CHAIN_OPS = new Set(["go", "click", "type", "select", "hover", "enter", "scroll", "upload"]);
 const MAX_CHAIN_DEPTH = 3; // root chain + 2 nested run.steps levels
 const WAIT_TEXT_CAP_MS = 3000;
 
@@ -689,7 +745,7 @@ async function runChain(opts, steps, chainParent = null) {
             idsUntrusted = prevUrl === null || prevUrl !== lastUrl;
             summary = `go ${String(step.url).slice(0, 40)}`;
           }
-        } else if (step.op === "cat" || step.op === "read") {
+        } else if (step.op === "read") {
           const read = await session.readSection(parent);
           let lines = String(read.text || "").split("\n");
           if (Number.isFinite(+step.head) && +step.head > 0) lines = lines.slice(0, Math.floor(+step.head));
@@ -698,16 +754,38 @@ async function runChain(opts, steps, chainParent = null) {
           results.push({ step: stepNo, op: step.op, ok: true,
             summary: `${step.op} ${text.length} chars`, text });
           continue;
-        } else if (step.op === "grep" || step.op === "search") {
+        } else if (step.op === "search") {
           let read = await session.readSection(parent);
-          let r = grepContent(read.text, {
-            pattern: step.pattern ?? "", context: step.context, before: step.before, after: step.after,
+          const grepOpts = {
+            context: step.context, before: step.before, after: step.after,
             lineNumbers: step.lineNumbers !== false, invert: Boolean(step.invert),
             max: step.max, links: Boolean(step.links), head: step.head, tail: step.tail
-          });
+          };
+          let r = grepContent(read.text, { ...grepOpts, pattern: step.pattern ?? "" });
+          const hasPattern = String(step.pattern || "").trim().length > 0;
+          // Links render path-only on the same origin — an absolute URL pattern
+          // must also try its short spellings before the miss counts.
+          if (!r.matched && !step.quiet && !step.invert && hasPattern) {
+            for (const variant of searchUrlVariants(step.pattern)) {
+              const rv = grepContent(read.text, { ...grepOpts, pattern: variant });
+              if (rv.matched) { r = rv; break; }
+            }
+          }
+          // for=N: evidence wait — poll until the pattern lands (bounded), for
+          // content that appears long after the page went quiet.
+          if (!r.matched && !step.quiet && !step.invert && hasPattern && Number(step.for) > 0
+              && await waitText(session, String(step.pattern), Math.min(30000, Number(step.for)))) {
+            await session.settle();
+            read = await session.readSection(parent);
+            r = grepContent(read.text, {
+              pattern: step.pattern ?? "", context: step.context, before: step.before, after: step.after,
+              lineNumbers: step.lineNumbers !== false, invert: Boolean(step.invert),
+              max: step.max, links: Boolean(step.links), head: step.head, tail: step.tail
+            });
+          }
           // Self-heal: If 0 matches on a non-quiet search, wait brief grace and re-read once
           // to absorb late rendering / hydration race (GitHub trending pattern).
-          if (!r.matched && !step.quiet && !step.invert && String(step.pattern || "").trim()) {
+          if (!r.matched && !step.quiet && !step.invert && hasPattern) {
             try {
               await new Promise((res) => setTimeout(res, 800));
               await session.settle();
@@ -722,7 +800,7 @@ async function runChain(opts, steps, chainParent = null) {
               }
             } catch {}
           }
-          if (!r.matched && !step.quiet && !step.invert && String(step.pattern || "").trim()) {
+          if (!r.matched && !step.quiet && !step.invert && hasPattern) {
             throw new Error(`${step.op} "${step.pattern}": no match`);
           }
           results.push({ step: stepNo, op: step.op, ok: true,
@@ -730,17 +808,45 @@ async function runChain(opts, steps, chainParent = null) {
             text: r.text, matched: r.matched });
           continue;
         } else if (step.op === "find") {
-          const needle = String(step.pattern ?? required(step, "pattern")).toLowerCase();
-          const state = await session.current();
-          const pool = parent ? scopeByParent(state.actions, parent) : state.actions;
-          const hits = pool.filter((a) =>
-            String(a.id || "").toLowerCase().includes(needle) ||
-            String(a.label || "").toLowerCase().includes(needle) ||
-            String(a.role || "").toLowerCase().includes(needle) ||
-            String(a.href || "").toLowerCase().includes(needle));
-          results.push({ step: stepNo, op: step.op, ok: true,
-            summary: `find "${needle.slice(0, 20)}" → ${hits.length}/${pool.length}`,
-            text: renderTreeLines(hits, { coords: true }) });
+          // One verb for the table: pattern filters it, no pattern returns a windowed read.
+          const q = String(step.pattern ?? "").trim();
+          if (q) {
+            const needle = q.toLowerCase();
+            const state = await session.current();
+            const pool = parent ? scopeByParent(state.actions, parent) : state.actions;
+            const hits = pool.filter((a) =>
+              String(a.id || "").toLowerCase().includes(needle) ||
+              String(a.label || "").toLowerCase().includes(needle) ||
+              String(a.role || "").toLowerCase().includes(needle) ||
+              String(a.href || "").toLowerCase().includes(needle));
+            results.push({ step: stepNo, op: step.op, ok: true,
+              summary: `${step.op} "${needle.slice(0, 20)}" → ${hits.length}/${pool.length}`,
+              text: renderTreeLines(hits, { coords: true }), matched: hits.length });
+          } else {
+            const len = Number.isFinite(+step.len) && +step.len > 0 ? Math.floor(+step.len) : 248;
+            const from = Number.isFinite(+step.from) && +step.from > 0 ? Math.floor(+step.from) : 0;
+            const state = await session.listState({ from, len, cap: from > 0 ? ELEMENT_DEEP_CAP : undefined });
+            let actions = state.actions;
+            if (Number.isFinite(+step.tail) && +step.tail > 0) {
+              const real = actions.filter((a) => typeof a.node === "number");
+              const synth = actions.filter((a) => typeof a.node !== "number");
+              actions = [...real.slice(Math.max(0, real.length - Math.floor(+step.tail))), ...synth];
+            }
+            if (parent) actions = scopeByParent(actions, parent);
+            results.push({ step: stepNo, op: step.op, ok: true,
+              summary: `elements ${actions.length}${state.total_elements ? ` of ${state.total_elements}` : ""}`,
+              text: renderTreeLines(actions, { coords: true }), matched: actions.length });
+          }
+          continue;
+        } else if (step.op === "shot") {
+          // Visual proof as a chain step: file on disk, path in results —
+          // agents Read the file instead of burning a base64 round trip.
+          // session.screenshot() directly — shoot(profile) would queue a
+          // second session behind the one this chain already holds.
+          const image = await session.screenshot();
+          const file = `/tmp/9remote-shot-chain-${Date.now()}.jpg`;
+          fs.writeFileSync(file, Buffer.from(image, "base64"));
+          results.push({ step: stepNo, op: step.op, ok: true, summary: `shot ${file}`, path: file });
           continue;
         } else if (step.op === "run") {
           requireRunConfig(); // chain must not bypass the enabled gate
@@ -772,14 +878,15 @@ async function runChain(opts, steps, chainParent = null) {
             expect,
             onStep: emitStep
           });
+          // Evidence beats confidence: an expect that passes on the live page
+          // means the delegated work DID land — a low-confidence finish must
+          // not void a journey that already reached its declared destination.
+          const verification = expect ? checkExpectations(await session.observe(), expect) : null;
           const runError = chainRunError(result);
-          if (runError) throw runError;
-          if (expect) {
-            const verification = checkExpectations(await session.observe(), expect);
-            if (!verification.passed) {
-              throw new Error(`expect not met after run: ${Object.entries(verification.checks)
-                .filter(([, ok]) => !ok).map(([check]) => check).join(", ")}`);
-            }
+          if (runError && !(expect && verification?.passed)) throw runError;
+          if (expect && !verification.passed) {
+            throw new Error(`expect not met after run: ${Object.entries(verification.checks)
+              .filter(([, ok]) => !ok).map(([check]) => check).join(", ")}`);
           }
           if (step.expectUrl) { // the run was declared to end elsewhere — adopt the new page
             lastUrl = (await session.current()).url;
@@ -793,7 +900,11 @@ async function runChain(opts, steps, chainParent = null) {
               throw new Error(`chain nesting too deep — max ${MAX_CHAIN_DEPTH} levels`);
             }
             const sub = await execSteps(step.steps, depth + 1);
-            if (sub && !sub.ok) return sub; // never swallow: the chain stops HERE
+            if (sub && !sub.ok) {
+              // A sub-chain break still owes the parent's remaining steps too.
+              sub.pending = [...(sub.pending || []), ...subSteps.slice(i + 1)];
+              return sub; // never swallow: the chain stops HERE
+            }
           }
         } else {
           let state = await session.current();
@@ -880,7 +991,13 @@ async function runChain(opts, steps, chainParent = null) {
             }
             throw lastErr;
           };
-          if (step.op === "click" || step.op === "select") {
+          if (step.op === "upload") {
+            const file = required(step, "file");
+            if (!fs.existsSync(file)) throw new Error(`File not found: ${file}`);
+            const action = await findAny(step, "upload");
+            await session.uploadFile(action, file);
+            summary = `upload ${action.id} (${String(action.label || "").slice(0, 30)})`;
+          } else if (step.op === "click" || step.op === "select") {
             const action = await findAny(step, step.op);
             // Arm a prompt answer BEFORE the click so a chained click can pass
             // a native prompt gate in the same shot ("prompt":"SEC-42").
@@ -908,7 +1025,10 @@ async function runChain(opts, steps, chainParent = null) {
             const req = session.navReq;
             const fullNav = req && !["newTab", "download"].includes(req.disposition) &&
               session.navCommit >= req.ts && req.ts >= actStart - 200;
-            if (!fullNav || depth > 0) {
+            // nav:true = the model DECLARED this click navigates (link to the
+            // next page) — adopt the landing page instead of failing the next
+            // step for a move the chain itself predicted.
+            if (!fullNav || depth > 0 || step.nav === true) {
               const nowUrl = (await session.current()).url;
               if (nowUrl !== lastUrl) { lastUrl = nowUrl; idsUntrusted = true; }
             }
@@ -917,9 +1037,18 @@ async function runChain(opts, steps, chainParent = null) {
             if (action.kind !== "fill") throw new Error(`${action.id} is not an editable field`);
             await session.act(action, String(step.text ?? ""));
             if (step.enter) await session.pressEnter();
+            // enter = declared submission: adopt wherever it landed — the next
+            // step must not die on a navigation the step itself predicted.
+            if (step.enter) {
+              lastUrl = (await session.current()).url;
+              idsUntrusted = true;
+            }
             summary = `type ${action.id}${step.enter ? " +enter" : ""}`;
           } else if (step.op === "enter") {
             await session.pressEnter();
+            // Same contract as type+enter: a pressed enter is a declared submit.
+            lastUrl = (await session.current()).url;
+            idsUntrusted = true;
           } else if (step.op === "hover") {
             // Resolve any element kind (menu items are often links or divs),
             // then move the mouse onto it — menus revealed by :hover appear.
@@ -981,8 +1110,11 @@ async function runChain(opts, steps, chainParent = null) {
         if (broken && parent) broken = { ...broken, actions: scopeByParent(broken.actions, parent) };
         // Console tail rides along — a JS error usually IS why the step broke,
         // and the agent must not spend a round trip asking for it.
-        return { ok: false, failedStep: stepNo, results, state: broken,
-          console: session.consoleLog.slice(-CONSOLE_FAIL_TAIL) };
+        // pending: the steps still to run, so the repair shot is copy-paste.
+        // goal/progress anchor the repair to the declared destination.
+        return { ok: false, failedStep: stepNo, results, pending: subSteps.slice(i + 1),
+          ...(opts.goal ? { goal: opts.goal, progress: `${stepNo}/${total}` } : {}),
+          state: broken, console: session.consoleLog.slice(-CONSOLE_FAIL_TAIL) };
       }
       }
     };

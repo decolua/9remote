@@ -1118,18 +1118,18 @@ if (!hasChrome) {
   await test("54. read --parent scopes to the named section; bad name lists sections", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/reader");
-    const faq = await invoke("cat", { profile, parent: "faq" });
+    const faq = await invoke("read", { profile, parent: "faq" });
     assert.match(faq.text, /Câu hỏi thường gặp/);
     assert.match(faq.text, /Trong 14 ngày/);
     assert.ok(!faq.text.includes("So sánh gói"), `billing leaked into FAQ:\n${faq.text}`);
     assert.ok(!faq.text.includes("Menu"), "nav noise leaked");
-    await assert.rejects(() => invoke("cat", { profile, parent: "zzz" }), /Plans.*FAQ|FAQ.*Plans/);
+    await assert.rejects(() => invoke("read", { profile, parent: "zzz" }), /Plans.*FAQ|FAQ.*Plans/);
   });
 
   await test("55. read renders markdown-lite: headings, inline merge, chip rows, tables, nested lists", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/reader");
-    const { text } = await invoke("cat", { profile });
+    const { text } = await invoke("read", { profile });
     assert.match(text, /^## So sánh gói$/m, `heading level:\n${text}`);
     assert.match(text, /Gói Pro 199k\/tháng, khởi tạo ngay\./, `inline merge:\n${text}`);
     assert.match(text, /^Trial · Pro · Team$/m, `chip row:\n${text}`);
@@ -1143,7 +1143,7 @@ if (!hasChrome) {
   await test("56. grep keeps only matching lines", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/reader");
-    const res = await invoke("grep", { profile, pattern: "199k" });
+    const res = await invoke("search", { profile, pattern: "199k" });
     assert.ok(res.text.split("\n").length >= 1);
     for (const line of res.text.split("\n")) assert.match(line, /199k/, `non-matching line:\n${res.text}`);
     assert.ok(!res.text.includes("499k"), "non-matching row leaked");
@@ -1160,11 +1160,11 @@ if (!hasChrome) {
     dynamicPages["/longread"] = `<!doctype html><html><body><section aria-label="Doc">${paras.join("")}</section></body></html>`;
     try {
       await open("/longread");
-      const first = await invoke("cat", { profile });
+      const first = await invoke("read", { profile });
       assert.ok(first.total > 20000, `total missing:\n${JSON.stringify(first).slice(0, 200)}`);
       assert.ok(first.text.includes("AAA-START"), "first window lost the start marker");
       assert.ok(!first.text.includes("BBB-MIDDLE"), "first window leaked past the cap");
-      const second = await invoke("cat", { profile, from: 12000, len: 8000 });
+      const second = await invoke("read", { profile, from: 12000, len: 8000 });
       assert.ok(second.text.includes("BBB-MIDDLE"), `second window missed the middle marker:\n${second.text.slice(0, 200)}`);
       assert.ok(!second.text.includes("AAA-START"), "second window leaked the start");
       assert.ok(second.text.length <= 9000, "len not respected");
@@ -1270,7 +1270,7 @@ if (!hasChrome) {
   await test("66. read step inside a chain returns the section content inline", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     await open("/chain");
-    const res = await invoke("chain", { profile, steps: [{ op: "cat", parent: "Shipping" }] });
+    const res = await invoke("chain", { profile, steps: [{ op: "read", parent: "Shipping" }] });
     assert.ok(res.ok, JSON.stringify(res.results));
     assert.match(res.results[0].text, /Express 3 ngày/);
     assert.ok(!res.results[0].text.includes("Nav noise"), "nav noise leaked into the read");
@@ -1312,11 +1312,11 @@ if (!hasChrome) {
     </body></html>`;
     try {
       await open("/leaves");
-      const res = await invoke("cat", { profile });
+      const res = await invoke("read", { profile });
       for (const want of ["Fix login bug #12", "Add dark mode #13", "Plain wrapper text"]) {
         assert.ok(res.text.includes(want), `missing "${want}":\n${res.text}`);
       }
-      const scoped = await invoke("cat", { profile, parent: "PRs" });
+      const scoped = await invoke("read", { profile, parent: "PRs" });
       assert.ok(scoped.text.includes("#12") && !scoped.text.includes("Plain wrapper text") || scoped.text.includes("Plain wrapper text"),
         "scoped read must not error");
     } finally {
@@ -1472,12 +1472,12 @@ if (!hasChrome) {
     </body></html>`;
     try {
       await open("/clearme?seed=1");
-      const before = await invoke("cat", { profile });
+      const before = await invoke("read", { profile });
       assert.match(before.text, /KEEPME/, "marker stored");
       const res = await invoke("clear", { profile, origin: base });
       assert.ok(res.ok, JSON.stringify(res));
       await open("/clearme");
-      const after = await invoke("cat", { profile });
+      const after = await invoke("read", { profile });
       assert.match(after.text, /EMPTY/, `marker must be gone after clear: ${after.text}`);
     } finally { delete dynamicPages["/clearme"]; }
   });
@@ -1610,11 +1610,11 @@ if (!hasChrome) {
         { op: "run", goal: "noop", steps: [
           { op: "click", id: "btn-khong-ton-tai" } // sub-step must break the parent
         ] },
-        { op: "grep", pattern: "Nav noise" } // must NEVER run after the sub failure
+        { op: "search", pattern: "Nav noise" } // must NEVER run after the sub failure
       ] });
       assert.equal(res.ok, false, "sub-chain failure must surface, not be swallowed");
       assert.ok(res.results.some((r) => r.ok === false), "the failing sub-step is reported");
-      assert.ok(!res.results.some((r) => r.op === "grep"), "steps after the sub failure must not run");
+      assert.ok(!res.results.some((r) => r.op === "search"), "steps after the sub failure must not run");
       assert.ok(res.state, "live state must ride the failure for the re-plan");
     } finally { setConfig({ enabled: enabledBefore }, { persist: false, syncSkill: false }); }
   });
@@ -1869,7 +1869,7 @@ if (!hasChrome) {
       await open("/lazy");
       // The read lands while the page still says "Loading" — one re-read must
       // absorb the late render instead of serving a guaranteed miss.
-      const r = await invoke("grep", { profile, pattern: "stars this week", context: 1 });
+      const r = await invoke("search", { profile, pattern: "stars this week", context: 1 });
       assert.ok(r.matched >= 1, `grep must see the late-rendered rows — got ${r.matched} matches`);
       assert.match(r.text, /Project Alpha/);
     } finally { delete dynamicPages["/lazy"]; }
@@ -1882,10 +1882,41 @@ if (!hasChrome) {
     </body></html>`;
     try {
       await open("/longtext");
-      const r = await invoke("cat", { profile });
+      const r = await invoke("read", { profile });
       assert.ok((r.text || "").length <= 17000, `default cat must stay small — got ${(r.text || "").length} chars`);
       assert.ok((r.total || 0) > (r.text || "").length, "total must reveal the rest for --from reads");
     } finally { delete dynamicPages["/longtext"]; }
+  });
+
+  await test("98. read shortens links: same-origin -> path, cross-origin -> host/path", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/links"] = `<!doctype html><html><body>
+      <p><a href="/about">About us</a> and <a href="/docs?tab=quick">Docs</a>
+      or <a href="https://example.com/guide">External guide</a>.</p>
+    </body></html>`;
+    try {
+      await open("/links");
+      const r = await invoke("read", { profile });
+      assert.match(r.text, /\[About us\]\(\/about\)/, "same-origin link renders path-only");
+      assert.match(r.text, /\[Docs\]\(\/docs\?tab=quick\)/, "same-origin query survives");
+      assert.match(r.text, /\[External guide\]\(example\.com\/guide\)/, "cross-origin drops the scheme");
+      assert.ok(!r.text.includes("http://"), "no absolute URLs ride the read text");
+    } finally { delete dynamicPages["/links"]; }
+  });
+
+  await test("99. search matches an absolute-URL pattern against shortened links", async () => {
+    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
+    dynamicPages["/links"] = `<!doctype html><html><body>
+      <p><a href="/about">About us</a> and <a href="https://example.com/guide">External guide</a>.</p>
+    </body></html>`;
+    try {
+      await open("/links");
+      // read renders [About us](/about) — pattern as full URL must still match
+      const r = await invoke("search", { profile, pattern: `${base}/about` });
+      assert.ok(r.matched >= 1, `same-origin absolute pattern matched via path variant (got ${r.matched})`);
+      const r2 = await invoke("search", { profile, pattern: "https://example.com/guide" });
+      assert.ok(r2.matched >= 1, `cross-origin absolute pattern matched via host+path variant (got ${r2.matched})`);
+    } finally { delete dynamicPages["/links"]; }
   });
 
   await closeProfile(profile).catch(() => {});

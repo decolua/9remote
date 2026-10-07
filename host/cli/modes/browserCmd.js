@@ -42,6 +42,7 @@ function parseArgs(args) {
     if (a === "--new" || a === "--new-tab") { opts.newTab = true; continue; }
     if (a === "--timeout-ms") { opts.timeoutMs = Number(args[++i]); continue; }
     if (a === "--steps") { opts.stepsJson = args[++i]; continue; } // JSON step array — bypasses the text DSL
+    if (a === "--goal") { opts.goal = args[++i]; continue; } // declared destination — anchors the repair shot
     positional.push(a);
   }
   return { positional, opts };
@@ -111,7 +112,7 @@ export function splitTop(script) {
 }
 
 export function parseStep(raw) {
-  const match = raw.match(/^(go|click|select|type|enter|scroll|wait|run|cat|grep|find|hover)\b\s*(.*)$/);
+  const match = raw.match(/^(go|click|select|type|enter|scroll|wait|run|read|search|find|hover|upload|shot)\b\s*(.*)$/);
   if (!match) throw new Error(`Cannot parse step: ${raw}`);
   const [, op, rest] = match;
   const argv = rest.match(/"[^"]*"|'[^']*'|\S+/g) || [];
@@ -144,20 +145,25 @@ export function parseStep(raw) {
       return { op, url: first, newTab: argv.includes("--new") };
     }
     case "read":
-    case "cat":
-      return { op: "read", parent: at("--parent"), head: numAt("--head"), tail: numAt("--tail") };
+      return { op: "read", parent: at("--parent"), head: numAt("--head"), tail: numAt("--tail"),
+        from: numAt("--from"), len: numAt("--len") };
     case "search":
-    case "grep":
       return {
         op: "search", pattern: unq(argv[0] ?? ""),
         context: numAt("-C"), before: numAt("-B"), after: numAt("-A"),
         lineNumbers: !argv.includes("--no-numbers"),
         invert: argv.includes("-v"), max: numAt("-m"),
         quiet: argv.includes("-q"), links: argv.includes("--links"),
-        head: numAt("--head"), tail: numAt("--tail"), parent: at("--parent")
+        head: numAt("--head"), tail: numAt("--tail"), parent: at("--parent"),
+        for: numAt("--for")
       };
     case "find":
-      return { op, pattern: unq(argv.join(" ")) };
+      return { op: "find", pattern: unq(argv.join(" ")) || undefined,
+        from: numAt("--from"), tail: numAt("--tail"), parent: at("--parent") };
+    case "upload":
+      return { op: "upload", label: unq(argv[0]), file: unq(argv[1]) };
+    case "shot":
+      return { op };
     case "enter":
       return { op };
     case "scroll": {
@@ -174,7 +180,7 @@ export function parseStep(raw) {
       }
       return { op, ms: Number(first) || 300 };
     }
-    default: { // run — flags below must NEVER leak into (or eat) the goal text
+    default: { // run — flags below must NEVER leak into the goal text
       const FLAGS = ["--only", "--parent", "--expect-url", "--expect-text", "--fields", "--max-steps", "--prompt"];
       const drop = new Set();
       for (let k = 0; k < argv.length; k++) {
@@ -216,43 +222,60 @@ function printConsole(lines) {
   for (const l of lines) console.log(`  ${l.level.padEnd(7)} ${l.text}`);
 }
 
-const HELP = `9remote browser — agent-driven Chrome via the host engine (chain-first)
+const HELP = `9remote browser — one-shot journeys: chain | batch | run
 
-  # ---- PRIMARY: ONE-SHOT CHAIN (MANDATORY FOR ALL MULTI-STEP AUTOMATION) ----
-  # ALWAYS execute tasks in ONE chain call. Never call commands sequentially.
-  # 9remote browser chain --steps '[
-  #   {"op":"go","url":"https://github.com/trending?since=weekly"},
-  #   {"op":"search","pattern":"stars this week","context":2},
-  #   {"op":"read","parent":"Main"}
-  # ]'
-  #
-  # Chain ops (12 verbs): go, wait, click, type, select, hover, enter, scroll, run, search, read, find.
-  # Branching: {"op":"click","label":"Skip","when":{"text":"Skip tutorial"}}
-  # Label Guess: {"op":"click","tryLabels":["Sign In","Log In","Đăng nhập"]}
+  EVERY browser task is ONE call. Never poke one verb at a time.
 
-  # ---- INSPECTION / DIAGNOSIS ONLY ----
-  9remote browser ls [--from N] [--tail [N]] [--parent S]   # inspect current element table
-  9remote browser tabs [--attach]                            # list open tabs (* = active)
-  9remote browser console                                   # page JS error ring (last 100)
-  9remote browser shot                                      # screenshot /tmp/9remote-shot-*.jpg
+  1) chain — the one interface (14 ops). ALWAYS --goal, ALWAYS to the end of the task:
+  9remote browser chain --goal "weekly trending report" --steps '[
+    {"op":"go","url":"https://github.com/trending?since=weekly"},
+    {"op":"run","goal":"dismiss any cookie banner","expectText":["Trending"]},
+    {"op":"click","label":"Skip","when":{"text":"Skip tutorial"}},
+    {"op":"search","pattern":"stars this week","context":2},
+    {"op":"find","pattern":"Load more"},
+    {"op":"shot"}
+  ]'
+  Ops: go(tab/url/newTab) scroll(to/y/down/up) click(label/id/tryLabels/prompt/nav)
+       type(label,text,enter) select(option) hover enter upload(label,file)
+       read(parent,head,tail,from,len) search(pattern,context,links,for) find(pattern,from,tail) shot
+       run(goal,fields,expectText,steps)
+  Every op takes when:{text|textNot|url} (skip-if-unmet, composes into if/else).
+  Unknown labels are not a reason to stop — a run step carries the journey
+  through them. The engine settles adaptively between steps — never declare
+  waits; only search takes for:<ms> when evidence is KNOWN to arrive late.
 
-  # ---- STANDALONE VERBS (Prefer chain for multi-step tasks) ----
-  9remote browser go <url> [--new] [--wait "text"]
-  9remote browser search "<pattern>" [-C N] [-B N] [-A N] [-n] [-v] [-m N] [-q] [--links]
-  9remote browser read [--parent S] [--head N] [--tail N] [--from N --len N]
-  9remote browser find "<needle>"
-  9remote browser click <id> [--prompt "text"]
-  9remote browser type <id> "<text>" [--enter]
-  9remote browser run "<goal>" [--url URL] [--max-steps N] [--fields "L=v;..."]
-  9remote browser sh < script.txt
-  9remote browser close | attach | status`;
+  2) batch — same ops as one-per-line text (heredoc, no JSON quoting):
+  9remote browser batch <<'EOF'
+  go https://github.com/trending
+  search "stars this week" -C 2
+  EOF
+
+  3) run — hand a whole unknown-label segment to Jev (the fast model
+     decides on the live table, you keep the text):
+     9remote browser run "log in" --fields "Email=me@x.co;Password=s3cret" --expect-text "Dashboard"
+
+  WHEN A CHAIN BREAKS: the response names the failing step, returns the live
+  state/console AND \`pending\` (the steps not yet run). Issue ONE new chain
+  with the pending steps adjusted — never fall back to single verbs.`;
+
+// Agent surface: journeys only. Standalone verbs taught models to poke-then-
+// look (one shot per poke), so the CLI refuses them before any network call;
+// `batch` lines and humans reach the full dispatch via {fromBatch}.
+const AGENT_SUBS = new Set(["chain", "batch", "sh", "run", "help", "--help", "-h", undefined]);
+export function agentBlockedSub(sub, { fromBatch = false } = {}) {
+  if (fromBatch || AGENT_SUBS.has(sub)) return null;
+  const hint = { cat: "read", grep: "search", text: "search", elements: "find", ls: "find", jev: "run", delegate: "run" }[sub] || sub;
+  return new Error(`single "${sub}" is agent-disabled — pack it into a chain: ` +
+    `9remote browser chain --steps '[{"op":"${hint}","label":"…"}]' ` +
+    `(or: 9remote browser batch < script)`);
+}
 
 const requiredArg = (rest, name) => {
   if (!rest[0]) throw new Error(`Missing ${name}`);
   return rest[0];
 };
 
-export async function cmdBrowser(args) {
+export async function cmdBrowser(args, { fromBatch = false } = {}) {
   const { positional, opts } = parseArgs(args);
   activeOpts = opts;
   const [sub, ...restRaw] = positional;
@@ -267,6 +290,8 @@ export async function cmdBrowser(args) {
     ...extra
   });
   try {
+  const blocked = agentBlockedSub(sub, { fromBatch });
+  if (blocked) throw blocked;
   switch (sub) {
     case undefined:
     case "help":
@@ -319,8 +344,7 @@ export async function cmdBrowser(args) {
       for (const l of lines) console.log(`${l.level.padEnd(7)} ${l.text}`);
       return;
     }
-    case "read":
-    case "cat": {
+    case "read": {
       // Markdown-lite page read — --parent scopes to a tree section, --head/--tail
       // cut the rendered lines, --from/--len window past the cap.
       const data = mustOk(await call("read", payload()));
@@ -333,8 +357,7 @@ export async function cmdBrowser(args) {
       if (!text.trim()) console.log("(no readable text — wrong section name? ls shows sections in the tree)");
       return;
     }
-    case "search":
-    case "grep": {
+    case "search": {
       // search/grep over page content; exit code 1 on zero hits (unless -q).
       const data = mustOk(await call("search", payload({ pattern: rest.join(" ") })));
       if (data.text) console.log(data.text);
@@ -349,13 +372,14 @@ export async function cmdBrowser(args) {
       console.log(renderTreeLines(data.actions || [], { coords: true }));
       return;
     }
-    case "sh": {
+    case "sh": // hidden alias — the taught name is `batch`
+    case "batch": {
       // Batch mode (mysql < script.sql): one spawn, N commands on the shared
       // session. Lines run sequentially like ";" — a failure prints and the
       // next line still runs. Trailing "&" suppresses the returned table.
       let script = "";
       try { script = fs.readFileSync(0, "utf8"); }
-      catch { console.error("sh reads commands from stdin: 9remote browser sh < script.txt"); process.exitCode = 1; return; }
+      catch { console.error("batch reads commands from stdin: 9remote browser batch < script.txt"); process.exitCode = 1; return; }
       const lines = script.split("\n").map((l) => l.trim()).filter((l) => l && !l.startsWith("#"));
       for (const line of lines) {
         const light = /\s*&\s*$/.test(line);
@@ -363,7 +387,7 @@ export async function cmdBrowser(args) {
         const args = clean.match(/"[^"]*"|'[^']*'|\S+/g) || [];
         if (light) args.push("--light");
         console.log(`\n$ ${clean}`);
-        try { await cmdBrowser(args); }
+        try { await cmdBrowser(args, { fromBatch: true }); }
         catch (e) { console.error(`  ✗ ${e.message}`); }
       }
       return;
@@ -498,14 +522,26 @@ export async function cmdBrowser(args) {
       if (!data?.results) { mustOk(data); return; }
       for (const r of data.results) {
         console.log(`  ${r.ok ? (r.skipped ? "skip" : "ok") : "FAIL"} #${r.step} ${r.summary || r.op}${r.error ? ` — ${r.error}` : ""}`);
-        if ((r.op === "cat" || r.op === "grep" || r.op === "find") && r.text) {
-          for (const line of r.text.split("\n").slice(0, 5)) console.log(`      ${line}`);
-          if (r.text.split("\n").length > 5) console.log("      …");
+        if (["read", "search", "find"].includes(r.op) && r.text) {
+          for (const line of r.text.split("\n")) console.log(`      ${line}`);
         }
       }
-      if (data.failedStep) console.error(`chain stopped at step ${data.failedStep}`);
+      if (data.failedStep) {
+        console.error(`chain stopped at step ${data.failedStep}`);
+        // The break state is data, not a crash — but a failing exit code lets
+        // callers (and their harnesses) tell success from repair-needed.
+        process.exitCode = 1;
+      }
+      if (data.goal) console.error(`goal "${data.goal}" — reached ${data.progress}`);
+      if (data.pending?.length) console.log(`pending: ${JSON.stringify(data.pending)}`);
+      if (data.note) console.log(data.note);
       printConsole(data.console);
-      if (data.state) printState(data.state);
+      // Full element table only when the agent needs to repair (chain broke, or
+      // no step returned text) — a clean read chain ends with one line instead
+      // of a ~30KB table that pushes output past the 32KB persisted-file cap.
+      const hasText = data.results?.some((r) => r.text?.trim());
+      if (data.state && (data.failedStep || !hasText)) printState(data.state);
+      else if (data.state) console.log(`${data.state.url} · ${data.state.title || ""} · ${data.state.actions?.length ?? 0} elements`);
       return;
     }
     case "close":

@@ -244,7 +244,10 @@ function isBlankTabUrl(url) {
 function makeSession({ profile, sessionKey = null, mode, port, child, client, sessionId, targetId, headless = false, shared = false }) {
   const call = (method, params = {}) => client.call(method, params, session.sessionId);
   const enter = (type) => ({
-    type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13
+    type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
+    // Without text:"\r" the browser skips the Enter default action (form
+    // submit) — the keypress renders but submits nothing.
+    ...(type === "keyDown" ? { text: "\r" } : {})
   });
 
   const unsubs = []; // client.on unsubscribe fns — drained in close() (shared clients)
