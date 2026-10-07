@@ -2,6 +2,10 @@ import os from "os";
 import { SERVER_PORT, STEP } from "../../lib/constants.js";
 import { renderProgress, updateProgressDesc } from "../utils/tui.js";
 
+// Dev override: point the CLI at a dev/local server without touching the
+// production one that holds the default port.
+const API_PORT = Number(process.env.NREMOTE_LOCAL_API_PORT) || SERVER_PORT;
+
 let isTuiActive = false;
 export function setTuiActive(v) { isTuiActive = v; }
 
@@ -11,7 +15,7 @@ let cachedHost = null;
 export async function resolveLocalHost() {
   if (cachedHost) return cachedHost;
   const probe = (h) =>
-    fetch(`http://${h}:${SERVER_PORT}/api/health`, { signal: AbortSignal.timeout(2000) })
+    fetch(`http://${h}:${API_PORT}/api/health`, { signal: AbortSignal.timeout(2000) })
       .then((r) => (r.ok ? h : Promise.reject()));
   const results = await Promise.allSettled(["localhost", "127.0.0.1"].map(probe));
   const live = results.map((r, i) => (r.status === "fulfilled" ? ["localhost", "127.0.0.1"][i] : null));
@@ -24,7 +28,7 @@ function bumpHostOnFail() { cachedHost = null; }
 export async function apiPost(path, data) {
   const host = await resolveLocalHost();
   try {
-    return await fetch(`http://${host}:${SERVER_PORT}${path}`, {
+    return await fetch(`http://${host}:${API_PORT}${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -35,7 +39,7 @@ export async function apiPost(path, data) {
 export async function apiGet(path) {
   const host = await resolveLocalHost();
   try {
-    const res = await fetch(`http://${host}:${SERVER_PORT}${path}`);
+    const res = await fetch(`http://${host}:${API_PORT}${path}`);
     return res.ok ? await res.json() : null;
   } catch { bumpHostOnFail(); return null; }
 }
