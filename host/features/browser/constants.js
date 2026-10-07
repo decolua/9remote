@@ -5,7 +5,7 @@ export const DEFAULT_VIEWPORT = { width: 1120, height: 780 };
 export const CDP_CALL_TIMEOUT_MS = 30000;
 export const LAUNCH_TIMEOUT_MS = 15000;
 
-export const STREAM_QUALITY = 99;
+export const STREAM_QUALITY = 85;
 export const STREAM_EVERY_NTH = 1;
 export const STREAM_MIN_INTERVAL_MS = 33;
 export const STREAM_ACK_TIMEOUT_MS = 4000;
@@ -33,8 +33,19 @@ export function getProfilesDir() {
   return path.join(os.homedir(), ".9remote", "browser-profiles");
 }
 
-export const KEY_CODES = {
-  enter: 13, tab: 9, escape: 27, backspace: 8, delete: 46,
-  arrowup: 38, arrowdown: 40, arrowleft: 37, arrowright: 39,
-  home: 36, end: 35, pageup: 33, pagedown: 34
+export const KEY_DEFINITIONS = {
+  enter: { key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, text: "\r" },
+  tab: { key: "Tab", code: "Tab", windowsVirtualKeyCode: 9, text: "\t" },
+  escape: { key: "Escape", code: "Escape", windowsVirtualKeyCode: 27 },
+  backspace: { key: "Backspace", code: "Backspace", windowsVirtualKeyCode: 8 },
+  delete: { key: "Delete", code: "Delete", windowsVirtualKeyCode: 46 },
+  arrowup: { key: "ArrowUp", code: "ArrowUp", windowsVirtualKeyCode: 38 },
+  arrowdown: { key: "ArrowDown", code: "ArrowDown", windowsVirtualKeyCode: 40 },
+  arrowleft: { key: "ArrowLeft", code: "ArrowLeft", windowsVirtualKeyCode: 37 },
+  arrowright: { key: "ArrowRight", code: "ArrowRight", windowsVirtualKeyCode: 39 },
+  home: { key: "Home", code: "Home", windowsVirtualKeyCode: 36 },
+  end: { key: "End", code: "End", windowsVirtualKeyCode: 35 },
+  pageup: { key: "PageUp", code: "PageUp", windowsVirtualKeyCode: 33 },
+  pagedown: { key: "PageDown", code: "PageDown", windowsVirtualKeyCode: 34 },
+  space: { key: " ", code: "Space", windowsVirtualKeyCode: 32, text: " " }
 };

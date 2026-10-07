@@ -15,34 +15,25 @@ import {
 
 const logger = createLogger("browser");
 
-function safeProfileName(name) {
+export function safeProfileName(name) {
   return /^[a-z0-9][a-z0-9_-]{0,31}$/i.test(String(name || ""));
 }
 
+// Anti-detection (headless-UA strip + script) is ALWAYS on — no per-profile
+// toggle; a leaked automation fingerprint defeats the whole point.
 export function listProfiles() {
   const root = getProfilesDir();
-  if (!fs.existsSync(root)) return [{ name: "default", userAgentUnmodified: false }];
+  if (!fs.existsSync(root)) return [{ name: "default" }];
   const found = fs.readdirSync(root, { withFileTypes: true })
     .filter((d) => d.isDirectory() && safeProfileName(d.name))
-    .map((d) => {
-      let cfg = {};
-      try {
-        cfg = JSON.parse(fs.readFileSync(path.join(root, d.name, "9r-config.json"), "utf8"));
-      } catch { /* defaults */ }
-      return {
-        name: d.name,
-        userAgentUnmodified: Boolean(cfg.userAgentUnmodified)
-      };
-    });
-  return found.some((p) => p.name === "default") ? found : [{ name: "default", userAgentUnmodified: false }, ...found];
+    .map((d) => ({ name: d.name }));
+  return found.some((p) => p.name === "default") ? found : [{ name: "default" }, ...found];
 }
 
-export function createProfile(name, { userAgentUnmodified = false } = {}) {
+export function createProfile(name) {
   if (!safeProfileName(name)) throw new Error("Profile name must match [a-z0-9_-], max 32 chars");
-  const pdir = path.join(getProfilesDir(), name);
-  fs.mkdirSync(pdir, { recursive: true });
-  fs.writeFileSync(path.join(pdir, "9r-config.json"), JSON.stringify({ userAgentUnmodified: Boolean(userAgentUnmodified) }));
-  return { name, userAgentUnmodified };
+  fs.mkdirSync(path.join(getProfilesDir(), name), { recursive: true });
+  return { name };
 }
 
 export async function removeProfile(name) {
@@ -51,19 +42,6 @@ export async function removeProfile(name) {
   const pdir = path.join(getProfilesDir(), name);
   fs.rmSync(pdir, { recursive: true, force: true });
   return { name, deleted: true };
-}
-
-// Flip a setting on an EXISTING profile's 9r-config.json (merge, never replace).
-export function updateProfile(name, { userAgentUnmodified } = {}) {
-  if (!safeProfileName(name)) throw new Error("Profile name must match [a-z0-9_-], max 32 chars");
-  const pdir = path.join(getProfilesDir(), name);
-  if (!fs.existsSync(pdir)) throw new Error(`Profile not found: ${name}`);
-  const cfgPath = path.join(pdir, "9r-config.json");
-  let cfg = {};
-  try { cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8")); } catch { /* defaults */ }
-  if (userAgentUnmodified !== undefined) cfg.userAgentUnmodified = Boolean(userAgentUnmodified);
-  fs.writeFileSync(cfgPath, JSON.stringify(cfg));
-  return { name, userAgentUnmodified: Boolean(cfg.userAgentUnmodified) };
 }
 
 // ---- address-bar history (single install-wide file, capped) -------------------
@@ -150,7 +128,25 @@ function reservePort() {
 const activeBrowsers = new Map();
 const launching = new Map(); // name -> in-flight launch promise (concurrent invokes share one Chrome)
 
-export function getOrLaunchBrowser(profileName = "default", { headless = true } = {}) {
+// Headless by default; NREMOTE_BROWSER_HEADLESS=0 boots a visible Chrome for
+// debugging stream quality / anti-detection interactively.
+const BROWSER_HEADLESS = process.env.NREMOTE_BROWSER_HEADLESS !== "0";
+
+// Tab-list push hook: target events (new tab / url / title change) call it so
+// the strip updates in ~100ms instead of the 2s poll. One global door — the
+// socket layer decides what to do with it.
+let tabsPushHook = null;
+export function setTabsPushHook(cb) { tabsPushHook = typeof cb === "function" ? cb : null; }
+
+// Read-only instance lookup — best-effort callers (cursor probe, tab peek)
+// must never LAUNCH a browser: a probe with a missing profile would otherwise
+// boot a second Chrome window next to the active one.
+export function peekBrowser(profileName = "default") {
+  const instance = activeBrowsers.get(safeProfileName(profileName) ? profileName : "default");
+  return instance && !instance.client.closed ? instance : null;
+}
+
+export function getOrLaunchBrowser(profileName = "default", { headless = BROWSER_HEADLESS } = {}) {
   const name = safeProfileName(profileName) ? profileName : "default";
   const existing = activeBrowsers.get(name);
   if (existing && !existing.client.closed) return Promise.resolve(existing);
@@ -168,11 +164,6 @@ async function launchBrowser(name, headless) {
   const profileDir = path.join(getProfilesDir(), name);
   fs.mkdirSync(profileDir, { recursive: true });
 
-  let profileCfg = {};
-  try {
-    profileCfg = JSON.parse(fs.readFileSync(path.join(profileDir, "9r-config.json"), "utf8"));
-  } catch { /* defaults */ }
-
   const args = [
     `--user-data-dir=${profileDir}`,
     `--remote-debugging-port=${port}`,
@@ -183,6 +174,12 @@ async function launchBrowser(name, headless) {
     // deviceScaleFactor, so Retina sharpness has to come from the launch flag.
     // Per-client scale is applied via screencast maxWidth (Chrome downscales).
     "--force-device-scale-factor=2",
+    // Headed Chrome throttles renderers of occluded/background windows — CDP
+    // input dispatches then hang for the full 30s call timeout. Keep every
+    // window interactive even when covered or in the background.
+    "--disable-backgrounding-occluded-windows",
+    "--disable-renderer-backgrounding",
+    "--disable-background-timer-throttling",
     "about:blank"
   ];
   if (headless) args.push("--headless=new");
@@ -199,23 +196,21 @@ async function launchBrowser(name, headless) {
     throw new Error(`Failed to connect to Chrome: ${e.message}`);
   }
 
-  // Auto-init targets with anti-detection and user-agent policy
+  // Auto-init targets with anti-detection and user-agent policy — always on,
+  // never a profile option: a HeadlessChrome UA gets the tab flagged anyway.
   const setupTargetSession = async (sessionId, url = "") => {
     try {
       await client.call("Page.enable", {}, sessionId);
       await client.call("DOM.enable", {}, sessionId);
       await client.call("Runtime.enable", {}, sessionId);
       await client.call("Page.addScriptToEvaluateOnNewDocument", { source: ANTI_DETECTION_SCRIPT }, sessionId);
-
-      if (!profileCfg.userAgentUnmodified) {
-        // Special-case Google auth: if navigating to accounts.google.com, don't modify UA
-        const isGoogle = /accounts\.google\.com/i.test(url);
-        if (!isGoogle && headless) {
-          const evalRes = await client.call("Runtime.evaluate", { expression: "navigator.userAgent" }, sessionId);
-          const rawUa = evalRes.result?.value;
-          if (rawUa && /HeadlessChrome/i.test(rawUa)) {
-            await client.call("Emulation.setUserAgentOverride", { userAgent: stripHeadlessUa(rawUa) }, sessionId);
-          }
+      // Google auth fingerprints the UA mid-flow — touching it there breaks login.
+      const isGoogle = /accounts\.google\.com/i.test(url);
+      if (!isGoogle && headless) {
+        const evalRes = await client.call("Runtime.evaluate", { expression: "navigator.userAgent" }, sessionId);
+        const rawUa = evalRes.result?.value;
+        if (rawUa && /HeadlessChrome/i.test(rawUa)) {
+          await client.call("Emulation.setUserAgentOverride", { userAgent: stripHeadlessUa(rawUa) }, sessionId);
         }
       }
     } catch { /* ignore per-target setup failures */ }
@@ -240,6 +235,14 @@ async function launchBrowser(name, headless) {
     return sessionId;
   };
 
+  // Target discovery feeds the tabsPushHook — without setDiscoverTargets the
+  // Target.* events never arrive and the strip leans on the 2s poll.
+  const notifyTabs = () => tabsPushHook?.();
+  client.on("Target.targetCreated", notifyTabs);
+  client.on("Target.targetDestroyed", notifyTabs);
+  client.on("Target.targetInfoChanged", notifyTabs);
+  client.call("Target.setDiscoverTargets", { discover: true }).catch(() => {});
+
   const instance = {
     name,
     port,
@@ -250,17 +253,37 @@ async function launchBrowser(name, headless) {
   };
 
   activeBrowsers.set(name, instance);
-  logger.info(`Browser launched for profile "${name}" on port ${port}`);
+  logger.info(`Browser launched for profile "${name}" on port ${port} (headless=${headless})`);
   return instance;
+}
+
+// Graceful first: Browser.close lets Chrome flush cookies/session data to disk —
+// a raw kill discards them and the profile loses its logins on next use.
+const CHROME_GRACEFUL_MS = 2500;
+async function gracefullyCloseChrome(instance) {
+  const exited = new Promise((resolve) => instance.child.once("exit", () => resolve(true)));
+  try { await instance.client.call("Browser.close"); } catch { /* already gone */ }
+  if (await Promise.race([exited, sleep(CHROME_GRACEFUL_MS, false)])) return;
+  try { instance.child.kill("SIGTERM"); } catch { /* ignore */ }
+  if (await Promise.race([exited, sleep(1000, false)])) return;
+  try { instance.child.kill("SIGKILL"); } catch { /* ignore */ }
+  try { instance.client.close(); } catch { /* ignore */ }
 }
 
 export async function closeBrowser(profileName = "default") {
   const instance = activeBrowsers.get(profileName);
   if (!instance) return;
   activeBrowsers.delete(profileName);
-  try { instance.client.close(); } catch { /* ignore */ }
-  try { instance.child.kill(); } catch { /* ignore */ }
+  await gracefullyCloseChrome(instance);
 }
+
+// Host shutdown door: an orphaned Chrome keeps the profile dir locked and the
+// next launch of that profile fails to open its devtools port.
+export function closeAllBrowsers() {
+  return Promise.all([...activeBrowsers.keys()].map((name) => closeBrowser(name)));
+}
+
+const sleep = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
 export async function listTabs(profileName = "default") {
   const browser = await getOrLaunchBrowser(profileName);
@@ -310,6 +333,23 @@ export async function setViewport(profileName = "default", targetId, width, heig
 export async function openTab(profileName = "default", url = "about:blank") {
   const browser = await getOrLaunchBrowser(profileName);
   const target = normalizeUrlInput(url);
+  if (process.env.NODE_ENV !== "production") {
+    // TEMP DIAGNOSTIC: who opens tabs — a stray second tab means two callers.
+    const stack = (new Error().stack || "").split("\n").slice(2, 5).join(" | ");
+    logger.info(`TEMP DIAGNOSTIC openTab profile=${profileName} url=${target} from ${stack}`);
+  }
+  // A freshly launched Chrome already opened one blank tab — opening the first
+  // user tab next to it leaves TWO blanks (looked like a double-open bug).
+  // Reuse that lone blank like a real browser's new window does.
+  if (target === "about:blank") {
+    const { targetInfos = [] } = await browser.client.call("Target.getTargets");
+    const blanks = targetInfos.filter((t) => t.type === "page" && (!t.url || t.url === "about:blank"));
+    if (blanks.length === 1 && targetInfos.filter((t) => t.type === "page").length === 1) {
+      browser.activeTargetId = blanks[0].targetId;
+      await browser.sessionFor(blanks[0].targetId, target);
+      return { id: blanks[0].targetId, url: target };
+    }
+  }
   // Create blank, set the session up, THEN navigate: running the UA override
   // (or a window resize) while the createTarget navigation is in flight makes
   // Chrome abort it with net::ERR_ABORTED and the tab lands on an error page.
@@ -358,8 +398,16 @@ export function normalizeUrlInput(raw) {
 
 export async function navigateTab(profileName = "default", targetId, url) {
   const browser = await getOrLaunchBrowser(profileName);
-  const sessionId = await browser.sessionFor(targetId, url);
   const target = normalizeUrlInput(url);
+  let sessionId;
+  try {
+    sessionId = await browser.sessionFor(targetId, url);
+  } catch (e) {
+    // Dead tab id (Chrome restarted under the client): open the URL as a new
+    // tab — the returned id lets the pane re-attach instead of erroring out.
+    if (!/No target/i.test(String(e?.message))) throw e;
+    return openTab(profileName, target);
+  }
   let res = await browser.client.call("Page.navigate", { url: target }, sessionId);
   // ERR_ABORTED = superseded load (viewport/UA swap racing the commit) — one
   // retry after the swap settles is the standard cure; a second failure is real.
@@ -406,6 +454,29 @@ export async function navState(profileName = "default", targetId) {
   };
 }
 
+// Page-side selector helper, interpolated into the inspect/pick expressions.
+const GET_SELECTOR_JS = `(elem) => {
+  if (elem.id) return '#' + CSS.escape(elem.id);
+  const path = [];
+  let curr = elem;
+  while (curr && curr.nodeType === 1 && curr !== document.body && curr !== document.documentElement) {
+    const tag = curr.tagName.toLowerCase();
+    if (curr.id) {
+      path.unshift('#' + CSS.escape(curr.id));
+      break;
+    }
+    const siblings = Array.from(curr.parentNode?.children || []).filter(c => c.tagName === curr.tagName);
+    if (siblings.length > 1) {
+      const idx = siblings.indexOf(curr) + 1;
+      path.unshift(tag + ':nth-of-type(' + idx + ')');
+    } else {
+      path.unshift(tag);
+    }
+    curr = curr.parentElement;
+  }
+  return path.join(' > ') || elem.tagName.toLowerCase();
+}`;
+
 export async function inspectElementAt(profileName = "default", targetId, x, y) {
   const browser = await getOrLaunchBrowser(profileName);
   const nx = Number(x) || 0;
@@ -414,27 +485,7 @@ export async function inspectElementAt(profileName = "default", targetId, x, y) 
     const el = document.elementFromPoint(${nx}, ${ny});
     if (!el) return null;
     const rect = el.getBoundingClientRect();
-    const getSelector = (elem) => {
-      if (elem.id) return '#' + CSS.escape(elem.id);
-      const path = [];
-      let curr = elem;
-      while (curr && curr.nodeType === 1 && curr !== document.body && curr !== document.documentElement) {
-        const tag = curr.tagName.toLowerCase();
-        if (curr.id) {
-          path.unshift('#' + CSS.escape(curr.id));
-          break;
-        }
-        const siblings = Array.from(curr.parentNode?.children || []).filter(c => c.tagName === curr.tagName);
-        if (siblings.length > 1) {
-          const idx = siblings.indexOf(curr) + 1;
-          path.unshift(tag + ':nth-of-type(' + idx + ')');
-        } else {
-          path.unshift(tag);
-        }
-        curr = curr.parentElement;
-      }
-      return path.join(' > ') || elem.tagName.toLowerCase();
-    };
+    const getSelector = ${GET_SELECTOR_JS};
     const computed = window.getComputedStyle(el);
     const text = (el.innerText || el.textContent || '').trim().slice(0, 500);
     const html = (el.outerHTML || '').slice(0, 1000);
@@ -459,6 +510,65 @@ export async function inspectElementAt(profileName = "default", targetId, x, y) 
   const sessionId = await browser.sessionFor(targetId);
   const res = await browser.client.call("Runtime.evaluate", { expression: expr, returnByValue: true }, sessionId);
   return res.result?.value ?? null;
+}
+
+// Sweep pick: every visible element intersecting the dragged rectangle, most
+// specific (smallest) first; wrappers that fully contain a kept element drop out.
+const PICK_MAX_ELEMENTS = 50;
+
+export async function pickElementsInRect(profileName = "default", targetId, x, y, w, h) {
+  const browser = await getOrLaunchBrowser(profileName);
+  const rx = Number(x) || 0;
+  const ry = Number(y) || 0;
+  const rw = Math.abs(Number(w)) || 0;
+  const rh = Math.abs(Number(h)) || 0;
+  const expr = `(() => {
+    const getSelector = ${GET_SELECTOR_JS};
+    const R = { left: ${rx}, top: ${ry}, right: ${rx + rw}, bottom: ${ry + rh} };
+    const hits = [];
+    for (const el of document.body.querySelectorAll('*')) {
+      const r = el.getBoundingClientRect();
+      if (r.width < 2 || r.height < 2) continue;
+      if (r.right < R.left || r.bottom < R.top || r.left > R.right || r.top > R.bottom) continue;
+      const st = getComputedStyle(el);
+      if (st.display === 'none' || st.visibility === 'hidden' || Number(st.opacity) === 0) continue;
+      hits.push({ el, r, area: r.width * r.height });
+    }
+    hits.sort((a, b) => a.area - b.area);
+    const kept = [];
+    for (const hit of hits) {
+      if (kept.length >= ${PICK_MAX_ELEMENTS}) break;
+      const isWrapper = kept.some((k) => hit.r.left <= k.r.left && hit.r.top <= k.r.top
+        && hit.r.right >= k.r.right && hit.r.bottom >= k.r.bottom);
+      if (isWrapper) continue;
+      kept.push(hit);
+    }
+    return kept.map((hit) => {
+      const el = hit.el;
+      const rect = el.getBoundingClientRect();
+      const computed = getComputedStyle(el);
+      const link = el.closest('a[href]');
+      return {
+        tag: el.tagName.toLowerCase(),
+        id: el.id || null,
+        className: typeof el.className === 'string' ? el.className : null,
+        selector: getSelector(el),
+        href: link ? link.href : null,
+        rect: { x: Math.round(rect.x), y: Math.round(rect.y), width: Math.round(rect.width), height: Math.round(rect.height) },
+        text: (el.innerText || el.textContent || '').trim().slice(0, 300),
+        html: (el.outerHTML || '').slice(0, 500),
+        styles: {
+          color: computed.color,
+          backgroundColor: computed.backgroundColor,
+          fontSize: computed.fontSize,
+          display: computed.display
+        }
+      };
+    });
+  })()`;
+  const sessionId = await browser.sessionFor(targetId);
+  const res = await browser.client.call("Runtime.evaluate", { expression: expr, returnByValue: true }, sessionId);
+  return Array.isArray(res.result?.value) ? res.result.value : [];
 }
 
 export async function evalJs(profileName = "default", targetId, expression) {

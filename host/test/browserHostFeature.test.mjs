@@ -52,11 +52,10 @@ test("cookie parsing: JSON and Netscape formats", () => {
 
 test("profile management CRUD", async () => {
   const pName = `test_${Date.now()}`;
-  createProfile(pName, { userAgentUnmodified: true });
+  createProfile(pName);
   const list = listProfiles();
   const created = list.find((p) => p.name === pName);
   assert.ok(created);
-  assert.equal(created.userAgentUnmodified, true);
 
   await removeProfile(pName);
   const afterList = listProfiles();

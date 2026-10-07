@@ -28,6 +28,7 @@ import { isNewerVersion } from "./cli/utils/updateChecker.js";
 
 import { handleBrowserUsePost } from "./features/browserUse/browserUseSocket.js";
 import { attachBrowserRelay } from "./features/browserUse/extRelay.js";
+import { closeAllBrowsers } from "./features/browser/browserEngine.js";
 import {
   loadUiState, loadDesktopState, refreshPermissionsAsync, pushUiEvent, setRemoteAvailable,
   handleSseEvents, handleStateGet, handleStatePost,
@@ -571,6 +572,8 @@ export async function startServer() {
       if (viteProcess) { try { viteProcess.kill(); } catch {} }
       const io = getIO();
       if (io) { io.emit("server:shutdown"); io.close(() => logger.info("✓ Socket.IO closed")); }
+      // Orphaned Chrome keeps the profile dir locked — the next boot's launch fails.
+      try { await closeAllBrowsers(); } catch { /* best-effort */ }
       await new Promise((r) => setTimeout(r, 500));
       clearTimeout(forceExit);
       logger.info("✅ Server stopped cleanly");

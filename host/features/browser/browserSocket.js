@@ -12,6 +12,9 @@ import {
   goBack,
   goForward,
   inspectElementAt,
+  pickElementsInRect,
+  peekBrowser,
+  safeProfileName,
   listProfiles,
   listTabs,
   navigateTab,
@@ -21,21 +24,23 @@ import {
   reloadTab,
   removeProfile,
   searchHistory,
-  setViewport,
-  updateProfile
+  setViewport
 } from "./browserEngine.js";
 import { ackFrame, dispatchInput, startStream, stopStream } from "./stream.js";
 import { importCookiesToSession, parseCookiesContent } from "./cookieImport.js";
+import { detectInstalledBrowsers, extractBrowserCookies } from "./browserDetect.js";
+import { setTabsPushHook } from "./browserEngine.js";
 
 const logger = createLogger("browserSocket");
 
 let tabsWatchers = 0;
 let tabsPollTimer = null;
 let lastTabsJson = "";
+let currentWatchedProfile = "default";
 
 async function pushTabs() {
   try {
-    const tabs = await peekTabs("default");
+    const tabs = await peekTabs(currentWatchedProfile);
     enrichHistory(tabs);
     const json = JSON.stringify(tabs);
     if (json === lastTabsJson) return;
@@ -75,7 +80,8 @@ async function probeCursor(profile, targetId, x, y) {
   if (now - (lastCursorAt.get(id) || 0) < CURSOR_PROBE_MS) return;
   lastCursorAt.set(id, now);
   try {
-    const browser = await getOrLaunchBrowser(profile);
+    const browser = peekBrowser(profile);
+    if (!browser) return;
     const sessionId = await browser.sessionFor(id);
     const expr = CURSOR_EXPRESSION.replace("__X__", Math.round(Number(x) || 0)).replace("__Y__", Math.round(Number(y) || 0));
     const res = await browser.client.call("Runtime.evaluate", { expression: expr, returnByValue: true }, sessionId);
@@ -91,11 +97,29 @@ export function setupBrowserHandlers(socket) {
   let watching = false;
   const activeTargetStreams = new Set();
 
-  socket.on("browser:tabs.watch", ({ on } = {}) => {
+  // Target events → immediate (debounced) push: a new tab or a link navigation
+  // shows in the strip in ~100ms instead of the next 2s poll tick.
+  let eventPushTimer = null;
+  setTabsPushHook(() => {
+    if (!tabsPollTimer && !watching) return; // nobody is watching
+    clearTimeout(eventPushTimer);
+    eventPushTimer = setTimeout(() => { void pushTabs(); }, 120);
+  });
+
+  socket.on("browser:tabs.watch", ({ on, profile } = {}) => {
+    if (profile) currentWatchedProfile = profile;
     const next = on !== false;
-    if (next === watching) return;
-    watching = next;
-    setTabsWatching(next ? 1 : -1);
+    if (next !== watching) {
+      watching = next;
+      // A freshly connected client (page reload, reconnect) must get a first
+      // push even when the tabs are unchanged — the global dedupe would
+      // otherwise leave its strip empty and its pane stuck on a dead targetId.
+      if (next) lastTabsJson = "";
+      setTabsWatching(next ? 1 : -1);
+    } else if (profile) {
+      lastTabsJson = "";
+      void pushTabs();
+    }
   });
 
   socket.on("browser:invoke", async ({ action, payload = {} } = {}, cb) => {
@@ -128,19 +152,41 @@ export function setupBrowserHandlers(socket) {
           return cb?.({ ok: true, ...(await navState(profile, payload.targetId)) });
         case "inspect":
           return cb?.({ ok: true, element: await inspectElementAt(profile, payload.targetId, payload.x, payload.y) });
+        case "pick.rect":
+          return cb?.({ ok: true, elements: await pickElementsInRect(profile, payload.targetId, payload.x, payload.y, payload.width, payload.height) });
         case "eval":
           return cb?.({ ok: true, result: await evalJs(profile, payload.targetId, payload.expression) });
         case "profiles.list":
           return cb?.({ ok: true, profiles: listProfiles() });
         case "profiles.create":
-          return cb?.({ ok: true, ...(createProfile(payload.name, { userAgentUnmodified: payload.userAgentUnmodified })) });
-        case "profiles.update":
-          return cb?.({ ok: true, ...(updateProfile(payload.name, { userAgentUnmodified: payload.userAgentUnmodified })) });
+          return cb?.({ ok: true, ...(createProfile(payload.name)) });
         case "profiles.remove":
           return cb?.({ ok: true, ...(await removeProfile(payload.name)) });
         case "history.search": {
           const q = typeof payload.q === "string" ? payload.q.slice(0, 200) : "";
           return cb?.({ ok: true, items: searchHistory(q) });
+        }
+        case "browsers.detect":
+          return cb?.({ ok: true, browsers: detectInstalledBrowsers() });
+        case "cookie.importFromBrowser": {
+          const { family, profileDirectory, targetId } = payload;
+          if (!family || !targetId) return cb?.({ ok: false, error: "family and targetId are required" });
+          const cookies = await extractBrowserCookies(family, profileDirectory);
+          const browser = await getOrLaunchBrowser(profile);
+          const sessionId = await browser.sessionFor(targetId);
+          const res = await importCookiesToSession(browser.client, sessionId, cookies);
+          return cb?.({ ok: true, ...res, count: cookies.length });
+        }
+        case "profiles.createFromBrowser": {
+          const { family, profileDirectory, name } = payload;
+          const cleanName = safeProfileName(name) ? name : `${family}_${Date.now()}`;
+          createProfile(cleanName);
+          const cookies = await extractBrowserCookies(family, profileDirectory);
+          const browser = await getOrLaunchBrowser(cleanName);
+          const tab = await openTab(cleanName, "about:blank");
+          const sessionId = await browser.sessionFor(tab.id);
+          const res = await importCookiesToSession(browser.client, sessionId, cookies);
+          return cb?.({ ok: true, profile: cleanName, tabId: tab.id, imported: res.imported });
         }
         case "cookie.import": {
           // Pasted cookies only — a filePath here would be an arbitrary-file-read
@@ -164,12 +210,27 @@ export function setupBrowserHandlers(socket) {
 
   socket.on("browser:stream.start", async ({ targetId, width, height, profile = "default" } = {}, cb) => {
     try {
+      currentWatchedProfile = profile;
       const browser = await getOrLaunchBrowser(profile);
-      const res = await startStream(browser.client, targetId, { width, height }, (frame) => {
+      const emit = (frame) => {
         const io = getIO();
         if (io) broadcast(io, "browser:frame", frame);
-      });
-      activeTargetStreams.add(String(targetId));
+      };
+      let id = String(targetId || "");
+      let res;
+      try {
+        res = await startStream(browser.client, id, { width, height }, emit);
+      } catch (e) {
+        // Stale tab id (Chrome restarted / tab closed): stream the profile's
+        // live tab instead — a dead-stream error leaves the pane unhealable.
+        if (!/No target/i.test(String(e?.message))) throw e;
+        const tabs = await listTabs(profile);
+        const live = tabs.find((t) => t.active) || tabs[0];
+        if (!live) throw e;
+        id = live.id;
+        res = await startStream(browser.client, id, { width, height }, emit);
+      }
+      activeTargetStreams.add(id);
       cb?.({ ok: true, ...res });
     } catch (e) {
       logger.error(`stream.start failed: ${e.message}`);

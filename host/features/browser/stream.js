@@ -1,5 +1,5 @@
 import {
-  KEY_CODES,
+  KEY_DEFINITIONS,
   STREAM_EVERY_NTH,
   STREAM_INPUT_BATCH_MAX,
   STREAM_MAX_EDGE,
@@ -12,6 +12,9 @@ const logger = createLogger("browserStream");
 const DIAG = process.env.NODE_ENV !== "production";
 
 const streams = new Map();
+// Host-side raster density — 1.1× buys back most of the 2× sharpness at a
+// quarter of the pixels: 2× proved crisp but stuttery (encode+broadcast cost).
+const RENDER_SCALE = 1.1;
 // Last frame per tab, kept across stop/start so a reconnecting pane paints
 // instantly instead of staring at a black stage until the next repaint.
 const lastFrames = new Map();
@@ -50,6 +53,7 @@ export async function startStream(client, targetId, viewport, emit) {
     client, sessionId, detach, emit,
     seq: 0, lastSentAt: 0, stopped: false
   };
+  if (DIAG) logger.info(`TEMP DIAGNOSTIC startStream target=${id} req=${size.width}x${size.height} scale=${size.scale} headless=${process.env.NREMOTE_BROWSER_HEADLESS !== "0"}`);
 
   const onFrame = (params, evSessionId) => {
     if (record.stopped || evSessionId !== record.sessionId) return;
@@ -63,31 +67,51 @@ export async function startStream(client, targetId, viewport, emit) {
     // Page.* events (screencastFrame) only flow on a session with the domain
     // enabled — without this Chrome emits the first frame or two and goes quiet.
     await client.call("Page.enable", {}, sessionId);
-    // Resize the headless WINDOW itself to the pane's stage — the compositor
+    // Chrome only screencasts the FRONT tab — with several tabs open a stream
+    // on a background one stalls after a frame or two. Front the streamed tab
+    // so whoever starts streaming owns the compositor.
+    await client.call("Page.bringToFront", {}, sessionId).catch(() => {});
+    // Resize the browser WINDOW itself to the pane's stage — the compositor
     // surface follows the window, and a stale window size letterboxes/shrinks
     // the stream no matter what the viewport override says.
     try {
-      const { windowId } = await client.call("Target.getWindowForTarget", { targetId: id });
-      await client.call("Browser.setWindowBounds", {
-        windowId,
-        bounds: { windowState: "normal", width: size.width, height: size.height }
-      });
-    } catch { /* best-effort; the override below still pins the viewport */ }
+      const { windowId } = await client.call("Browser.getWindowForTarget", { targetId: id });
+      // Headed: setWindowBounds sizes the OUTER window (tab + address bar eat
+      // ~90px) — the content ends up smaller than the requested viewport and
+      // Chrome rescales the page to fit = blurry stream + offset inputs.
+      // setContentsSize targets the content area in DIP exactly and grows the
+      // window to match (headless Chrome lacks the method entirely).
+      if (process.env.NREMOTE_BROWSER_HEADLESS === "0") {
+        await client.call("Browser.setContentsSize", { windowId, width: size.width, height: size.height });
+      } else {
+        await client.call("Browser.setWindowBounds", {
+          windowId,
+          bounds: { windowState: "normal", width: size.width, height: size.height }
+        });
+      }
+    } catch (e) {
+      // TEMP DIAGNOSTIC: a silent best-effort hide exactly this failure — log it.
+      if (DIAG) logger.info(`TEMP DIAGNOSTIC window resize failed: ${e.message}`);
+    }
     // Lock the viewport to the requested size — without this Chrome keeps its
     // own (window chrome eats ~90px) and every input coordinate lands offset.
-    // dsf stays 1 here: raster density comes from the launch flag
-    // (--force-device-scale-factor) and screencast maxWidth scales it per client.
+    // dsf MUST match the launch flag (--force-device-scale-factor=2): the
+    // override REPLACES it, and 1 here rasters at half the physical pixels —
+    // the pane then upscales = the blurry stream on a Retina host.
+    // Input stays pixel-correct: coords map through meta.deviceWidth (DIPs).
     await client.call("Emulation.setDeviceMetricsOverride", {
       width: size.width,
       height: size.height,
-      deviceScaleFactor: 1,
+      deviceScaleFactor: RENDER_SCALE,
       mobile: false
     }, sessionId);
     await client.call("Page.startScreencast", {
       format: "jpeg",
       quality: STREAM_QUALITY,
-      maxWidth: Math.round(size.width * size.scale),
-      maxHeight: Math.round(size.height * size.scale),
+      // 2× raster + jpeg: the sharpness came from RENDER_SCALE, png only
+      // stalled the frame pipeline (multi-MB frames, ~1 frame/10s).
+      maxWidth: Math.round(size.width * RENDER_SCALE),
+      maxHeight: Math.round(size.height * RENDER_SCALE),
       everyNthFrame: STREAM_EVERY_NTH
     }, sessionId);
   } catch (e) {
@@ -97,8 +121,11 @@ export async function startStream(client, targetId, viewport, emit) {
 
   // Paint the cached frame immediately; a static page emits nothing until it
   // repaints, which otherwise reads as a dead stream right after connect.
+  // BUT only when it matches the requested viewport: a cached frame from a
+  // smaller viewport (mobile preset, old stage size) would paint BLURRY and
+  // linger — the metrics override above forces a fresh repaint anyway.
   const cached = lastFrames.get(id);
-  if (cached) {
+  if (cached && Math.round(cached.meta?.deviceWidth || 0) === size.width) {
     record.emit(cached);
   } else {
     // Nudge a repaint so the very first frame arrives without waiting for one.
@@ -143,6 +170,23 @@ function handleFrame(record, targetId, params) {
   if (admitted) {
     record.seq += 1;
     const m = params.metadata || {};
+    if (DIAG && record.seq === 1) {
+      // TEMP DIAGNOSTIC: first frame vs requested — a mismatch means the
+      // headed window chrome (tab/address bar ~90px) is eating the bounds.
+      // JPEG pixel size comes from the SOF marker: metadata can LIE (it echoes
+      // the override) while the bitmap shows what Chrome really painted.
+      let px = "?";
+      try {
+        const buf = Buffer.from(params.data, "base64");
+        for (let i = 2; i < buf.length - 8; i++) {
+          if (buf[i] === 0xff && buf[i + 1] >= 0xc0 && buf[i + 1] <= 0xcf && buf[i + 1] !== 0xc4 && buf[i + 1] !== 0xc8) {
+            px = `${buf.readUInt16BE(i + 7)}x${buf.readUInt16BE(i + 5)}`;
+            break;
+          }
+        }
+      } catch { /* diagnostic only */ }
+      logger.info(`TEMP DIAGNOSTIC first frame dev=${m.deviceWidth}x${m.deviceHeight} jpeg=${px} pageScale=${m.pageScaleFactor}`);
+    }
     payload = {
       targetId,
       seq: record.seq,
@@ -210,11 +254,15 @@ export async function dispatchInput(targetId, events) {
       }, sid).catch(() => {});
     } else if (evt?.t === "text" && typeof evt.text === "string" && evt.text) {
       await call("Input.insertText", { text: evt.text.slice(0, 1000) }, sid).catch(() => {});
-    } else if (evt?.t === "key" && KEY_CODES[String(evt.key || "").toLowerCase()]) {
-      const code = KEY_CODES[String(evt.key).toLowerCase()];
-      const base = { key: evt.key, code, windowsVirtualKeyCode: code, nativeVirtualKeyCode: code };
-      await call("Input.dispatchKeyEvent", { type: "rawKeyDown", ...base }, sid).catch(() => {});
-      await call("Input.dispatchKeyEvent", { type: "keyUp", ...base }, sid).catch(() => {});
+    } else if (evt?.t === "key") {
+      // Proper key/code names + keyDown (not rawKeyDown): Chrome skips the
+      // default action (backspace, enter...) when the definition is malformed.
+      const def = KEY_DEFINITIONS[String(evt.key || "").toLowerCase()];
+      if (def) {
+        const base = { ...def, nativeVirtualKeyCode: def.windowsVirtualKeyCode };
+        await call("Input.dispatchKeyEvent", { type: "keyDown", ...base }, sid).catch(() => {});
+        await call("Input.dispatchKeyEvent", { type: "keyUp", ...base }, sid).catch(() => {});
+      }
     }
   }
   if (DIAG) {
