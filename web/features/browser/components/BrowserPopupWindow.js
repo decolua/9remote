@@ -9,6 +9,7 @@ import { Globe, Loader2, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useBrowserInvoke } from "@/features/browser/hooks/useBrowserInvoke";
+import { useBrowserStore } from "@/shared/stores/browserStore";
 
 // Chrome viewport for the popup — larger than the drawn box so the image
 // downscales (sharp) instead of upscales (blurry).
@@ -33,7 +34,12 @@ export default function BrowserPopupWindow({ busRef, connected = false, targetId
     const bus = busRef?.current;
     if (!connected || !bus?.emit || !targetId) return;
     let stopped = false;
-    bus.emit("browser:stream.start", { targetId, ...POPUP_VIEWPORT, scale: Math.min(2, window.devicePixelRatio || 1) });
+    bus.emit("browser:stream.start", {
+      targetId,
+      ...POPUP_VIEWPORT,
+      scale: Math.min(2, window.devicePixelRatio || 1),
+      profile: useBrowserStore.getState().activeProfile || "default"
+    });
     const onFrame = (f) => {
       if (stopped || f?.targetId !== targetId || !f.image) return;
       const next = { src: `data:image/jpeg;base64,${f.image}`, meta: f.meta };
@@ -57,7 +63,11 @@ export default function BrowserPopupWindow({ busRef, connected = false, targetId
 
   const sendInput = useCallback((events) => {
     if (!targetId || !events.length) return;
-    busRef?.current?.emit?.("browser:input", { targetId, events });
+    busRef?.current?.emit?.("browser:input", {
+      targetId,
+      events,
+      profile: useBrowserStore.getState().activeProfile || "default"
+    });
   }, [busRef, targetId]);
 
   // Same pixel-perfect mapping as the pane: the img shrink-fits the stage, its

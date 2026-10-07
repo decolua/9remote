@@ -4,7 +4,7 @@
 // features: Grab & Inspect, Annotate to AI, Markup drawing, Console REPL, Profiles & Cookies.
 // Coordinates are pixel-perfect: the <img> shrink-fits the stage, so its own
 // bounding box IS the drawn frame — map clientXY through its ratio, no letterbox math.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
   Bot,
   ChevronLeft,
@@ -33,6 +33,8 @@ import BrowserMenuModal from "./BrowserMenuModal";
 import BrowserContextMenu from "./BrowserContextMenu";
 import BrowserAddressSuggestions from "./BrowserAddressSuggestions";
 import BrowserPopupWindow from "./BrowserPopupWindow";
+import BrowserPickModal from "./BrowserPickModal";
+import { resolveOmniboxInput } from "@/features/browser/lib/omnibox";
 
 const SPECIAL_KEYS = {
   Enter: "enter", Tab: "tab", Escape: "escape", Backspace: "backspace", Delete: "delete",
@@ -46,6 +48,7 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const invoke = useBrowserInvoke(busRef);
   const tabs = useBrowserStore((s) => s.tabs);
   const activeTargetId = useBrowserStore((s) => s.activeTargetId);
+  const activeProfile = useBrowserStore((s) => s.activeProfile);
   const setActive = useBrowserStore((s) => s.setActive);
 
   const [frame, setFrame] = useState(null);
@@ -77,6 +80,14 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const [inspectNoteFocus, setInspectNoteFocus] = useState(false);
   const [inspectAt, setInspectAt] = useState(null); // stage-relative anchor for annotate
 
+  // Element picking: grabIntent "pick" collects elements (tap = one, drag =
+  // sweep) with highlight rings over the stream, then a review modal.
+  const [picked, setPicked] = useState([]);
+  const [pickOpen, setPickOpen] = useState(false);
+  const [rubber, setRubber] = useState(null); // stage-relative sweep rectangle
+  const [imgBox, setImgBox] = useState(null); // drawn img rect, stage-relative
+  const pickDragRef = useRef(null);
+
   const stageRef = useRef(null);
   const imgRef = useRef(null);
   const frameRef = useRef(null);
@@ -92,8 +103,9 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const touchPoints = useRef(new Map());
   const pinchRef = useRef(null);
   const suggestTimer = useRef(null);
+  const navigatingRef = useRef(false);
   // TEMP DIAGNOSTIC pane: frame throughput + input send rate (1 line/s in devtools)
-  const diagRef = useRef({ frames: 0, bytes: 0, lastSeq: 0, sends: 0, mark: 0 });
+  const diagRef = useRef({ frames: 0, bytes: 0, lastSeq: 0, sends: 0, mark: 0, mismatchAt: 0 });
 
   const activeTab = tabs.find((tb) => tb.id === activeTargetId) || tabs.find((tb) => tb.active) || tabs[0] || null;
   const watchedId = activeTab?.id || null;
@@ -112,11 +124,28 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
     ? tabs.find((t) => t.openerId === watchedId && t.id !== watchedId) || null
     : null;
 
+  // Popup gone → the parent stream restarts: the popup's stream start had
+  // fronted ITS tab, and without a restart the parent keeps streaming a
+  // background tab (stalled). A restart re-fronts it on the host side.
+  const prevPopupIdRef = useRef(null);
+  useEffect(() => {
+    const had = prevPopupIdRef.current;
+    prevPopupIdRef.current = popupTab?.id || null;
+    if (had && had !== popupTab?.id) setRestartTick((n) => n + 1);
+  }, [popupTab?.id]);
+
   const [prevWatched, setPrevWatched] = useState(null);
   if (prevWatched !== watchedId) {
     setPrevWatched(watchedId);
     setAddress(activeTab?.url && !/^about:blank$/.test(activeTab.url) ? activeTab.url : "");
+    setPicked([]); // a different tab is a different page — picks do not carry over
   }
+  // Follow in-page navigation (link clicks, redirects): the URL in the strip
+  // changes, so the address bar follows — unless the user is typing in it.
+  const tabUrl = activeTab?.url && !/^about:blank$/.test(activeTab.url) ? activeTab.url : null;
+  useEffect(() => {
+    if (tabUrl && document.activeElement !== addressRef.current) setAddress(tabUrl);
+  }, [tabUrl]);
 
   // Screencast stream lifecycle
   useEffect(() => {
@@ -124,15 +153,28 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
     if (!connected || !bus?.emit || !watchedId) return;
     let stopped = false;
     const rect = stageRef.current?.getBoundingClientRect();
+    if (DIAG) console.debug(`[pane] stream.start stage=${Math.round(rect?.width || 0)}x${Math.round(rect?.height || 0)} dpr=${window.devicePixelRatio || 1}`);
     bus.emit("browser:stream.start", {
       targetId: watchedId,
+      profile: activeProfile || "default",
       width: Math.round(viewportPreset?.width || rect?.width || 720),
       height: Math.round(viewportPreset?.height || rect?.height || 1280),
       // Retina honesty: render at the viewer's physical pixel density.
       scale: Math.min(2, window.devicePixelRatio || 1)
+    }, (res) => {
+      // Host healed a stale tab id to the profile's live tab — follow it so
+      // the pane streams and inputs target the same tab.
+      if (res?.ok && res.targetId && res.targetId !== watchedId) setActive(res.targetId);
     });
     const onFrame = (f) => {
-      if (stopped || f?.targetId !== watchedId || !f.image) return;
+      if (stopped) return;
+      // TEMP DIAGNOSTIC: frames arriving for another tab are normal (broadcast),
+      // but a persistent mismatch means the pane never re-attached after a heal.
+      if (DIAG && f?.image && f.targetId !== watchedId && Date.now() - diagRef.current.mismatchAt > 1000) {
+        diagRef.current.mismatchAt = Date.now();
+        console.debug(`[pane] dropping frame targetId=${f.targetId} watched=${watchedId}`);
+      }
+      if (f?.targetId !== watchedId || !f.image) return;
       const next = { src: `data:image/jpeg;base64,${f.image}`, meta: f.meta };
       frameRef.current = next;
       setFrame(next);
@@ -150,7 +192,7 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
       bus.off?.("browser:frame", onFrame);
       bus.emit("browser:stream.stop", { targetId: watchedId });
     };
-  }, [busRef, connected, watchedId, restartTick, viewportPreset]);
+  }, [busRef, connected, watchedId, restartTick, viewportPreset, activeProfile]);
 
   // Stream only while this tab is actually watched: hidden (switched tab /
   // minimized) → stop the screencast; back → restart with the cached frame.
@@ -192,7 +234,11 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const sendInput = useCallback((events) => {
     if (!watchedId || !events.length) return;
     if (DIAG) diagRef.current.sends += 1;
-    busRef?.current?.emit?.("browser:input", { targetId: watchedId, events });
+    busRef?.current?.emit?.("browser:input", {
+      targetId: watchedId,
+      events,
+      profile: useBrowserStore.getState().activeProfile || "default"
+    });
   }, [busRef, watchedId]);
 
   // TEMP DIAGNOSTIC pane: report once per second while the pane is open
@@ -226,6 +272,79 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   }, []);
   const point = useCallback((e) => pagePoint(e.clientX, e.clientY), [pagePoint]);
 
+  // Drawn-frame box (stage-relative): rings and the sweep rect position against
+  // it, so they follow the shrink-fit image on any stage resize.
+  const hasFrame = !!frame;
+  useLayoutEffect(() => {
+    const update = () => {
+      const img = imgRef.current;
+      const stage = stageRef.current;
+      if (!img || !stage) return setImgBox(null);
+      const ir = img.getBoundingClientRect();
+      const sr = stage.getBoundingClientRect();
+      if (!ir.width || !ir.height) return setImgBox(null);
+      const next = { left: ir.left - sr.left, top: ir.top - sr.top, width: ir.width, height: ir.height };
+      setImgBox((prev) => (prev
+        && Math.abs(prev.left - next.left) < 0.5 && Math.abs(prev.top - next.top) < 0.5
+        && Math.abs(prev.width - next.width) < 0.5 && Math.abs(prev.height - next.height) < 0.5
+        ? prev : next));
+    };
+    update();
+    const ro = new ResizeObserver(update);
+    if (stageRef.current) ro.observe(stageRef.current);
+    if (imgRef.current) ro.observe(imgRef.current);
+    return () => ro.disconnect();
+  }, [hasFrame]);
+
+  // Stage resized (layout settling, pane split, fullscreen) → restart the
+  // stream at the new size. The stream measures the stage ONCE at start; left
+  // alone it would keep serving the old resolution stretched = blurry.
+  const stageSizeRef = useRef(null);
+  useEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    let timer = null;
+    const ro = new ResizeObserver(() => {
+      const r = stage.getBoundingClientRect();
+      const last = stageSizeRef.current;
+      stageSizeRef.current = { w: Math.round(r.width), h: Math.round(r.height) };
+      if (!last) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        if (Math.abs(r.width - last.w) + Math.abs(r.height - last.h) > 24) {
+          setRestartTick((n) => n + 1);
+        }
+      }, 300);
+    });
+    ro.observe(stage);
+    return () => {
+      clearTimeout(timer);
+      ro.disconnect();
+    };
+  }, []);
+
+  const pickKey = (el) => el?.selector || el?.tag || "element";
+  const stampScroll = () => ({
+    scrollX: frameRef.current?.meta?.scrollX || 0,
+    scrollY: frameRef.current?.meta?.scrollY || 0
+  });
+  const addPicked = (els) => {
+    if (!Array.isArray(els) || !els.length) return;
+    setPicked((prev) => {
+      const seen = new Set(prev.map(pickKey));
+      const fresh = els.filter((el) => el && !seen.has(pickKey(el))).map((el) => ({ ...el, ...stampScroll() }));
+      return fresh.length ? [...prev, ...fresh] : prev;
+    });
+  };
+  const togglePicked = (el) => {
+    if (!el) return;
+    setPicked((prev) => {
+      const idx = prev.findIndex((p) => pickKey(p) === pickKey(el));
+      if (idx >= 0) return prev.filter((_, i) => i !== idx);
+      return [...prev, { ...el, ...stampScroll() }];
+    });
+  };
+
   const openContextMenu = async (clientX, clientY) => {
     const p = pagePoint(clientX, clientY);
     const res = await invoke("inspect", { targetId: watchedId, x: p.x, y: p.y });
@@ -242,7 +361,12 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const onPointerDown = (e) => {
     if (!frameRef.current || e.button > 2) return;
     vibrate();
-    // Grab & Inspect mode: the tap picks an element instead of clicking.
+    // Pick mode: down only records the sweep start — the pick resolves on up.
+    if (grabIntent === "pick") {
+      pickDragRef.current = { sx: e.clientX, sy: e.clientY, moved: false };
+      return;
+    }
+    // Annotate mode: the tap picks an element instead of clicking.
     if (grabIntent) {
       const gp = point(e);
       const at = { x: e.clientX, y: e.clientY };
@@ -288,6 +412,23 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   };
 
   const onPointerMove = (e) => {
+    // Pick sweep: track the drag, show the rubber band once it leaves the tap slop.
+    if (grabIntent === "pick" && pickDragRef.current) {
+      const d = pickDragRef.current;
+      if (!d.moved && Math.abs(e.clientX - d.sx) + Math.abs(e.clientY - d.sy) > 8) d.moved = true;
+      if (d.moved) {
+        const sb = stageRef.current?.getBoundingClientRect();
+        if (sb) {
+          setRubber({
+            left: Math.min(d.sx, e.clientX) - sb.left,
+            top: Math.min(d.sy, e.clientY) - sb.top,
+            width: Math.abs(e.clientX - d.sx),
+            height: Math.abs(e.clientY - d.sy)
+          });
+        }
+      }
+      return;
+    }
     if (e.pointerType === "touch") {
       if (!touchPoints.current.has(e.pointerId)) return;
       touchPoints.current.set(e.pointerId, { x: e.clientX, y: e.clientY });
@@ -348,6 +489,32 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   };
 
   const onPointerUp = (e) => {
+    // Pick resolves here: a tap inspects one element (toggle), a sweep collects
+    // everything inside the dragged rectangle.
+    if (grabIntent === "pick" && pickDragRef.current) {
+      const d = pickDragRef.current;
+      pickDragRef.current = null;
+      setRubber(null);
+      if (d.moved) {
+        const a = pagePoint(d.sx, d.sy);
+        const b = point(e);
+        const x = Math.min(a.x, b.x);
+        const y = Math.min(a.y, b.y);
+        const width = Math.abs(a.x - b.x);
+        const height = Math.abs(a.y - b.y);
+        if (width >= 4 && height >= 4) {
+          invoke("pick.rect", { targetId: watchedId, x, y, width, height }).then((res) => {
+            if (res?.ok && Array.isArray(res.elements)) addPicked(res.elements);
+          });
+        }
+      } else {
+        const gp = point(e);
+        invoke("inspect", { targetId: watchedId, x: gp.x, y: gp.y }).then((res) => {
+          if (res?.ok && res.element) togglePicked(res.element);
+        });
+      }
+      return;
+    }
     if (e.pointerType === "touch") {
       touchPoints.current.delete(e.pointerId);
       if (touchPoints.current.size < 2 && pinchRef.current) {
@@ -435,29 +602,40 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   };
 
   const navigate = async (urlOverride) => {
-    const url = String(urlOverride ?? address).trim();
+    // Chrome-style omnibox: a bare host gains https://, anything else searches.
+    const url = resolveOmniboxInput(String(urlOverride ?? address))?.url;
     if (!url) return;
-    vibrate();
-    setSuggest({ open: false, items: [], idx: -1 });
-    setLoadError(null);
-    setLoading(true);
-    // No tab yet: the typed address BOOTS the browser with a fresh tab.
-    const res = watchedId
-      ? await invoke("go", { targetId: watchedId, url })
-      : await invoke("open", { url });
-    setLoading(false);
-    if (res?.ok && res.id) {
-      setActive(res.id);
-      // Optimistic tab entry — the host's push (2s poll) replaces it; without
-      // this the stream waits a full poll cycle before starting.
-      const cur = useBrowserStore.getState().tabs;
-      if (!cur.some((tb) => tb.id === res.id)) {
-        useBrowserStore.getState().setTabs([...cur, { id: res.id, url: res.url, title: "" }]);
+    // One door: a second Enter before the first "open" resolves would spawn
+    // another tab — watchedId is only set once the invoke returns.
+    if (navigatingRef.current) return;
+    navigatingRef.current = true;
+    try {
+      vibrate();
+      setSuggest({ open: false, items: [], idx: -1 });
+      setLoadError(null);
+      setLoading(true);
+      // No LIVE tab (none yet, or a stale persisted id after a Chrome restart):
+      // the typed address boots a fresh tab instead of failing on the dead one.
+      const liveTabs = useBrowserStore.getState().tabs;
+      const res = watchedId && liveTabs.some((tb) => tb.id === watchedId)
+        ? await invoke("go", { targetId: watchedId, url })
+        : await invoke("open", { url });
+      setLoading(false);
+      if (res?.ok && res.id) {
+        setActive(res.id);
+        // Optimistic tab entry — the host's push (2s poll) replaces it; without
+        // this the stream waits a full poll cycle before starting.
+        const cur = useBrowserStore.getState().tabs;
+        if (!cur.some((tb) => tb.id === res.id)) {
+          useBrowserStore.getState().setTabs([...cur, { id: res.id, url: res.url, title: "" }]);
+        }
       }
+      if (res && !res.ok) setLoadError({ url, error: res.error || "Navigation failed" });
+      else if (res?.ok && res.error) setLoadError({ url, error: res.error });
+      refreshNav();
+    } finally {
+      navigatingRef.current = false;
     }
-    if (res && !res.ok) setLoadError({ url, error: res.error || "Navigation failed" });
-    else if (res?.ok && res.error) setLoadError({ url, error: res.error });
-    refreshNav();
   };
 
   // ---- address suggestions (host-scored history) ------------------------------
@@ -472,11 +650,12 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
       const res = await invoke("history.search", { q });
       const hist = res?.ok && Array.isArray(res.items) ? res.items : [];
       // Orca shape: the search-engine fallback row always leads the list.
-      const searchRow = /^https?:/i.test(q) ? [] : [{
+      const omnibox = resolveOmniboxInput(q);
+      const searchRow = omnibox?.isSearch ? [{
         isSearch: true,
-        url: `https://www.google.com/search?q=${encodeURIComponent(q)}`,
+        url: omnibox.url,
         title: `${t("sites.browserPaneSearchFor")} "${q}"`
-      }];
+      }] : [];
       // Dedupe by url — history often already holds the search-fallback url itself.
       const seen = new Set(searchRow.map((r) => r.url));
       const histRows = [];
@@ -507,7 +686,13 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
         return;
       }
     }
-    if (e.key === "Enter") navigate();
+    if (e.key === "Enter") {
+      // Stop the keydown BEFORE it also submits the form — Enter otherwise
+      // navigates twice (keydown handler + onSubmit) and "open" spawns a tab
+      // per call while no tab exists yet.
+      e.preventDefault();
+      navigate();
+    }
   };
 
   // Navigation-history flags (orca disables back/forward off history bounds).
@@ -535,14 +720,8 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
       {/* Toolbar — orca BrowserPane layout: nav · address · tools · ⋯.
           Tabs live in the terminal header strip (orca's unified tabs). */}
       <div className="shrink-0 relative z-10 flex items-center gap-2 border-b border-border-subtle bg-surface/95 px-3 py-1.5">
-        {/* Overlay exit — the phone has no other way out of the pane */}
-        <button
-          onClick={() => { vibrate(); onBack?.(); }}
-          className="h-7 w-7 shrink-0 flex items-center justify-center rounded-[6px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
-          title={t("common.close")}
-        >
-          <X size={16} />
-        </button>
+        {/* No exit X: the browser is a tab like a terminal — leaving = picking
+            another tab in the strip (which pushes that view on top). */}
         <button
           onClick={() => { refreshNav(); invoke("back", { targetId: watchedId }); }}
           disabled={!navFlags.back}
@@ -579,12 +758,18 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
             <input
               ref={addressRef}
               type="text"
+              inputMode="url"
               value={address}
               onFocus={(e) => e.target.select()}
               onChange={(e) => { setAddress(e.target.value); refreshSuggestions(e.target.value); }}
               onKeyDown={onAddressKeyDown}
-              onBlur={() => setTimeout(() => setSuggest((s) => ({ ...s, open: false })), 150)}
-              placeholder={t("sites.browserPaneNewTabHint")}
+              onBlur={() => {
+                setTimeout(() => setSuggest((s) => ({ ...s, open: false })), 150);
+                // Leftover typed text without Enter: fall back to the page URL.
+                const u = activeTab?.url && !/^about:blank$/.test(activeTab.url) ? activeTab.url : "";
+                setTimeout(() => { if (u && addressRef.current?.value !== u) setAddress(u); }, 200);
+              }}
+              placeholder={t("sites.browserSearchOrUrl") || "Search or type URL"}
               spellCheck={false}
               autoCapitalize="none"
               autoCorrect="off"
@@ -599,22 +784,14 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
           />
         </form>
 
-        {/* Import cookies (orca's address-bar Import hint pill) */}
+        {/* Pick elements — orca Crosshair; inverted while armed */}
         <button
-          onClick={() => { vibrate(); setMenuSection("cookies"); setMenuOpen(true); }}
-          className="h-7 px-2.5 shrink-0 rounded-full border border-border-subtle text-xs text-text-muted hover:text-text hover:border-text-muted/40 transition-colors"
-        >
-          Import
-        </button>
-
-        {/* Grab (copy) — orca Crosshair; inverted while armed */}
-        <button
-          onClick={() => { vibrate(); setGrabIntent((g) => (g === "copy" ? null : "copy")); setInspectedElement(null); }}
+          onClick={() => { vibrate(); setGrabIntent((g) => (g === "pick" ? null : "pick")); setInspectedElement(null); }}
           disabled={!frame?.src}
           className={`h-8 w-8 shrink-0 relative flex items-center justify-center rounded-[6px] transition-colors disabled:opacity-40 disabled:pointer-events-none ${
-            grabIntent === "copy" ? "bg-text/80 text-surface hover:bg-text/90" : "text-text-muted hover:text-text hover:bg-surface-2"
+            grabIntent === "pick" ? "bg-text/80 text-surface hover:bg-text/90" : "text-text-muted hover:text-text hover:bg-surface-2"
           }`}
-          title="Grab page element"
+          title="Pick page elements"
         >
           <Target size={16} />
         </button>
@@ -636,37 +813,7 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
           )}
         </button>
 
-        {/* Markup draw */}
-        <button
-          onClick={() => setMarkupOpen(true)}
-          disabled={!frame?.src}
-          className="h-7 w-7 shrink-0 flex items-center justify-center rounded-[6px] text-text-muted hover:text-text hover:bg-surface-2 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-          title="Draw markup"
-        >
-          <SquarePen size={16} />
-        </button>
-
-        {/* Console (our devtools stand-in) */}
-        <button
-          onClick={() => setConsoleOpen(true)}
-          disabled={!watchedId}
-          className="h-7 w-7 shrink-0 flex items-center justify-center rounded-[6px] text-text-muted hover:text-text hover:bg-surface-2 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-          title="Console"
-        >
-          <Terminal size={16} />
-        </button>
-
-        {/* Open in default browser (of the viewing device) */}
-        <button
-          onClick={() => activeTab?.url && window.open(activeTab.url, "_blank")}
-          disabled={!activeTab?.url}
-          className="h-7 w-7 shrink-0 flex items-center justify-center rounded-[6px] text-text-muted hover:text-text hover:bg-surface-2 disabled:opacity-40 disabled:pointer-events-none transition-colors"
-          title="Open in default browser"
-        >
-          <ExternalLink size={16} />
-        </button>
-
-        {/* ⋯ menu (profiles · cookies · viewport · keyboard · notes) */}
+        {/* ⋯ menu (profiles · cookies · viewport · keyboard · notes · markup · console) */}
         <button
           onClick={() => { setMenuSection(null); setMenuOpen(true); }}
           className="h-7 w-7 shrink-0 flex items-center justify-center rounded-[6px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
@@ -676,15 +823,20 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
         </button>
       </div>
 
-      {/* Grab/annotate armed banner (orca's status banner) */}
+      {/* Pick/annotate armed banner (orca's status banner) */}
       {grabIntent && (
-        <div className="shrink-0 bg-text/85 text-surface text-xs px-3 py-1 flex items-center justify-between">
-          <span>
-            {grabIntent === "copy"
-              ? "🎯 Grab — click an element to inspect and copy"
+        <div className="shrink-0 bg-text/85 text-surface text-xs px-3 py-1 flex items-center justify-between gap-2">
+          <span className="truncate">
+            {grabIntent === "pick"
+              ? `🎯 Pick — click or drag to select elements${picked.length ? ` · ${picked.length}` : ""}`
               : "💬 Annotate — click an element to add a note"}
           </span>
-          <button onClick={() => setGrabIntent(null)} className="underline text-[11px]">Done</button>
+          <span className="flex items-center gap-2 shrink-0">
+            {grabIntent === "pick" && picked.length > 0 && (
+              <button onClick={() => { vibrate(); setPickOpen(true); }} className="underline text-[11px] font-medium">Review</button>
+            )}
+            <button onClick={() => setGrabIntent(null)} className="underline text-[11px]">Done</button>
+          </span>
         </div>
       )}
 
@@ -710,6 +862,53 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
             className="max-w-full max-h-full object-contain pointer-events-none"
             draggable={false}
           />
+        )}
+        {/* Pick rings — viewport rects mapped onto the drawn frame, drifting with
+            the page's own scroll (rect was captured at pick time). */}
+        {frame && imgBox && picked.length > 0 && (() => {
+          const meta = frame.meta || {};
+          const vW = meta.deviceWidth;
+          const vH = meta.deviceHeight;
+          if (!vW || !vH) return null;
+          return (
+            <div className="absolute pointer-events-none z-[5]" style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}>
+              {picked.map((it, i) => {
+                if (!it.rect) return null;
+                const dx = (meta.scrollX || 0) - (it.scrollX || 0);
+                const dy = (meta.scrollY || 0) - (it.scrollY || 0);
+                const left = ((it.rect.x - dx) / vW) * 100;
+                const top = ((it.rect.y - dy) / vH) * 100;
+                const width = (it.rect.width / vW) * 100;
+                const height = (it.rect.height / vH) * 100;
+                if (left + width <= 0 || top + height <= 0 || left >= 100 || top >= 100) return null;
+                return (
+                  <div
+                    key={`${pickKey(it)}-${i}`}
+                    className="absolute rounded-[3px] border-2 border-brand-500 bg-brand-500/15 shadow-[0_0_0_1px_rgba(0,0,0,0.7)]"
+                    style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
+                  >
+                    <span className="absolute top-0.5 left-0.5 min-w-4 h-4 px-1 rounded-full bg-brand-500 text-white text-[10px] leading-4 text-center font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
+                      {i + 1}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
+        {rubber && (
+          <div
+            className="absolute pointer-events-none border border-brand-400 bg-brand-500/15 rounded-[2px] z-[6]"
+            style={{ left: rubber.left, top: rubber.top, width: rubber.width, height: rubber.height }}
+          />
+        )}
+        {picked.length > 0 && !grabIntent && !pickOpen && (
+          <button
+            onClick={() => { vibrate(); setPickOpen(true); }}
+            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-full bg-text/85 text-surface text-xs font-medium shadow-lg transition-colors hover:bg-text/95"
+          >
+            🎯 {picked.length} picked — Review
+          </button>
         )}
         {!connected && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-text-muted bg-surface">
@@ -754,7 +953,10 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
 
       {/* Virtual text input strip */}
       {textOpen && (
-        <div className="flex items-center gap-2 p-2 border-t border-border-subtle shrink-0">
+        <div
+          className="flex items-center gap-2 p-2 border-t border-border-subtle shrink-0 bg-surface"
+          style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+        >
           <input
             type="text"
             value={textDraft}
@@ -770,6 +972,17 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
             {t("sites.open")}
           </button>
         </div>
+      )}
+
+      {/* Element pick review (copy / send to a running session) */}
+      {pickOpen && (
+        <BrowserPickModal
+          picked={picked}
+          url={activeTab?.url}
+          onRemoveItem={(idx) => setPicked((prev) => prev.filter((_, i) => i !== idx))}
+          onClear={() => setPicked([])}
+          onClose={() => setPickOpen(false)}
+        />
       )}
 
       {/* Inspect Element Sheet */}
@@ -821,6 +1034,8 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
           onToggleKeyboard={() => setTextOpen((v) => !v)}
           onCopyUrl={copyUrl}
           onOpenNotes={() => setShowAnnotations(true)}
+          onOpenMarkup={() => setMarkupOpen(true)}
+          onOpenConsole={() => setConsoleOpen(true)}
           onSelectViewport={async (w, h) => {
             setViewportPreset({ width: w, height: h });
             await invoke("viewport", { targetId: watchedId, width: w, height: h });

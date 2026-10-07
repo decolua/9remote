@@ -6,6 +6,7 @@ import { useBrowserStore } from "@/shared/stores/browserStore";
 // Host Chrome tabs → the store the terminal-header strip renders. Watching is
 // ref-counted host-side, so pane closed = polling stops.
 export function useBrowserTabs(busRef, enabled) {
+  const activeProfile = useBrowserStore((s) => s.activeProfile);
   useEffect(() => {
     const bus = busRef?.current;
     if (!enabled || !bus?.on) return;
@@ -31,10 +32,10 @@ export function useBrowserTabs(busRef, enabled) {
       }
     };
     bus.on("browser:tabs", onTabs);
-    bus.emit("browser:tabs.watch", { on: true });
+    bus.emit("browser:tabs.watch", { on: true, profile: activeProfile || "default" });
     return () => {
       bus.off?.("browser:tabs", onTabs);
       bus.emit?.("browser:tabs.watch", { on: false });
     };
-  }, [busRef, enabled]);
+  }, [busRef, enabled, activeProfile]);
 }
