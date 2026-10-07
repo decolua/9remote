@@ -113,7 +113,9 @@ export const useTerminalStore = create(
           && window.location.pathname.replace(/\/+$/, "") === WORKSPACE_BASE) {
           state.viewStack = [{ type: "list" }];
         }
-        state.viewStack = state.viewStack.filter((v) => !OVERLAY_VIEWS.includes(v?.type));
+        // Overlays drop off on reload, except the browser pane — it lives inside the
+        // terminal shell now, and the host's Chrome keeps its tabs across reloads.
+        state.viewStack = state.viewStack.filter((v) => v?.type === "browser" || !OVERLAY_VIEWS.includes(v?.type));
         if (state.viewStack.length === 0) state.viewStack = [{ type: "list" }];
         if (!Array.isArray(state.terminalBackgrounds)) state.terminalBackgrounds = [];
         if (state.terminalBackground && state.terminalBackground !== "none" && state.terminalBackgrounds.length === 0) {

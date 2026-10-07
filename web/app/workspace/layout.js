@@ -375,6 +375,9 @@ export default function WorkspaceLayout({ children }) {
   // terminal shell instead — with its sidebar, and its empty state when nothing is open.
   const isTerminalView = currentView?.type === "terminal" ||
     (isDesktop && currentView?.type === "list");
+  // Browser pane lives inside TerminalWorkspace's panes container (below the tab
+  // header), not as a full-view overlay — same store view type as before.
+  const browserViewActive = currentView?.type === "browser";
   // At the bottom of the desktop stack no session is named yet, so fall back to the last
   // one opened — otherwise the shell renders with nothing focused.
   const activeSessionId = currentView?.type === "terminal"
@@ -925,6 +928,13 @@ export default function WorkspaceLayout({ children }) {
             isDesktop={isDesktop}
             isTerminalView={isTerminalView}
             pairDashboard={isDesktop && currentView?.type === "pair" ? <AgentDashboardView /> : null}
+            browserPanel={browserViewActive ? (
+              <BrowserPane
+                busRef={currentView.hostKey ? connOf(currentView.hostKey).busRef : busRef}
+                connected={currentView.hostKey ? rowLive(fleetHostsMap[currentView.hostKey]) : connected}
+                onBack={storePopView}
+              />
+            ) : null}
             welcomeActive={currentView?.type === "welcome" || (isDesktop && currentView?.type === "list")}
             slideClass={slideClass}
             shells={shells}
@@ -1019,15 +1029,9 @@ export default function WorkspaceLayout({ children }) {
           />
         )}
 
-        {/* Remote browser pane — the host's real Chrome over a CDP screencast.
-            Store-only overlay like the site view: Back stays predictable. */}
-        {currentView.type === "browser" && (
-          <BrowserPane
-            busRef={currentView.hostKey ? connOf(currentView.hostKey).busRef : busRef}
-            connected={currentView.hostKey ? rowLive(fleetHostsMap[currentView.hostKey]) : connected}
-            onBack={storePopView}
-          />
-        )}
+        {/* Remote browser pane (the host's real Chrome over a CDP screencast) renders
+            inside TerminalWorkspace's panes container via the browserPanel prop — the
+            tab header above it stays reachable while it is up. */}
 
         {/* Paired Device (mobile): full-screen dashboard. Desktop renders it inside
             TerminalWorkspace's content area so the sidebar stays up. */}

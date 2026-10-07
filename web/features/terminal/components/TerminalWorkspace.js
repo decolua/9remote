@@ -92,6 +92,7 @@ function TerminalWorkspace({
   onDeleteWorkspace, onRenameWorkspace, onReorderSession, onSetHiddenRepos, atStackBottom = false,
   onAddWorkspace, onOpenSettings, homeDir, recentWorkspaces,
   rightPanel, editorPanel, mobilePanel, onOpenArtifact, fileBus,
+  browserPanel = null,
   onCreateAnyHost, onQuickCreateHostAware,
   tunnelUrl, apiKey, connectionMode,
   onResumeAgentSessionForeign = null,
@@ -525,11 +526,14 @@ function TerminalWorkspace({
   // Pair/welcome overlay covers the whole content column: drop the header and
   // display:none the panes so nothing paints or runs underneath it.
   const covered = !!(pairDashboard || welcomeActive);
+  // Browser pane rides inside the panes container (not a full-view overlay), so the
+  // shell keeps its header/sidebar while it is up.
+  const browserActive = !!browserPanel;
 
   return (
     // Park LEFT when hidden: translate-x-full made the overflow:hidden container horizontally pannable on iOS, leaving the session list stuck shifted left; the negative side creates no scrollable extent.
     <div
-      className={`absolute inset-0 flex flex-col ${isTerminalView || pairDashboard || welcomeActive ? "translate-x-0 opacity-100 z-10" : "-translate-x-full opacity-0 z-0 pointer-events-none"}`}
+      className={`absolute inset-0 flex flex-col ${isTerminalView || browserActive || pairDashboard || welcomeActive ? "translate-x-0 opacity-100 z-10" : "-translate-x-full opacity-0 z-0 pointer-events-none"}`}
     >
       <div ref={rowRef} className={`flex-1 min-h-0 relative ${isDesktop ? "flex flex-row" : "flex flex-col"}`}>
         {isDesktop && (
@@ -674,7 +678,7 @@ function TerminalWorkspace({
           ) : (
           <div
             ref={panesContainerRef}
-            className={`flex-1 min-h-0 ${covered ? "hidden" : ""} ${isDesktop ? `flex flex-row ${fullMode ? "overflow-hidden" : "overflow-x-auto"} overflow-y-hidden px-0 pb-0 scrollbar-none` : "relative"}`}
+            className={`flex-1 min-h-0 ${covered ? "hidden" : ""} ${isDesktop ? `relative flex flex-row ${fullMode ? "overflow-hidden" : "overflow-x-auto"} overflow-y-hidden px-0 pb-0 scrollbar-none` : "relative"}`}
             {...bindSwipeTab({
               enabled: !isDesktop,
               sessionIds: workspaceOpenedSessions,
@@ -682,6 +686,9 @@ function TerminalWorkspace({
               onSwitch: nav.handleSelectSession
             })}
           >
+            {browserActive && (
+              <div className="absolute inset-0 z-10">{browserPanel}</div>
+            )}
             {renderedSessions.map((sessionId) => {
               const inActiveWorkspace = workspaceSessionIds.has(sessionId);
               const isFocused = sessionId === activeSessionId;
@@ -698,7 +705,7 @@ function TerminalWorkspace({
                   key={sessionId}
                   ref={(el) => registerPaneElement(sessionId, el)}
                   className={
-                    !inActiveWorkspace || (isDesktop && fullMode && !isFocused) || (isDesktop && isHidden)
+                    browserActive || !inActiveWorkspace || (isDesktop && fullMode && !isFocused) || (isDesktop && isHidden)
                       ? "hidden"
                       : isDesktop
                       ? `h-full relative bg-bg ${hostUpdating ? "opacity-50 pointer-events-none" : ""} ${fullMode ? "w-full flex-1" : `border-r-2 border-border-subtle last:border-r-0 ${isPaneResizing ? "" : "transition-[width] duration-200 ease-out"}`}`

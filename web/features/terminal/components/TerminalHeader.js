@@ -371,7 +371,7 @@ function TerminalHeader({
       <div ref={tabsContainerRef} className="flex-1 overflow-auto overflow-x-auto overflow-y-hidden scrollbar-none h-full">
         <div className="flex gap-0 min-w-max items-stretch h-full">
           {sessions.map((session) => {
-            const isActiveTab = session.id === activeSessionId;
+            const isActiveTab = session.id === activeSessionId && !isBrowserView;
             const isHidden = hiddenPaneSessionIds.includes(session.id);
             const st = sessionStatus[session.id]?.state || "idle";
             const v = statusVisual(st);
@@ -474,22 +474,24 @@ function TerminalHeader({
               </div>
             );
           })}
-          {(browserTabs.length ? browserTabs : (connected ? [{ id: "", pseudo: true }] : [])).map((tab) => {
+          {/* Real Chrome tabs only — opening a browser happens from the new-terminal
+              modal's Browser button, so there is no pseudo opener tab here. */}
+          {browserTabs.map((tab) => {
             const isActive = isBrowserView && (activeBrowserTargetId === tab.id || (!activeBrowserTargetId && tab.active));
             return (
               <div
-                key={tab.id || "browser-new"}
+                key={tab.id}
                 role="button"
                 tabIndex={0}
                 onClick={() => {
                   vibrate();
-                  if (!tab.pseudo) setActiveBrowserTab(tab.id);
+                  setActiveBrowserTab(tab.id);
                   pushView({ type: "browser" });
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    if (!tab.pseudo) setActiveBrowserTab(tab.id);
+                    setActiveBrowserTab(tab.id);
                     pushView({ type: "browser" });
                   }
                 }}
@@ -497,30 +499,28 @@ function TerminalHeader({
                   isActive ? "term-tab-active" : ""
                 }`}
               >
-                <Globe size={13} className="w-3.5 h-3.5 shrink-0 text-brand-500" />
+                <Globe size={13} className="w-3.5 h-3.5 shrink-0 text-text" />
                 <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={cleanTabTitle(tab.title) || t("sites.browserTab")}>
                   {cleanTabTitle(tab.title) || t("sites.browserTab")}
                 </span>
-                {!tab.pseudo && (
-                  <button
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      vibrate();
-                      // Close the real Chrome tab; the next tabs.push reconciles the strip.
-                      busRef?.current?.emit?.("browser:invoke", { action: "close", payload: { targetId: tab.id } }, () => {});
-                      const st = useBrowserStore.getState();
-                      const next = st.tabs.filter((tb) => tb.id !== tab.id);
-                      useBrowserStore.setState({
-                        tabs: next,
-                        activeTargetId: st.activeTargetId === tab.id ? (next[0]?.id || null) : st.activeTargetId
-                      });
-                    }}
-                    className="p-0.5 rounded opacity-50 hover:opacity-100 hover:bg-surface-3 shrink-0"
-                    title={t("common.close")}
-                  >
-                    <X size={12} />
-                  </button>
-                )}
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    vibrate();
+                    // Close the real Chrome tab; the next tabs.push reconciles the strip.
+                    busRef?.current?.emit?.("browser:invoke", { action: "close", payload: { targetId: tab.id } }, () => {});
+                    const st = useBrowserStore.getState();
+                    const next = st.tabs.filter((tb) => tb.id !== tab.id);
+                    useBrowserStore.setState({
+                      tabs: next,
+                      activeTargetId: st.activeTargetId === tab.id ? (next[0]?.id || null) : st.activeTargetId
+                    });
+                  }}
+                  className="p-0.5 rounded opacity-50 hover:opacity-100 hover:bg-surface-3 shrink-0"
+                  title={t("common.close")}
+                >
+                  <X size={12} />
+                </button>
               </div>
             );
           })}
@@ -882,6 +882,32 @@ function TerminalHeader({
         <NewTerminalModal
           onClose={() => setCreateModalOpen(false)}
           onCreate={handleModalCreate}
+          onCreateBrowser={connected ? () => {
+            // "+" means a NEW tab, like Chrome: create it now so the strip
+            // shows it immediately instead of waiting for a typed URL.
+            (modalBusRef?.current || busRef?.current)?.emit?.(
+              "browser:invoke",
+              {
+                action: "open",
+                // Same profile door as every other invoke — without this the
+                // host falls back to "default" and a SECOND Chrome window
+                // opens next to the active profile's.
+                payload: {
+                  url: "about:blank",
+                  profile: useBrowserStore.getState().activeProfile || "default"
+                }
+              },
+              (res) => {
+                if (!res?.ok || !res.id) return;
+                const { tabs: cur, setActive, setTabs } = useBrowserStore.getState();
+                setActive(res.id);
+                if (!cur.some((tb) => tb.id === res.id)) {
+                  setTabs([...cur, { id: res.id, url: "about:blank", title: "" }]);
+                }
+              }
+            );
+            pushView({ type: "browser" });
+          } : null}
           shells={modalShells || shells}
           busRef={modalBusRef || busRef}
           hostKey={modalHostKey}

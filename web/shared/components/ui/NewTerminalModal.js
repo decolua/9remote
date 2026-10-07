@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft, Plus, Loader2 } from "@/shared/components/ui/Icon";
+import { X, Terminal, Bot, Sparkles, Zap, Check, History, CornerDownLeft, Plus, Loader2, Globe } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import transliterate from "@sindresorhus/transliterate";
@@ -50,7 +50,8 @@ export default function NewTerminalModal({
   onClose, onCreate, shells = [], suggestName = "", busRef = null,
   workspacePath = null, workspaceName = "", fileBus = null, homeDir = null,
   onResumeAgentSession = null, liveSessionIds = null, activeSessionId = null,
-  onSelectSession = null, connected = true, hostKey = "main"
+  onSelectSession = null, connected = true, hostKey = "main",
+  onCreateBrowser = null
 }) {
   const { t } = useI18n();
   // One door: file API + cache scope resolve from the host this modal creates on —
@@ -183,11 +184,14 @@ export default function NewTerminalModal({
   // CLI-only agents (no UI variant at all)
   const cliOnly = allAgents.filter((a) => !a.isAiUi && !pairBases.has(a.id) && a.id !== "claude");
 
-  const agent = (agentId && allAgents.find((a) => a.id === agentId)) || null;
+  // Browser rides the plain-terminal row's right slot (the old empty spacer) — only
+  // when the caller can open one; other callers keep the spacer.
+  const browserOpt = onCreateBrowser ? { id: "browser", isBrowser: true, label: t("sites.browserTab") } : null;
+  const agent = (agentId && allAgents.find((a) => a.id === agentId)) || (agentId === "browser" ? browserOpt : null) || null;
   // Slot 0: Plain terminal (row 1 left)
-  // Slot 1: empty spacer (row 1 right) — keeps pairs aligned on the same row
+  // Slot 1: Browser (row 1 right), or the spacer that keeps pairs aligned on the same row
   // Slot 2+: Claude CLI, Claude UI, then pairs CLI→UI, then CLI-only
-  const options = [null, { empty: true }, ...(claudeCli ? [claudeCli] : []), ...(claudeUi ? [claudeUi] : []), ...sortedPairs, ...cliOnly];
+  const options = [null, browserOpt || { empty: true }, ...(claudeCli ? [claudeCli] : []), ...(claudeUi ? [claudeUi] : []), ...sortedPairs, ...cliOnly];
   const canSkip = !agent?.isAiUi && canSkipPermissions(agent);
   // The agent's own skip-mode token, e.g. --yolo / GOOSE_MODE=auto — null for plain shells
   const skipFlag = agent?.yolo
@@ -226,6 +230,12 @@ export default function NewTerminalModal({
 
   const submit = (picked = agent) => {
     vibrate();
+    // Browser is not a terminal launch — it raises the browser pane, nothing else.
+    if (picked?.isBrowser) {
+      onCreateBrowser?.();
+      onClose?.();
+      return;
+    }
     if (wtBusy) return;
     const finalize = (effCwd) => {
       if (!picked && shellId) savePref(TERMINAL_PREF_KEYS.shell, shellId);
@@ -478,7 +488,7 @@ export default function NewTerminalModal({
                   active ? "modal-row-active text-text" : "text-text-muted hover:text-text"
                 }`}
               >
-                <AgentAvatar agent={a} />
+                {a?.isBrowser ? <Globe size={16} className="text-text" /> : <AgentAvatar agent={a} />}
                 <span className="flex-1 text-sm font-medium truncate">{a ? a.label : t("terminal.plainShell")}</span>
                 {active && (
                   <>
