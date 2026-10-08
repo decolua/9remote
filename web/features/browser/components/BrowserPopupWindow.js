@@ -4,23 +4,20 @@
 // of a site's window.open() (OAuth flows and friends). It is its own Chrome
 // target: its own screencast and its own pixel-perfect input mapping. Mobile
 // never mounts this — the pane switches to the popup tab full-screen instead.
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef } from "react";
 import { Globe, Loader2, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useBrowserInvoke } from "@/features/browser/hooks/useBrowserInvoke";
-import { useBrowserStore } from "@/shared/stores/browserStore";
+import { useBrowserFrame } from "@/features/browser/hooks/useBrowserFrame";
 
 // Chrome viewport for the popup — larger than the drawn box so the image
 // downscales (sharp) instead of upscales (blurry).
 const POPUP_VIEWPORT = { width: 720, height: 900 };
 
-export default function BrowserPopupWindow({ busRef, connected = false, targetId, url, onClose }) {
+export default function BrowserPopupWindow({ busRef, connected = false, targetId, url, profile = "default", onClose }) {
   const { t } = useI18n();
-  const invoke = useBrowserInvoke(busRef);
-  const [frame, setFrame] = useState(null);
-  const frameRef = useRef(null);
-  const imgRef = useRef(null);
+  const invoke = useBrowserInvoke(busRef, profile);
   const stageRef = useRef(null);
   const dragRef = useRef(null);
   const hoverTimer = useRef(null);
@@ -33,27 +30,19 @@ export default function BrowserPopupWindow({ busRef, connected = false, targetId
   useEffect(() => {
     const bus = busRef?.current;
     if (!connected || !bus?.emit || !targetId) return;
-    let stopped = false;
     bus.emit("browser:stream.start", {
       targetId,
       ...POPUP_VIEWPORT,
       scale: Math.min(2, window.devicePixelRatio || 1),
-      profile: useBrowserStore.getState().activeProfile || "default"
+      profile
     });
-    const onFrame = (f) => {
-      if (stopped || f?.targetId !== targetId || !f.image) return;
-      const next = { src: `data:image/jpeg;base64,${f.image}`, meta: f.meta };
-      frameRef.current = next;
-      setFrame(next);
-      bus.emit("browser:stream.ack", { targetId, seq: f.seq });
-    };
-    bus.on?.("browser:frame", onFrame);
     return () => {
-      stopped = true;
-      bus.off?.("browser:frame", onFrame);
       bus.emit("browser:stream.stop", { targetId });
     };
   }, [busRef, connected, targetId]);
+
+  // Binary frames painted to a canvas by the shared hook (ack after paint).
+  const { canvasRef: imgRef, frame, frameRef } = useBrowserFrame({ busRef, connected, targetId });
 
   useEffect(() => () => {
     if (hoverTimer.current) clearTimeout(hoverTimer.current);
@@ -66,7 +55,7 @@ export default function BrowserPopupWindow({ busRef, connected = false, targetId
     busRef?.current?.emit?.("browser:input", {
       targetId,
       events,
-      profile: useBrowserStore.getState().activeProfile || "default"
+      profile
     });
   }, [busRef, targetId]);
 
@@ -197,15 +186,13 @@ export default function BrowserPopupWindow({ busRef, connected = false, targetId
           </button>
         </div>
         <div className="flex-1 min-h-0 bg-black relative flex items-center justify-center touch-none select-none outline-none">
-          {frame && (
-            <img
-              ref={imgRef}
-              src={frame.src}
-              alt="popup"
-              className="max-w-full max-h-full object-contain pointer-events-none"
-              draggable={false}
-            />
-          )}
+          {/* Always mounted — paint() runs before the first frame state. */}
+          <canvas
+            ref={imgRef}
+            width={frame?.w || 16}
+            height={frame?.h || 16}
+            className={`max-w-full max-h-full object-contain pointer-events-none ${frame ? "" : "opacity-0"}`}
+          />
           {!frame && (
             <div className="absolute inset-0 flex items-center justify-center text-text-muted text-xs gap-2 bg-surface">
               <Loader2 size={14} className="animate-spin" /> {t("sites.browserPaneLoading")}

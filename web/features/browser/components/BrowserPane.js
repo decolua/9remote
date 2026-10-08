@@ -6,15 +6,14 @@
 // bounding box IS the drawn frame — map clientXY through its ratio, no letterbox math.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import {
-  Bot,
   ChevronLeft,
   ChevronRight,
   ExternalLink,
   Globe,
   Link2,
   Loader2,
-  MoreHorizontal,
   RotateCw,
+  Smartphone,
   SquarePen,
   Target,
   Terminal,
@@ -24,6 +23,7 @@ import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useBrowserStore } from "@/shared/stores/browserStore";
 import { useBrowserInvoke } from "@/features/browser/hooks/useBrowserInvoke";
+import { useBrowserFrame } from "@/features/browser/hooks/useBrowserFrame";
 import { pinchDistance } from "@/features/browser/lib/pointerMap";
 import BrowserInspectSheet from "./BrowserInspectSheet";
 import BrowserAnnotationsDrawer from "./BrowserAnnotationsDrawer";
@@ -35,29 +35,45 @@ import BrowserAddressSuggestions from "./BrowserAddressSuggestions";
 import BrowserPopupWindow from "./BrowserPopupWindow";
 import BrowserPickModal from "./BrowserPickModal";
 import { resolveOmniboxInput } from "@/features/browser/lib/omnibox";
+import { ProfileAvatar } from "@/features/browser/lib/profileAvatar";
 
+// Stable empty list: a selector returning a fresh [] every call makes
+// useSyncExternalStore re-render forever ("getSnapshot should be cached").
+const NO_TABS = [];
+
+// Stable hue per port — every shortcut keeps its own color, like favicons.
+const siteHue = (port) => {
+  let h = 0;
+  for (const c of String(port)) h = (h * 31 + c.charCodeAt(0)) % 360;
+  return `hsl(${h} 55% 45%)`;
+};
+// ~4MB/s per 3s — above this the stream costs more than a remote link carries.
+const ADAPTIVE_BUDGET_BYTES = 12_000_000;
 const SPECIAL_KEYS = {
   Enter: "enter", Tab: "tab", Escape: "escape", Backspace: "backspace", Delete: "delete",
   ArrowUp: "arrowup", ArrowDown: "arrowdown", ArrowLeft: "arrowleft", ArrowRight: "arrowright",
   Home: "home", End: "end", PageUp: "pageup", PageDown: "pagedown"
 };
-const DIAG = process.env.NODE_ENV !== "production";
 
-export default function BrowserPane({ busRef, connected = false, onBack }) {
+export default function BrowserPane({ busRef, connected = false, onBack, profile = "default", onProfileChange, workspaceId = "default" }) {
   const { t } = useI18n();
-  const invoke = useBrowserInvoke(busRef);
-  const tabs = useBrowserStore((s) => s.tabs);
-  const activeTargetId = useBrowserStore((s) => s.activeTargetId);
-  const activeProfile = useBrowserStore((s) => s.activeProfile);
+  const invoke = useBrowserInvoke(busRef, profile);
+  const wsKey = workspaceId || "default";
+  const tabs = useBrowserStore((s) => s.tabsByWorkspace[wsKey] ?? NO_TABS);
+  const activeTargetId = useBrowserStore((s) => s.activeByWorkspace[wsKey] || null);
   const setActive = useBrowserStore((s) => s.setActive);
 
-  const [frame, setFrame] = useState(null);
   const [address, setAddress] = useState("");
   const [textOpen, setTextOpen] = useState(false);
   const [textDraft, setTextDraft] = useState("");
   const [restartTick, setRestartTick] = useState(0);
+  // Adaptive quality: null = host default (85). The pane watches outgoing
+  // bytes and steps quality down when a 3s window exceeds the budget —
+  // a static page sends nothing and is never throttled.
+  const [quality, setQuality] = useState(null);
   // Viewport preset override — null = follow the stage's own size.
   const [viewportPreset, setViewportPreset] = useState(null);
+  const [vpMenu, setVpMenu] = useState(false);
 
   // Feature modes & panels. grabIntent mirrors orca: "copy" (grab) vs "annotate".
   const [grabIntent, setGrabIntent] = useState(null);
@@ -65,6 +81,7 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const [annotations, setAnnotations] = useState([]);
   const [showAnnotations, setShowAnnotations] = useState(false);
   const [markupOpen, setMarkupOpen] = useState(false);
+  const [markupBase, setMarkupBase] = useState(null);
   const [consoleOpen, setConsoleOpen] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuSection, setMenuSection] = useState(null); // "cookies" via the toolbar Import shortcut
@@ -85,14 +102,14 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const [picked, setPicked] = useState([]);
   const [pickOpen, setPickOpen] = useState(false);
   const [rubber, setRubber] = useState(null); // stage-relative sweep rectangle
+  const [hoverRect, setHoverRect] = useState(null); // pick-mode element under the cursor
+  const [localSites, setLocalSites] = useState(null);
   const [imgBox, setImgBox] = useState(null); // drawn img rect, stage-relative
   const pickDragRef = useRef(null);
 
   const stageRef = useRef(null);
-  const imgRef = useRef(null);
-  const frameRef = useRef(null);
+  const bytesWindowRef = useRef({ bytes: 0, mark: 0, applied: 0 });
   const addressRef = useRef(null);
-  const wheelRef = useRef(null);
   const dragRef = useRef(null);
   const moveTimerRef = useRef(null);
   const longPressTimer = useRef(null);
@@ -104,8 +121,6 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const pinchRef = useRef(null);
   const suggestTimer = useRef(null);
   const navigatingRef = useRef(false);
-  // TEMP DIAGNOSTIC pane: frame throughput + input send rate (1 line/s in devtools)
-  const diagRef = useRef({ frames: 0, bytes: 0, lastSeq: 0, sends: 0, mark: 0, mismatchAt: 0 });
 
   const activeTab = tabs.find((tb) => tb.id === activeTargetId) || tabs.find((tb) => tb.active) || tabs[0] || null;
   const watchedId = activeTab?.id || null;
@@ -153,46 +168,72 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
     if (!connected || !bus?.emit || !watchedId) return;
     let stopped = false;
     const rect = stageRef.current?.getBoundingClientRect();
-    if (DIAG) console.debug(`[pane] stream.start stage=${Math.round(rect?.width || 0)}x${Math.round(rect?.height || 0)} dpr=${window.devicePixelRatio || 1}`);
-    bus.emit("browser:stream.start", {
-      targetId: watchedId,
-      profile: activeProfile || "default",
-      width: Math.round(viewportPreset?.width || rect?.width || 720),
-      height: Math.round(viewportPreset?.height || rect?.height || 1280),
-      // Retina honesty: render at the viewer's physical pixel density.
-      scale: Math.min(2, window.devicePixelRatio || 1)
-    }, (res) => {
-      // Host healed a stale tab id to the profile's live tab — follow it so
-      // the pane streams and inputs target the same tab.
-      if (res?.ok && res.targetId && res.targetId !== watchedId) setActive(res.targetId);
-    });
-    const onFrame = (f) => {
-      if (stopped) return;
-      // TEMP DIAGNOSTIC: frames arriving for another tab are normal (broadcast),
-      // but a persistent mismatch means the pane never re-attached after a heal.
-      if (DIAG && f?.image && f.targetId !== watchedId && Date.now() - diagRef.current.mismatchAt > 1000) {
-        diagRef.current.mismatchAt = Date.now();
-        console.debug(`[pane] dropping frame targetId=${f.targetId} watched=${watchedId}`);
-      }
-      if (f?.targetId !== watchedId || !f.image) return;
-      const next = { src: `data:image/jpeg;base64,${f.image}`, meta: f.meta };
-      frameRef.current = next;
-      setFrame(next);
-      setLoading(false); // any frame after a navigate = the page painted
-      if (DIAG) {
-        diagRef.current.frames += 1;
-        diagRef.current.bytes += f.image.length;
-        diagRef.current.lastSeq = f.seq;
-      }
-      bus.emit("browser:stream.ack", { targetId: f.targetId, seq: f.seq });
+    // A failed start leaves the pane input-dead (every browser:input throws
+    // "No stream active") — retry a few times instead of waiting for the user
+    // to poke the stage.
+    let retries = 0;
+    const start = () => {
+      bus.emit("browser:stream.start", {
+        targetId: watchedId,
+        profile,
+        width: Math.round(viewportPreset?.width || rect?.width || 720),
+        height: Math.round(viewportPreset?.height || rect?.height || 1280),
+        // Retina honesty: render at the viewer's physical pixel density.
+        scale: Math.min(2, window.devicePixelRatio || 1),
+        quality: quality || undefined
+      }, (res) => {
+        // Host healed a stale tab id to the profile's live tab — follow it so
+        // the pane streams and inputs target the same tab.
+        if (res?.ok && res.targetId && res.targetId !== watchedId) setActive(wsKey, res.targetId);
+        if (res?.ok && res.quality) setQuality(res.quality);
+        if (!res?.ok && !stopped && retries < 3) {
+          retries += 1;
+          setTimeout(() => { if (!stopped) setRestartTick((n) => n + 1); }, 1500 * retries);
+        }
+      });
     };
-    bus.on?.("browser:frame", onFrame);
+    start();
     return () => {
       stopped = true;
-      bus.off?.("browser:frame", onFrame);
       bus.emit("browser:stream.stop", { targetId: watchedId });
     };
-  }, [busRef, connected, watchedId, restartTick, viewportPreset, activeProfile]);
+  }, [busRef, connected, watchedId, restartTick, viewportPreset, profile, quality, setActive, wsKey]);
+
+  // Binary frames arrive on the file lane — reassembled, decoded off-thread
+  // and painted to the canvas by the hook; the pane only tracks paint events
+  // (loading UX + the adaptive-bytes watchdog).
+  const { canvasRef: imgRef, frame, frameRef } = useBrowserFrame({
+    busRef, connected, targetId: watchedId,
+    onPainted: (meta, bytes) => {
+      bytesWindowRef.current.bytes += bytes;
+      setLoading(false); // any frame after a navigate = the page painted
+    }
+  });
+
+  // Markup snapshots the canvas at OPEN time — later frames cannot change the
+  // drawing base out from under the strokes.
+  useEffect(() => {
+    if (markupOpen) setMarkupBase(imgRef.current?.toDataURL("image/jpeg", 0.9) || null);
+  }, [markupOpen, imgRef, frame]);
+
+  // Bandwidth watchdog: > ADAPTIVE_BUDGET_BYTES per 3s window means the link
+  // (or the encoder) is the bottleneck — step jpeg quality down one notch.
+  // Only one step per window, floor at 55; restart carries the new quality.
+  useEffect(() => {
+    const w = bytesWindowRef.current;
+    w.mark = Date.now();
+    const timer = setInterval(() => {
+      const now = Date.now();
+      const bytes = w.bytes;
+      w.bytes = 0;
+      w.mark = now;
+      if (bytes > ADAPTIVE_BUDGET_BYTES && now - w.applied > 3000) {
+        w.applied = now;
+        setQuality((q) => Math.max(55, (q ?? 85) - 15));
+      }
+    }, 3000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Stream only while this tab is actually watched: hidden (switched tab /
   // minimized) → stop the screencast; back → restart with the cached frame.
@@ -208,13 +249,24 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [busRef, watchedId]);
 
+  // New-tab page: a blank tab lists the host's running dev servers.
+  const blankTab = !activeTab?.url || /^about:blank$/.test(activeTab.url || "");
+  useEffect(() => {
+    if (!connected || !(blankTab || !watchedId)) return;
+    const bus = busRef?.current;
+    if (!bus?.emit) return;
+    bus.emit("getLocalSites", (res) => {
+      if (Array.isArray(res?.sites)) setLocalSites(res.sites);
+    });
+  }, [busRef, connected, blankTab, watchedId]);
+
   // Timers own input timing — never let one fire into an unmounted pane.
   useEffect(() => () => {
+    if (wheelRef.current?.timer) clearTimeout(wheelRef.current.timer);
     if (longPressTimer.current) clearTimeout(longPressTimer.current);
     if (suggestTimer.current) clearTimeout(suggestTimer.current);
     if (moveTimerRef.current) clearTimeout(moveTimerRef.current);
     if (hoverTimerRef.current) clearTimeout(hoverTimerRef.current);
-    if (wheelRef.current?.timer) clearTimeout(wheelRef.current.timer);
   }, []);
 
   // Host cursor probe → real pointer/text cursor over the streamed page.
@@ -233,28 +285,12 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
 
   const sendInput = useCallback((events) => {
     if (!watchedId || !events.length) return;
-    if (DIAG) diagRef.current.sends += 1;
     busRef?.current?.emit?.("browser:input", {
       targetId: watchedId,
       events,
-      profile: useBrowserStore.getState().activeProfile || "default"
+      profile
     });
   }, [busRef, watchedId]);
-
-  // TEMP DIAGNOSTIC pane: report once per second while the pane is open
-  useEffect(() => {
-    if (!DIAG) return;
-    diagRef.current.mark = Date.now();
-    const timer = setInterval(() => {
-      const d = diagRef.current;
-      const dt = Date.now() - d.mark;
-      if (d.frames || d.sends) {
-        console.debug(`[pane] frames/s=${(d.frames * 1000 / dt).toFixed(1)} lastSeq=${d.lastSeq} kb/s=${(d.bytes / dt).toFixed(0)} inputs/s=${(d.sends * 1000 / dt).toFixed(1)}`);
-      }
-      d.frames = 0; d.bytes = 0; d.sends = 0; d.mark = Date.now();
-    }, 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Pixel-perfect mapping: the img shrink-fits the stage, so its rect is the
   // drawn frame; scale through the ratio into the page's own device pixels.
@@ -299,6 +335,10 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   // Stage resized (layout settling, pane split, fullscreen) → restart the
   // stream at the new size. The stream measures the stage ONCE at start; left
   // alone it would keep serving the old resolution stretched = blurry.
+  // Wheel coalescing: CDP mouseWheel costs 18-45ms host-side, so one-message-
+  // per-event saturates the serial input queue (measured). 50ms keeps ~20
+  // dispatches/s while deltas arrive in order (host serializes).
+  const wheelRef = useRef(null);
   const stageSizeRef = useRef(null);
   useEffect(() => {
     const stage = stageRef.current;
@@ -361,8 +401,10 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
   const onPointerDown = (e) => {
     if (!frameRef.current || e.button > 2) return;
     vibrate();
-    // Pick mode: down only records the sweep start — the pick resolves on up.
-    if (grabIntent === "pick") {
+    // Pick mode + mouse: down records the sweep start — resolves on up.
+    // Touch keeps its NATIVE path (scrolling stays live); the tap-pick is
+    // detected on release instead.
+    if (grabIntent === "pick" && e.pointerType !== "touch") {
       pickDragRef.current = { sx: e.clientX, sy: e.clientY, moved: false };
       return;
     }
@@ -448,16 +490,10 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
         return;
       }
       // Single-finger drag → native touch scroll (coalesced per frame window).
-      if (grabIntent) return;
       const st = touchStartRef.current;
       if (st && Math.abs(e.clientX - st.x) + Math.abs(e.clientY - st.y) > 10) clearLongPress();
-      if (moveTimerRef.current) return;
-      const ev = e;
-      moveTimerRef.current = setTimeout(() => {
-        moveTimerRef.current = null;
-        const p = point(ev);
-        sendInput([{ t: "touch", type: "move", points: [p] }]);
-      }, 16);
+      const p = point(e);
+      sendInput([{ t: "touch", type: "move", points: [p] }]);
       return;
     }
     // Mouse drag with button down.
@@ -478,13 +514,30 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
       return;
     }
     // Mouse hover (no button): drives :hover states and the cursor probe.
-    if (grabIntent || !frameRef.current) return;
+    if (!frameRef.current) return;
     if (hoverTimerRef.current) return;
     const ev = e;
     hoverTimerRef.current = setTimeout(() => {
       hoverTimerRef.current = null;
       const p = point(ev);
-      sendInput([{ t: "pointer", type: "move", x: p.x, y: p.y }]);
+      if (grabIntent === "pick") {
+        // Pick mode: highlight the element under the cursor instead of driving
+        // the page's own :hover — the pane glows what a click would collect.
+        invoke("inspect", { targetId: watchedId, x: p.x, y: p.y }).then((res) => {
+          const r = res?.ok && res.element ? res.element.rect : null;
+          if (!r || !r.width) return setHoverRect(null);
+          // Containers wrapping most of the page read as "highlighting
+          // everything" — only glow reasonably-sized elements (< ~60% of the
+          // viewport area, like DevTools' practical pick).
+          const meta = frameRef.current?.meta || {};
+          const vW = meta.deviceWidth || 0;
+          const vH = meta.deviceHeight || 0;
+          const tooBig = vW && vH && (r.width * r.height) / (vW * vH) > 0.6;
+          setHoverRect(tooBig ? null : { ...r, ...stampScroll() });
+        });
+        return;
+      }
+      if (!grabIntent) sendInput([{ t: "pointer", type: "move", x: p.x, y: p.y }]);
     }, 80);
   };
 
@@ -525,6 +578,18 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
       // The long-press timer (or pinch entry) already ended the touch stream.
       if (!longPressFired.current && !pinchRef.current) {
         sendInput([{ t: "touch", type: "end" }]);
+        // Pick mode tap (finger down/up without dragging): toggle the element
+        // under the finger — scrolling stays a first-class gesture.
+        if (grabIntent === "pick" && touchStartRef.current) {
+          const st = touchStartRef.current;
+          const moved = Math.abs(e.clientX - st.x) + Math.abs(e.clientY - st.y) > 10;
+          if (!moved) {
+            const gp = pagePoint(e.clientX, e.clientY);
+            invoke("inspect", { targetId: watchedId, x: gp.x, y: gp.y }).then((res) => {
+              if (res?.ok && res.element) togglePicked(res.element);
+            });
+          }
+        }
       }
       longPressFired.current = false;
       return;
@@ -555,18 +620,19 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
     const el = stageRef.current;
     if (!el || !watchedId) return;
     const onWheel = (e) => {
-      if (!frameRef.current || grabIntent) return;
+      if (!frameRef.current) return;
       e.preventDefault();
       const p = pagePoint(e.clientX, e.clientY);
-      const acc = wheelRef.current || (wheelRef.current = { x: p.x, y: p.y, deltaX: 0, deltaY: 0 });
+      const acc = wheelRef.current || (wheelRef.current = { x: p.x, y: p.y, deltaX: 0, deltaY: 0, ctrlKey: false });
       acc.x = p.x; acc.y = p.y;
       acc.deltaX += e.deltaX;
       acc.deltaY += e.deltaY;
+      acc.ctrlKey = acc.ctrlKey || e.ctrlKey;
       if (acc.timer) return;
       acc.timer = setTimeout(() => {
         acc.timer = null;
-        sendInput([{ t: "wheel", x: acc.x, y: acc.y, deltaX: acc.deltaX, deltaY: acc.deltaY }]);
-        acc.deltaX = 0; acc.deltaY = 0;
+        sendInput([{ t: "wheel", x: acc.x, y: acc.y, deltaX: acc.deltaX, deltaY: acc.deltaY, ctrlKey: acc.ctrlKey }]);
+        acc.deltaX = 0; acc.deltaY = 0; acc.ctrlKey = false;
       }, 50);
     };
     el.addEventListener("wheel", onWheel, { passive: false });
@@ -616,18 +682,18 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
       setLoading(true);
       // No LIVE tab (none yet, or a stale persisted id after a Chrome restart):
       // the typed address boots a fresh tab instead of failing on the dead one.
-      const liveTabs = useBrowserStore.getState().tabs;
+      const liveTabs = useBrowserStore.getState().tabsByWorkspace[wsKey] || [];
       const res = watchedId && liveTabs.some((tb) => tb.id === watchedId)
         ? await invoke("go", { targetId: watchedId, url })
         : await invoke("open", { url });
       setLoading(false);
       if (res?.ok && res.id) {
-        setActive(res.id);
+        setActive(wsKey, res.id);
         // Optimistic tab entry — the host's push (2s poll) replaces it; without
         // this the stream waits a full poll cycle before starting.
-        const cur = useBrowserStore.getState().tabs;
+        const cur = useBrowserStore.getState().tabsByWorkspace[wsKey] || [];
         if (!cur.some((tb) => tb.id === res.id)) {
-          useBrowserStore.getState().setTabs([...cur, { id: res.id, url: res.url, title: "" }]);
+          useBrowserStore.getState().setTabs(wsKey, [...cur, { id: res.id, url: res.url, title: "" }]);
         }
       }
       if (res && !res.ok) setLoadError({ url, error: res.error || "Navigation failed" });
@@ -769,7 +835,7 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
                 const u = activeTab?.url && !/^about:blank$/.test(activeTab.url) ? activeTab.url : "";
                 setTimeout(() => { if (u && addressRef.current?.value !== u) setAddress(u); }, 200);
               }}
-              placeholder={t("sites.browserSearchOrUrl") || "Search or type URL"}
+              placeholder={t("sites.browserPaneSearchOrUrl")}
               spellCheck={false}
               autoCapitalize="none"
               autoCorrect="off"
@@ -786,8 +852,8 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
 
         {/* Pick elements — orca Crosshair; inverted while armed */}
         <button
-          onClick={() => { vibrate(); setGrabIntent((g) => (g === "pick" ? null : "pick")); setInspectedElement(null); }}
-          disabled={!frame?.src}
+          onClick={() => { vibrate(); setGrabIntent((g) => (g === "pick" ? null : "pick")); setInspectedElement(null); setHoverRect(null); }}
+          disabled={!frame}
           className={`h-8 w-8 shrink-0 relative flex items-center justify-center rounded-[6px] transition-colors disabled:opacity-40 disabled:pointer-events-none ${
             grabIntent === "pick" ? "bg-text/80 text-surface hover:bg-text/90" : "text-text-muted hover:text-text hover:bg-surface-2"
           }`}
@@ -796,49 +862,17 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
           <Target size={16} />
         </button>
 
-        {/* Annotate — orca MessageSquarePlus; badge counts notes */}
-        <button
-          onClick={() => { vibrate(); setGrabIntent((g) => (g === "annotate" ? null : "annotate")); setInspectedElement(null); }}
-          disabled={!frame?.src}
-          className={`h-8 w-8 shrink-0 relative flex items-center justify-center rounded-[6px] transition-colors disabled:opacity-40 disabled:pointer-events-none ${
-            grabIntent === "annotate" ? "bg-text/80 text-surface hover:bg-text/90" : "text-text-muted hover:text-text hover:bg-surface-2"
-          }`}
-          title="Annotate page element"
-        >
-          <Bot size={16} />
-          {annotations.length > 0 && (
-            <span className="absolute -top-1 -right-1 flex min-w-4 items-center justify-center rounded-full bg-brand-500 px-1 text-[10px] leading-4 text-white">
-              {annotations.length}
-            </span>
-          )}
-        </button>
-
-        {/* ⋯ menu (profiles · cookies · viewport · keyboard · notes · markup · console) */}
+        {/* Profile chip — Chrome's avatar button: the ONLY menu door now
+            (tools, profiles, import, viewport all live behind it) */}
         <button
           onClick={() => { setMenuSection(null); setMenuOpen(true); }}
-          className="h-7 w-7 shrink-0 flex items-center justify-center rounded-[6px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
-          title="Browser menu"
+          className="h-7 shrink-0 flex items-center gap-1.5 px-1.5 rounded-[6px] text-text-muted hover:text-text hover:bg-surface-2 transition-colors"
+          title={profile}
         >
-          <MoreHorizontal size={16} />
+          <ProfileAvatar name={profile} size={16} />
+          <span className="hidden md:inline text-[11px] font-medium max-w-[80px] truncate">{profile}</span>
         </button>
       </div>
-
-      {/* Pick/annotate armed banner (orca's status banner) */}
-      {grabIntent && (
-        <div className="shrink-0 bg-text/85 text-surface text-xs px-3 py-1 flex items-center justify-between gap-2">
-          <span className="truncate">
-            {grabIntent === "pick"
-              ? `🎯 Pick — click or drag to select elements${picked.length ? ` · ${picked.length}` : ""}`
-              : "💬 Annotate — click an element to add a note"}
-          </span>
-          <span className="flex items-center gap-2 shrink-0">
-            {grabIntent === "pick" && picked.length > 0 && (
-              <button onClick={() => { vibrate(); setPickOpen(true); }} className="underline text-[11px] font-medium">Review</button>
-            )}
-            <button onClick={() => setGrabIntent(null)} className="underline text-[11px]">Done</button>
-          </span>
-        </div>
-      )}
 
       {/* Stream stage — the img shrink-fits, so its rect IS the frame: every
           input maps through that ratio and lands on the exact page pixel. */}
@@ -851,18 +885,18 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
         onPointerUp={onPointerUp}
         onPointerCancel={onPointerUp}
         onContextMenu={(e) => { e.preventDefault(); openContextMenu(e.clientX, e.clientY); }}
+        onPointerLeave={() => { setHoverRect(null); if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; } }}
         style={{ cursor: grabIntent ? "crosshair" : cursor }}
         className="flex-1 min-h-0 bg-black relative overflow-hidden outline-none touch-none select-none flex items-center justify-center"
       >
-        {frame && (
-          <img
-            ref={imgRef}
-            src={frame.src}
-            alt="browser"
-            className="max-w-full max-h-full object-contain pointer-events-none"
-            draggable={false}
-          />
-        )}
+        {/* Always mounted — paint() needs the canvas BEFORE the first frame
+            state exists; hiding it via opacity breaks that chicken-and-egg. */}
+        <canvas
+          ref={imgRef}
+          width={frame?.w || 16}
+          height={frame?.h || 16}
+          className={`max-w-full max-h-full object-contain pointer-events-none ${frame ? "" : "opacity-0"}`}
+        />
         {/* Pick rings — viewport rects mapped onto the drawn frame, drifting with
             the page's own scroll (rect was captured at pick time). */}
         {frame && imgBox && picked.length > 0 && (() => {
@@ -884,7 +918,7 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
                 return (
                   <div
                     key={`${pickKey(it)}-${i}`}
-                    className="absolute rounded-[3px] border-2 border-brand-500 bg-brand-500/15 shadow-[0_0_0_1px_rgba(0,0,0,0.7)]"
+                    className="absolute rounded-[3px] border-2 border-brand-500 bg-brand-500/15 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
                     style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
                   >
                     <span className="absolute top-0.5 left-0.5 min-w-4 h-4 px-1 rounded-full bg-brand-500 text-white text-[10px] leading-4 text-center font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
@@ -896,32 +930,130 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
             </div>
           );
         })()}
+        {hoverRect && grabIntent === "pick" && frame && imgBox && (() => {
+          const meta = frame.meta || {};
+          const vW = meta.deviceWidth;
+          const vH = meta.deviceHeight;
+          if (!vW || !vH || !hoverRect.width) return null;
+          const dx = (meta.scrollX || 0) - (hoverRect.scrollX || 0);
+          const dy = (meta.scrollY || 0) - (hoverRect.scrollY || 0);
+          return (
+            <div
+              className="absolute pointer-events-none z-[6] rounded-[3px] border-2 border-amber-400 bg-amber-400/15 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
+              style={{
+                left: imgBox.left + ((hoverRect.x - dx) / vW) * imgBox.width,
+                top: imgBox.top + ((hoverRect.y - dy) / vH) * imgBox.height,
+                width: (hoverRect.width / vW) * imgBox.width,
+                height: (hoverRect.height / vH) * imgBox.height
+              }}
+            />
+          );
+        })()}
         {rubber && (
           <div
             className="absolute pointer-events-none border border-brand-400 bg-brand-500/15 rounded-[2px] z-[6]"
             style={{ left: rubber.left, top: rubber.top, width: rubber.width, height: rubber.height }}
           />
         )}
-        {picked.length > 0 && !grabIntent && !pickOpen && (
+        {/* Device size — on-stage control, always reachable while browsing */}
+        <div className="absolute bottom-3 left-3 z-10">
+          {vpMenu && (
+            <div className="absolute bottom-10 left-0 flex flex-col p-1 rounded-xl card-elev animate-in fade-in duration-100 min-w-[150px]">
+              {[
+                { label: "Fit (follow pane)", w: null, h: null },
+                { label: "Mobile 375×667", w: 375, h: 667 },
+                { label: "Tablet 768×1024", w: 768, h: 1024 },
+                { label: "Desktop 1120×780", w: 1120, h: 780 }
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => {
+                    vibrate();
+                    setViewportPreset(opt.w ? { width: opt.w, height: opt.h } : null);
+                    if (opt.w) invoke("viewport", { targetId: watchedId, width: opt.w, height: opt.h });
+                    else setRestartTick((n) => n + 1);
+                    setVpMenu(false);
+                  }}
+                  className={`text-left px-2.5 py-1.5 rounded-brand text-xs transition-colors ${
+                    (opt.w ? viewportPreset?.width === opt.w : !viewportPreset) ? "bg-surface-3 text-text font-medium" : "text-text-muted hover:bg-surface-2 hover:text-text"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          )}
           <button
-            onClick={() => { vibrate(); setPickOpen(true); }}
-            className="absolute bottom-3 left-1/2 -translate-x-1/2 z-10 px-3 py-1.5 rounded-full bg-text/85 text-surface text-xs font-medium shadow-lg transition-colors hover:bg-text/95"
+            onClick={() => { vibrate(); setVpMenu((v) => !v); }}
+            className={`h-8 w-8 flex items-center justify-center rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.4)] transition-colors ${
+              viewportPreset ? "bg-brand-500 text-white" : "bg-surface/90 text-text-muted hover:text-text backdrop-blur"
+            }`}
+            title="Device size"
           >
-            🎯 {picked.length} picked — Review
+            <Smartphone size={15} />
           </button>
+        </div>
+
+        {/* Pick chip — bottom-right: send picks or exit pick mode */}
+        {(grabIntent === "pick" || picked.length > 0) && !pickOpen && (
+          <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full shadow-xl p-0.5">
+            {picked.length > 0 ? (
+              <button
+                onClick={() => { vibrate(); setPickOpen(true); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium shadow-md transition-colors"
+              >
+                <Target size={13} />
+                <span>{`${picked.length} picked — Send`}</span>
+              </button>
+            ) : (
+              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface/95 text-text border border-border-subtle text-xs font-medium backdrop-blur">
+                <Target size={13} className="text-brand-500" />
+                <span>Pick elements</span>
+              </div>
+            )}
+            {grabIntent === "pick" && (
+              <button
+                onClick={() => { vibrate(); setGrabIntent(null); }}
+                className="w-7 h-7 flex items-center justify-center rounded-full bg-surface/90 hover:bg-surface text-text-muted hover:text-text border border-border-subtle transition-colors"
+                title="Exit pick mode"
+              >
+                <X size={12} />
+              </button>
+            )}
+          </div>
         )}
         {!connected && (
           <div className="absolute inset-0 flex items-center justify-center text-sm text-text-muted bg-surface">
             {t("sites.browserPaneNotConnected")}
           </div>
         )}
-        {connected && !watchedId && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 p-6 text-center bg-surface">
-            <Globe size={28} className="text-text-muted" />
-            <p className="text-text text-sm font-medium">{t("sites.browserPaneNoTabs")}</p>
-            <p className="text-text-muted text-xs">{t("sites.browserPaneNewTabHint")}</p>
+        {(connected && (!watchedId || blankTab)) && localSites !== null && localSites.length > 0 && (
+          <div className="absolute inset-0 z-[7] overflow-y-auto bg-surface">
+            <div className="pt-[14vh] flex flex-wrap justify-center gap-x-1 gap-y-5 px-6 max-w-2xl mx-auto">
+              {localSites.map((site) => {
+                const label = site.name && !/^localhost:\d+$/.test(site.name) ? site.name : null;
+                return (
+                  <button
+                    key={site.port}
+                    onClick={() => { vibrate(); navigate(site.url); }}
+                    className="group flex w-[84px] flex-col items-center gap-1.5 p-2 rounded-lg hover:bg-surface-2/70 transition-colors"
+                    title={site.url}
+                  >
+                    <span
+                      className="w-11 h-11 rounded-full flex items-center justify-center text-white text-[13px] font-bold font-mono"
+                      style={{ backgroundColor: siteHue(site.port) }}
+                    >
+                      {site.port}
+                    </span>
+                    <span className="text-xs text-text font-medium font-mono">:{site.port}</span>
+                    {label && <span className="w-full text-center text-[10px] text-text-muted truncate">{label}</span>}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
+
         {connected && watchedId && !frame && !loadError && (
           <button
             onClick={() => setRestartTick((n) => n + 1)}
@@ -979,6 +1111,9 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
         <BrowserPickModal
           picked={picked}
           url={activeTab?.url}
+          invoke={invoke}
+          targetId={watchedId}
+          frameMeta={frame?.meta}
           onRemoveItem={(idx) => setPicked((prev) => prev.filter((_, i) => i !== idx))}
           onClear={() => setPicked([])}
           onClose={() => setPickOpen(false)}
@@ -1006,10 +1141,10 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
         />
       )}
 
-      {/* Markup Drawer */}
-      {markupOpen && frame?.src && (
+      {/* Markup Drawer — snapshots the live canvas as its base image */}
+      {markupOpen && (
         <BrowserMarkupOverlay
-          frameImgSrc={frame.src}
+          frameImgSrc={markupBase}
           onClose={() => setMarkupOpen(false)}
         />
       )}
@@ -1026,20 +1161,12 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
       {menuOpen && (
         <BrowserMenuModal
           invoke={invoke}
+          profile={profile}
+          onSelectProfile={onProfileChange}
           targetId={watchedId}
           url={activeTab?.url}
           initialSection={menuSection}
-          keyboardOpen={textOpen}
-          notesCount={annotations.length}
-          onToggleKeyboard={() => setTextOpen((v) => !v)}
           onCopyUrl={copyUrl}
-          onOpenNotes={() => setShowAnnotations(true)}
-          onOpenMarkup={() => setMarkupOpen(true)}
-          onOpenConsole={() => setConsoleOpen(true)}
-          onSelectViewport={async (w, h) => {
-            setViewportPreset({ width: w, height: h });
-            await invoke("viewport", { targetId: watchedId, width: w, height: h });
-          }}
           onClose={() => setMenuOpen(false)}
         />
       )}
@@ -1085,6 +1212,7 @@ export default function BrowserPane({ busRef, connected = false, onBack }) {
         <BrowserPopupWindow
           busRef={busRef}
           connected={connected}
+          profile={profile}
           targetId={popupTab.id}
           url={popupTab.url}
           onClose={() => invoke("close", { targetId: popupTab.id })}

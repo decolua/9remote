@@ -3,15 +3,99 @@
 import assert from "node:assert/strict";
 import { viewportPoint, containRect } from "../features/browser/lib/pointerMap.js";
 import { cleanTabTitle, useBrowserStore } from "../shared/stores/browserStore.js";
-import { parseSiteAddress } from "../features/browser/lib/siteBridge.js";
 import { buildPickPayload } from "../features/browser/lib/pickPayload.js";
 import { resolveOmniboxInput } from "../features/browser/lib/omnibox.js";
+import { FrameAssembler } from "../features/browser/lib/browserFrame.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
   try { fn(); pass++; console.log(`  ✓ ${name}`); }
   catch (e) { fail++; console.error(`  ✗ ${name}\n    ${e.message}`); }
 };
+
+// Fake a host chunk pair — mirrors encodeBrowserFrame layout from the host.
+const MAGIC = 0xfefefefe;
+function hostChunk({ seq, chunkIdx, chunkCount, targetId, metaJson, payload, flags = 0 }) {
+  const id = new TextEncoder().encode(targetId);
+  const meta = new TextEncoder().encode(metaJson);
+  const buf = new Uint8Array(16 + id.byteLength + meta.byteLength + payload.byteLength);
+  const dv = new DataView(buf.buffer);
+  dv.setUint32(0, MAGIC);
+  dv.setUint32(4, seq >>> 0);
+  dv.setUint16(8, chunkIdx);
+  dv.setUint16(10, chunkCount);
+  dv.setUint8(12, id.byteLength);
+  dv.setUint8(13, flags);
+  dv.setUint16(14, meta.byteLength);
+  buf.set(id, 16);
+  buf.set(meta, 16 + id.byteLength);
+  buf.set(payload, 16 + id.byteLength + meta.byteLength);
+  return buf;
+}
+
+test("FrameAssembler: single-chunk frame completes immediately", () => {
+  const asm = new FrameAssembler();
+  const out = asm.push(hostChunk({
+    seq: 3, chunkIdx: 0, chunkCount: 1, targetId: "tab1",
+    metaJson: '{"deviceWidth":800,"deviceHeight":600}',
+    payload: new Uint8Array([1, 2, 3])
+  }));
+  assert.ok(out);
+  assert.equal(out.targetId, "tab1");
+  assert.equal(out.seq, 3);
+  assert.equal(out.meta.deviceWidth, 800);
+  assert.deepEqual([...out.payload], [1, 2, 3]);
+});
+
+test("FrameAssembler: out-of-order chunks reassemble; stale seq dropped", () => {
+  const asm = new FrameAssembler();
+  assert.equal(asm.push(hostChunk({
+    seq: 2, chunkIdx: 1, chunkCount: 2, targetId: "tab1", metaJson: "{}",
+    payload: new Uint8Array([9, 9])
+  })), null);
+  const done = asm.push(hostChunk({
+    seq: 2, chunkIdx: 0, chunkCount: 2, targetId: "tab1", metaJson: "{}",
+    payload: new Uint8Array([1, 2])
+  }));
+  assert.ok(done);
+  assert.deepEqual([...done.payload], [1, 2, 9, 9]);
+  // Stale replay of an older frame must not paint over the newer one.
+  assert.equal(asm.push(hostChunk({
+    seq: 1, chunkIdx: 0, chunkCount: 1, targetId: "tab1", metaJson: "{}",
+    payload: new Uint8Array([7])
+  })), null);
+});
+
+test("FrameAssembler: foreign frames ignored, incomplete entries bounded", () => {
+  const asm = new FrameAssembler();
+  assert.equal(asm.push(new Uint8Array(10)), null); // not our magic
+  // 32 half-frames must not grow the map unbounded
+  for (let i = 0; i < 32; i++) {
+    asm.push(hostChunk({ seq: 100 + i, chunkIdx: 0, chunkCount: 2, targetId: "t", metaJson: "{}", payload: new Uint8Array(4) }));
+  }
+  assert.ok(asm.pendingSize() <= 16, `bounded pending, got ${asm.pendingSize()}`);
+});
+
+test("FrameAssembler: interleaved targets keep independent seq windows", () => {
+  const asm = new FrameAssembler();
+  const a1 = asm.push(hostChunk({ seq: 9, chunkIdx: 0, chunkCount: 1, targetId: "pane", metaJson: "{}", payload: new Uint8Array([1]) }));
+  assert.ok(a1, "pane seq 9 completes");
+  // The popup's stream is younger — its low seq must NOT read as stale.
+  const b1 = asm.push(hostChunk({ seq: 2, chunkIdx: 0, chunkCount: 1, targetId: "popup", metaJson: "{}", payload: new Uint8Array([2]) }));
+  assert.ok(b1 && b1.targetId === "popup", "popup seq 2 completes despite pane seq 9");
+  // And back: pane's next frame is still above pane's own watermark only.
+  const a2 = asm.push(hostChunk({ seq: 10, chunkIdx: 0, chunkCount: 1, targetId: "pane", metaJson: "{}", payload: new Uint8Array([3]) }));
+  assert.ok(a2, "pane seq 10 completes");
+});
+
+test("FrameAssembler: flags byte survives single and chunked frames", () => {
+  const single = new FrameAssembler().push(hostChunk({ seq: 1, chunkIdx: 0, chunkCount: 1, targetId: "t", metaJson: "{}", payload: new Uint8Array([9]), flags: 1 }));
+  assert.equal(single.flags, 1, "tile-batch flag on a single-chunk frame");
+  const asm = new FrameAssembler();
+  asm.push(hostChunk({ seq: 5, chunkIdx: 1, chunkCount: 2, targetId: "t", metaJson: "{}", payload: new Uint8Array([4, 4]), flags: 1 }));
+  const joined = asm.push(hostChunk({ seq: 5, chunkIdx: 0, chunkCount: 2, targetId: "t", metaJson: "{}", payload: new Uint8Array([1, 2]), flags: 1 }));
+  assert.ok(joined && joined.flags === 1, "flag survives chunk reassembly");
+});
 
 test("cleanTabTitle strips the engine's 🚀 stamp", () => {
   assert.equal(cleanTabTitle("🚀 [2] My Page"), "My Page");
@@ -83,24 +167,25 @@ test("containRect centers a contain-fit image", () => {
   assert.equal(r.y, 200);
 });
 
-test("browserStore setTabs/setActive", () => {
-  useBrowserStore.getState().setTabs([{ id: "A", title: "x" }]);
-  assert.equal(useBrowserStore.getState().tabs.length, 1);
-  useBrowserStore.getState().setTabs(null);
-  assert.equal(useBrowserStore.getState().tabs.length, 0);
-  useBrowserStore.getState().setActive("A");
-  assert.equal(useBrowserStore.getState().activeTargetId, "A");
-});
-
-test("parseSiteAddress: public hosts alongside localhost ports", () => {
-  assert.deepEqual(parseSiteAddress("vnexpress.net"), { host: "vnexpress.net", path: "/" });
-  assert.deepEqual(parseSiteAddress("https://example.com/a?b=1"), { host: "example.com", path: "/a?b=1" });
-  assert.deepEqual(parseSiteAddress("WWW.Example.CO.UK/x"), { host: "www.example.co.uk", path: "/x" });
-  assert.equal(parseSiteAddress("192.168.1.1"), null); // IP literals are not site hosts
-  assert.deepEqual(parseSiteAddress("localhost:3000/x"), { port: 3000, path: "/x" });
-  assert.deepEqual(parseSiteAddress(":3000"), { port: 3000, path: "/" });
-  assert.deepEqual(parseSiteAddress("/about", 3000), { port: 3000, path: "/about" });
-  assert.equal(parseSiteAddress("how to center a div"), null); // caller turns this into a search
+test("browserStore workspace-keyed tabs, profile and window maps", () => {
+  const st = useBrowserStore.getState();
+  st.setTabs("ws1", [{ id: "A", title: "x" }]);
+  st.setTabs("ws2", [{ id: "B" }]);
+  assert.equal(useBrowserStore.getState().tabsByWorkspace.ws1.length, 1);
+  assert.equal(useBrowserStore.getState().tabsByWorkspace.ws2[0].id, "B");
+  st.setTabs("ws1", null);
+  assert.equal(useBrowserStore.getState().tabsByWorkspace.ws1.length, 0);
+  st.setActive("ws2", "B");
+  assert.equal(useBrowserStore.getState().activeByWorkspace.ws2, "B");
+  st.setProfileFor("ws1", "work");
+  assert.equal(useBrowserStore.getState().profileFor("ws1"), "work");
+  assert.equal(useBrowserStore.getState().profileFor("unknown-ws"), "default");
+  st.setWindowFor("ws1", 7);
+  assert.equal(useBrowserStore.getState().windowFor("ws1"), 7);
+  assert.equal(useBrowserStore.getState().windowFor("ws2"), null);
+  // Switching profile invalidates the workspace's Chrome window.
+  st.setProfileFor("ws1", "default");
+  assert.equal(useBrowserStore.getState().windowFor("ws1"), null);
 });
 
 test("resolveOmniboxInput: URLs vs search queries", () => {
