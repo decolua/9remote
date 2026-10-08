@@ -4,7 +4,6 @@ import { getNotifications, getStatuses, clearStatus, STATES } from "../statusMan
 import { getAutoStartStatus, setAutoStart, isCodespaces } from "../codespaceManager.js";
 import { writeCmd } from "../../../cli/utils/state.js";
 import { scanLocalSites } from "../portScanner.js";
-import { startProxySession, endProxySession, setupSiteRequestHandler } from "../../../proxy/index.js";
 import { setMcpEnabled, MCP_CLIENTS } from "../../../mcp/mcpConfig.js";
 import { readSettings, writeSettings } from "../../../lib/settings.js";
 import { transcribeViaOpencode, MAX_AUDIO_B64_CHARS } from "../opencodeStt.js";
@@ -30,23 +29,6 @@ export function setupPushHandlers(socket, io) {
       callback({ error: err.message });
     }
   });
-
-  // Proxy sessions over the socket bus — the tunnel URL may be stale/absent on RTC or LAN.
-  // target: localhost port, or a public site hostname for host-proxy browsing.
-  socket.on("startProxySession", (target, callback) => {
-    if (!target) return;
-    const sessionId = startProxySession(target);
-    if (typeof callback === "function") callback(sessionId ? { ok: true, sessionId } : { error: "bad-target" });
-  });
-
-  socket.on("endProxySession", (target, callback) => {
-    if (!target) return;
-    endProxySession(target);
-    if (typeof callback === "function") callback({ ok: true });
-  });
-
-  // HTTP-for-localhost over the bus — feeds the web app's /browse/ service worker
-  setupSiteRequestHandler(socket);
 
   // Trigger agent self-update via socket (authenticated, no HTTP through tunnel)
   socket.on("requestUpdate", async () => {

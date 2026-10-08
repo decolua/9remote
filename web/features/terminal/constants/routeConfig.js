@@ -20,7 +20,7 @@ export const VIEW_TO_PATH = {
 // Views rendered as a store-only overlay: never mirrored into the URL. The site
 // browser's iframe piles its own entries onto the parent history, so keeping it
 // out of history is the only way Back stays predictable.
-export const OVERLAY_VIEWS = ["site", "browser"];
+export const OVERLAY_VIEWS = ["browser"];
 
 // First path segment after base -> view type
 export const SEGMENT_TO_TYPE = {

@@ -5,7 +5,6 @@ import { initSignalingGlobal, stopSignalingGlobal, setOfferFallback, sendSignali
 import { HostBus } from "./HostBus.js";
 import { PATHS, LOCAL_UI_ORIGINS, LOCAL_UI_DEVICE_ID } from "../lib/constants.js";
 import { verifyLocalToken } from "../lib/localToken.js";
-import { isSitesHost } from "../lib/sitesHost.js";
 import { ProtocolManager } from "./ProtocolManager.js";
 import { SIGNALING_ERRORS } from "../lib/transportConstants.js";
 import { registerProtocol, unregisterProtocol, activeProtocols, disableAllRtc, notifyRtcEnabled, setRtcSessionKiller, disposeProtocol } from "./broadcast.js";
@@ -768,7 +767,7 @@ export async function startTransportServer(server) {
       allowedHeaders: ["*"]
     },
     // Same-port sites host is untrusted; refusing at the handshake covers polling too.
-    allowRequest: (req, callback) => callback(null, !isSitesHost(req.headers.host)),
+    allowRequest: (req, callback) => callback(null, true),
     transports: ["websocket", "polling"],
     allowEIO3: true,
     allowUpgrades: true,

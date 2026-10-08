@@ -10,7 +10,6 @@ import { fileURLToPath, parse } from "url";
 import chalk from "chalk";
 
 import { createRouter, jsonOk, jsonErr } from "./lib/router.js";
-import { isSitesHost, routeSitesLocalRequest } from "./lib/sitesHost.js";
 import { STEP, browserFetch, PERMISSION_POLL_MS, NPM_REGISTRY_URL, hideDockIcon, MCP } from "./lib/constants.js";
 import { initLogger, createLogger } from "./lib/logger.js";
 
@@ -18,10 +17,8 @@ hideDockIcon();
 initLogger();
 const logger = createLogger("server");
 import { startTransportServer, getIO } from "./transport/server.js";
-import { createProxyServer, handleProxyRequest, startProxySession, endProxySession } from "./proxy/index.js";
 import { handlePreviewRequest } from "./features/fileExplorer/previewServer.js";
 import { initializeTerminal } from "./features/terminal/terminalSocket.js";
-import { handleLocalSites } from "./api/localSites.js";
 import { matchesLocalKey } from "./cli/utils/apiKey.js";
 import { generateLocalToken } from "./lib/localToken.js";
 import { isNewerVersion } from "./cli/utils/updateChecker.js";
@@ -98,23 +95,6 @@ function proxyToVite(req, res, fallbackFn) {
   );
   proxy.on("error", () => fallbackFn ? fallbackFn() : (() => { res.writeHead(502); res.end("Vite dev server not ready"); })());
   req.pipe(proxy);
-}
-
-// The sites host serves the proxy shell, the worker and the browse scope from
-// the embedded web build, and nothing else. Unknown paths are refused before
-// the router, so none of the local API is reachable from here even by accident.
-// The embedded build answers a bare GET, so the file's own Content-Type is what
-// the shell and the worker need — except that the router's blanket
-// X-Frame-Options would refuse to let the app frame the shell.
-function serveSitesHost(req, res) {
-  let parsed;
-  try { parsed = parse(req.url).pathname; }
-  catch { jsonErr(res, 400, "Bad request"); return; }
-  const route = routeSitesLocalRequest(parsed, req.headers.host);
-  if (!route) { jsonErr(res, 404, "Not found"); return; }
-  for (const [key, value] of Object.entries(route.headers)) res.setHeader(key, value);
-  if (serveStatic(res, join(WEB_DIST, route.path), { frameable: true })) return;
-  jsonErr(res, 404, "Not found");
 }
 
 function serveStatic(res, filePath, { frameable = false } = {}) {
@@ -241,44 +221,6 @@ async function handleVerifyKey(req, res) {
   setTimeout(() => jsonOk(res, { ok: false, reason: result.reason }), result.penaltyMs || 0);
 }
 
-// ── Proxy handlers ────────────────────────────────────────────
-
-let proxyServer;
-
-async function handleProxyStartEnd(req, res, { pathname }) {
-  // Against the key this agent holds — a shape check would let any string
-  // matching the v2 pattern open a proxy session to any loopback port.
-  const authHeader = req.headers.authorization;
-  if (!authHeader || !authHeader.startsWith("Bearer ") || !matchesLocalKey(authHeader.slice(7), loadKey()?.key)) {
-    jsonErr(res, 401, "Unauthorized");
-    return;
-  }
-  const { parseJsonBody } = await import("./lib/router.js");
-  const data = await parseJsonBody(req, res);
-  if (!data) return;
-  if (!data.port) { jsonErr(res, 400, "Port required"); return; }
-  if (!pathname.endsWith("start")) {
-    endProxySession(data.port);
-    jsonOk(res, { success: true });
-    return;
-  }
-  // The caller cannot derive the URL any more — hand back the id it needs.
-  const sessionId = startProxySession(data.port);
-  if (!sessionId) { jsonErr(res, 400, "Invalid port"); return; }
-  jsonOk(res, { success: true, sessionId });
-}
-
-function handleProxy(req, res, { pathname, search }) {
-  // A session id, not a port — see proxy/index.js. Ports were guessable and
-  // this route is public.
-  const match = pathname.match(/^\/proxy\/([0-9a-f-]{36})(\/.*)?$/);
-  if (match) {
-    handleProxyRequest(proxyServer, req, res, match[1], match[2] || "/", search);
-  } else {
-    jsonErr(res, 404, "Not found");
-  }
-}
-
 // HTML file preview — static serving of the file's directory behind a session id.
 function handlePreview(req, res, ctx) {
   handlePreviewRequest(req, res, ctx);
@@ -301,7 +243,6 @@ const ROUTES = [
   }},
   { path: "/api/notify",           method: "POST", public: true, handler: handleNotifyPost },
   { path: "/api/notify",           method: "GET",  public: true, handler: handleNotifyGet },
-  { path: "/proxy/*",              method: "*",    public: true, handler: handleProxy },
   { path: "/preview/*",            method: "GET",  public: true, handler: handlePreview },
 
   // UI state & SSE (localhost-only)
@@ -358,7 +299,6 @@ const ROUTES = [
   { path: "/api/desktop-unlock/type",    method: "POST", handler: handleDesktopUnlockType },
   { path: "/api/sessions",         method: "GET",  handler: handleSessionsList },
   { path: "/api/sessions/delete",  method: "POST", handler: handleSessionDelete },
-  { path: "/api/local-sites",      method: "*",    public: true, handler: handleLocalSites },
   { path: "/api/codespace/stop",   method: "POST", handler: handleCodespaceStop },
 
   // Proxy session management (tunnel-accessible, requires API key)
@@ -366,8 +306,6 @@ const ROUTES = [
   // TAIL it presents is the credential, and a wrong one is all it gets back.
   { path: "/api/verify-key",       method: "POST", public: true, handler: handleVerifyKey },
 
-  { path: "/api/proxy/start",      method: "POST", public: true, handler: handleProxyStartEnd },
-  { path: "/api/proxy/end",        method: "POST", public: true, handler: handleProxyStartEnd },
 ];
 
 // ── Server bootstrap ───────────────────────────────────────────────────────
@@ -419,7 +357,6 @@ export async function startServer() {
   // reboot, and install() rebuilds when the user toggles On — the only two
   // moments where touching it is warranted.
   await initializeTerminal();
-  proxyServer = createProxyServer();
   startViteDev();
 
   // Static file fallback: Agent UI by default, Web Workspace on /workspace* & /_next*
@@ -518,11 +455,6 @@ export async function startServer() {
   // CORS is decided inside the router, where the route's public flag is known —
   // a private route must not grant a cross-origin page the right to read it.
   const server = createServer(async (req, res) => {
-    // The sites host answers before the router: the API's origin/host guards
-    // exist to keep other origins out of the API, and this origin is one of
-    // them — it is served statically and reaches nothing else. Anything outside
-    // the site surface is refused here rather than falling through.
-    if (isSitesHost(req.headers.host)) { serveSitesHost(req, res); return; }
     await router(req, res);
   });
 

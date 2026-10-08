@@ -5,7 +5,6 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useFleetStore } from "@/shared/stores/fleetStore";
-import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 
 // Mobile-only cluster in the pane's top strip — title or pinned checklist,
 // whichever holds the slot. These three leave the terminal for another screen;
@@ -16,7 +15,6 @@ export default function PaneStripButtons({ onOpenRemote, onOpenMobile }) {
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
   const mobileDeviceCount = useFleetStore((s) => s.hosts[s.currentKey]?.mobileDeviceCount) || 0;
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
-  const openSites = useSitesModalStore((s) => s.open);
 
   // Same shape as the header's own buttons (Settings and friends), overflowing the
   // 26px strip so the tap area matches too — this row reads as a continuation of it.
@@ -42,11 +40,6 @@ export default function PaneStripButtons({ onOpenRemote, onOpenMobile }) {
             : t("mobile.androidDevice")}
         >
           <Smartphone size={16} />
-        </button>
-      )}
-      {showButton("sites") && (
-        <button onClick={() => { vibrate(); openSites(); }} className={cls} title={t("menu.sites")}>
-          <Globe size={16} />
         </button>
       )}
     </div>

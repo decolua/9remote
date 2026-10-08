@@ -1,15 +1,20 @@
 "use client";
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
-import { ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2 } from "@/shared/components/ui/Icon";
+import {
+  ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2, Link2
+} from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
-import SitesList from "./SitesList";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
-import { useSitesModalStore } from "@/shared/stores/sitesModalStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useBrowserStore, cleanTabTitle } from "@/shared/stores/browserStore";
+
+// Stable fallbacks: a fresh [] / {} per selector call is a new getSnapshot every
+// render — React reads that as "store changed" and loops to max update depth.
+const NO_TABS = [];
+const NO_OBJ = {};
 import { useBrowserTabs } from "@/features/browser/hooks/useBrowserTabs";
 import { useFleetStore } from "@/shared/stores/fleetStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
@@ -97,17 +102,37 @@ function TerminalHeader({
   // Browser tabs live in the same strip (orca unified-tab pattern). They are
   // client-side now (host-proxy browsing): clicking raises the browser pane,
   // closing drops the tab — the pane ends the orphaned proxy session.
-  const browserTabs = useBrowserStore((s) => s.tabs);
-  const activeBrowserTargetId = useBrowserStore((s) => s.activeTargetId);
+  // Browser tabs belong to this workspace like terminal tabs do: the strip
+  // shows only ITS Chrome window of the workspace's profile.
+  const wsKey = activeWorkspaceId ?? "default";
+  const wsBrowserProfile = useBrowserStore((s) => s.workspaceProfiles[wsKey] || "default");
+  const wsWindowId = useBrowserStore((s) => s.workspaceWindows[wsKey] || null);
+  const browserTabs = useBrowserStore((s) => s.tabsByWorkspace[wsKey] ?? NO_TABS);
+  // Engine-driven tabs of OTHER profiles: shown in the same strip so anything
+  // the agent opens is visible no matter which profile it landed on.
+  const agentTabs = useBrowserStore((s) => s.agentTabs);
+  const setProfileForWs = useBrowserStore((s) => s.setProfileFor);
+  const setWindowForWs = useBrowserStore((s) => s.setWindowFor);
+  const agentOnly = agentTabs.filter((t) => !(t.profile === wsBrowserProfile && browserTabs.some((b) => b.id === t.id)));
+  // Switching onto an agent tab must mirror the add-browser flow: profile AND
+  // the tab's Chrome window — without the window the workspace watches nothing
+  // and the pane has no tab to stream.
+  const pickAgentTab = (tab) => {
+    setProfileForWs(wsKey, tab.profile); // resets the window — set it after
+    if (tab.windowId != null) setWindowForWs(wsKey, tab.windowId);
+    setActiveBrowserTab(wsKey, tab.id);
+    pushView({ type: "browser" });
+  };
+  const activeBrowserTargetId = useBrowserStore((s) => s.activeByWorkspace[wsKey] || null);
   const isBrowserView = useTerminalStore((s) => {
     const stack = s.viewStack;
     return Boolean(stack && stack[stack.length - 1]?.type === "browser");
   });
   const setActiveBrowserTab = useBrowserStore((s) => s.setActive);
-  useBrowserTabs(busRef, connected);
+  useBrowserTabs(busRef, connected, wsBrowserProfile, wsWindowId, wsKey);
   const pushView = useTerminalStore((s) => s.pushView);
-  const agentBySession = useTerminalStore((s) => s.agentBySession || {});
-  const fullModes = useTerminalStore((s) => s.fullModes || {});
+  const agentBySession = useTerminalStore((s) => s.agentBySession ?? NO_OBJ);
+  const fullModes = useTerminalStore((s) => s.fullModes ?? NO_OBJ);
   const fullMode = fullModes[activeWorkspaceId ?? UNGROUPED_KEY] ?? false;
   const toggleFullMode = useTerminalStore((s) => s.toggleFullMode);
   const storeNotifications = useNotificationStore((s) => s.notifications);
@@ -121,6 +146,10 @@ function TerminalHeader({
   const hint = (label, id) => (hasKeyboard ? withHint(label, id) : label);
   const tabsContainerRef = useRef(null);
   const activeTabRef = useRef(null);
+  const activeBrowserTabRef = useRef(null); // same scroll-into-view contract for browser tabs
+  const [browserTabMenu, setBrowserTabMenu] = useState({ targetId: null, x: 0, y: 0 });
+  const browserTabMenuRef = useRef(null);
+  const browserTabMenuPos = useClampedMenu(browserTabMenuRef, browserTabMenu.x, browserTabMenu.y);
   // Tab right-click context menu (rename/delete)
   const [tabMenu, setTabMenu] = useState({ sessionId: null, x: 0, y: 0 });
   const [tabBgSessionId, setTabBgSessionId] = useState(null);
@@ -197,13 +226,10 @@ function TerminalHeader({
   // Actions only (stable identities): this component WRITES context/callbacks, so
   // subscribing to the whole store would re-render it on its own every write.
   const openMenu = useSlideMenuStore((s) => s.open);
-  const sitesOpen = useSitesModalStore((s) => s.isOpen);
-  const openSites = useSitesModalStore((s) => s.open);
-  const closeSites = useSitesModalStore((s) => s.close);
   // Hidden by id rather than listed by id, so a button added later shows up
   // instead of being invisible until the user finds the setting.
   const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
-  const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds || []);
+  const hiddenPaneSessionIds = useTerminalStore((s) => s.hiddenPaneSessionIds ?? NO_TABS);
   const toggleHidePane = useTerminalStore((s) => s.toggleHidePane);
   const unhidePane = useTerminalStore((s) => s.unhidePane);
   const setFullMode = useTerminalStore((s) => s.setFullMode);
@@ -220,7 +246,6 @@ function TerminalHeader({
   const canMobile = hostKey ? !!headerHost?.mobileAvailable : !!onOpenMobile;
   // Local sites are the machine's own dev servers — browse the header host's.
   const focusedBusRef = connOf(hostKey).busRef;
-  const sitesBusRef = hostKey ? focusedBusRef : busRef;
   const showButton = (id) => !hiddenHeaderButtons.includes(id);
   const setContext = useSlideMenuStore((s) => s.setContext);
   const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
@@ -299,15 +324,15 @@ function TerminalHeader({
     else onCreateSession?.();
   };
 
-  useEffect(() => {
-    if (!activeTabRef.current || !tabsContainerRef.current) return;
-    // MUI-Tabs-style manual scroll: scrollTo a self-clamped target instead of
-    // scrollIntoView("center") — WebKit animates that unclamped request past the
-    // strip's max scroll and bounces back (visible on the first/last tab).
-    // Defer 1 frame so a freshly-mounted tab (new session) is measured before scrolling
+  // MUI-Tabs-style manual scroll: scrollTo a self-clamped target instead of
+  // scrollIntoView("center") — WebKit animates that unclamped request past the
+  // strip's max scroll and bounces back (visible on the first/last tab).
+  // Shared by terminal and browser tabs (same strip, same behavior).
+  const scrollTabIntoView = (tabRef) => {
+    // Defer 1 frame so a freshly-mounted tab is measured before scrolling
     const id = requestAnimationFrame(() => {
       const scroller = tabsContainerRef.current;
-      const tab = activeTabRef.current;
+      const tab = tabRef.current;
       if (!scroller || !tab) return;
       const delta = tab.getBoundingClientRect().left - scroller.getBoundingClientRect().left;
       const centered = scroller.scrollLeft + delta - (scroller.clientWidth - tab.offsetWidth) / 2;
@@ -315,8 +340,35 @@ function TerminalHeader({
       scroller.scrollTo({ left: Math.max(0, Math.min(centered, max)), behavior: "smooth" });
     });
     return () => cancelAnimationFrame(id);
+  };
+
+  useEffect(
     // Identity-only `sessions` churn (cwd/status ticks) must not re-scroll the strip
-  }, [activeSessionId, sessions.length]);
+    () => scrollTabIntoView(activeTabRef),
+    [activeSessionId, sessions.length]
+  );
+
+  useEffect(
+    () => scrollTabIntoView(activeBrowserTabRef),
+    [activeBrowserTargetId, browserTabs.length, isBrowserView]
+  );
+
+  // Browser tab context menu — outside click / Escape closes, like the terminal one
+  useEffect(() => {
+    if (!browserTabMenu.targetId) return;
+    const onDown = (e) => {
+      if (browserTabMenuRef.current && !browserTabMenuRef.current.contains(e.target)) {
+        setBrowserTabMenu({ targetId: null, x: 0, y: 0 });
+      }
+    };
+    const onKey = (e) => { if (e.key === "Escape") setBrowserTabMenu({ targetId: null, x: 0, y: 0 }); };
+    window.addEventListener("pointerdown", onDown);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("pointerdown", onDown);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [browserTabMenu.targetId]);
 
   useEffect(() => {
     if (!isActive) return;
@@ -481,17 +533,22 @@ function TerminalHeader({
             return (
               <div
                 key={tab.id}
+                ref={isActive ? activeBrowserTabRef : null}
                 role="button"
                 tabIndex={0}
                 onClick={() => {
                   vibrate();
-                  setActiveBrowserTab(tab.id);
+                  setActiveBrowserTab(wsKey, tab.id);
                   pushView({ type: "browser" });
+                }}
+                onContextMenu={(e) => {
+                  e.preventDefault();
+                  setBrowserTabMenu({ targetId: tab.id, x: e.clientX, y: e.clientY });
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();
-                    setActiveBrowserTab(tab.id);
+                    setActiveBrowserTab(wsKey, tab.id);
                     pushView({ type: "browser" });
                   }
                 }}
@@ -499,31 +556,76 @@ function TerminalHeader({
                   isActive ? "term-tab-active" : ""
                 }`}
               >
-                <Globe size={13} className="w-3.5 h-3.5 shrink-0 text-text" />
+                <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
+                  <Globe size={13} className="w-3.5 h-3.5 text-text sm:group-hover:hidden" />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      vibrate();
+                      // Close the real Chrome tab; the next tabs.push reconciles the strip.
+                      busRef?.current?.emit?.("browser:invoke", { action: "close", payload: { targetId: tab.id, profile: wsBrowserProfile } }, () => {});
+                      const st = useBrowserStore.getState();
+                      const cur = st.tabsByWorkspace[wsKey] || [];
+                      const next = cur.filter((tb) => tb.id !== tab.id);
+                      st.setTabs(wsKey, next);
+                      if (st.activeByWorkspace[wsKey] === tab.id) {
+                        st.setActive(wsKey, next[0]?.id || null);
+                      }
+                    }}
+                    className="hidden w-full h-full p-0.5 rounded text-text hover:bg-text/15 sm:group-hover:flex items-center justify-center transition-colors"
+                    title={t("common.close")}
+                  >
+                    <X size={11} strokeWidth={2.4} />
+                  </button>
+                </div>
                 <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={cleanTabTitle(tab.title) || t("sites.browserTab")}>
                   {cleanTabTitle(tab.title) || t("sites.browserTab")}
                 </span>
+              </div>
+            );
+          })}
+
+          {/* Agent group: engine-opened tabs of any other profile — 🤖 + profile
+              name; picking one switches this workspace to that profile. */}
+          {agentOnly.map((tab) => (
+            <div
+              key={`ag-${tab.profile}-${tab.id}`}
+              role="button"
+              tabIndex={0}
+              onClick={() => {
+                vibrate();
+                pickAgentTab(tab);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  pickAgentTab(tab);
+                }
+              }}
+              className="term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation"
+              data-tip={`${cleanTabTitle(tab.title) || "Agent tab"} (${tab.profile})`}
+            >
+              <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
+                <Bot size={13} className="w-3.5 h-3.5 text-brand-500 sm:group-hover:hidden" />
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
                     vibrate();
-                    // Close the real Chrome tab; the next tabs.push reconciles the strip.
-                    busRef?.current?.emit?.("browser:invoke", { action: "close", payload: { targetId: tab.id } }, () => {});
-                    const st = useBrowserStore.getState();
-                    const next = st.tabs.filter((tb) => tb.id !== tab.id);
-                    useBrowserStore.setState({
-                      tabs: next,
-                      activeTargetId: st.activeTargetId === tab.id ? (next[0]?.id || null) : st.activeTargetId
-                    });
+                    busRef?.current?.emit?.("browser:invoke", { action: "close", payload: { targetId: tab.id, profile: tab.profile } }, () => {});
+                    useBrowserStore.getState().setAgentTabs(useBrowserStore.getState().agentTabs.filter((t) => t.id !== tab.id));
                   }}
-                  className="p-0.5 rounded opacity-50 hover:opacity-100 hover:bg-surface-3 shrink-0"
-                  title={t("common.close")}
+                  className="hidden w-full h-full p-0.5 rounded text-text hover:bg-text/15 sm:group-hover:flex items-center justify-center transition-colors"
+                  title="Close"
                 >
-                  <X size={12} />
+                  <X size={11} strokeWidth={2.4} />
                 </button>
               </div>
-            );
-          })}
+              <Bot size={11} className="w-3 h-3 text-brand-500 shrink-0 sm:hidden" />
+              <span className="truncate max-w-[70px] sm:max-w-[110px]">{cleanTabTitle(tab.title) || "Agent tab"}</span>
+              <span className="hidden sm:inline text-[9px] text-text-muted shrink-0">{tab.profile}</span>
+            </div>
+          ))}
+
           {onCreateSession && (
             <div className="sticky right-0 z-10 ml-1 pl-1 flex items-center flex-shrink-0 bg-bg">
               <button
@@ -576,17 +678,6 @@ function TerminalHeader({
         >
           <Smartphone size={16} />
         </button>
-      )}
-
-      {showButton("sites") && (
-      <button
-        onClick={() => { vibrate(); openSites(); }}
-        disabled={hostKey ? headerHost?.status !== "online" : !connected}
-        className="hidden sm:block p-1.5 text-text hover:bg-surface-2 hover:text-text rounded-brand transition duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed"
-        title={t("menu.sites")}
-      >
-        <Globe size={16} />
-      </button>
       )}
 
       {jarvisEnabled && (
@@ -645,6 +736,46 @@ function TerminalHeader({
         <Settings size={16} />
       </button>
       </div>
+
+      {/* Browser tab right-click context menu */}
+      {browserTabMenu.targetId && (
+        <div
+          ref={browserTabMenuRef}
+          className="fixed z-[60] menu-popover p-1 min-w-[150px] animate-in fade-in zoom-in-95 duration-100"
+          style={{ left: browserTabMenuPos.left, top: browserTabMenuPos.top }}
+        >
+          <button
+            onClick={() => {
+              vibrate();
+              const url = browserTabs.find((t) => t.id === browserTabMenu.targetId)?.url;
+              if (url) navigator.clipboard?.writeText?.(url).catch(() => {});
+              setBrowserTabMenu({ targetId: null, x: 0, y: 0 });
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+          >
+            <Link2 size={13} /> Copy URL
+          </button>
+          <button
+            onClick={() => {
+              vibrate();
+              busRef?.current?.emit?.("browser:invoke", {
+                action: "close",
+                payload: { targetId: browserTabMenu.targetId, profile: wsBrowserProfile }
+              }, () => {});
+              const st = useBrowserStore.getState();
+              const next = (st.tabsByWorkspace[wsKey] || []).filter((t) => t.id !== browserTabMenu.targetId);
+              st.setTabs(wsKey, next);
+              if (st.activeByWorkspace[wsKey] === browserTabMenu.targetId) {
+                st.setActive(wsKey, next[0]?.id || null);
+              }
+              setBrowserTabMenu({ targetId: null, x: 0, y: 0 });
+            }}
+            className="w-full text-left px-2.5 py-1.5 text-xs text-text hover:bg-surface-2/80 rounded-[6px] flex items-center gap-2"
+          >
+            <X size={13} /> {t("sessions.deleteTitle") || "Close tab"}
+          </button>
+        </div>
+      )}
 
       {/* Tab right-click context menu */}
       {tabMenu.sessionId && (
@@ -882,32 +1013,7 @@ function TerminalHeader({
         <NewTerminalModal
           onClose={() => setCreateModalOpen(false)}
           onCreate={handleModalCreate}
-          onCreateBrowser={connected ? () => {
-            // "+" means a NEW tab, like Chrome: create it now so the strip
-            // shows it immediately instead of waiting for a typed URL.
-            (modalBusRef?.current || busRef?.current)?.emit?.(
-              "browser:invoke",
-              {
-                action: "open",
-                // Same profile door as every other invoke — without this the
-                // host falls back to "default" and a SECOND Chrome window
-                // opens next to the active profile's.
-                payload: {
-                  url: "about:blank",
-                  profile: useBrowserStore.getState().activeProfile || "default"
-                }
-              },
-              (res) => {
-                if (!res?.ok || !res.id) return;
-                const { tabs: cur, setActive, setTabs } = useBrowserStore.getState();
-                setActive(res.id);
-                if (!cur.some((tb) => tb.id === res.id)) {
-                  setTabs([...cur, { id: res.id, url: "about:blank", title: "" }]);
-                }
-              }
-            );
-            pushView({ type: "browser" });
-          } : null}
+          workspaceId={activeWorkspaceId}
           shells={modalShells || shells}
           busRef={modalBusRef || busRef}
           hostKey={modalHostKey}
@@ -936,7 +1042,6 @@ function TerminalHeader({
         confirmText={t("common.delete")}
       />
 
-      <SitesList tunnelUrl={tunnelUrl} apiKey={apiKey} busRef={sitesBusRef} siteHostKey={hostKey} isOpen={sitesOpen} onClose={closeSites} />
 
       {/* Jarvis coordinator overlay — fixed, so it floats over every pane */}
       {jarvisOpen && (
