@@ -82,7 +82,17 @@ export class ProtocolManager {
 
   /** Late-attach a socket.io socket to an RTC-only session. */
   async attachSocket(socket) {
-    if (!socket || this._adapters.has("ws")) return;
+    if (!socket) return;
+    const existing = this._adapters.get("ws");
+    if (existing) {
+      if (existing.socket === socket) return;
+      // Evict a stale ws adapter: its socket died undetected (half-open tunnel)
+      // and would silently refuse this live socket — events would hit zero listeners.
+      this._adapters.delete("ws");
+      const staleSocket = existing.socket;
+      try { existing.disconnect(); } catch {}
+      try { staleSocket?.disconnect?.(true); } catch {}
+    }
     if (this._attachingWs) {
       this._attachingWs = this._attachingWs
         .catch(() => {})
