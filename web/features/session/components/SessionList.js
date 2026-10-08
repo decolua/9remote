@@ -277,6 +277,7 @@ export default function SessionList({
           onSelectSession={onSelect}
           liveSessionIds={liveSessionIds}
           connected={connected}
+          workspaceId={terminalModal.workspaceId}
           workspacePath={workspaces.find((w) => w.id === terminalModal.workspaceId)?.path || null}
           workspaceName={workspaces.find((w) => w.id === terminalModal.workspaceId)?.name || ""}
           fileBus={activeFileBus}

@@ -43,7 +43,6 @@ export default function HostTreeRow({
   hostUpdating = false,
   // Per-host feature doors — rendered only when the host reports the capability.
   onOpenRemote = null,
-  onOpenSites = null,
   onOpenMobile = null,
   // Mobile draws this row bigger (fonts on the standard scale, touch-sized
   // buttons); desktop keeps its compact sizes.
@@ -163,10 +162,6 @@ export default function HostTreeRow({
               onOpenRemote && showHeaderBtn("remote") && !hostUpdating && {
                 icon: Monitor, label: t("menu.remoteDesktop"),
                 onClick: () => { setMenuAt(null); vibrate(); onOpenRemote(); }
-              },
-              onOpenSites && showHeaderBtn("sites") && {
-                icon: Globe, label: t("menu.sites"),
-                onClick: () => { setMenuAt(null); vibrate(); onOpenSites(); }
               },
               onOpenMobile && showHeaderBtn("mobile") && !hostUpdating && {
                 icon: Smartphone, label: t("mobile.androidDevice"),

@@ -166,7 +166,7 @@ export default function AgentHistoryPanel({
                 <div
                   key={`${row.agent}:${row.sessionId}`}
                   className={`group relative w-full flex items-center gap-1 text-left transition-colors rounded-brand hover:bg-text/5 ${
-                    asList ? "gap-2 px-2.5 py-1.5" : "pl-7 pr-1 py-px"
+                    asList ? "gap-2 px-2.5 py-1.5" : "pl-3 pr-1 py-px"
                   } ${isActive ? "bg-text/8" : ""}`}
                 >
                   <button

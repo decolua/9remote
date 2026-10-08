@@ -16,6 +16,7 @@ import BrowserModalShell from "./BrowserModalShell";
 // which running session receives them.
 export default function BrowserPickModal({ picked = [], url = null, onRemoveItem, onClear, onClose }) {
   const [step, setStep] = useState("review");
+  const [prompt, setPrompt] = useState("");
   const [copied, setCopied] = useState(false);
   const [sentTo, setSentTo] = useState(null);
   const hosts = useFleetStore((s) => s.hosts);
@@ -23,7 +24,12 @@ export default function BrowserPickModal({ picked = [], url = null, onRemoveItem
   const agentBySession = useTerminalStore((s) => s.agentBySession || {});
   const sessionStatus = useAllSessionStatus();
 
-  const payload = useMemo(() => buildPickPayload(picked, url), [picked, url]);
+  // The typed prompt rides along with the picked elements — context for the
+  // agent that receives them.
+  const payload = useMemo(
+    () => buildPickPayload(picked, url) + (prompt.trim() ? `\n\n${prompt.trim()}` : ""),
+    [picked, url, prompt]
+  );
 
   // Main host's sessions first, then other hosts' — the tab strip's own order.
   const sessions = useMemo(() => {
@@ -151,6 +157,14 @@ export default function BrowserPickModal({ picked = [], url = null, onRemoveItem
             </button>
           </div>
         ))}
+        {/* Attached prompt — sent with the elements */}
+        <textarea
+          value={prompt}
+          onChange={(e) => setPrompt(e.target.value)}
+          placeholder="Add a prompt for the receiving session…"
+          rows={2}
+          className="mt-1 p-2 bg-surface-2 border border-border-subtle rounded-brand text-xs text-text placeholder-text-muted focus:outline-none focus:border-brand-500 resize-none"
+        />
       </div>
     </BrowserModalShell>
   );

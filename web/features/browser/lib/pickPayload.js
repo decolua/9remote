@@ -5,6 +5,7 @@ export function buildPickPayload(items, url = null) {
   return [
     `## Browser Elements (${items.length})`,
     url ? `Page: ${url}` : null,
+    "Selectors are unique CSS paths — reuse with document.querySelector() or a find/click-by-selector tool.",
     "",
     ...items.map((it, i) => [
       `### ${i + 1}. \`<${it.tag}>\``,

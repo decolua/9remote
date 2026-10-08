@@ -5,13 +5,12 @@ import { useBrowserStore } from "@/shared/stores/browserStore";
 
 const INVOKE_TIMEOUT_MS = 12000;
 
-export function useBrowserInvoke(busRef) {
+export function useBrowserInvoke(busRef, profile = "default") {
   return useCallback((action, payload = {}) => {
     return new Promise((resolve) => {
       const bus = busRef?.current;
       if (!bus?.emit) return resolve({ ok: false, error: "Not connected" });
-      const activeProf = useBrowserStore.getState().activeProfile || "default";
-      const fullPayload = { profile: activeProf, ...payload };
+      const fullPayload = { profile, ...payload };
       let settled = false;
       // An old host ignores browser:* events — without this the UI's loading
       // state hangs forever instead of surfacing an error.
@@ -25,5 +24,5 @@ export function useBrowserInvoke(busRef) {
         resolve(res || { ok: false, error: "No reply from host" });
       });
     });
-  }, [busRef]);
+  }, [busRef, profile]);
 }

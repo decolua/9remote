@@ -973,6 +973,7 @@ export default {
     errorGeneric: "The site could not be loaded",
     browserTab: "Browser",
     browserPaneNotConnected: "Connect to your host first",
+    browserPaneLocalSites: "Local sites",
     browserPaneSearchOrUrl: "Search or type URL",
     browserPaneLoading: "Connecting to the browser…",
     browserPaneNoTabs: "No browser tabs open",

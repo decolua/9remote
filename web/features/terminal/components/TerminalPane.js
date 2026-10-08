@@ -461,6 +461,9 @@ function TerminalPane({
 }
 
 export default memo(TerminalPane, (prev, next) => (
+  // Not decoration: a registry drop+open swaps the bus object; a pane kept on the
+  // old bus would silently buffer input into a disconnected ProtocolManager.
+  prev.bus === next.bus &&
   prev.sessionId === next.sessionId &&
   prev.isVisible === next.isVisible &&
   prev.isFocused === next.isFocused &&

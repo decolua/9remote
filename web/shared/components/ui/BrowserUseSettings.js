@@ -1,12 +1,13 @@
 "use client";
 
-// Jev (browserUse) config form — one component, two mounts: the settings dialog
-// section and the agent panel's gear. Same store, same host push, one truth.
+// Jev (browserUse) config form — fast native CDP browser automation.
+// Model/provider config lives on the host (free preset by default); this form
+// only exposes browser mode + attach guidance.
 import { useCallback, useEffect, useState } from "react";
 import { useBrowserUseStore } from "@/shared/stores/browserUseStore";
-import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { vibrate } from "@/shared/utils/vibration";
+import { Copy, Check } from "@/shared/components/ui/Icon";
 
 export function useBrowserUseInvoke(busRef) {
   return useCallback((action, payload) => new Promise((resolve) => {
@@ -17,75 +18,34 @@ export function useBrowserUseInvoke(busRef) {
 }
 
 const ATTACH_GUIDE_URL = "chrome://inspect/#remote-debugging";
-// Keep in sync with JEV_PRESETS in host/features/browserUse/constants.js.
-const MODEL_OPTIONS = {
-  free: ["jev-1.13-free"],
-  openrouter: [
-    "typesafe/jev-1.13", "~typesafe/jev-latest", "typesafe/jev-router",
-    "inception/mercury-decide", "inception/mercury-decide:free",
-    "liquid/d1", "upstage/solar-decide"
-  ]
-};
 
-// Same chip idiom as the voice engine picker (VoiceEndpointSettings).
-const CHIP_CLS = "px-2.5 py-1 rounded-brand text-[11px] border transition-colors";
-const CHIP_ON = "border-brand-500 bg-brand-500/10 text-brand-400 dark:border-white/30 dark:bg-white/10 dark:text-white";
-const CHIP_OFF = "border-border-subtle bg-surface-2/30 text-text-muted hover:text-text hover:bg-surface-2";
-
-function Chip({ active, onClick, title, children }) {
-  return (
-    <button type="button" title={title} onClick={onClick}
-      className={`${CHIP_CLS} ${active ? CHIP_ON : CHIP_OFF}`}>
-      {children}
-    </button>
-  );
-}
-
-const modelLabel = (id) => id.replace(/^~/, "").split("/").pop().replace(":free", " :free");
+const EXAMPLE_PROMPTS = [
+  "Find flights from Tokyo to Paris next month and compare prices",
+  "Find today's top 3 trending AI repos on GitHub and summarize them",
+  "Open Hacker News and check today's 3 top tech stories",
+  "Log into the portal, go to Payments and download the latest PDF invoice"
+];
 
 export default function BrowserUseConfigForm({ busRef }) {
   const store = useBrowserUseStore();
   const invoke = useBrowserUseInvoke(busRef);
-  const [test, setTest] = useState(null);
-  const [testing, setTesting] = useState(false);
   const [attach, setAttach] = useState(null);
   const [checking, setChecking] = useState(false);
-  const [ext, setExt] = useState(null);
-  const [installing, setInstalling] = useState(false);
-  const [copiedSilence, setCopiedSilence] = useState(false);
-  const [copied, setCopied] = useState(false);
-  const [editingKey, setEditingKey] = useState(false);
-  const modelOptions = MODEL_OPTIONS[store.preset] || MODEL_OPTIONS.openrouter;
-  const currentModel = store.model.trim();
-  // No model override = the preset's first (default) option is in effect.
-  const effectiveModel = currentModel || modelOptions[0];
-  const customModel = currentModel && !modelOptions.includes(currentModel);
-  // Show the shared voice key as dots so the field never looks unconfigured; editing starts fresh.
-  const voiceKey = useVoiceStore((s) => s.openrouterKey || "");
-  const sharedVoiceKey = store.preset === "openrouter" && !store.hostKeySet ? voiceKey : "";
-  const shownKey = store.apiKey || (editingKey ? "" : sharedVoiceKey);
-  const keyHint = store.hostKeySet
-    ? <span className="text-emerald-500">• saved on host — paste a new one to replace</span>
-    : (!editingKey && sharedVoiceKey
-        ? <span className="text-emerald-500">• shared with Voice input</span>
-        : <span className="opacity-60"> (empty = reuse the Voice input OpenRouter key)</span>);
+  const [copiedAttach, setCopiedAttach] = useState(false);
+  const [copiedPrompt, setCopiedPrompt] = useState(null);
 
   const save = (patch) => {
     store.setConfig(patch);
     invoke("config.set", patch);
   };
+
   // Pull the host's live config on mount — it is the source of truth and may
   // have been set from the CLI or another device.
   useEffect(() => {
     invoke("config.get").then((r) => { if (r.ok && r.config) store.syncFromHost(r.config); });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-  const runTest = async () => {
-    setTesting(true); setTest(null);
-    const res = await invoke("test", {});
-    setTest(res.ok ? `OK · ${res.model} · ${res.latencyMs}ms` : res.error);
-    setTesting(false);
-  };
+
   const checkAttach = async () => {
     setChecking(true);
     const res = await invoke("attach.status", {});
@@ -96,48 +56,36 @@ export default function BrowserUseConfigForm({ busRef }) {
   const copyGuideUrl = async () => {
     try {
       await navigator.clipboard.writeText(ATTACH_GUIDE_URL);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 1500);
-    } catch { /* clipboard unavailable — the code text is still selectable */ }
+      setCopiedAttach(true);
+      setTimeout(() => setCopiedAttach(false), 1500);
+    } catch {}
   };
-  // Auto-check on entry and on switch to attach — status should never wait for a click.
+
   useEffect(() => {
     if (store.mode !== "attach") return;
-    const t = setTimeout(checkAttach, 0); // deferred: setState must not run sync in the effect body
+    const t = setTimeout(checkAttach, 0);
     return () => clearTimeout(t);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [store.mode]);
 
-  const checkExt = async () => {
-    const res = await invoke("ext.status", {});
-    if (res.ok) setExt(res);
+  const copyPrompt = async (text) => {
+    vibrate();
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedPrompt(text);
+      setTimeout(() => setCopiedPrompt(null), 1500);
+    } catch {}
   };
-  const installExt = async () => {
-    setInstalling(true);
-    const res = await invoke("ext.install", {});
-    setInstalling(false);
-    if (res.ok) await checkExt(); // folder materialized — re-read status + guide
-  };
-  // Extension panel: auto-check plus the host's live connect/disconnect push.
-  useEffect(() => {
-    if (store.mode !== "extension") return;
-    const t = setTimeout(checkExt, 0);
-    const onExt = ({ connected } = {}) => setExt((e) => ({ ...(e || {}), connected }));
-    const b = useConnectionStore.getState().bus;
-    b?.on?.("browserUse:ext", onExt);
-    return () => { clearTimeout(t); b?.off?.("browserUse:ext", onExt); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [store.mode]);
 
   return (
     <div className="space-y-4">
+      {/* Browser mode */}
       <label className="block text-xs text-text-muted">
         Browser mode
-        <select value={store.mode} onChange={(e) => save({ mode: e.target.value })}
+        <select value={store.mode || "own"} onChange={(e) => save({ mode: e.target.value })}
           className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text">
           <option value="own">Own browser — isolated profile (default, safe)</option>
           <option value="attach">Real browser — attach via debug mode</option>
-          <option value="extension">Real browser — via Chrome extension</option>
         </select>
       </label>
 
@@ -167,7 +115,7 @@ export default function BrowserUseConfigForm({ busRef }) {
                 </code>
                 <button onClick={copyGuideUrl}
                   className="shrink-0 px-2 py-1 bg-surface-2 rounded-brand text-xs text-text-muted">
-                  {copied ? "Copied" : "Copy"}
+                  {copiedAttach ? "Copied" : "Copy"}
                 </button>
               </div>
               <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-0.5">
@@ -178,103 +126,32 @@ export default function BrowserUseConfigForm({ busRef }) {
         </div>
       )}
 
-      {store.mode === "extension" && (
-        <div className="rounded-brand border border-border-subtle p-2.5 space-y-2">
-          <div className="flex items-center justify-between gap-2">
-            <span className={`flex items-center gap-1.5 text-xs font-medium ${ext?.connected ? "text-emerald-500" : "text-amber-500"}`}>
-              <span className={`inline-block h-1.5 w-1.5 rounded-full ${ext?.connected ? "bg-emerald-500" : "bg-amber-500"}`} />
-              {ext ? (ext.connected ? "Extension connected" : ext.installed ? "Not connected — is the extension loaded?" : "Extension not installed") : "Checking…"}
-            </span>
-            <div className="flex items-center gap-1.5">
-              <button onClick={installExt} disabled={installing}
-                className="px-2 py-1 bg-brand-500 text-white rounded-brand text-xs disabled:opacity-40">
-                {installing ? "…" : "Install"}
-              </button>
-              <button onClick={checkExt}
-                className="px-2 py-1 bg-surface-2 rounded-brand text-xs text-text-muted">
-                Recheck
-              </button>
-            </div>
-          </div>
-          {ext && !ext.connected && (
-            <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-0.5">
-              {(ext.guide || []).map((step, i) => <li key={i}>{step}</li>)}
-            </ol>
-          )}
-          {ext?.connected && ext.silenceCmd && (
-            <div className="flex items-center gap-1.5" title="Quit Chrome fully, then run this — the debug banner stays off for that whole session. It hides the banner for every extension, not just this one.">
-              <span className="text-[11px] text-text-muted shrink-0">Kill banner:</span>
-              <code className="flex-1 min-w-0 px-2 py-1 bg-surface-2 rounded-brand text-[11px] text-text truncate select-all">{ext.silenceCmd}</code>
-              <button onClick={async () => {
-                try {
-                  await navigator.clipboard.writeText(ext.silenceCmd);
-                  setCopiedSilence(true);
-                  setTimeout(() => setCopiedSilence(false), 1500);
-                } catch { /* clipboard unavailable — the code text is still selectable */ }
-              }} className="shrink-0 px-2 py-1 bg-surface-2 rounded-brand text-xs text-text-muted">
-                {copiedSilence ? "Copied" : "Copy"}
-              </button>
-            </div>
-          )}
-        </div>
-      )}
-
-      <label className="block text-xs text-text-muted">
-        Preset
-        <select value={store.preset} onChange={(e) => save({ preset: e.target.value })}
-          className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text">
-          <option value="free">Free (opencode lane)</option>
-          <option value="openrouter">OpenRouter</option>
-          <option value="custom">Custom</option>
-        </select>
-      </label>
-
-      {(store.preset === "custom" || (store.preset === "free" && store.endpoint)) && (
-        <label className="block text-xs text-text-muted">
-          Endpoint
-          <input type="text" value={store.endpoint} onChange={(e) => store.setConfig({ endpoint: e.target.value })}
-            onBlur={() => save({ endpoint: store.endpoint })}
-            placeholder={store.preset === "openrouter" ? "default: https://openrouter.ai/api/v1/systemone" : "https://…/systemone"} spellCheck={false}
-            className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text" />
-        </label>
-      )}
+      {/* Example Prompts */}
       <div className="space-y-1.5">
-        <span className="block text-xs text-text-muted">
-          Model {store.preset === "free" && <span className="opacity-60">(default: jev-1.13-free)</span>}
+        <span className="block text-xs font-medium text-text-muted">
+          Example prompts (click to copy)
         </span>
-        {modelOptions.length > 1 && (
-          <div className="flex items-center gap-1.5 flex-wrap">
-            {modelOptions.map((id) => (
-              <Chip key={id} title={id} active={effectiveModel === id}
-                onClick={() => { vibrate(); save({ model: id }); }}>
-                {modelLabel(id)}
-              </Chip>
-            ))}
-          </div>
-        )}
-        {customModel && (
-          <input type="text" value={store.model} onChange={(e) => store.setConfig({ model: e.target.value })}
-            onBlur={() => save({ model: store.model })} spellCheck={false}
-            className="w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text" />
-        )}
-      </div>
-      {store.preset !== "free" && (
-        <label className="block text-xs text-text-muted">
-          API key {keyHint}
-          <input type="password" value={shownKey}
-            onFocus={() => setEditingKey(true)}
-            onChange={(e) => store.setConfig({ apiKey: e.target.value })}
-            onBlur={() => { setEditingKey(false); save({ apiKey: store.apiKey }); }} placeholder={store.hostKeySet ? "••••••••" : "sk-…"}
-            className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text" />
-        </label>
-      )}
-
-      <div className="flex items-center gap-2">
-        <button onClick={runTest} disabled={testing}
-          className="px-3 py-1.5 bg-brand-500 text-white rounded-brand text-sm disabled:opacity-40">
-          {testing ? "Testing…" : "Test"}
-        </button>
-        <span className={`text-xs ${test?.startsWith("OK") ? "text-emerald-500" : "text-red-500"}`}>{test}</span>
+        <div className="rounded-brand border border-border-subtle p-1 space-y-0.5 bg-surface-2/30">
+          {EXAMPLE_PROMPTS.map((prompt) => (
+            <button
+              key={prompt}
+              type="button"
+              onClick={() => copyPrompt(prompt)}
+              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-surface-2/80 flex items-center justify-between gap-2 group transition-colors"
+            >
+              <span className="text-[11.5px] text-text truncate font-mono">
+                {prompt}
+              </span>
+              <span className="flex-shrink-0 text-text-muted group-hover:text-text">
+                {copiedPrompt === prompt ? (
+                  <Check size={13} className="text-emerald-500" />
+                ) : (
+                  <Copy size={13} />
+                )}
+              </span>
+            </button>
+          ))}
+        </div>
       </div>
     </div>
   );

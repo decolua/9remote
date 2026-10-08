@@ -16,6 +16,8 @@ import AgentHistoryPanel from "@/features/terminal/components/AgentHistoryPanel"
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import { connOf } from "@/shared/transport/hostConn";
+import { useBrowserStore } from "@/shared/stores/browserStore";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 
 const QUICK_KEYS_MAC = ["⌥", "⇧", "↵"];
 const QUICK_KEYS_PC = ["Ctrl", "⇧", "↵"];
@@ -51,7 +53,7 @@ export default function NewTerminalModal({
   workspacePath = null, workspaceName = "", fileBus = null, homeDir = null,
   onResumeAgentSession = null, liveSessionIds = null, activeSessionId = null,
   onSelectSession = null, connected = true, hostKey = "main",
-  onCreateBrowser = null
+  onCreateBrowser = undefined, workspaceId = null
 }) {
   const { t } = useI18n();
   // One door: file API + cache scope resolve from the host this modal creates on —
@@ -184,9 +186,38 @@ export default function NewTerminalModal({
   // CLI-only agents (no UI variant at all)
   const cliOnly = allAgents.filter((a) => !a.isAiUi && !pairBases.has(a.id) && a.id !== "claude");
 
-  // Browser rides the plain-terminal row's right slot (the old empty spacer) — only
-  // when the caller can open one; other callers keep the spacer.
-  const browserOpt = onCreateBrowser ? { id: "browser", isBrowser: true, label: t("sites.browserTab") } : null;
+  // Browser rides the plain-terminal row's right slot. BUILT IN: the modal
+  // opens a tab in the workspace's own Chrome window itself, so every caller
+  // gets the option for free (pass onCreateBrowser to override, null to hide).
+  const pushView = useTerminalStore((s) => s.pushView);
+  const defaultCreateBrowser = () => {
+    const wsKey = workspaceId ?? "default";
+    const st = useBrowserStore.getState();
+    const windowId = st.workspaceWindows[wsKey] || null;
+    busRef?.current?.emit?.("browser:invoke", {
+      action: "open",
+      payload: {
+        url: "about:blank",
+        profile: st.workspaceProfiles[wsKey] || "default",
+        // First browser tab of this workspace gets its own Chrome window;
+        // afterwards "+" adds tabs INTO that window.
+        newWindow: !windowId,
+        windowId: windowId || undefined
+      }
+    }, (res) => {
+      if (!res?.ok || !res.id) return;
+      const after = useBrowserStore.getState();
+      if (res.windowId && res.windowId !== after.workspaceWindows[wsKey]) after.setWindowFor(wsKey, res.windowId);
+      after.setActive(wsKey, res.id);
+      const cur = after.tabsByWorkspace[wsKey] || [];
+      if (!cur.some((tb) => tb.id === res.id)) {
+        after.setTabs(wsKey, [...cur, { id: res.id, url: "about:blank", title: "" }]);
+      }
+    });
+    pushView({ type: "browser" });
+  };
+  const browserAction = onCreateBrowser !== undefined ? onCreateBrowser : (connected ? defaultCreateBrowser : null);
+  const browserOpt = browserAction ? { id: "browser", isBrowser: true, label: t("sites.browserTab") } : null;
   const agent = (agentId && allAgents.find((a) => a.id === agentId)) || (agentId === "browser" ? browserOpt : null) || null;
   // Slot 0: Plain terminal (row 1 left)
   // Slot 1: Browser (row 1 right), or the spacer that keeps pairs aligned on the same row
@@ -232,7 +263,7 @@ export default function NewTerminalModal({
     vibrate();
     // Browser is not a terminal launch — it raises the browser pane, nothing else.
     if (picked?.isBrowser) {
-      onCreateBrowser?.();
+      browserAction?.();
       onClose?.();
       return;
     }

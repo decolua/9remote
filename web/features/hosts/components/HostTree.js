@@ -2,7 +2,9 @@
 
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { useTreeCollapse, TREE_ROOT } from "@/features/hosts/lib/treeCollapse";
-import { Check, Download, EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2 } from "@/shared/components/ui/Icon";
+import {
+  Check, Download, EyeOff, GripVertical, Image, Loader2, MoreHorizontal, Pencil, Plus, Trash2, X
+} from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -12,6 +14,11 @@ import { statusVisual } from "@/shared/utils/statusVisual";
 import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { DRAG_HOLD_MS, DRAG_MOVE_TOLERANCE_PX } from "@/features/terminal/constants/terminalConfig";
 import { workspaceGitPath } from "@/features/terminal/lib/workspaceGrouping";
+import { ProfileAvatar } from "@/features/browser/lib/profileAvatar";
+import { useBrowserStore, cleanTabTitle } from "@/shared/stores/browserStore";
+
+const NO_TABS = [];
+import { useTerminalStore } from "@/shared/stores/terminalStore";
 import WorkspaceHeader from "@/features/terminal/components/WorkspaceHeader";
 import SessionAgentIcon from "@/features/terminal/components/SessionAgentIcon";
 import SessionMeta from "@/features/terminal/components/SessionMeta";
@@ -20,7 +27,6 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import IconMenu from "@/shared/components/ui/IconMenu";
 import NewTerminalModal from "@/shared/components/ui/NewTerminalModal";
 import FolderPickerModal from "@/features/terminal/components/FolderPickerModal";
-import SitesList from "@/features/terminal/components/SitesList";
 import { addRecentWorkspace } from "@/features/fileExplorer/components/WorkspaceList";
 import HostTreeRow from "./HostTreeRow";
 import SessionTaskRows from "@/features/ai/components/SessionTaskRows";
@@ -76,7 +82,6 @@ export default function HostTree({
   const [wsPicker, setWsPicker] = useState(false);        // fleet add-workspace folder picker
   const [shells, setShells] = useState([]);
   const [updateConfirm, setUpdateConfirm] = useState(false);
-  const [sitesOpen, setSitesOpen] = useState(false);
 
   const status = host.status || "full";
   const connecting = status === "connecting";
@@ -162,9 +167,6 @@ export default function HostTree({
         meta={connecting ? <Loader2 size={12} className="animate-spin text-text-subtle" /> : null}
         hostUpdating={!!host.updating}
         onOpenRemote={online && host.remoteAvailable && onOpenRemoteHost ? () => onOpenRemoteHost(host.key) : null}
-        // Same per-host doors as remote desktop; sites ride this host's bus,
-        // the mirror rides the capability flag the header button uses.
-        onOpenSites={actionable ? () => setSitesOpen(true) : null}
         onOpenMobile={online && host.mobileAvailable && onOpenMobileHost && !host.updating ? () => onOpenMobileHost(host.key) : null}
         onToggleCollapse={expandable ? () => {
           vibrate();
@@ -347,19 +349,28 @@ export default function HostTree({
                         )}
                       </div>
                     </div>
-                    {/* Running sub-agents/background shells of this session — read-only
-                        rows, fed by the sessionTasks lane. */}
-                    <SessionTaskRows
+                    {/* Running sub-agents/background shells of this session — temporarily hidden */}
+                    {/* <SessionTaskRows
                       sessionId={s.id}
                       records={host.tasksBySession?.[s.id]}
                       engine={host.statusMap?.[s.id]?.tool || "claude"}
                       mobile={mobile}
                       hostKey={host.key}
                       busRef={busTag}
-                    />
+                    /> */}
                     </Fragment>
                   );
                 })}
+                {!isCollapsed(wsKey) && busRef && (
+                  <BrowserTreeRow
+                    busRef={busRef}
+                    storeKey={rawId ?? "default"}
+                    mobile={mobile}
+                    rowCls={rowCls}
+                    activeWs={isActiveWs}
+                    onSelectWorkspace={actions.selectWorkspace ? () => actions.selectWorkspace(rawId) : null}
+                  />
+                )}
                 {!isCollapsed(wsKey) && (
                   mobile ? (
                     <button
@@ -410,6 +421,7 @@ export default function HostTree({
           onSelectSession={actions.selectSession}
           liveSessionIds={liveIds}
           connected={actionable}
+          workspaceId={termModalWs === "ungrouped" ? null : termModalWs}
           workspacePath={host.workspaces?.find((w) => w.id === (termModalWs === "ungrouped" ? null : termModalWs))?.path || null}
           workspaceName={termModalWs === "ungrouped" ? t("workspaces.ungrouped") : host.workspaces?.find((w) => w.id === termModalWs)?.name || ""}
           suggestName={`${t("terminal.defaultName")} ${(host.sessions?.length || 0) + 1}`}
@@ -463,10 +475,6 @@ export default function HostTree({
         />
       )}
 
-      {/* Local sites of THIS host — same sheet the header raises, bound to this
-          host's bus. Stays mounted so its close path can revoke proxy sessions. */}
-      <SitesList busRef={busTag} siteHostKey={host.key} isOpen={sitesOpen} onClose={() => setSitesOpen(false)} />
-
       <ConfirmDialog
         isOpen={updateConfirm}
         onClose={() => setUpdateConfirm(false)}
@@ -501,4 +509,61 @@ export default function HostTree({
       )}
     </div>
   );
+}
+
+
+// The workspace's browser TABS as pseudo-session rows: same row shape as a
+// terminal session — profile-colored dot, profile avatar, session-font title.
+function BrowserTreeRow({ busRef, storeKey, mobile, rowCls, activeWs, onSelectWorkspace }) {
+  const profile = useBrowserStore((s) => s.workspaceProfiles[storeKey] || "default");
+  const tabs = useBrowserStore((s) => s.tabsByWorkspace[storeKey] ?? NO_TABS);
+  const activeTabId = useBrowserStore((s) => s.activeByWorkspace[storeKey] || null);
+  const isBrowserView = useTerminalStore((s) => {
+    const stack = s.viewStack;
+    return Boolean(stack && stack[stack.length - 1]?.type === "browser");
+  });
+  const pushView = useTerminalStore((s) => s.pushView);
+  if (!tabs.length) return null;
+  const open = (targetId) => {
+    vibrate();
+    if (!activeWs) onSelectWorkspace?.();
+    useBrowserStore.getState().setActive(storeKey, targetId);
+    pushView({ type: "browser" });
+  };
+  return tabs.map((tab) => {
+    const isActive = isBrowserView && activeWs && tab.id === activeTabId;
+    const title = cleanTabTitle(tab.title) || "Browser";
+    return (
+      <div
+        key={tab.id}
+        className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y transition-colors ${
+          isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
+        }`}
+        onClick={() => open(tab.id)}
+        title={tab.url}
+      >
+        <span className="w-2 h-2 rounded-full flex-shrink-0 bg-white shadow-[0_0_4px_rgba(255,255,255,0.8)]" />
+        <ProfileAvatar name={profile} size={14} />
+        <span className={`flex-1 min-w-0 truncate ${mobile ? "text-base" : "text-[11px]"} ${isActive ? "font-medium" : ""}`} data-tip={title}>{title}</span>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            vibrate();
+            busRef?.current?.emit?.("browser:invoke", {
+              action: "close",
+              payload: { targetId: tab.id, profile: useBrowserStore.getState().workspaceProfiles[storeKey] || "default" }
+            }, () => {});
+            const st = useBrowserStore.getState();
+            const next = (st.tabsByWorkspace[storeKey] || []).filter((t2) => t2.id !== tab.id);
+            st.setTabs(storeKey, next);
+            if (st.activeByWorkspace[storeKey] === tab.id) st.setActive(storeKey, next[0]?.id || null);
+          }}
+          className={`p-0.5 rounded text-text-muted hover:text-text hover:bg-surface-3 shrink-0 ${mobile ? "flex" : "opacity-0 group-hover:opacity-100"} transition-opacity`}
+          title="Close tab"
+        >
+          <X size={12} />
+        </button>
+      </div>
+    );
+  });
 }

@@ -48,8 +48,8 @@ import { useAttentionCycle } from "@/features/terminal/hooks/useAttentionCycle";
 import { useApiKeyStorage, KEYS_CHANGED_EVENT } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
-import BrowserView from "@/features/browser/components/BrowserView";
 import BrowserPane from "@/features/browser/components/BrowserPane";
+import { useBrowserStore } from "@/shared/stores/browserStore";
 import WorkspaceList from "@/features/fileExplorer/components/WorkspaceList";
 import AgentDashboardView from "@/features/session/components/AgentDashboardView";
 import FileExplorer from "@/features/fileExplorer/components/FileExplorer";
@@ -378,6 +378,9 @@ export default function WorkspaceLayout({ children }) {
   // Browser pane lives inside TerminalWorkspace's panes container (below the tab
   // header), not as a full-view overlay — same store view type as before.
   const browserViewActive = currentView?.type === "browser";
+  // Which Chrome this workspace browses with — the pane, strip and every
+  // invoke resolve from this one map entry.
+  const browserProfile = useBrowserStore((s) => s.workspaceProfiles[activeWorkspaceId ?? "default"] || "default");
   // At the bottom of the desktop stack no session is named yet, so fall back to the last
   // one opened — otherwise the shell renders with nothing focused.
   const activeSessionId = currentView?.type === "terminal"
@@ -933,6 +936,9 @@ export default function WorkspaceLayout({ children }) {
                 busRef={currentView.hostKey ? connOf(currentView.hostKey).busRef : busRef}
                 connected={currentView.hostKey ? rowLive(fleetHostsMap[currentView.hostKey]) : connected}
                 onBack={storePopView}
+                profile={browserProfile}
+                workspaceId={activeWorkspaceId}
+                onProfileChange={(name) => useBrowserStore.getState().setProfileFor(activeWorkspaceId, name)}
               />
             ) : null}
             welcomeActive={currentView?.type === "welcome" || (isDesktop && currentView?.type === "list")}
@@ -1014,19 +1020,6 @@ export default function WorkspaceLayout({ children }) {
               connected={mobileHead ? rowLive(mobileHostRow) : connected}
             />
           </div>
-        )}
-
-        {/* Local sites browser (SW + transport bus, no tunnel needed). Store-only
-            overlay (OVERLAY_VIEWS): kept out of the URL/history because in-iframe
-            navigation would otherwise pile entries onto the parent history. */}
-        {currentView.type === "site" && (
-          <BrowserView
-            busRef={currentView.hostKey ? connOf(currentView.hostKey).busRef : busRef}
-            connected={currentView.hostKey ? rowLive(fleetHostsMap[currentView.hostKey]) : connected}
-            initialPort={currentView.port}
-            initialPath={currentView.path}
-            onBack={storePopView}
-          />
         )}
 
         {/* Remote browser pane (the host's real Chrome over a CDP screencast) renders
