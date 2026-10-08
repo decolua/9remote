@@ -1,5 +1,5 @@
-// Chrome lifecycle + executor. Own-profile mode spawns a Chrome with a private
-// user-data-dir (Chrome 136 blocks debug flags on the default dir by design);
+// Chrome lifecycle + executor. Own-profile mode borrows the pane engine's
+// Chrome (one browser per profile — agent tabs share the terminal strip);
 // attach mode reads the user's DevToolsActivePort after they opt in.
 // Profile-scoped work is serialized on a promise chain — one decision gate, no
 // interleaved CDP writes (same philosophy as the terminal daemonRouter).
@@ -11,6 +11,7 @@ import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
 import { getExtClient } from "./extRelay.js";
+import { closeBrowser, frontWatchedWindow, getOrLaunchBrowser, watchedWindowOf } from "../browser/browserEngine.js";
 import { MARKER_EXPRESSION, SNAPSHOT_EXPRESSION, evaluate, readExpression, snapshotExpression, stableDomExpression } from "./snapshot.js";
 import { MAX_ELEMENTS } from "./constants.js";
 import {
@@ -33,7 +34,7 @@ const CHROME_CANDIDATES = process.platform === "darwin"
   : ["google-chrome", "google-chrome-stable", "chromium", "chromium-browser", "microsoft-edge"];
 
 function profilesRoot() {
-  return path.join(os.homedir(), ".9remote", "browser-profiles");
+  return process.env.NREMOTE_BROWSER_PROFILES_DIR || path.join(os.homedir(), ".9remote", "browser-profiles");
 }
 
 function safeProfileName(name) {
@@ -58,6 +59,9 @@ function createProfile(name) {
 async function removeProfile(name) {
   if (!safeProfileName(name) || name === "default") throw new Error("Refusing to delete this profile");
   await closeProfile(name);
+  // The profile's Chrome belongs to the pane engine — it must die with the
+  // profile or it re-creates the dir and lingers as an orphan.
+  await closeBrowser(name).catch(() => {});
   fs.rmSync(path.join(profilesRoot(), name), { recursive: true, force: true });
   fs.rmSync(stepFramePath(name), { force: true }); // no orphan debug tail
   return { name, deleted: true };
@@ -127,17 +131,6 @@ function resolveChromeBinary() {
     }
   }
   return null;
-}
-
-function reservePort() {
-  return new Promise((resolve, reject) => {
-    const srv = net.createServer();
-    srv.listen(0, "127.0.0.1", () => {
-      const port = srv.address().port;
-      srv.close(() => resolve(port));
-    });
-    srv.on("error", reject);
-  });
 }
 
 // Attach mode: the user opted into chrome://inspect/#remote-debugging. We never
@@ -239,6 +232,15 @@ function urlsSameOrigin(a, b) {
 
 function isBlankTabUrl(url) {
   return !url || url === "about:blank" || /^chrome:\/\/new-tab-page/.test(url);
+}
+
+// Chrome window of a target (null when unavailable) — the same-window guard
+// for tab adoption reads it.
+async function windowOfTarget(client, targetId) {
+  try {
+    const res = await client.call("Browser.getWindowForTarget", { targetId });
+    return res.windowId ?? null;
+  } catch { return null; }
 }
 
 function makeSession({ profile, sessionKey = null, mode, port, child, client, sessionId, targetId, headless = false, shared = false }) {
@@ -375,7 +377,14 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
           // stateful pages (wizards, tests) must never swap onto a stale twin.
           const mine = pages.filter((t) => session.ownsTargets.has(t.targetId));
           if (!mine.length) {
-            const other = pages.find((t) => t.targetId !== session.targetId && urlsMatch(t.url, targetUrl));
+            // Same-window only: a twin tab in ANOTHER workspace's window must
+            // never be yanked in — that is driving someone else's screen.
+            const wantWin = (await windowOfTarget(client, session.targetId)) ?? watchedWindowOf(session.profile);
+            const twins = pages.filter((t) => t.targetId !== session.targetId && urlsMatch(t.url, targetUrl));
+            let other = null;
+            for (const t of twins) {
+              if (wantWin == null || (await windowOfTarget(client, t.targetId)) === wantWin) { other = t; break; }
+            }
             if (other) {
               await session.adopt(other.targetId);
               await session.stampTitle().catch(() => {});
@@ -390,6 +399,9 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
             return;
           }
         }
+        // Front the workspace's window first — Chrome drops a new tab into the
+        // frontmost window, so this is what keeps agent tabs on the viewed strip.
+        await frontWatchedWindow(session.profile).catch(() => {});
         const target = await client.call("Target.createTarget", { url: targetUrl, background: false });
         session.ownsTargets.add(target.targetId);
         await session.adopt(target.targetId);
@@ -1397,27 +1409,17 @@ async function launchSession({ profile = "default", sessionKey = null, url, mode
     port = info.port;
     attachWsUrl = info.wsUrl || null;
   } else {
-    bin = resolveChromeBinary();
-    if (!bin) throw new Error("No Chrome/Chromium binary found on this machine");
-    // A keyed session gets its own profile dir — two Chrome instances cannot
-    // share one user-data-dir (SingletonLock aborts the second).
-    const dirName = sessionKey ? sessionKey.replace(/#/g, "-") : profile;
-    if (!safeProfileName(dirName)) throw new Error(`Invalid profile name: "${dirName}"`);
-    port = await reservePort();
-    const dir = path.join(profilesRoot(), dirName);
-    fs.mkdirSync(dir, { recursive: true });
-    const args = [
-      `--user-data-dir=${dir}`,
-      `--remote-debugging-port=${port}`,
-      "--no-first-run", "--no-default-browser-check",
-      `--window-size=${VIEWPORT.width},${VIEWPORT.height}`,
-      "about:blank" // startup tab we can see immediately — an NTP can race past the cleanup
-    ];
-    if (headless) args.push("--headless=new");
-    child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
-    child.on("error", () => {}); // surfaced by waitForDevTools instead
-    child.stderr?.setEncoding?.("utf8");
-    child.stderr?.on?.("data", (d) => { stderrTail.push(d); if (stderrTail.length > 30) stderrTail.shift(); });
+    // Borrow the pane engine's Chrome per profile — one browser per profile, so
+    // agent tabs and the terminal strip share the same tab list (the strip polls
+    // that engine). The agent's CDP client is still its own connection.
+    // Pick-only: profiles are created by the user in the web UI — an unknown
+    // name must not silently spawn a new profile dir (default bootstraps once).
+    if (profile !== "default" && !fs.existsSync(path.join(profilesRoot(), profile))) {
+      const known = listProfiles().map((p) => p.name).join(", ");
+      throw new Error(`Unknown browser profile "${profile}" — pick one of: ${known}. Profiles are created by the user in the web UI.`);
+    }
+    const inst = await getOrLaunchBrowser(profile);
+    port = inst.port;
   }
   let client;
   try {
@@ -1459,15 +1461,20 @@ async function launchSession({ profile = "default", sessionKey = null, url, mode
         created = true;
       }
     } else {
+      // See openOrReuseTab: fronting the viewed window makes this session's tab
+      // land on the strip the user is watching.
+      await frontWatchedWindow(profile).catch(() => {});
       const target = await client.call("Target.createTarget", { url: "about:blank", background: true });
       targetId = target.targetId;
       created = true;
-      // Chrome's own startup tab rides along on a fresh profile — own mode
-      // starts clean with exactly one tab; every tab here is engine territory.
-      const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
-      for (const t of targetInfos) {
-        if (t.type === "page" && t.targetId !== targetId) {
-          try { await client.call("Target.closeTarget", { targetId: t.targetId }); } catch { /* already gone */ }
+      // Sweep blank spawn leftovers ONLY on a Chrome nobody views yet — a
+      // watched window's blank tab is a workspace waiting for its first URL.
+      if (watchedWindowOf(profile) == null) {
+        const { targetInfos = [] } = await client.call("Target.getTargets").catch(() => ({ targetInfos: [] }));
+        for (const t of targetInfos) {
+          if (t.type === "page" && t.targetId !== targetId && (t.url === "about:blank" || t.url === "")) {
+            try { await client.call("Target.closeTarget", { targetId: t.targetId }); } catch { /* already gone */ }
+          }
         }
       }
     }
@@ -1500,6 +1507,25 @@ async function launchSession({ profile = "default", sessionKey = null, url, mode
     child?.kill();
     throw e;
   }
+}
+
+// Agent-owned tabs across every profile, for the terminal strip's agent group.
+// Best-effort: dead sessions skip, one getTargets per live session (2s poll).
+export async function agentTabsSnapshot() {
+  const out = [];
+  for (const session of [...sessions.values()]) {
+    if (!session.client || session.client.closed) continue;
+    try {
+      const { targetInfos = [] } = await session.client.call("Target.getTargets");
+      for (const t of targetInfos) {
+        if (t.type !== "page" || !session.ownsTargets.has(t.targetId)) continue;
+        let windowId = null;
+        try { windowId = (await session.client.call("Browser.getWindowForTarget", { targetId: t.targetId })).windowId ?? null; } catch { /* dead target */ }
+        out.push({ profile: session.profile, id: t.targetId, title: t.title || "", url: t.url || "about:blank", windowId });
+      }
+    } catch { /* session died mid-scan */ }
+  }
+  return out;
 }
 
 export async function closeProfile(profile) {

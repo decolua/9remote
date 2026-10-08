@@ -5,6 +5,14 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import http from "node:http";
+import os from "node:os";
+import path from "node:path";
+
+const TEST_PROFILES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-test-oneshot-"));
+process.env.NREMOTE_BROWSER_PROFILES_DIR = TEST_PROFILES_DIR;
+process.on("exit", () => {
+  try { fs.rmSync(TEST_PROFILES_DIR, { recursive: true, force: true }); } catch {}
+});
 
 import { invoke, setConfig } from "../features/browserUse/browserUseSocket.js";
 import { agentBlockedSub, parseStep, cmdBrowser } from "../cli/modes/browserCmd.js";
@@ -131,6 +139,8 @@ if (!hasChrome) {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const stamp = Date.now();
+  // Pick-only engine: pre-create every profile this suite touches.
+  for (const n of ["1","3","4","5","6","7","8","9","10","11","11b","12","12b","12c","13"]) profiles.create(`oneshot-${n}-${stamp}`);
   const chain = (profile, steps, extra = {}) => invoke("chain", { profile, steps, ...extra });
   const cleanup = async (profile) => { await profiles.remove(profile).catch(() => {}); };
 

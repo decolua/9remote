@@ -7,6 +7,12 @@ import http from "node:http";
 import os from "node:os";
 import path from "node:path";
 
+const TEST_PROFILES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-test-usecases-"));
+process.env.NREMOTE_BROWSER_PROFILES_DIR = TEST_PROFILES_DIR;
+process.on("exit", () => {
+  try { fs.rmSync(TEST_PROFILES_DIR, { recursive: true, force: true }); } catch {}
+});
+
 let pass = 0, fail = 0;
 const onlyCases = process.env.CASES?.split(","); // CASES=7,49 — run a subset by number
 const test = async (name, fn) => {
@@ -240,6 +246,7 @@ if (!hasChrome) {
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const base = `http://127.0.0.1:${server.address().port}`;
   const profile = `hardcase-${Date.now()}`;
+  profiles.create(profile); // pick-only engine: tests pre-create
   const open = (path) => withSession({ profile, url: base + path, headless: true }, (s) => s);
 
   // Fake Jev helpers: calibrated answers built from the actual criteria keys.
@@ -745,6 +752,7 @@ if (!hasChrome) {
 
   await test("34. tab discipline: strict one working tab across origins", async () => {
     const tabProfile = `tabs-${Date.now()}`;
+    profiles.create(tabProfile); // pick-only engine: tests pre-create
     const server2 = http.createServer((req, res) => {
       res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
       res.end(PAGES[req.url] ?? PAGES["/"]);
@@ -775,6 +783,7 @@ if (!hasChrome) {
 
   await test("35b. step frame: written per action, cleaned with the profile", async () => {
     const frameProfile = `frame-${Date.now()}`;
+    profiles.create(frameProfile); // pick-only engine: tests pre-create
     const frame = path.join(os.homedir(), ".9remote", "browserUse", "frames", `${frameProfile}.jpg`);
     const s = await withSession({ profile: frameProfile, url: `${base}/duo`, headless: true }, (x) => x);
     const btn = (await observe(s)).actions.find((a) => /first step/i.test(a.label));
@@ -1440,26 +1449,26 @@ if (!hasChrome) {
     } finally { delete dynamicPages["/prompt"]; }
   });
 
-  await test("74. tabKey isolates concurrent drivers — two keys, two engines, no yanking", async () => {
+  await test("74. tabKey is inert — one shared Chrome per profile, no spun-up profile dirs", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     const shared = "isoshared";
+    if (!profiles.list().some((p) => p.name === shared)) profiles.create(shared);
     dynamicPages["/isoA"] = `<!doctype html><html><body><button onclick="">Alpha page</button></body></html>`;
     dynamicPages["/isoB"] = `<!doctype html><html><body><button onclick="">Beta page</button></body></html>`;
     try {
       await invoke("go", { profile: shared, url: `${base}/isoA`, tabKey: "sessa" });
       await invoke("go", { profile: shared, url: `${base}/isoB`, tabKey: "sessb" });
-      const a = await invoke("ls", { profile: shared, tabKey: "sessa" });
       const b = await invoke("ls", { profile: shared, tabKey: "sessb" });
-      assert.ok(a.url.endsWith("/isoA"), `tab A was yanked to ${a.url}`);
-      assert.ok(b.url.endsWith("/isoB"), `tab B was yanked to ${b.url}`);
-      assert.ok(a.actions.some((x) => x.label === "Alpha page") &&
-        b.actions.some((x) => x.label === "Beta page"),
-        `engines mixed up: A=${JSON.stringify(a.actions.map((x) => x.label))} B=${JSON.stringify(b.actions.map((x) => x.label))}`);
+      assert.ok(b.url.endsWith("/isoB"), `shared session landed on ${b.url}`);
+      assert.ok(b.actions.some((x) => x.label === "Beta page"), "page observed through the shared Chrome");
+      // The old per-key dirs (profile#key) must never be created again.
+      const root = process.env.NREMOTE_BROWSER_PROFILES_DIR || path.join(os.homedir(), ".9remote", "browser-profiles");
+      assert.ok(!fs.existsSync(path.join(root, `${shared}#sessa`)), "tabKey did not spawn a profile dir");
     } finally {
       delete dynamicPages["/isoA"]; delete dynamicPages["/isoB"];
-      const { closeProfile } = await import("../features/browserUse/engine.js");
-      await closeProfile(`${shared}#sessa`).catch(() => {});
-      await closeProfile(`${shared}#sessb`).catch(() => {});
+      // remove (not just close) so the borrowed Chrome dies — a lingering one
+      // holds the SingletonLock and kills the NEXT run's launch.
+      await profiles.remove(shared).catch(() => {});
     }
   });
 
@@ -1679,6 +1688,7 @@ if (!hasChrome) {
   await test("89. switchTab resets the iframe pool — no cross-tab iframe bleed", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     const tabProfile = `rev-tabs-${Date.now()}`;
+    profiles.create(tabProfile); // pick-only engine: tests pre-create
     let served = 0;
     const childSrv = http.createServer((q, r) => {
       served++;
@@ -1721,6 +1731,7 @@ if (!hasChrome) {
   await test("90. windowed ls keeps element_from/total consistent with appended iframe rows", async () => {
     const { invoke } = await import("../features/browserUse/browserUseSocket.js");
     const tabProfile = `rev-win-${Date.now()}`;
+    profiles.create(tabProfile); // pick-only engine: tests pre-create
     const childSrv = http.createServer((q, r) => {
       r.writeHead(200, { "Content-Type": "text/html" });
       r.end(`<!doctype html><html><body><button id="inner">iframe inner button</button></body></html>`);
@@ -1775,6 +1786,7 @@ if (!hasChrome) {
     const { sessionStatus } = await import("../features/browserUse/engine.js");
     const { invoke: inv } = await import("../features/browserUse/browserUseSocket.js");
     const lastProfile = `rev-last-${Date.now()}`;
+    profiles.create(lastProfile); // pick-only engine: tests pre-create
     await inv("go", { profile: lastProfile, url: `${base}/`, headless: true });
     assert.ok((await sessionStatus()).some((s) => s.profile === lastProfile), "setup: session alive");
     await inv("close", { profile: lastProfile });
@@ -1789,6 +1801,7 @@ if (!hasChrome) {
 
   await test("93. iframe element ids survive main-list shifts", async () => {
     const tabProfile = `rev-ifrid-${Date.now()}`;
+    profiles.create(tabProfile); // pick-only engine: tests pre-create
     const childSrv = http.createServer((q, r) => {
       r.writeHead(200, { "Content-Type": "text/html" });
       r.end(`<!doctype html><html><body><button id="inner">iframe inner button</button></body></html>`);

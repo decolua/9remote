@@ -12,8 +12,8 @@ function parseArgs(args) {
     const a = args[i];
     if (a === "--url") { opts.url = args[++i]; continue; }
     if (a === "--max-steps") { opts.maxSteps = Number(args[++i]); continue; }
-    if (a === "--attach") { opts.mode = "attach"; continue; }
-    if (a === "--extension") { opts.mode = "extension"; continue; }
+    if (a === "--attach") { throw new Error("--attach is temporarily disabled — own-profile Chrome only"); }
+    if (a === "--extension") { throw new Error("--extension is temporarily disabled — own-profile Chrome only"); }
     if (a === "--no-headless") { opts.headless = false; continue; }
     if (a === "--enter") { opts.enter = true; continue; }
     if (a === "--only") { opts.only = args[++i]; continue; }
@@ -548,12 +548,9 @@ export async function cmdBrowser(args, { fromBatch = false } = {}) {
       mustOk(await call("close", payload()));
       console.log("closed");
       return;
-    case "attach": {
-      const data = mustOk(await call("attach.status", {}));
-      if (data.available) console.log(`attached (port ${data.port})`);
-      else { console.log("not attached:"); (data.guide || []).forEach((s, i) => console.log(`  ${i + 1}. ${s}`)); }
-      return;
-    }
+    case "attach":
+      // Parked mode — see ALLOWED_MODES in features/browserUse/constants.js.
+      throw new Error("attach is temporarily disabled — own-profile Chrome only");
     case "status": {
       const data = mustOk(await call("status", {}));
       console.log(JSON.stringify(data, null, 2));

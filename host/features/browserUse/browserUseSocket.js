@@ -17,7 +17,7 @@ import {
   switchTab, closeTab, matchActionId
 } from "./engine.js";
 import { ensureExtensionInstall, extStatus } from "./extRelay.js";
-import { AUTO_CONTINUE_CHUNKS, CONSOLE_FAIL_TAIL, ELEMENT_DEEP_CAP, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
+import { ALLOWED_MODES, AUTO_CONTINUE_CHUNKS, CONSOLE_FAIL_TAIL, ELEMENT_DEEP_CAP, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
 import { grepContent } from "./grep.js";
 import { installSkillForEngine, removeAllInstalledSkills, SKILL_ENGINES } from "./skill.js";
 import { renderTreeLines } from "./compress.js";
@@ -41,6 +41,8 @@ export async function loadConfig() {
       // Drop keys removed from newer versions (e.g. the old allowlist) so they
       // never resurface in responses or get re-persisted.
       config = Object.fromEntries(Object.entries(merged).filter(([k]) => k in JEV_CONFIG_DEFAULTS));
+      // A parked mode (attach/extension) in old KV must not resurrect itself.
+      if (!ALLOWED_MODES.includes(config.mode)) config.mode = "own";
     }
   } catch { /* daemon down: defaults hold */ }
   return config;
@@ -54,7 +56,7 @@ export function setConfig(patch = {}, { persist = true, syncSkill = true } = {})
   for (const key of ["enabled", "preset", "endpoint", "model", "apiKey", "headless"]) {
     if (patch[key] !== undefined) next[key] = patch[key];
   }
-  if (patch.mode === "own" || patch.mode === "attach" || patch.mode === "extension") next.mode = patch.mode;
+  if (ALLOWED_MODES.includes(patch.mode)) next.mode = patch.mode;
   if (typeof patch.minConfidence === "number") {
     next.minConfidence = Math.min(1, Math.max(0, patch.minConfidence));
   }
@@ -170,12 +172,16 @@ export async function invoke(action, payload = {}) {
     case "status":
       return { ok: true, config: publicConfig(), sessions: sessionStatus() };
     case "attach.status":
+      if (!ALLOWED_MODES.includes("attach")) return { ok: false, error: "attach mode disabled" };
       return { ok: true, ...(await attachStatus()) };
     case "attach.open":
+      if (!ALLOWED_MODES.includes("attach")) return { ok: false, error: "attach mode disabled" };
       return { ok: true, ...openAttachGuide() };
     case "ext.status":
+      if (!ALLOWED_MODES.includes("extension")) return { ok: false, error: "extension mode disabled" };
       return { ok: true, ...extStatus() };
     case "ext.install":
+      if (!ALLOWED_MODES.includes("extension")) return { ok: false, error: "extension mode disabled" };
       return { ok: true, ...ensureExtensionInstall() };
     case "tabs": {
       const opts = sessionOpts(payload);
@@ -223,6 +229,9 @@ export async function invoke(action, payload = {}) {
       // debugger is attached — detach, wait, then serve a fresh state. The
       // next CDP call re-attaches automatically (shim retry).
       const opts = sessionOpts(payload);
+      if (!ALLOWED_MODES.includes("extension")) {
+        throw new Error("undbg is extension-mode only — extension mode is temporarily disabled");
+      }
       if (opts.mode !== "extension") {
         throw new Error("undbg is extension-mode only — in other modes the debugger IS the engine connection");
       }
@@ -1132,16 +1141,12 @@ const stateAfterSafe = async (session) => {
 };
 
 // One decision gate for session identity: every caller resolves mode/headless alike.
-const MODES = ["own", "attach", "extension"];
+const MODES = ALLOWED_MODES;
 const sessionOpts = (payload = {}) => {
   const mode = MODES.includes(payload.mode) ? payload.mode : config.mode;
-  // tabKey isolates concurrent drivers (one agent session each): "base#key"
-  // gives the key its own engine+tab instead of yanking the shared one.
-  const tabKey = mode !== "attach" && /^[a-z0-9][a-z0-9_-]{0,40}$/i.test(payload.tabKey ?? "")
-    ? String(payload.tabKey).toLowerCase() : null;
   const base = mode === "attach" ? "__attach__" : mode === "extension" ? "__extension__" : (payload.profile || "default");
   return {
-    profile: tabKey ? `${base}#${tabKey}` : base,
+    profile: base,
     mode,
     headless: config.headless,
     newTab: Boolean(payload.newTab)

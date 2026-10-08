@@ -71,9 +71,8 @@ export const JEV_PRESETS = {
     model: "typesafe/jev-1.13",
     // OpenRouter "Decisions" family — all speak the same /v1/systemone schema.
     models: [
-      "typesafe/jev-1.13", "~typesafe/jev-latest", "typesafe/jev-router",
-      "inception/mercury-decide", "inception/mercury-decide:free",
-      "liquid/d1", "upstage/solar-decide"
+      "typesafe/jev-1.13",
+      "inception/mercury-decide:free"
     ],
     note: "Needs OpenRouter key"
   },
@@ -90,6 +89,9 @@ export const JEV_CONFIG_DEFAULTS = {
   headless: true,     // own-profile Chrome runs headless unless disabled
   mode: "own"         // "own" = engine's isolated Chrome · "attach" = real browser (debug port) · "extension" = real browser (bridge extension)
 };
+
+// Modes currently exposed. "extension" is parked: restore by adding back.
+export const ALLOWED_MODES = ["own", "attach"];
 
 export const KV_KEY = "browserUse.config";
 export const ATTACH_GUIDE_URL = "chrome://inspect/#remote-debugging";

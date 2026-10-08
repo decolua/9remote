@@ -149,6 +149,7 @@ if (!hasChrome) {
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     const url = `http://127.0.0.1:${server.address().port}/`;
     const profile = `e2e-${Date.now()}`;
+    profiles.create(profile); // pick-only engine: tests pre-create
     try {
       const result = await withSession({ profile, url, headless: true }, async (session) => {
         let calls = 0;
@@ -188,6 +189,7 @@ if (!hasChrome) {
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     const url = `http://127.0.0.1:${server.address().port}/`;
     const profile = `e2e-lc-${Date.now()}`;
+    profiles.create(profile); // pick-only engine: tests pre-create
     try {
       let calls = 0;
       const shakyDecide = async ({ questions }) => {
@@ -213,6 +215,7 @@ if (!hasChrome) {
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     const url = `http://127.0.0.1:${server.address().port}/`;
     const profile = `e2e-burst-${Date.now()}`;
+    profiles.create(profile); // pick-only engine: tests pre-create
     try {
       let calls = 0;
       const scrollOnlyDecide = async ({ questions }) => {
@@ -243,6 +246,7 @@ if (!hasChrome) {
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     const url = `http://127.0.0.1:${server.address().port}/`;
     const profile = `e2e-stale-${Date.now()}`;
+    profiles.create(profile); // pick-only engine: tests pre-create
     try {
       let calls = 0;
       const stubbornDecide = async ({ questions }) => {
@@ -271,6 +275,7 @@ if (!hasChrome) {
     await new Promise((r) => server.listen(0, "127.0.0.1", r));
     const url = `http://127.0.0.1:${server.address().port}/`;
     const profile = `e2e2-${Date.now()}`;
+    profiles.create(profile); // pick-only engine: tests pre-create
     try {
       await withSession({ profile, url, headless: true }, async (session) => {
         const field = (await observe(session)).actions.find((a) => a.kind === "fill");

@@ -49,8 +49,34 @@ export function parseCookiesContent(text) {
 // arbitrary-file-read primitive. Pasted content only (JSON or Netscape).
 export async function importCookiesToSession(client, sessionId, cookies) {
   if (!Array.isArray(cookies) || !cookies.length) return { imported: 0 };
-  const valid = cookies.filter((c) => c && c.name && c.value && c.domain);
-  if (!valid.length) return { imported: 0 };
-  await client.call("Network.setCookies", { cookies: valid }, sessionId);
-  return { imported: valid.length };
+  // CDP rejects the WHOLE batch over one malformed cookie ("Invalid cookie
+  // fields") — normalize hard, then fall back to per-cookie sends and skip
+  // whatever Chrome still refuses.
+  const clean = cookies
+    .filter((c) => c && typeof c.name === "string" && c.name
+      && typeof c.value === "string" && typeof c.domain === "string" && c.domain)
+    .map((c) => ({
+      name: c.name,
+      value: c.value,
+      domain: c.domain,
+      path: typeof c.path === "string" && c.path ? c.path : "/",
+      secure: !!c.secure,
+      httpOnly: !!c.httpOnly,
+      ...(["Strict", "Lax", "None"].includes(c.sameSite) ? { sameSite: c.sameSite } : {}),
+      ...(Number.isFinite(c.expires) && c.expires > 0 ? { expires: c.expires } : {})
+    }));
+  if (!clean.length) return { imported: 0 };
+  try {
+    await client.call("Network.setCookies", { cookies: clean }, sessionId);
+    return { imported: clean.length };
+  } catch {
+    let imported = 0;
+    for (const c of clean) {
+      try {
+        await client.call("Network.setCookies", { cookies: [c] }, sessionId);
+        imported += 1;
+      } catch { /* Chrome refuses this one — skip */ }
+    }
+    return { imported };
+  }
 }

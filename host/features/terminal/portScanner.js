@@ -24,12 +24,12 @@ const MAX_PROBES = 24;
 const WEB_CMD = /\b(vite|next-server|next\s+(dev|start)|nuxt|astro|remix|gatsby|webpack(-dev-server)?|parcel|react-scripts|ng\s+serve|storybook|docusaurus|live-server|http-server|serve\b|python[\d.]*\s+-m\s+http\.server|gunicorn|uvicorn|hypercorn|flask|manage\.py\s+runserver|rails|puma|unicorn|thin|php\s+-S|artisan\s+serve|nginx|httpd|apache2?|caddy|jekyll|hugo|catalina|tomcat|spring)\b/i;
 
 // Command lines that are never a web page, whatever port they hold.
-const NON_WEB_CMD = /\b(postgres|postmaster|mysqld|mariadbd?|mongod|redis-server|memcached|elasticsearch|cassandra|clickhouse|etcd|zookeeper|kafka|rabbitmq|beam\.smp|sshd|rsync|smbd|nfsd|cupsd|rapportd|controlcenter|dnsmasq|named|ntpd|chronyd|dockerd|containerd|colima|qemu[\w-]*|netsimd|adb|emulator)\b/i;
+const NON_WEB_CMD = /\b(workerd|wrangler|remote-debugging-port|google chrome|chrome helper|postgres|postmaster|mysqld|mariadbd?|mongod|redis-server|memcached|elasticsearch|cassandra|clickhouse|etcd|zookeeper|kafka|rabbitmq|beam\.smp|sshd|rsync|smbd|nfsd|cupsd|rapportd|controlcenter|dnsmasq|named|ntpd|chronyd|dockerd|containerd|colima|qemu[\w-]*|netsimd|adb|emulator)\b/i;
 
 // Ports owned by infrastructure. Kept separate from the command test so a service
 // behind an opaque wrapper (a container runtime, a launcher) is still excluded.
 const SERVICE_PORTS = new Set([
-  22, 23, 25, 53, 110, 111, 135, 137, 138, 139, 143, 389, 445, 465, 548, 587, 631,
+  22, 23, 25, 53, 80, 443, 110, 111, 135, 137, 138, 139, 143, 389, 445, 465, 548, 587, 631,
   993, 995, 1433, 1521, 2049, 2181, 3306, 3389, 5432, 5433, 5672, 5900, 6379,
   9092, 11211, 27017, 27018, 27019, 62078
 ]);
@@ -242,6 +242,9 @@ export async function scanLocalSites({ io = realIo, now = Date.now } = {}) {
 
     const cwds = await io.cwds([...new Set(accepted.map((r) => r.pid).filter(Boolean))]);
     sites = accepted
+      // Ephemeral-range listeners (49152+) are tooling internals spawned with
+      // random ports (next HMR, wrangler workerd) — never a site to open.
+      .filter((row) => row.port < 49152)
       .map((row) => {
         const cwd = cwds.get(row.pid) || null;
         return {

@@ -5,13 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
-import { ANTI_DETECTION_SCRIPT, stripHeadlessUa } from "./antiDetection.js";
+import { ANTI_DETECTION_SCRIPT, headlessOverride, readUserAgentIdentity } from "./antiDetection.js";
 import {
   CHROME_CANDIDATES,
   DEFAULT_VIEWPORT,
+  HEADLESS_IDLE_CLOSE_MS,
+  HEADLESS_IDLE_SWEEP_MS,
   LAUNCH_TIMEOUT_MS,
   getProfilesDir
 } from "./constants.js";
+import { hasActiveStreamFor } from "./stream.js";
 
 const logger = createLogger("browser");
 
@@ -146,14 +149,46 @@ export function peekBrowser(profileName = "default") {
   return instance && !instance.client.closed ? instance : null;
 }
 
+// The front tab is the only one whose document is "visible". CDP has no
+// tab-activated event, so polling visibility is the only way tabs clicked
+// directly in the real Chrome window sync back to the strip and stream target.
+export async function syncActiveTab(instance) {
+  if (!instance || instance.client.closed) return;
+  try {
+    const { targetInfos = [] } = await instance.client.call("Target.getTargets");
+    for (const p of targetInfos) {
+      if (p.type !== "page") continue;
+      const sessionId = await instance.sessionFor(p.targetId).catch(() => null);
+      if (!sessionId) continue;
+      const res = await instance.client.call("Runtime.evaluate", {
+        expression: "document.visibilityState", returnByValue: true
+      }, sessionId).catch(() => null);
+      if (res?.result?.value === "visible") {
+        instance.activeTargetId = p.targetId;
+        return;
+      }
+    }
+  } catch { /* best-effort */ }
+}
+
 export function getOrLaunchBrowser(profileName = "default", { headless = BROWSER_HEADLESS } = {}) {
   const name = safeProfileName(profileName) ? profileName : "default";
   const existing = activeBrowsers.get(name);
-  if (existing && !existing.client.closed) return Promise.resolve(existing);
+  if (existing && !existing.client.closed) {
+    existing.lastActiveAt = Date.now();
+    return Promise.resolve(existing);
+  }
   if (launching.has(name)) return launching.get(name);
   const p = launchBrowser(name, headless).finally(() => launching.delete(name));
   launching.set(name, p);
   return p;
+}
+
+// Socket-layer activity door: every browser invoke/input/stream start marks the
+// profile's instance as alive for the idle sweep below.
+export function noteBrowserActivity(profileName = "default") {
+  const instance = activeBrowsers.get(safeProfileName(profileName) ? profileName : "default");
+  if (instance) instance.lastActiveAt = Date.now();
 }
 
 async function launchBrowser(name, headless) {
@@ -162,6 +197,10 @@ async function launchBrowser(name, headless) {
 
   const port = await reservePort();
   const profileDir = path.join(getProfilesDir(), name);
+  if (name !== "default" && !fs.existsSync(profileDir)) {
+    const known = listProfiles().map((p) => p.name).join(", ");
+    throw new Error(`Profile "${name}" not found (available: ${known || "default"}). Create it in the Browser & Profiles menu first.`);
+  }
   fs.mkdirSync(profileDir, { recursive: true });
 
   const args = [
@@ -180,7 +219,11 @@ async function launchBrowser(name, headless) {
     "--disable-backgrounding-occluded-windows",
     "--disable-renderer-backgrounding",
     "--disable-background-timer-throttling",
-    "about:blank"
+    // Removes the automation blink switch entirely — belt to the script's suspenders.
+    "--disable-blink-features=AutomationControlled",
+    // Reopen the previous tabs on relaunch after an idle close — graceful close
+    // (Browser.close) flushes the session this flag restores, tabs and all.
+    "--restore-last-session"
   ];
   if (headless) args.push("--headless=new");
 
@@ -196,43 +239,65 @@ async function launchBrowser(name, headless) {
     throw new Error(`Failed to connect to Chrome: ${e.message}`);
   }
 
+  // Browser-wide UA identity, cached from a REAL page target: fresh about:blank
+  // targets never expose userAgentData, and setUserAgentOverride without
+  // metadata blanks the UA-CH brands — a tell worse than the hidden one.
+  let identityPromise = null;
+  const uaIdentity = () => identityPromise ??= (async () => {
+    try {
+      const { targetInfos = [] } = await client.call("Target.getTargets");
+      const page = targetInfos.find((p) => p.type === "page");
+      if (!page) return null;
+      const attached = await client.call("Target.attachToTarget", { targetId: page.targetId, flatten: true });
+      const identity = await readUserAgentIdentity(client, attached.sessionId);
+      void client.call("Target.detachFromTarget", { sessionId: attached.sessionId }).catch(() => {});
+      return identity;
+    } catch { return null; }
+  })();
+
   // Auto-init targets with anti-detection and user-agent policy — always on,
   // never a profile option: a HeadlessChrome UA gets the tab flagged anyway.
   const setupTargetSession = async (sessionId, url = "") => {
     try {
       await client.call("Page.enable", {}, sessionId);
       await client.call("DOM.enable", {}, sessionId);
-      await client.call("Runtime.enable", {}, sessionId);
+      // No Runtime.enable: its console-serialization is the CDP detection signal
+      // Cloudflare/DataDome probe; one-shot Runtime.evaluate needs no events.
       await client.call("Page.addScriptToEvaluateOnNewDocument", { source: ANTI_DETECTION_SCRIPT }, sessionId);
       // Google auth fingerprints the UA mid-flow — touching it there breaks login.
-      const isGoogle = /accounts\.google\.com/i.test(url);
-      if (!isGoogle && headless) {
-        const evalRes = await client.call("Runtime.evaluate", { expression: "navigator.userAgent" }, sessionId);
-        const rawUa = evalRes.result?.value;
-        if (rawUa && /HeadlessChrome/i.test(rawUa)) {
-          await client.call("Emulation.setUserAgentOverride", { userAgent: stripHeadlessUa(rawUa) }, sessionId);
-        }
+      if (!/accounts\.google\.com/i.test(url) && headless) {
+        const identity = (await uaIdentity()) || (await readUserAgentIdentity(client, sessionId));
+        const params = identity && headlessOverride(identity);
+        if (params) await client.call("Emulation.setUserAgentOverride", params, sessionId);
       }
-    } catch { /* ignore per-target setup failures */ }
+    } catch (e) {
+      // Never silent: a swallowed failure here leaves the raw HeadlessChrome UA.
+      logger.warn(`Anti-detection setup failed: ${e.message}`);
+    }
   };
 
   // ONE flattened session per target, reused by every action — attaching per
   // call leaks sessions on the target and re-runs setup each invoke.
   const sessionsByTarget = new Map();
+  const attaching = new Map(); // targetId -> in-flight attach (eager attach races invokes)
   client.on("Target.detachedFromTarget", ({ targetId } = {}) => {
     if (targetId) sessionsByTarget.delete(targetId);
   });
   const sessionFor = async (targetId, url = "") => {
     const id = String(targetId || "");
     if (!id) throw new Error("Missing field: targetId");
-    let sessionId = sessionsByTarget.get(id);
-    if (!sessionId) {
+    const cached = sessionsByTarget.get(id);
+    if (cached) return cached;
+    const pending = attaching.get(id);
+    if (pending) return pending;
+    const p = (async () => {
       const attached = await client.call("Target.attachToTarget", { targetId: id, flatten: true });
-      sessionId = attached.sessionId;
-      sessionsByTarget.set(id, sessionId);
-      await setupTargetSession(sessionId, url);
-    }
-    return sessionId;
+      await setupTargetSession(attached.sessionId, url);
+      sessionsByTarget.set(id, attached.sessionId);
+      return attached.sessionId;
+    })().finally(() => attaching.delete(id));
+    attaching.set(id, p);
+    return p;
   };
 
   // Target discovery feeds the tabsPushHook — without setDiscoverTargets the
@@ -249,8 +314,25 @@ async function launchBrowser(name, headless) {
     child,
     client,
     sessionFor,
-    activeTargetId: null
+    activeTargetId: null,
+    headless: !!headless,
+    lastActiveAt: Date.now()
   };
+  // Tab lifecycle/url events count as activity — this is also what keeps an
+  // agent-driven run alive: the agent borrows this instance without the socket
+  // layer, and every step it takes moves a target.
+  const markActive = () => { instance.lastActiveAt = Date.now(); };
+  client.on("Target.targetCreated", markActive);
+  client.on("Target.targetDestroyed", markActive);
+  client.on("Target.targetInfoChanged", markActive);
+
+  // Attach page/iframe targets the moment they appear: a new tab's FIRST
+  // request must not carry the raw HeadlessChrome UA (the override only lands
+  // once a session exists), and OOPIF challenge iframes need the script too.
+  client.on("Target.targetCreated", ({ targetInfo } = {}) => {
+    if (targetInfo?.type !== "page" && targetInfo?.type !== "iframe") return;
+    void instance.sessionFor(targetInfo.targetId, targetInfo.url).catch(() => {});
+  });
 
   activeBrowsers.set(name, instance);
   logger.info(`Browser launched for profile "${name}" on port ${port} (headless=${headless})`);
@@ -283,20 +365,87 @@ export function closeAllBrowsers() {
   return Promise.all([...activeBrowsers.keys()].map((name) => closeBrowser(name)));
 }
 
+// Idle reclaim: a headless Chrome nobody streams into, invokes, or drives (no
+// tab events = no agent step) is dead RAM — close it; the next invoke relaunches
+// and --restore-last-session brings the tabs back. Headed windows are the
+// user's own — never close those. Decision exported for tests.
+export function idleCloseDue(instance, now = Date.now()) {
+  if (!instance?.headless) return false;
+  if (hasActiveStreamFor(instance.client)) return false;
+  return now - (instance.lastActiveAt || 0) >= HEADLESS_IDLE_CLOSE_MS;
+}
+
+export function sweepIdleBrowsers() {
+  for (const [name, instance] of activeBrowsers) {
+    if (!idleCloseDue(instance)) continue;
+    logger.info(`Idle headless browser "${name}" closed after ${Math.round(HEADLESS_IDLE_CLOSE_MS / 60000)}min`);
+    void closeBrowser(name);
+  }
+}
+setInterval(sweepIdleBrowsers, HEADLESS_IDLE_SWEEP_MS).unref?.();
+
 const sleep = (ms, value) => new Promise((resolve) => setTimeout(() => resolve(value), ms));
 
-export async function listTabs(profileName = "default") {
-  const browser = await getOrLaunchBrowser(profileName);
-  const { targetInfos = [] } = await browser.client.call("Target.getTargets");
+// The window a workspace is currently viewing, per profile (last watch wins —
+// the socket layer notes it on browser:tabs.watch). Agent-side tab creation
+// fronts it first so the new tab joins the strip the user is looking at,
+// not whichever Chrome window happened to be active.
+const watchedWindows = new Map();
+export function noteWatchedWindow(profile, windowId) {
+  const name = safeProfileName(profile) ? profile : "default";
+  if (windowId == null) watchedWindows.delete(name);
+  else watchedWindows.set(name, Number(windowId));
+}
+export function watchedWindowOf(profile) {
+  return watchedWindows.get(safeProfileName(profile) ? profile : "default") ?? null;
+}
+// Best-effort: bring one of the watched window's tabs to the front so the NEXT
+// Target.createTarget lands in that window. Returns the window id or null.
+export async function frontWatchedWindow(profileName = "default") {
+  const win = watchedWindowOf(profileName);
+  if (win == null) return null;
+  const browser = peekBrowser(profileName);
+  if (!browser) return null; // Chrome not running — nothing to front
+  const tabs = await tabsWithWindows(browser).catch(() => []);
+  const anchorTab = tabs.find((t) => t.windowId === win);
+  if (!anchorTab) return null; // window died — fall through to Chrome's default
+  const sid = await browser.sessionFor(anchorTab.id).catch(() => null);
+  if (sid) await browser.client.call("Page.bringToFront", {}, sid).catch(() => {});
+  return win;
+}
+
+// Tabs grouped by Chrome window: a workspace owns ONE window of its profile,
+// exactly like terminal tabs belong to a workspace. Window ids are cached per
+// target and re-queried only for targets we have not seen before.
+async function tabsWithWindows(instance) {
+  const { targetInfos = [] } = await instance.client.call("Target.getTargets");
   const pages = targetInfos.filter((t) => t.type === "page");
+  if (!instance.windowsByTarget) instance.windowsByTarget = new Map();
+  const cache = instance.windowsByTarget;
+  for (const id of [...cache.keys()]) {
+    if (!pages.some((p) => p.targetId === id)) cache.delete(id);
+  }
+  await Promise.all(pages.map(async (p) => {
+    if (cache.has(p.targetId)) return;
+    try {
+      const { windowId } = await instance.client.call("Browser.getWindowForTarget", { targetId: p.targetId });
+      cache.set(p.targetId, windowId);
+    } catch { /* target may vanish mid-scan */ }
+  }));
   return pages.map((p, idx) => ({
     id: p.targetId,
     index: idx + 1,
     title: p.title || "New Tab",
     url: p.url || "about:blank",
     openerId: p.openerId || null,
-    active: p.targetId === browser.activeTargetId || idx === 0
+    windowId: cache.get(p.targetId) ?? null,
+    active: p.targetId === instance.activeTargetId || idx === 0
   }));
+}
+
+export async function listTabs(profileName = "default") {
+  const browser = await getOrLaunchBrowser(profileName);
+  return tabsWithWindows(browser);
 }
 
 // Read-only list: never launches Chrome. The web strip polls this on connect —
@@ -305,16 +454,7 @@ export async function peekTabs(profileName = "default") {
   const instance = activeBrowsers.get(safeProfileName(profileName) ? profileName : "default");
   if (!instance || instance.client.closed) return [];
   try {
-    const { targetInfos = [] } = await instance.client.call("Target.getTargets");
-    const pages = targetInfos.filter((t) => t.type === "page");
-    return pages.map((p, idx) => ({
-      id: p.targetId,
-      index: idx + 1,
-      title: p.title || "New Tab",
-      url: p.url || "about:blank",
-      openerId: p.openerId || null,
-      active: p.targetId === instance.activeTargetId || idx === 0
-    }));
+    return await tabsWithWindows(instance);
   } catch { return []; }
 }
 
@@ -330,38 +470,60 @@ export async function setViewport(profileName = "default", targetId, width, heig
   return { viewport: { width, height } };
 }
 
-export async function openTab(profileName = "default", url = "about:blank") {
+export async function openTab(profileName = "default", url = "about:blank", { newWindow = false, windowId = null } = {}) {
   const browser = await getOrLaunchBrowser(profileName);
   const target = normalizeUrlInput(url);
-  if (process.env.NODE_ENV !== "production") {
-    // TEMP DIAGNOSTIC: who opens tabs — a stray second tab means two callers.
-    const stack = (new Error().stack || "").split("\n").slice(2, 5).join(" | ");
-    logger.info(`TEMP DIAGNOSTIC openTab profile=${profileName} url=${target} from ${stack}`);
+  const windowIdOf = async (targetId) => {
+    try {
+      const res = await browser.client.call("Browser.getWindowForTarget", { targetId });
+      if (browser.windowsByTarget) browser.windowsByTarget.set(targetId, res.windowId);
+      return res.windowId;
+    } catch { return null; }
+  };
+  // A workspace keeps ONE Chrome window: a "+" with a known windowId fronts one
+  // of its tabs first so the new tab lands in THAT window, not whichever window
+  // Chrome happened to have active. A windowId with no live tab anymore (Chrome
+  // restarted since it was saved) gets a FRESH window — falling through would
+  // drop the tab into whatever window is active, possibly another workspace's.
+  let wantsNewWindow = newWindow;
+  if (!newWindow && windowId) {
+    const tabs = await tabsWithWindows(browser).catch(() => []);
+    const anchor = tabs.find((t) => t.windowId === windowId);
+    if (anchor) {
+      const sid = await browser.sessionFor(anchor.id).catch(() => null);
+      if (sid) await browser.client.call("Page.bringToFront", {}, sid).catch(() => {});
+    } else {
+      wantsNewWindow = true;
+    }
   }
-  // A freshly launched Chrome already opened one blank tab — opening the first
-  // user tab next to it leaves TWO blanks (looked like a double-open bug).
-  // Reuse that lone blank like a real browser's new window does.
-  if (target === "about:blank") {
-    const { targetInfos = [] } = await browser.client.call("Target.getTargets");
-    const blanks = targetInfos.filter((t) => t.type === "page" && (!t.url || t.url === "about:blank"));
-    if (blanks.length === 1 && targetInfos.filter((t) => t.type === "page").length === 1) {
-      browser.activeTargetId = blanks[0].targetId;
-      await browser.sessionFor(blanks[0].targetId, target);
-      return { id: blanks[0].targetId, url: target };
+  // A freshly launched Chrome already opened one blank tab in its first
+  // window — that tab IS this workspace's first window. Only a newWindow request
+  // (the workspace's FIRST tab) may adopt it; later "+" calls must create a
+  // real new tab, and reusing here would silently no-op them.
+  if (target === "about:blank" && newWindow) {
+    const allTabs = await tabsWithWindows(browser).catch(() => []);
+    const blanks = allTabs.filter((t) => !t.url || t.url === "about:blank");
+    if (allTabs.length === 1 && blanks.length === 1) {
+      browser.activeTargetId = blanks[0].id;
+      await browser.sessionFor(blanks[0].id, target);
+      return { id: blanks[0].id, url: target, windowId: await windowIdOf(blanks[0].id) };
     }
   }
   // Create blank, set the session up, THEN navigate: running the UA override
   // (or a window resize) while the createTarget navigation is in flight makes
   // Chrome abort it with net::ERR_ABORTED and the tab lands on an error page.
-  const created = await browser.client.call("Target.createTarget", { url: "about:blank" });
+  const created = await browser.client.call("Target.createTarget", {
+    url: "about:blank",
+    ...(wantsNewWindow ? { newWindow: true } : {})
+  });
   browser.activeTargetId = created.targetId;
   const sessionId = await browser.sessionFor(created.targetId, target);
   if (target !== "about:blank") {
     const res = await browser.client.call("Page.navigate", { url: target }, sessionId);
-    if (res?.errorText) return { id: created.targetId, url: target, error: res.errorText };
+    if (res?.errorText) return { id: created.targetId, url: target, error: res.errorText, windowId: await windowIdOf(created.targetId) };
   }
   recordHistory(target);
-  return { id: created.targetId, url: target };
+  return { id: created.targetId, url: target, windowId: await windowIdOf(created.targetId) };
 }
 
 export async function closeTab(profileName = "default", targetId) {
