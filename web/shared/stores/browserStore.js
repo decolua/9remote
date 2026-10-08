@@ -3,22 +3,44 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-// Remote browser pane state: client-side tabs (host-proxy browsing — each tab
-// names a public host or a localhost port) plus which tab the pane is viewing.
-// Open/close lives in the view stack (currentView.type === "browser") — one
-// source of truth for the pane. Only the picked tab persists: tabs themselves
-// come back from the host's Chrome, but after a reload the pane should reattach
-// to the tab the user was viewing, not the host's own active one.
-export const useBrowserStore = create(persist((set) => ({
-  tabs: [],
-  activeTargetId: null,
-  activeProfile: "default",
-  setTabs: (tabs) => set({ tabs: Array.isArray(tabs) ? tabs : [] }),
-  setActive: (targetId) => set({ activeTargetId: targetId }),
-  setActiveProfile: (profile) => set({ activeProfile: profile || "default" })
+// Remote browser state, keyed by WORKSPACE — exactly like terminal tabs:
+// each workspace owns ONE Chrome window of its browsing profile, and the strip
+// renders only that window's tabs. Two workspaces on the same profile each
+// get their own window (one Chrome per profile stays true host-side).
+// - tabsByWorkspace/activeByWorkspace: live tab lists, refilled from the host.
+// - workspaceProfiles/workspaceWindows: which profile each workspace browses
+//   with and which Chrome window of it is theirs. Only these persist.
+export const useBrowserStore = create(persist((set, get) => ({
+  tabsByWorkspace: {},
+  activeByWorkspace: {},
+  // Engine-driven tabs across ALL profiles (agent group of the strip) —
+  // pushed by the host with every browser:tabs event, never persisted.
+  agentTabs: [],
+  setAgentTabs: (tabs) => set({ agentTabs: Array.isArray(tabs) ? tabs : [] }),
+  workspaceProfiles: {},
+  workspaceWindows: {},
+  setTabs: (wsId, tabs) => set((s) => ({
+    tabsByWorkspace: { ...s.tabsByWorkspace, [wsId]: Array.isArray(tabs) ? tabs : [] }
+  })),
+  setActive: (wsId, targetId) => set((s) => ({
+    activeByWorkspace: { ...s.activeByWorkspace, [wsId]: targetId }
+  })),
+  setProfileFor: (wsId, profile) => set((s) => ({
+    workspaceProfiles: { ...s.workspaceProfiles, [wsId || "default"]: profile || "default" },
+    // A different profile means a different Chrome — the old window id is dead.
+    workspaceWindows: { ...s.workspaceWindows, [wsId || "default"]: null }
+  })),
+  setWindowFor: (wsId, windowId) => set((s) => ({
+    workspaceWindows: { ...s.workspaceWindows, [wsId || "default"]: windowId || null }
+  })),
+  profileFor: (wsId) => get().workspaceProfiles[wsId || "default"] || "default",
+  windowFor: (wsId) => get().workspaceWindows[wsId || "default"] || null
 }), {
   name: "browser-ui-state",
-  partialize: (state) => ({ activeTargetId: state.activeTargetId, activeProfile: state.activeProfile || "default" }),
+  partialize: (state) => ({
+    workspaceProfiles: state.workspaceProfiles,
+    workspaceWindows: state.workspaceWindows
+  }),
   // Same window-guarded storage pattern as terminalStore — no warnings under node/tests.
   storage: {
     getItem: (name) => {

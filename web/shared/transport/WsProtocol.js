@@ -3,7 +3,7 @@ import { TunnelAdapter } from "./adapters/TunnelAdapter";
 import { LocalFirstAdapter } from "./adapters/LocalFirstAdapter";
 import { API_ENDPOINTS } from "@/shared/constants/API";
 import { FEATURES, BEHAVIOR } from "@/shared/constants/features";
-import { ADAPTER_STATE, CHANNELS, WS_ZOMBIE_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, WS_ZOMBIE_MS, WS_OUTBOUND_STALL_MS } from "@/shared/constants/transport";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 
@@ -34,6 +34,8 @@ export class WsProtocol extends BaseProtocol {
     this._lastInboundAt = Date.now();
     this._lastMsgAt = 0;
     this._zombieWatchdogTimer = null;
+    this._outboundWatchdogTimer = null;
+    this._lastBufferedAmount = 0;
     // Generation token to invalidate stale async _doRetry calls.
     this._retrySeq = 0;
   }
@@ -127,6 +129,7 @@ export class WsProtocol extends BaseProtocol {
     this._retrySeq++;
     this._cancelRetry();
     clearTimeout(this._zombieWatchdogTimer);
+    clearTimeout(this._outboundWatchdogTimer);
     this._removeNetworkListeners();
     this._detachSocketEvents();
     this._socket?.disconnect();
@@ -154,6 +157,21 @@ export class WsProtocol extends BaseProtocol {
   }
 
   // ─── Internal ──────────────────────────────────────────────────────────────
+
+  // Outbound liveness: browser ws.bufferedAmount stuck > 0 across two ticks
+  // means the send path is dead even though server pings still arrive.
+  _outboundStalled(socket) {
+    try {
+      const ws = socket?.io?.engine?.transport?.ws;
+      const amt = typeof ws?.bufferedAmount === "number" ? ws.bufferedAmount : 0;
+      const stalled = amt > 0 && this._lastBufferedAmount > 0 && amt >= this._lastBufferedAmount;
+      this._lastBufferedAmount = amt;
+      return stalled;
+    } catch {
+      this._lastBufferedAmount = 0;
+      return false;
+    }
+  }
 
   _connectInternal() {
     // Guard against concurrent connects (e.g. iOS wake burst).
@@ -244,6 +262,22 @@ export class WsProtocol extends BaseProtocol {
       armZombieWatchdog();
     });
     socket.on("connect", () => { this._lastInboundAt = Date.now(); armZombieWatchdog(); });
+
+    // Half-open watchdog: unlike the zombie timer it is NOT re-armed by pings,
+    // so it keeps sampling the send buffer while the socket looks healthy.
+    const armOutboundWatchdog = () => {
+      clearTimeout(this._outboundWatchdogTimer);
+      this._outboundWatchdogTimer = setTimeout(() => {
+        if (this._destroyed || this._socket !== socket) return;
+        if (this._outboundStalled(socket)) {
+          termLog("switch", "ws outbound stall (send buffer frozen) → force reconnect");
+          this.forceReconnect();
+          return;
+        }
+        armOutboundWatchdog();
+      }, WS_OUTBOUND_STALL_MS);
+    };
+    armOutboundWatchdog();
 
     socket.onAny((event, data) => {
       this._lastMsgAt = Date.now();

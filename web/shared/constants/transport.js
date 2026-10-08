@@ -187,6 +187,12 @@ export const NET_RECOVERY = {
 // a heartbeat it was always going to send late.
 export const WS_ZOMBIE_MS = 30000;
 
+// WS half-open recovery — pings can keep arriving on a socket whose send
+// direction is dead (NAT rebind); ws.bufferedAmount stuck > 0 across ticks
+// exposes it. Two ticks, and only a fully frozen buffer counts (a slow but
+// progressing upload keeps draining, so it never trips).
+export const WS_OUTBOUND_STALL_MS = 15000;
+
 // File-transfer tunables (DC "file", separate from tiles' dcBinary).
 // chunkSize + 8-byte frame header must fit dcMaxMessageSize (SCTP hard limit).
 // dcBufferThreshold is generous (8MB) — file transfer is throughput, not real-time.
