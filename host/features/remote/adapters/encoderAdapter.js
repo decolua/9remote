@@ -49,7 +49,7 @@ function ensureTurbo() {
   if (!_turboProbe) startTurboProbe();
 }
 
-export async function encodeJpeg(buffer, width, height, channels = 4, quality, formatOverride) {
+export async function encodeJpeg(buffer, width, height, channels = 4, quality, formatOverride, sharpOpts = {}) {
   const { inputFormat, jpegQuality, tileFormat, webpEffort } = REMOTE_CONFIG.pipeline;
   const q = quality ?? jpegQuality;
   const fmt = formatOverride ?? inputFormat;
@@ -64,7 +64,7 @@ export async function encodeJpeg(buffer, width, height, channels = 4, quality, f
       if (fmt === "bgra") { rgba = Buffer.from(buffer); bgraToRgbaInPlace(rgba); }
       const r = _turbo.compressSync(rgba, {
         format: _turbo.FORMAT_RGBA, width, height,
-        quality: q, subsampling: _turbo.SAMP_420,
+        quality: q, subsampling: sharpOpts.chromaSubsampling === "4:4:4" ? _turbo.SAMP_444 : _turbo.SAMP_420,
       });
       return Buffer.isBuffer(r) ? r : r.data;
     } catch {
@@ -81,6 +81,6 @@ export async function encodeJpeg(buffer, width, height, channels = 4, quality, f
   }
   const pipeline = sharp(input, { raw: { width, height, channels } });
   return tileFormat === "webp"
-    ? pipeline.webp({ quality: q, effort: webpEffort }).toBuffer()
-    : pipeline.jpeg({ quality: q }).toBuffer();
+    ? pipeline.webp({ quality: q, effort: webpEffort, ...sharpOpts }).toBuffer()
+    : pipeline.jpeg({ quality: q, ...sharpOpts }).toBuffer();
 }

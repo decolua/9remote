@@ -1,31 +1,10 @@
 import { createLogger } from "../../lib/logger.js";
 import { getIO } from "../../transport/server.js";
-import { broadcast } from "../../transport/broadcast.js";
-import { TABS_POLL_MS } from "./constants.js";
-import {
-  closeTab,
-  createProfile,
-  enrichHistory,
-  evalJs,
-  focusTab,
-  getOrLaunchBrowser,
-  goBack,
-  goForward,
-  inspectElementAt,
-  pickElementsInRect,
-  peekBrowser,
-  safeProfileName,
-  listProfiles,
-  listTabs,
-  navigateTab,
-  navState,
-  openTab,
-  peekTabs,
-  reloadTab,
-  removeProfile,
-  searchHistory,
-  setViewport
-} from "./browserEngine.js";
+import { activeProtocols, broadcast } from "../../transport/broadcast.js";
+import { CHANNELS } from "../../lib/transportConstants.js";
+import { STREAM_FRAME_CHUNK_BYTES, TABS_POLL_MS } from "./constants.js";
+import { browserFrameChunks } from "./browserFrame.js";
+import { closeTab, createProfile, enrichHistory, evalJs, focusTab, getOrLaunchBrowser, goBack, goForward, inspectElementAt, listProfiles, listTabs, navState, navigateTab, noteBrowserActivity, noteWatchedWindow, openTab, peekBrowser, peekTabs, pickElementsInRect, reloadTab, removeProfile, safeProfileName, searchHistory, setViewport, syncActiveTab } from "./browserEngine.js";
 import { ackFrame, dispatchInput, startStream, stopStream } from "./stream.js";
 import { importCookiesToSession, parseCookiesContent } from "./cookieImport.js";
 import { detectInstalledBrowsers, extractBrowserCookies } from "./browserDetect.js";
@@ -33,29 +12,78 @@ import { setTabsPushHook } from "./browserEngine.js";
 
 const logger = createLogger("browserSocket");
 
-let tabsWatchers = 0;
 let tabsPollTimer = null;
-let lastTabsJson = "";
-let currentWatchedProfile = "default";
+// Per-profile dedupe: a client that switches profile (or reloads) must get a
+// first push for THAT profile even when its tabs did not change.
+const lastTabsJsonByProfile = new Map();
+const watchingProfiles = new Map(); // `${profile}|${windowId}` -> watcher count
 
-async function pushTabs() {
+async function pushTabs(profile, windowId = null) {
   try {
-    const tabs = await peekTabs(currentWatchedProfile);
+    // Sync the "active" flag with the real Chrome first: tabs the user clicked
+    // directly in the window never notify CDP, visibility polling is the only
+    // signal of which tab is actually front.
+    const instance = peekBrowser(profile);
+    if (instance) await syncActiveTab(instance);
+    let tabs = await peekTabs(profile);
+    if (windowId != null) tabs = tabs.filter((t) => t.windowId === windowId);
     enrichHistory(tabs);
     const json = JSON.stringify(tabs);
-    if (json === lastTabsJson) return;
-    lastTabsJson = json;
+    if (json === lastTabsJsonByProfile.get(profile)) return;
+    lastTabsJsonByProfile.set(profile, json);
     const io = getIO();
-    if (io) broadcast(io, "browser:tabs", { tabs });
+    if (io) broadcast(io, "browser:tabs", { profile, windowId, tabs });
   } catch { /* wait next poll */ }
 }
 
-function setTabsWatching(delta) {
-  tabsWatchers = Math.max(0, tabsWatchers + delta);
-  if (tabsWatchers > 0 && !tabsPollTimer) {
-    tabsPollTimer = setInterval(pushTabs, TABS_POLL_MS);
-    void pushTabs();
-  } else if (tabsWatchers === 0 && tabsPollTimer) {
+// Agent tabs ride every browser:tabs push so any profile the engine drives is
+// visible on every strip. Lazy import keeps the browser feature loadable
+// without browserUse.
+let agentTabsModule = null;
+async function currentAgentTabs() {
+  if (agentTabsModule === null) {
+    agentTabsModule = await import("../browserUse/engine.js").catch(() => false);
+  }
+  if (!agentTabsModule) return [];
+  try { return await agentTabsModule.agentTabsSnapshot(); }
+  catch { return []; }
+}
+let lastAgentTabsJson = "";
+
+async function pushAllTabs() {
+  for (const key of watchingProfiles.keys()) {
+    const [profile, windowId] = key.split("|");
+    void pushTabs(profile, windowId === "" || windowId === "null" ? null : Number(windowId));
+  }
+}
+
+// Agent tabs must reach every connected client even when NO workspace watches
+// a window (the strip shows them without owning one), so their poll runs on
+// its own timer, alive while any socket is connected.
+let agentPollTimer = null;
+function ensureAgentPoll() {
+  if (agentPollTimer) return;
+  agentPollTimer = setInterval(async () => {
+    const io = getIO();
+    if (!io || !io.engine?.clientsCount) return;
+    const agentTabs = await currentAgentTabs();
+    const json = JSON.stringify(agentTabs);
+    if (json === lastAgentTabsJson) return;
+    lastAgentTabsJson = json;
+    broadcast(io, "browser:agentTabs", { agentTabs }); // empty list clears the strips too
+  }, TABS_POLL_MS);
+  if (agentPollTimer.unref) agentPollTimer.unref();
+}
+
+function setTabsWatching(delta, profile, windowId = null) {
+  const key = `${profile}|${windowId == null ? "" : windowId}`;
+  const count = Math.max(0, (watchingProfiles.get(key) || 0) + delta);
+  if (count > 0) watchingProfiles.set(key, count);
+  else watchingProfiles.delete(key);
+  if (watchingProfiles.size > 0 && !tabsPollTimer) {
+    tabsPollTimer = setInterval(pushAllTabs, TABS_POLL_MS);
+    pushAllTabs();
+  } else if (watchingProfiles.size === 0 && tabsPollTimer) {
     clearInterval(tabsPollTimer);
     tabsPollTimer = null;
   }
@@ -94,36 +122,46 @@ async function probeCursor(profile, targetId, x, y) {
 }
 
 export function setupBrowserHandlers(socket) {
-  let watching = false;
+  ensureAgentPoll();
+  // One watched (profile, window) per socket — the workspace the client is
+  // looking at: its profile AND its own Chrome window of that profile.
+  let watchingProfile = null;
+  let watchingWindowId = null;
   const activeTargetStreams = new Set();
 
   // Target events → immediate (debounced) push: a new tab or a link navigation
   // shows in the strip in ~100ms instead of the next 2s poll tick.
   let eventPushTimer = null;
   setTabsPushHook(() => {
-    if (!tabsPollTimer && !watching) return; // nobody is watching
+    if (watchingProfiles.size === 0) return; // nobody is watching
     clearTimeout(eventPushTimer);
-    eventPushTimer = setTimeout(() => { void pushTabs(); }, 120);
+    eventPushTimer = setTimeout(pushAllTabs, 120);
   });
 
-  socket.on("browser:tabs.watch", ({ on, profile } = {}) => {
-    if (profile) currentWatchedProfile = profile;
+  socket.on("browser:tabs.watch", ({ on, profile, windowId } = {}) => {
+    const name = safeProfileName(profile) ? profile : "default";
+    const win = Number.isFinite(Number(windowId)) && Number(windowId) > 0 ? Number(windowId) : null;
     const next = on !== false;
-    if (next !== watching) {
-      watching = next;
-      // A freshly connected client (page reload, reconnect) must get a first
-      // push even when the tabs are unchanged — the global dedupe would
-      // otherwise leave its strip empty and its pane stuck on a dead targetId.
-      if (next) lastTabsJson = "";
-      setTabsWatching(next ? 1 : -1);
-    } else if (profile) {
-      lastTabsJson = "";
-      void pushTabs();
+    if (next && (watchingProfile !== name || watchingWindowId !== win)) {
+      if (watchingProfile) setTabsWatching(-1, watchingProfile, watchingWindowId);
+      watchingProfile = name;
+      watchingWindowId = win;
+      noteWatchedWindow(name, win);
+      // Fresh watcher on this key gets a first push even when its tabs are
+      // unchanged — the dedupe would otherwise leave the strip empty.
+      lastTabsJsonByProfile.delete(`${name}|${win == null ? "" : win}`);
+      setTabsWatching(1, name, win);
+    } else if (!next && watchingProfile) {
+      setTabsWatching(-1, watchingProfile, watchingWindowId);
+      noteWatchedWindow(watchingProfile, null);
+      watchingProfile = null;
+      watchingWindowId = null;
     }
   });
 
   socket.on("browser:invoke", async ({ action, payload = {} } = {}, cb) => {
     const profile = payload.profile || "default";
+    noteBrowserActivity(profile);
     try {
       switch (action) {
         case "tabs":
@@ -134,7 +172,7 @@ export function setupBrowserHandlers(socket) {
         case "viewport":
           return cb?.({ ok: true, ...(await setViewport(profile, payload.targetId, payload.width, payload.height)) });
         case "open":
-          return cb?.({ ok: true, ...(await openTab(profile, payload.url)) });
+          return cb?.({ ok: true, ...(await openTab(profile, payload.url, { newWindow: !!payload.newWindow, windowId: payload.windowId || null })) });
         case "close":
           return cb?.({ ok: true, ...(await closeTab(profile, payload.targetId)) });
         case "focus":
@@ -156,6 +194,12 @@ export function setupBrowserHandlers(socket) {
           return cb?.({ ok: true, elements: await pickElementsInRect(profile, payload.targetId, payload.x, payload.y, payload.width, payload.height) });
         case "eval":
           return cb?.({ ok: true, result: await evalJs(profile, payload.targetId, payload.expression) });
+        case "screenshot": {
+          const browser = await getOrLaunchBrowser(profile);
+          const sessionId = await browser.sessionFor(payload.targetId);
+          const shot = await browser.client.call("Page.captureScreenshot", { format: "jpeg", quality: 90 }, sessionId);
+          return cb?.({ ok: true, image: shot?.data });
+        }
         case "profiles.list":
           return cb?.({ ok: true, profiles: listProfiles() });
         case "profiles.create":
@@ -208,18 +252,32 @@ export function setupBrowserHandlers(socket) {
     }
   });
 
-  socket.on("browser:stream.start", async ({ targetId, width, height, profile = "default" } = {}, cb) => {
+  socket.on("browser:stream.start", async ({ targetId, width, height, quality, profile = "default" } = {}, cb) => {
     try {
-      currentWatchedProfile = profile;
+      noteBrowserActivity(profile);
       const browser = await getOrLaunchBrowser(profile);
+      // Frames ride the ordered binary "file" lane (self-tagged chunks, like
+      // mobile video) — no base64, no JSON, RTC-preferred like remote tiles.
+      // Returns false when no ready lane took it (stream.js keeps the seq out
+      // of the ack window so a dead link cannot lock it full).
       const emit = (frame) => {
-        const io = getIO();
-        if (io) broadcast(io, "browser:frame", frame);
+        // stream.js payload fields are `image`/`flags`; the codec wants `payload`/`flags`.
+        const chunks = browserFrameChunks({
+          targetId: frame.targetId, seq: frame.seq, meta: frame.meta,
+          payload: frame.image, flags: frame.flags
+        }, STREAM_FRAME_CHUNK_BYTES);
+        let sent = false;
+        for (const pm of activeProtocols()) {
+          for (const chunk of chunks) {
+            if (pm.sendBinary?.(CHANNELS.file, chunk) !== false) sent = true;
+          }
+        }
+        return sent;
       };
       let id = String(targetId || "");
       let res;
       try {
-        res = await startStream(browser.client, id, { width, height }, emit);
+        res = await startStream(browser.client, id, { width, height, quality }, emit);
       } catch (e) {
         // Stale tab id (Chrome restarted / tab closed): stream the profile's
         // live tab instead — a dead-stream error leaves the pane unhealable.
@@ -228,7 +286,7 @@ export function setupBrowserHandlers(socket) {
         const live = tabs.find((t) => t.active) || tabs[0];
         if (!live) throw e;
         id = live.id;
-        res = await startStream(browser.client, id, { width, height }, emit);
+        res = await startStream(browser.client, id, { width, height, quality }, emit);
       }
       activeTargetStreams.add(id);
       cb?.({ ok: true, ...res });
@@ -239,7 +297,6 @@ export function setupBrowserHandlers(socket) {
   });
 
   socket.on("browser:stream.ack", ({ targetId, seq } = {}) => {
-    if (process.env.NODE_ENV !== "production") logger.info(`TEMP DIAGNOSTIC socket ack targetId=${targetId} seq=${seq}`);
     ackFrame(targetId, seq);
   });
 
@@ -250,6 +307,7 @@ export function setupBrowserHandlers(socket) {
 
   socket.on("browser:input", async ({ targetId, events, profile = "default" } = {}, cb) => {
     try {
+      noteBrowserActivity(profile);
       const res = await dispatchInput(targetId, events);
       // A trailing hover move is the cursor probe's trigger.
       const last = Array.isArray(events) ? events[events.length - 1] : null;
@@ -263,7 +321,7 @@ export function setupBrowserHandlers(socket) {
   });
 
   socket.on("disconnect", () => {
-    if (watching) setTabsWatching(-1);
+    if (watchingProfile) setTabsWatching(-1, watchingProfile, watchingWindowId);
     for (const tid of activeTargetStreams) void stopStream(tid);
     activeTargetStreams.clear();
   });
