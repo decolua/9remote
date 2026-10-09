@@ -1593,3 +1593,22 @@ pub fn run() {
             _ => {}
         });
 }
+
+#[cfg(test)]
+mod tests {
+    // The property the PATH fix rests on: our node dir outranks the inherited PATH,
+    // whatever that happens to be on the machine running this.
+    #[test]
+    fn apply_node_path_puts_node_dir_first() {
+        let node = "/tmp/9remote-test/bin/node";
+        let mut cmd = std::process::Command::new(node);
+        super::apply_node_path(&mut cmd, node);
+        let path = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("PATH"))
+            .and_then(|(_, v)| v)
+            .expect("apply_node_path must set PATH");
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        assert_eq!(path.to_str().unwrap().split(sep).next(), Some("/tmp/9remote-test/bin"));
+    }
+}
