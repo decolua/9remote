@@ -797,6 +797,56 @@ export async function pickElementsInRect(profileName = "default", targetId, x, y
   return Array.isArray(res.result?.value) ? res.result.value : [];
 }
 
+// Pick rings live INSIDE the page: the overlay re-reads each picked element's rect
+// every frame, so any scroll (page, inner scroller, fixed layers) keeps them glued.
+// Selectors are JSON-embedded, never string-concatenated into the expression.
+const PICK_OVERLAY_ID = "__9r_pick_overlay";
+
+export async function markPicked(profileName = "default", targetId, selectors = []) {
+  const list = (Array.isArray(selectors) ? selectors : []).filter((x) => typeof x === "string" && x).slice(0, PICK_MAX_ELEMENTS);
+  const expr = `(() => {
+    const ID = ${JSON.stringify(PICK_OVERLAY_ID)};
+    const old = document.getElementById(ID);
+    if (old) { old.__stop && old.__stop(); old.remove(); }
+    const sels = ${JSON.stringify(list)};
+    if (!sels.length || !document.documentElement) return 0;
+    const els = sels.map((s) => { try { return document.querySelector(s); } catch { return null; } });
+    const root = document.createElement('div');
+    root.id = ID;
+    root.style.cssText = 'position:fixed;inset:0;pointer-events:none;z-index:2147483647;';
+    const boxes = els.map((el, i) => {
+      const box = document.createElement('div');
+      box.style.cssText = 'position:fixed;box-sizing:border-box;border:2px solid #3b82f6;background:rgba(59,130,246,.15);border-radius:3px;box-shadow:0 0 0 1px rgba(0,0,0,.4);display:none;';
+      const n = document.createElement('span');
+      n.textContent = String(i + 1);
+      n.style.cssText = 'position:absolute;top:2px;left:2px;min-width:16px;height:16px;padding:0 4px;border-radius:8px;background:#3b82f6;color:#fff;font:600 10px/16px sans-serif;text-align:center;';
+      box.appendChild(n);
+      root.appendChild(box);
+      return box;
+    });
+    document.documentElement.appendChild(root);
+    let raf = 0;
+    const tick = () => {
+      if (!root.isConnected) return;
+      els.forEach((el, i) => {
+        const b = boxes[i];
+        if (!el || !el.isConnected) { b.style.display = 'none'; return; }
+        const r = el.getBoundingClientRect();
+        b.style.display = r.width && r.height ? 'block' : 'none';
+        b.style.left = r.left + 'px'; b.style.top = r.top + 'px';
+        b.style.width = r.width + 'px'; b.style.height = r.height + 'px';
+      });
+      raf = requestAnimationFrame(tick);
+    };
+    root.__stop = () => cancelAnimationFrame(raf);
+    tick();
+    return els.filter(Boolean).length;
+  })()`;
+  // Clearing must never relaunch an idle-closed Chrome or fail on a tab that is already gone.
+  if (!list.length) return peekBrowser(profileName) ? evalJs(profileName, targetId, expr).catch(() => 0) : 0;
+  return evalJs(profileName, targetId, expr);
+}
+
 export async function evalJs(profileName = "default", targetId, expression) {
   const browser = await getOrLaunchBrowser(profileName);
   const sessionId = await browser.sessionFor(targetId);

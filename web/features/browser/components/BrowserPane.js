@@ -53,6 +53,14 @@ const siteHue = (port) => {
 // Local links run 2x raster @ q95: the budget scales with it.
 const ADAPTIVE_BUDGET_BYTES = 12_000_000;
 const ADAPTIVE_BUDGET_LOCAL_MULT = 2;
+const VIEWPORT_PRESETS = [
+  { label: "Fit (follow pane)", w: null, h: null },
+  { label: "Mobile 375×667", w: 375, h: 667, mobile: true },
+  { label: "Tablet 768×1024", w: 768, h: 1024 },
+  { label: "Desktop 1120×780", w: 1120, h: 780 }
+];
+// Overlay controls sit inside the stage: their pointer events must not reach the stage's page-input handlers.
+const stopStagePointer = (e) => e.stopPropagation();
 const SPECIAL_KEYS = {
   Enter: "enter", Tab: "tab", Escape: "escape", Backspace: "backspace", Delete: "delete",
   ArrowUp: "arrowup", ArrowDown: "arrowdown", ArrowLeft: "arrowleft", ArrowRight: "arrowright",
@@ -176,12 +184,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
   // Screencast stream lifecycle
   useEffect(() => {
     const bus = busRef?.current;
-    if (!connected || !bus?.emit || !watchedId) {
-      console.log("TEMP DIAGNOSTIC pane stream.start SKIPPED", {
-        connected, hasBus: !!bus?.emit, watchedId, tabsCount: tabs.length, activeTargetId
-      });
-      return;
-    }
+    if (!connected || !bus?.emit || !watchedId) return;
     let stopped = false;
     const rect = stageRef.current?.getBoundingClientRect();
     // A failed start leaves the pane input-dead (every browser:input throws
@@ -203,9 +206,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
         scale: boost.scale,
         quality: qualityRef.current || boost.quality
       };
-      console.log(`TEMP DIAGNOSTIC pane stream.start tid=${String(watchedId).slice(-6)} local=${isLocal} scale=${params.scale ?? "default"} quality=${params.quality ?? "default"}`);
       bus.emit("browser:stream.start", params, (res) => {
-        console.log("TEMP DIAGNOSTIC pane stream.start cb", res);
         // Host healed a stale tab id to the profile's live tab — follow it so
         // the pane streams and inputs target the same tab.
         if (res?.ok && res.targetId) {
@@ -260,7 +261,6 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
       if (bytes > budget && now - w.applied > 3000) {
         w.applied = now;
         setQuality((q) => Math.max(55, (q ?? 85) - 15));
-        console.warn(`TEMP DIAGNOSTIC pane quality step-down tid=${String(watchedId).slice(-6)} bytes=${bytes} budget=${budget} local=${isLocal}`);
       }
     }, 3000);
     return () => clearInterval(timer);
@@ -401,15 +401,11 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
   }, []);
 
   const pickKey = (el) => el?.selector || el?.tag || "element";
-  const stampScroll = () => ({
-    scrollX: frameRef.current?.meta?.scrollX || 0,
-    scrollY: frameRef.current?.meta?.scrollY || 0
-  });
   const addPicked = (els) => {
     if (!Array.isArray(els) || !els.length) return;
     setPicked((prev) => {
       const seen = new Set(prev.map(pickKey));
-      const fresh = els.filter((el) => el && !seen.has(pickKey(el))).map((el) => ({ ...el, ...stampScroll() }));
+      const fresh = els.filter((el) => el && !seen.has(pickKey(el)));
       return fresh.length ? [...prev, ...fresh] : prev;
     });
   };
@@ -418,9 +414,29 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     setPicked((prev) => {
       const idx = prev.findIndex((p) => pickKey(p) === pickKey(el));
       if (idx >= 0) return prev.filter((_, i) => i !== idx);
-      return [...prev, { ...el, ...stampScroll() }];
+      return [...prev, el];
     });
   };
+
+  // Pick rings are drawn by the host INSIDE the page, so they follow any scroll
+  // (page, inner scrollers, fixed layers). Re-marked whenever the picks change.
+  // Only talk to the host when there is something to draw or to clear.
+  const markedRef = useRef(false);
+  useEffect(() => {
+    if (!connected || !watchedId) return;
+    if (!picked.length && !markedRef.current) return;
+    markedRef.current = picked.length > 0;
+    invoke("pick.mark", { targetId: watchedId, selectors: picked.map((it) => it.selector).filter(Boolean) });
+  }, [picked, connected, watchedId, invoke]);
+  // Leaving a tab (or the pane) must not leave its overlay behind.
+  useEffect(() => {
+    if (!connected || !watchedId) return;
+    return () => {
+      if (!markedRef.current) return;
+      markedRef.current = false;
+      invoke("pick.mark", { targetId: watchedId, selectors: [] });
+    };
+  }, [connected, watchedId, invoke]);
 
   const openContextMenu = async (clientX, clientY) => {
     const p = pagePoint(clientX, clientY);
@@ -439,14 +455,14 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     if (!frameRef.current || e.button > 2) return;
     vibrate();
     // Pick mode + mouse: down records the sweep start — resolves on up.
-    // Touch keeps its NATIVE path (scrolling stays live); the tap-pick is
-    // detected on release instead.
+    // Touch keeps its NATIVE path (scrolling stays live): the page only hears
+    // the finger once it drags past the slop, and a still tap picks on release.
     if (grabIntent === "pick" && e.pointerType !== "touch") {
       pickDragRef.current = { sx: e.clientX, sy: e.clientY, moved: false };
       return;
     }
     // Annotate mode: the tap picks an element instead of clicking.
-    if (grabIntent) {
+    if (grabIntent && grabIntent !== "pick") {
       const gp = point(e);
       const at = { x: e.clientX, y: e.clientY };
       invoke("inspect", { targetId: watchedId, x: gp.x, y: gp.y }).then((res) => {
@@ -473,7 +489,8 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
       clearLongPress();
       longPressFired.current = false;
       const p = point(e);
-      touchStartRef.current = { x: e.clientX, y: e.clientY };
+      touchStartRef.current = { x: e.clientX, y: e.clientY, page: p, streaming: grabIntent !== "pick" };
+      if (grabIntent === "pick") return;
       sendInput([{ t: "touch", type: "start", points: [p] }]);
       longPressTimer.current = setTimeout(() => {
         longPressTimer.current = null;
@@ -528,7 +545,13 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
       }
       // Single-finger drag → native touch scroll (coalesced per frame window).
       const st = touchStartRef.current;
-      if (st && Math.abs(e.clientX - st.x) + Math.abs(e.clientY - st.y) > 10) clearLongPress();
+      const dragged = st && Math.abs(e.clientX - st.x) + Math.abs(e.clientY - st.y) > 10;
+      if (dragged) clearLongPress();
+      if (st && !st.streaming) {
+        if (!dragged) return;
+        st.streaming = true;
+        sendInput([{ t: "touch", type: "start", points: [st.page] }]);
+      }
       const p = point(e);
       sendInput([{ t: "touch", type: "move", points: [p] }]);
       return;
@@ -570,7 +593,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
           const vW = meta.deviceWidth || 0;
           const vH = meta.deviceHeight || 0;
           const tooBig = vW && vH && (r.width * r.height) / (vW * vH) > 0.6;
-          setHoverRect(tooBig ? null : { ...r, ...stampScroll() });
+          setHoverRect(tooBig ? null : r);
         });
         return;
       }
@@ -614,20 +637,18 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
       clearLongPress();
       // The long-press timer (or pinch entry) already ended the touch stream.
       if (!longPressFired.current && !pinchRef.current) {
-        sendInput([{ t: "touch", type: "end" }]);
-        // Pick mode tap (finger down/up without dragging): toggle the element
-        // under the finger — scrolling stays a first-class gesture.
-        if (grabIntent === "pick" && touchStartRef.current) {
-          const st = touchStartRef.current;
-          const moved = Math.abs(e.clientX - st.x) + Math.abs(e.clientY - st.y) > 10;
-          if (!moved) {
-            const gp = pagePoint(e.clientX, e.clientY);
-            invoke("inspect", { targetId: watchedId, x: gp.x, y: gp.y }).then((res) => {
-              if (res?.ok && res.element) togglePicked(res.element);
-            });
-          }
+        const st = touchStartRef.current;
+        if (!st || st.streaming) sendInput([{ t: "touch", type: "end" }]);
+        // Pick mode tap (finger never dragged): toggle the element under it,
+        // exactly like a mouse click — scrolling stays a first-class gesture.
+        else if (grabIntent === "pick" && e.type !== "pointercancel") {
+          const gp = pagePoint(e.clientX, e.clientY);
+          invoke("inspect", { targetId: watchedId, x: gp.x, y: gp.y }).then((res) => {
+            if (res?.ok && res.element) togglePicked(res.element);
+          });
         }
       }
+      touchStartRef.current = null;
       longPressFired.current = false;
       return;
     }
@@ -838,11 +859,66 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     setAnnotations((prev) => [...prev, ann]);
   };
 
+  // Pick + Device size, labelled so they read as features. `float` = mobile pill:
+  // the preset menu then opens upward from the stage corner.
+  const pageTools = (float) => (
+    <>
+      <button
+        onClick={() => { vibrate(); setGrabIntent((g) => (g === "pick" ? null : "pick")); setInspectedElement(null); setHoverRect(null); }}
+        disabled={!frame}
+        className={`h-8 shrink-0 flex items-center gap-1.5 px-2 rounded-[6px] text-xs font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+          grabIntent === "pick" ? "bg-brand-500 text-white hover:bg-brand-600" : "text-text-muted hover:text-text hover:bg-surface-2"
+        }`}
+        title={t("sites.browserPanePickTitle")}
+      >
+        <Target size={16} />
+        <span>{t("sites.browserPanePick")}</span>
+      </button>
+      <div className="relative">
+        <button
+          onClick={() => { vibrate(); setVpMenu((v) => !v); }}
+          className={`h-8 shrink-0 flex items-center gap-1.5 px-2 rounded-[6px] text-xs font-medium transition-colors ${
+            viewportPreset ? "bg-brand-500 text-white hover:bg-brand-600" : "text-text-muted hover:text-text hover:bg-surface-2"
+          }`}
+          title={t("sites.browserPaneDeviceTitle")}
+        >
+          <Smartphone size={16} />
+          <span>{viewportPreset ? `${viewportPreset.width}×${viewportPreset.height}` : t("sites.browserPaneDevice")}</span>
+        </button>
+        {vpMenu && (
+          <>
+            <div className="fixed inset-0 z-10" onClick={() => setVpMenu(false)} />
+            <div className={`absolute z-20 flex flex-col p-1 rounded-xl card-elev animate-in fade-in duration-100 min-w-[170px] ${float ? "bottom-10 right-0" : "top-10 right-0"}`}>
+              {VIEWPORT_PRESETS.map((opt) => (
+                <button
+                  key={opt.label}
+                  onClick={() => {
+                    vibrate();
+                    setViewportPreset(opt.w ? { width: opt.w, height: opt.h, mobile: !!opt.mobile } : null);
+                    if (opt.w) invoke("viewport", { targetId: watchedId, width: opt.w, height: opt.h, mobile: !!opt.mobile });
+                    else invoke("viewport", { targetId: watchedId, reset: true });
+                    setRestartTick((n) => n + 1);
+                    setVpMenu(false);
+                  }}
+                  className={`text-left px-2.5 py-1.5 rounded-brand text-xs transition-colors ${
+                    (opt.w ? viewportPreset?.width === opt.w : !viewportPreset) ? "bg-surface-3 text-text font-medium" : "text-text-muted hover:bg-surface-2 hover:text-text"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              ))}
+            </div>
+          </>
+        )}
+      </div>
+    </>
+  );
+
   return (
     <div className="absolute inset-0 z-20 flex flex-col bg-surface text-text transition-all duration-300 ease-out animate-in slide-in-from-bottom">
       {/* Toolbar — orca BrowserPane layout: nav · address · tools · ⋯.
           Tabs live in the terminal header strip (orca's unified tabs). */}
-      <div className="shrink-0 relative z-10 flex items-center gap-2 border-b border-border-subtle bg-surface/95 px-3 py-1.5">
+      <div className="shrink-0 relative z-30 flex items-center gap-1 md:gap-2 border-b border-border-subtle bg-surface/95 px-2 md:px-3 py-1.5">
         {/* No exit X: the browser is a tab like a terminal — leaving = picking
             another tab in the strip (which pushes that view on top). */}
         <button
@@ -907,17 +983,11 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
           />
         </form>
 
-        {/* Pick elements — orca Crosshair; inverted while armed */}
-        <button
-          onClick={() => { vibrate(); setGrabIntent((g) => (g === "pick" ? null : "pick")); setInspectedElement(null); setHoverRect(null); }}
-          disabled={!frame}
-          className={`h-8 w-8 shrink-0 relative flex items-center justify-center rounded-[6px] transition-colors disabled:opacity-40 disabled:pointer-events-none ${
-            grabIntent === "pick" ? "bg-text/80 text-surface hover:bg-text/90" : "text-text-muted hover:text-text hover:bg-surface-2"
-          }`}
-          title="Pick page elements"
-        >
-          <Target size={16} />
-        </button>
+        {/* Page tools: desktop keeps them on the toolbar; mobile floats them over the
+            stage so the URL bar keeps the width. */}
+        {!isMobile && (
+          <div className="shrink-0 flex items-center gap-1 pl-2 border-l border-border-subtle">{pageTools(false)}</div>
+        )}
 
         {/* Profile chip — Chrome's avatar button: the ONLY menu door now
             (tools, profiles, import, viewport all live behind it) */}
@@ -954,52 +1024,17 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
           height={frame?.h || 16}
           className={`max-w-full max-h-full object-contain pointer-events-none ${frame ? "" : "opacity-0"}`}
         />
-        {/* Pick rings — viewport rects mapped onto the drawn frame, drifting with
-            the page's own scroll (rect was captured at pick time). */}
-        {frame && imgBox && picked.length > 0 && (() => {
-          const meta = frame.meta || {};
-          const vW = meta.deviceWidth;
-          const vH = meta.deviceHeight;
-          if (!vW || !vH) return null;
-          return (
-            <div className="absolute pointer-events-none z-[5]" style={{ left: imgBox.left, top: imgBox.top, width: imgBox.width, height: imgBox.height }}>
-              {picked.map((it, i) => {
-                if (!it.rect) return null;
-                const dx = (meta.scrollX || 0) - (it.scrollX || 0);
-                const dy = (meta.scrollY || 0) - (it.scrollY || 0);
-                const left = ((it.rect.x - dx) / vW) * 100;
-                const top = ((it.rect.y - dy) / vH) * 100;
-                const width = (it.rect.width / vW) * 100;
-                const height = (it.rect.height / vH) * 100;
-                if (left + width <= 0 || top + height <= 0 || left >= 100 || top >= 100) return null;
-                return (
-                  <div
-                    key={`${pickKey(it)}-${i}`}
-                    className="absolute rounded-[3px] border-2 border-brand-500 bg-brand-500/15 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
-                    style={{ left: `${left}%`, top: `${top}%`, width: `${width}%`, height: `${height}%` }}
-                  >
-                    <span className="absolute top-0.5 left-0.5 min-w-4 h-4 px-1 rounded-full bg-brand-500 text-white text-[10px] leading-4 text-center font-semibold shadow-[0_1px_2px_rgba(0,0,0,0.6)]">
-                      {i + 1}
-                    </span>
-                  </div>
-                );
-              })}
-            </div>
-          );
-        })()}
         {hoverRect && grabIntent === "pick" && frame && imgBox && (() => {
           const meta = frame.meta || {};
           const vW = meta.deviceWidth;
           const vH = meta.deviceHeight;
           if (!vW || !vH || !hoverRect.width) return null;
-          const dx = (meta.scrollX || 0) - (hoverRect.scrollX || 0);
-          const dy = (meta.scrollY || 0) - (hoverRect.scrollY || 0);
           return (
             <div
               className="absolute pointer-events-none z-[6] rounded-[3px] border-2 border-amber-400 bg-amber-400/15 shadow-[0_0_0_1px_rgba(0,0,0,0.4)]"
               style={{
-                left: imgBox.left + ((hoverRect.x - dx) / vW) * imgBox.width,
-                top: imgBox.top + ((hoverRect.y - dy) / vH) * imgBox.height,
+                left: imgBox.left + (hoverRect.x / vW) * imgBox.width,
+                top: imgBox.top + (hoverRect.y / vH) * imgBox.height,
                 width: (hoverRect.width / vW) * imgBox.width,
                 height: (hoverRect.height / vH) * imgBox.height
               }}
@@ -1012,49 +1047,29 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
             style={{ left: rubber.left, top: rubber.top, width: rubber.width, height: rubber.height }}
           />
         )}
-        {/* Device size — on-stage control, always reachable while browsing */}
-        <div className="absolute bottom-3 left-3 z-10">
-          {vpMenu && (
-            <div className="absolute bottom-10 left-0 flex flex-col p-1 rounded-xl card-elev animate-in fade-in duration-100 min-w-[150px]">
-              {[
-                { label: "Fit (follow pane)", w: null, h: null },
-                { label: "Mobile 375×667", w: 375, h: 667, mobile: true },
-                { label: "Tablet 768×1024", w: 768, h: 1024 },
-                { label: "Desktop 1120×780", w: 1120, h: 780 }
-              ].map((opt) => (
-                <button
-                  key={opt.label}
-                  onClick={() => {
-                    vibrate();
-                    setViewportPreset(opt.w ? { width: opt.w, height: opt.h, mobile: !!opt.mobile } : null);
-                    if (opt.w) invoke("viewport", { targetId: watchedId, width: opt.w, height: opt.h, mobile: !!opt.mobile });
-                    else invoke("viewport", { targetId: watchedId, reset: true });
-                    setRestartTick((n) => n + 1);
-                    setVpMenu(false);
-                  }}
-                  className={`text-left px-2.5 py-1.5 rounded-brand text-xs transition-colors ${
-                    (opt.w ? viewportPreset?.width === opt.w : !viewportPreset) ? "bg-surface-3 text-text font-medium" : "text-text-muted hover:bg-surface-2 hover:text-text"
-                  }`}
-                >
-                  {opt.label}
-                </button>
-              ))}
-            </div>
-          )}
-          <button
-            onClick={() => { vibrate(); setVpMenu((v) => !v); }}
-            className={`h-8 w-8 flex items-center justify-center rounded-full shadow-[0_2px_10px_rgba(0,0,0,0.4)] transition-colors ${
-              viewportPreset ? "bg-brand-500 text-white" : "bg-surface/90 text-text-muted hover:text-text backdrop-blur"
-            }`}
-            title="Device size"
+        {isMobile && (
+          <div
+            className="absolute bottom-3 left-3 z-10 flex items-center gap-0.5 rounded-full bg-surface/90 backdrop-blur shadow-[0_2px_10px_rgba(0,0,0,0.4)] p-0.5"
+            onPointerDown={stopStagePointer}
+            onPointerMove={stopStagePointer}
+            onPointerUp={stopStagePointer}
+            onPointerCancel={stopStagePointer}
+            onContextMenu={stopStagePointer}
           >
-            <Smartphone size={15} />
-          </button>
-        </div>
+            {pageTools(true)}
+          </div>
+        )}
 
         {/* Pick chip — bottom-right: send picks or exit pick mode */}
         {(grabIntent === "pick" || picked.length > 0) && !pickOpen && (
-          <div className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full shadow-xl p-0.5">
+          <div
+            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full shadow-xl p-0.5"
+            onPointerDown={stopStagePointer}
+            onPointerMove={stopStagePointer}
+            onPointerUp={stopStagePointer}
+            onPointerCancel={stopStagePointer}
+            onContextMenu={stopStagePointer}
+          >
             {picked.length > 0 ? (
               <button
                 onClick={() => { vibrate(); setPickOpen(true); }}

@@ -4,7 +4,7 @@ import { broadcast } from "../../transport/broadcast.js";
 import { CHANNELS } from "../../lib/transportConstants.js";
 import { STREAM_RESYNC_MIN_MS, TABS_POLL_MS } from "./constants.js";
 import { encodeTilesBatch } from "../remote/handlers/ScreenHandler.js";
-import { closeTab, createProfile, enrichHistory, evalJs, focusTab, getOrLaunchBrowser, goBack, goForward, inspectElementAt, listProfiles, listTabs, navState, navigateTab, noteBrowserActivity, noteWatchedWindow, openTab, peekBrowser, peekTabs, pickElementsInRect, reloadTab, removeProfile, safeProfileName, searchHistory, setViewport, syncActiveTab } from "./browserEngine.js";
+import { closeTab, createProfile, enrichHistory, evalJs, focusTab, getOrLaunchBrowser, goBack, goForward, inspectElementAt, listProfiles, listTabs, markPicked, navState, navigateTab, noteBrowserActivity, noteWatchedWindow, openTab, peekBrowser, peekTabs, pickElementsInRect, reloadTab, removeProfile, safeProfileName, searchHistory, setViewport, syncActiveTab } from "./browserEngine.js";
 import { ackFrame, compareClientTileHashes, dispatchInput, startStream, stopStream } from "./stream.js";
 import { importCookiesToSession, parseCookiesContent } from "./cookieImport.js";
 import { detectInstalledBrowsers, extractBrowserCookies } from "./browserDetect.js";
@@ -40,13 +40,8 @@ async function pushTabs(profile, windowId = null) {
     if (json === lastTabsJsonByProfile.get(dedupeKey)) return;
     lastTabsJsonByProfile.set(dedupeKey, json);
     const io = getIO();
-    if (io) {
-      logger.info(`TEMP DIAGNOSTIC broadcast browser:tabs profile=${profile} win=${windowId} count=${tabs.length}`);
-      broadcast(io, "browser:tabs", { profile, windowId, tabs });
-    }
-  } catch (err) {
-    logger.warn(`TEMP DIAGNOSTIC pushTabs error: ${err.message}`);
-  }
+    if (io) broadcast(io, "browser:tabs", { profile, windowId, tabs });
+  } catch { /* wait next poll */ }
 }
 
 // Agent tabs ride every browser:tabs push so any profile the engine drives is
@@ -199,7 +194,6 @@ export function setupBrowserHandlers(socket) {
   });
 
   socket.on("browser:tabs.watch", ({ on, profile, windowId } = {}) => {
-    logger.info(`TEMP DIAGNOSTIC socket recv browser:tabs.watch on=${on} profile=${profile} windowId=${windowId}`);
     const name = safeProfileName(profile) ? profile : "default";
     const win = Number.isFinite(Number(windowId)) && Number(windowId) > 0 ? Number(windowId) : null;
     const next = on !== false;
@@ -221,7 +215,6 @@ export function setupBrowserHandlers(socket) {
   });
 
   socket.on("browser:invoke", async ({ action, payload = {} } = {}, cb) => {
-    logger.info(`TEMP DIAGNOSTIC socket recv browser:invoke action=${action} profile=${payload.profile}`);
     const profile = payload.profile || "default";
     noteBrowserActivity(profile);
     try {
@@ -257,6 +250,8 @@ export function setupBrowserHandlers(socket) {
           return cb?.({ ok: true, element: await inspectElementAt(profile, payload.targetId, payload.x, payload.y) });
         case "pick.rect":
           return cb?.({ ok: true, elements: await pickElementsInRect(profile, payload.targetId, payload.x, payload.y, payload.width, payload.height) });
+        case "pick.mark":
+          return cb?.({ ok: true, marked: await markPicked(profile, payload.targetId, payload.selectors) });
         case "eval":
           return cb?.({ ok: true, result: await evalJs(profile, payload.targetId, payload.expression) });
         case "screenshot": {
@@ -318,7 +313,6 @@ export function setupBrowserHandlers(socket) {
   });
 
   socket.on("browser:stream.start", async ({ targetId, width, height, quality, scale, mobile, profile = "default", isPopup = false } = {}, cb) => {
-    logger.info(`TEMP DIAGNOSTIC socket recv browser:stream.start targetId=${targetId} profile=${profile} size=${width}x${height}`);
     try {
       noteBrowserActivity(profile);
       const browser = await getOrLaunchBrowser(profile);
@@ -368,7 +362,6 @@ export function setupBrowserHandlers(socket) {
 
   socket.on("browser:stream.stop", ({ targetId } = {}) => {
     const id = String(targetId || "");
-    logger.info(`TEMP DIAGNOSTIC socket recv browser:stream.stop targetId=${id.slice(-6)}`);
     activeTargetStreams.delete(id);
     // Teardown only when no OTHER socket still watches this tab.
     unwatchTarget(socket.id, id);
