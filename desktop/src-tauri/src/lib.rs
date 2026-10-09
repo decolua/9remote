@@ -1596,10 +1596,10 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
-    // The property the PATH fix rests on: our node dir outranks the inherited PATH,
-    // whatever that happens to be on the machine running this.
+    // The layout the PATH fix rests on: our node dir first, the inherited PATH intact
+    // behind it, the GUI-install fallbacks last.
     #[test]
-    fn apply_node_path_puts_node_dir_first() {
+    fn apply_node_path_orders_node_dir_inherited_then_extras() {
         let node = "/tmp/9remote-test/bin/node";
         let mut cmd = std::process::Command::new(node);
         super::apply_node_path(&mut cmd, node);
@@ -1609,6 +1609,24 @@ mod tests {
             .and_then(|(_, v)| v)
             .expect("apply_node_path must set PATH");
         let sep = if cfg!(windows) { ';' } else { ':' };
-        assert_eq!(path.to_str().unwrap().split(sep).next(), Some("/tmp/9remote-test/bin"));
+        let entries: Vec<&str> = path.to_str().unwrap().split(sep).collect();
+        assert_eq!(entries.first(), Some(&"/tmp/9remote-test/bin"));
+        // or the child loses every tool but node
+        for inherited in std::env::var("PATH").unwrap_or_default().split(sep).filter(|e| !e.is_empty()) {
+            assert!(entries.contains(&inherited), "inherited PATH entry {inherited} was dropped");
+        }
+        // pinned by position, not by `contains`: the ambient PATH already holds some of these
+        #[cfg(unix)]
+        {
+            let home = super::home_dir();
+            let want = [
+                format!("{home}/.local/bin"),
+                "/opt/homebrew/bin".into(),
+                "/usr/local/bin".into(),
+                format!("{home}/.cargo/bin"),
+                format!("{home}/.bun/bin"),
+            ];
+            assert_eq!(entries[entries.len() - want.len()..], want[..], "extra bins must be the PATH tail");
+        }
     }
 }
