@@ -84,8 +84,8 @@ async function fetchTurnIceServers(turnApiUrl, apiKey) {
 // WebRtcProtocol: server adapter handling control, binary, and file DataChannels.
 export class WebRtcProtocol extends BaseProtocol {
   static id = "rtc";
-  static capabilities = { control: true, binary: true, file: true, mobile: true, signaling: "external" };
-  static priority = { control: 50, binary: 100, file: 100, mobile: 100 };
+  static capabilities = { control: true, binary: true, file: true, mobile: true, browser: true, signaling: "external" };
+  static priority = { control: 50, binary: 100, file: 100, mobile: 100, browser: 100 };
 
   constructor() {
     super();
@@ -180,8 +180,14 @@ export class WebRtcProtocol extends BaseProtocol {
       try {
         const raw = Array.isArray(payload) ? payload[0] : payload;
         const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-        if (this._dcFile.bufferedAmount() > FILE_TRANSFER.dcBufferThreshold) return false;
-        return this._dcFile.sendMessageBinary(chunk);
+        const ba = this._dcFile.bufferedAmount();
+        if (ba > FILE_TRANSFER.dcBufferThreshold) {
+          logger.info(`TEMP DIAGNOSTIC rtc-file BACKPRESSURE ba=${ba} thr=${FILE_TRANSFER.dcBufferThreshold}`);
+          return false;
+        }
+        const ok = this._dcFile.sendMessageBinary(chunk);
+        logger.info(`TEMP DIAGNOSTIC rtc-file ba=${ba} bytes=${chunk.byteLength} ok=${ok} open=${this._dcFile.isOpen()}`);
+        return ok;
       } catch (err) {
         logger.error(`send file failed: ${err.message}`);
         return false;
@@ -196,6 +202,17 @@ export class WebRtcProtocol extends BaseProtocol {
         return this._dcMobile.sendMessageBinary(chunk);
       } catch (err) {
         logger.error(`send mobile failed: ${err.message}`);
+        return false;
+      }
+    }
+    if (channel === CHANNELS.browser) {
+      if (!this._dcBrowser) return false;
+      try {
+        const chunk = Array.isArray(payload) ? payload[0] : payload;
+        if (this._dcBrowser.bufferedAmount() > REMOTE_CONFIG.webrtc.dcBufferThreshold) return false;
+        return this._dcBrowser.sendMessageBinary(chunk);
+      } catch (err) {
+        logger.error(`send browser failed: ${err.message}`);
         return false;
       }
     }
@@ -281,6 +298,7 @@ export class WebRtcProtocol extends BaseProtocol {
         else if (label === "binary") this._dcBinary = dc;
         else if (label === "file") this._dcFile = dc;
         else if (label === "mobile") this._dcMobile = dc;
+        else if (label === "browser") this._dcBrowser = dc;
         // Adapter is open once control and binary channels are established.
         if (this._dcControl && this._dcBinary) this._setState(ADAPTER_STATE.open);
       };
@@ -291,6 +309,7 @@ export class WebRtcProtocol extends BaseProtocol {
         if (label === "binary") this._dcBinary = null;
         if (label === "file") this._dcFile = null;
         if (label === "mobile") this._dcMobile = null;
+        if (label === "browser") this._dcBrowser = null;
         if (!this._dcControl && !this._dcBinary) this._setState(ADAPTER_STATE.closed);
       });
       dc.onError((err) => logger.error(`DC[${label}] error: ${err?.message || err}`));

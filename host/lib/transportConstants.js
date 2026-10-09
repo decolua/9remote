@@ -4,7 +4,8 @@ export const CHANNELS = {
   control: "control",
   binary: "binary",
   file: "file",
-  mobile: "mobile"
+  mobile: "mobile",
+  browser: "browser"
 };
 
 // Control payload ceiling, used only when the DC cannot report the SCTP limit
@@ -87,6 +88,11 @@ export const FILE_TRANSFER = {
   maxStreamMediaSize: 500 * 1024 * 1024 // progressive MSE streaming cap (audio/video)
 };
 
+// WS lane backpressure cap (bytes buffered by the ws library). engine.io's
+// transport.writable stays false FOREVER once a flush callback is lost on a
+// half-open link — gate on real buffered bytes instead, like RTC's threshold.
+export const WS_BINARY_BACKPRESSURE_BYTES = 1 * 1024 * 1024;
+
 export const TRANSPORT_PROFILES = {
   clientApp: {
     enabled: ["ws", "rtc"],
@@ -94,7 +100,8 @@ export const TRANSPORT_PROFILES = {
       control: { strategy: "priority", prefer: "rtc" },
       binary: { strategy: "priority", prefer: "rtc" },
       file: { strategy: "priority", prefer: "rtc" },
-      mobile: { strategy: "priority", prefer: "rtc" }
+      mobile: { strategy: "priority", prefer: "rtc" },
+      browser: { strategy: "priority", prefer: "rtc" }
     }
   },
   remoteDesktop: {
@@ -103,7 +110,8 @@ export const TRANSPORT_PROFILES = {
       control: { strategy: "priority", prefer: "rtc" },
       binary: { strategy: "priority", prefer: "rtc" },
       file: { strategy: "priority", prefer: "rtc" },
-      mobile: { strategy: "priority", prefer: "rtc" }
+      mobile: { strategy: "priority", prefer: "rtc" },
+      browser: { strategy: "priority", prefer: "rtc" }
     }
   }
 };

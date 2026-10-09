@@ -183,17 +183,17 @@ export class ProtocolManager {
   }
 
   /** Send screen tiles: prefer RTC binary, fallback to WS chunked. */
-  sendTiles(payload, encodeBatch) {
+  sendTiles(payload, encodeBatch, channel = CHANNELS.binary) {
     const { tiles, timestamp } = payload;
     if (!tiles?.length) return [];
 
-    const adapter = this._pickAdapter(CHANNELS.binary);
+    const adapter = this._pickAdapter(channel);
     const frameTs = timestamp ?? Date.now();
 
     if (adapter?.constructor.id === "rtc" && encodeBatch) {
-      return this._emitTilesRtc(adapter, tiles, frameTs, encodeBatch);
+      return this._emitTilesRtc(adapter, tiles, frameTs, encodeBatch, channel);
     }
-    return this._emitTilesChunked(tiles, frameTs);
+    return this._emitTilesChunked(tiles, frameTs, channel);
   }
 
   close() {
@@ -226,7 +226,7 @@ export class ProtocolManager {
     };
   }
 
-  _emitTilesChunked(tiles, frameTs) {
+  _emitTilesChunked(tiles, frameTs, channel = CHANNELS.binary) {
     const ws = this._adapters.get("ws");
     if (!ws?.ready) return [];
     const size = this._wsChunkSize;
@@ -241,7 +241,7 @@ export class ProtocolManager {
     const sent = [];
     for (let i = 0; i < ordered.length; i += size) {
       const chunk = ordered.slice(i, i + size);
-      if (ws.send(CHANNELS.binary, encodeTilesBatch(chunk, frameTs)) === false) {
+      if (ws.send(channel, encodeTilesBatch(chunk, frameTs)) === false) {
         for (let j = i; j < ordered.length; j++) {
           const tileIndex = ordered[j].tileIndex;
           if (!pendingSince.has(tileIndex)) pendingSince.set(tileIndex, now);
@@ -254,7 +254,7 @@ export class ProtocolManager {
     return sent;
   }
 
-  _emitTilesRtc(rtc, tiles, frameTs, encodeBatch) {
+  _emitTilesRtc(rtc, tiles, frameTs, encodeBatch, channel = CHANNELS.binary) {
     const max = this._profile.rtc?.dcMaxMessageSize ?? 65536;
     const n = tiles.length;
     const pendingSince = this._rtcPendingSince;
@@ -276,16 +276,16 @@ export class ProtocolManager {
       const chunk = ordered.slice(i, i + chunkSize);
       const buf = encodeBatch(chunk, frameTs);
       if (buf.length > max) {
-        if (chunk.length === 1 && ws?.ready && ws.send(CHANNELS.binary, buf) !== false) {
+        if (chunk.length === 1 && ws?.ready && ws.send(channel, buf) !== false) {
           pendingSince.delete(chunk[0].tileIndex);
           sent.push(...chunk);
         }
         continue;
       }
-      if (rtc.send(CHANNELS.binary, buf) === false) {
+      if (rtc.send(channel, buf) === false) {
         const remaining = ordered.slice(i);
         if (ws?.ready) {
-          const wsSent = this._emitTilesChunked(remaining, frameTs);
+          const wsSent = this._emitTilesChunked(remaining, frameTs, channel);
           for (const t of wsSent) pendingSince.delete(t.tileIndex);
           sent.push(...wsSent);
         } else {

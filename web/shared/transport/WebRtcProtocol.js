@@ -97,8 +97,8 @@ function resetWorker() {
 
 export class WebRtcProtocol extends BaseProtocol {
   static id = "rtc";
-  static capabilities = { control: true, binary: true, file: true, signaling: "external" };
-  static priority = { control: 50, binary: 100, file: 100 };
+  static capabilities = { control: true, binary: true, file: true, browser: true, signaling: "external" };
+  static priority = { control: 50, binary: 100, file: 100, browser: 100 };
 
   constructor() {
     super();
@@ -211,14 +211,17 @@ export class WebRtcProtocol extends BaseProtocol {
     // Mobile video lane: ordered+reliable like file — H.264 chunks must not be
     // dropped by the transport; freshness is handled at frame granularity.
     const dcMobile = pc.createDataChannel("mobile", { ordered: true });
+    const dcBrowser = pc.createDataChannel("browser", { ordered: false, maxPacketLifeTime: 500 });
     dcBinary.binaryType = "arraybuffer";
     dcControl.binaryType = "arraybuffer";
     dcFile.binaryType = "arraybuffer";
     dcMobile.binaryType = "arraybuffer";
+    dcBrowser.binaryType = "arraybuffer";
     this._dcControl = dcControl;
     this._dcBinary = dcBinary;
     this._dcFile = dcFile;
     this._dcMobile = dcMobile;
+    this._dcBrowser = dcBrowser;
 
     const checkOpen = async () => {
       if (dcControl.readyState !== "open" || dcBinary.readyState !== "open") return;
@@ -264,6 +267,7 @@ export class WebRtcProtocol extends BaseProtocol {
     dcBinary.onclose = handleClose;
     dcFile.onclose = () => { this._dcFile = null; };
     dcMobile.onclose = () => { this._dcMobile = null; };
+    dcBrowser.onclose = () => { this._dcBrowser = null; };
 
     dcControl.onerror = (e) => {
       const msg = e.error?.message ?? "unknown";
@@ -312,11 +316,17 @@ export class WebRtcProtocol extends BaseProtocol {
 
     dcBinary.onmessage = ({ data }) => {
       this._lastInboundAt = Date.now();
-      if (data instanceof ArrayBuffer) this._receiveTile(data);
+      if (data instanceof ArrayBuffer) this._receiveTile(data, "tiles-data");
+    };
+
+    dcBrowser.onmessage = ({ data }) => {
+      this._lastInboundAt = Date.now();
+      if (data instanceof ArrayBuffer) this._receiveTile(data, "browser:tiles-data");
     };
 
     dcFile.onmessage = ({ data }) => {
       this._lastInboundAt = Date.now();
+      console.log(`TEMP DIAGNOSTIC rtc dcFile recv bytes=${data?.byteLength ?? data?.size} type=${data?.constructor?.name}`); // TEMP DIAGNOSTIC
       if (data instanceof ArrayBuffer) this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
     };
     dcMobile.onmessage = ({ data }) => {
@@ -695,7 +705,7 @@ export class WebRtcProtocol extends BaseProtocol {
     this._reassemble = createReassembler();
   }
 
-  _receiveTile(buffer) {
+  _receiveTile(buffer, eventName = "tiles-data") {
     const id = ++_workerMsgId;
     const bytes = buffer.byteLength;
     new Promise((resolve) => {
@@ -723,34 +733,47 @@ export class WebRtcProtocol extends BaseProtocol {
       if (!result) return;
       const { tiles, timestamp, hasBitmap } = result;
 
-      if (!this._pendingEmit) this._pendingEmit = { tiles: new Map(), timestamp, hasBitmap, bytes: 0 };
-      this._pendingEmit.bytes += bytes;
+      this._pendingEmits ??= new Map();
+      this._latestTsMaps ??= new Map();
+      let pending = this._pendingEmits.get(eventName);
+      if (!pending) {
+        pending = { tiles: new Map(), timestamp, hasBitmap, bytes: 0 };
+        this._pendingEmits.set(eventName, pending);
+      }
+      let tsMap = this._latestTsMaps.get(eventName);
+      if (!tsMap) {
+        tsMap = new Map();
+        this._latestTsMaps.set(eventName, tsMap);
+      }
+      pending.bytes += bytes;
       for (const tile of tiles) {
-        const prev = this._latestTileTs.get(tile.tileIndex) ?? 0;
+        const prev = tsMap.get(tile.tileIndex) ?? 0;
         if (timestamp >= prev) {
-          this._latestTileTs.set(tile.tileIndex, timestamp);
-          this._pendingEmit.tiles.get(tile.tileIndex)?.bitmap?.close?.();
-          this._pendingEmit.tiles.set(tile.tileIndex, tile);
-          if (timestamp > this._pendingEmit.timestamp) this._pendingEmit.timestamp = timestamp;
+          tsMap.set(tile.tileIndex, timestamp);
+          pending.tiles.get(tile.tileIndex)?.bitmap?.close?.();
+          pending.tiles.set(tile.tileIndex, tile);
+          if (timestamp > pending.timestamp) pending.timestamp = timestamp;
         } else {
           tile.bitmap?.close?.();
         }
       }
 
-      if (this._flushTimer) clearTimeout(this._flushTimer);
-      this._flushTimer = setTimeout(() => {
-        this._flushTimer = null;
-        if (!this._pendingEmit) return;
-        const { tiles: tileMap, timestamp: ts, hasBitmap: hb, bytes: by } = this._pendingEmit;
-        this._pendingEmit = null;
-        const freshTiles = [...tileMap.values()];
+      this._flushTimers ??= new Map();
+      if (this._flushTimers.has(eventName)) clearTimeout(this._flushTimers.get(eventName));
+      const flushTimer = setTimeout(() => {
+        this._flushTimers.delete(eventName);
+        const p = this._pendingEmits.get(eventName);
+        if (!p) return;
+        this._pendingEmits.delete(eventName);
+        const freshTiles = [...p.tiles.values()];
         if (!freshTiles.length) return;
         this._emit("message", {
-          event: "tiles-data",
-          data: { tiles: freshTiles, timestamp: ts, hasBitmap: hb, bytes: by, transport: this._typeDetail },
+          event: eventName,
+          data: { tiles: freshTiles, timestamp: p.timestamp, hasBitmap: p.hasBitmap, bytes: p.bytes, transport: this._typeDetail },
           source: "rtc"
         });
       }, 0);
+      this._flushTimers.set(eventName, flushTimer);
     });
   }
 }

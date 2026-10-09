@@ -14,8 +14,8 @@ const RETRY_NOW_THROTTLE_MS = 3000;
 
 export class WsProtocol extends BaseProtocol {
   static id = "ws";
-  static capabilities = { control: true, binary: true, file: true, signaling: "ws" };
-  static priority = { control: 100, binary: 10, file: 10 };
+  static capabilities = { control: true, binary: true, file: true, browser: true, signaling: "ws" };
+  static priority = { control: 100, binary: 10, file: 10, browser: 10 };
 
   constructor() {
     super();
@@ -147,6 +147,10 @@ export class WsProtocol extends BaseProtocol {
     }
     if (channel === CHANNELS.binary) {
       this._socket.emit("tiles-bin-v2", payload);
+      return true;
+    }
+    if (channel === CHANNELS.browser) {
+      this._socket.emit("browser:tiles-bin", payload);
       return true;
     }
     if (channel === CHANNELS.file) {
@@ -281,6 +285,7 @@ export class WsProtocol extends BaseProtocol {
 
     socket.onAny((event, data) => {
       this._lastMsgAt = Date.now();
+      if (event === "file-bin") console.log(`TEMP DIAGNOSTIC ws file-bin recv bytes=${data?.byteLength ?? data?.length} type=${data?.constructor?.name}`); // TEMP DIAGNOSTIC
       this._emit("message", { event, data, source: "ws" });
     });
   }
