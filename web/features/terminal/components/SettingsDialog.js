@@ -366,8 +366,6 @@ export default function SettingsDialog({
                     disabled={!context.connected}
                     onChange={artifact.toggle}
                   />
-
-                  <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
                 </>)}
                 {renderToggles("plugins")}
               </div>

@@ -237,7 +237,6 @@ export default {
     settingsRemote: "Remote",
     mcpIntro: "Extra abilities you can give your AI coding tools.",
     mcpTools: "Allow",
-    mcpRestartHint: "Turning it off applies at once. Turning it on needs the AI tool restarted.",
     mcpUnavailable: "Update this host to use MCP.",
     artifactFormats: "Formats it can show",
     mcpClients: "Works with",
