@@ -22,6 +22,8 @@ import {
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useBrowserStore } from "@/shared/stores/browserStore";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { isLocalLink, localStreamParams, STREAM_QUALITY_LOCAL } from "@/features/browser/lib/browserFrame";
 import { useBrowserInvoke } from "@/features/browser/hooks/useBrowserInvoke";
 import { useBrowserFrame } from "@/features/browser/hooks/useBrowserFrame";
 import { pinchDistance } from "@/features/browser/lib/pointerMap";
@@ -48,7 +50,9 @@ const siteHue = (port) => {
   return `hsl(${h} 55% 45%)`;
 };
 // ~4MB/s per 3s — above this the stream costs more than a remote link carries.
+// Local links run 2x raster @ q95: the budget scales with it.
 const ADAPTIVE_BUDGET_BYTES = 12_000_000;
+const ADAPTIVE_BUDGET_LOCAL_MULT = 2;
 const SPECIAL_KEYS = {
   Enter: "enter", Tab: "tab", Escape: "escape", Backspace: "backspace", Delete: "delete",
   ArrowUp: "arrowup", ArrowDown: "arrowdown", ArrowLeft: "arrowleft", ArrowRight: "arrowright",
@@ -62,15 +66,21 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
   const tabs = useBrowserStore((s) => s.tabsByWorkspace[wsKey] ?? NO_TABS);
   const activeTargetId = useBrowserStore((s) => s.activeByWorkspace[wsKey] || null);
   const setActive = useBrowserStore((s) => s.setActive);
+  const setWindowFor = useBrowserStore((s) => s.setWindowFor);
+  // LAN/loopback link can carry the sharp stream; tunnel keeps host defaults.
+  const isLocal = isLocalLink(useConnectionStore((s) => s.connectionMode));
 
   const [address, setAddress] = useState("");
   const [textOpen, setTextOpen] = useState(false);
   const [textDraft, setTextDraft] = useState("");
   const [restartTick, setRestartTick] = useState(0);
-  // Adaptive quality: null = host default (85). The pane watches outgoing
-  // bytes and steps quality down when a 3s window exceeds the budget —
+  // Adaptive quality: null = host default (85, or 95 while local). The pane
+  // watches outgoing bytes and steps quality down when a 3s window exceeds
+  // the budget —
   // a static page sends nothing and is never throttled.
   const [quality, setQuality] = useState(null);
+  const qualityRef = useRef(quality);
+  useEffect(() => { qualityRef.current = quality; }, [quality]);
   // Viewport preset override — null = follow the stage's own size.
   const [viewportPreset, setViewportPreset] = useState(null);
   const [vpMenu, setVpMenu] = useState(false);
@@ -106,6 +116,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
   const [localSites, setLocalSites] = useState(null);
   const [imgBox, setImgBox] = useState(null); // drawn img rect, stage-relative
   const pickDragRef = useRef(null);
+  const streamedTargetIdRef = useRef(null);
 
   const stageRef = useRef(null);
   const bytesWindowRef = useRef({ bytes: 0, mark: 0, applied: 0 });
@@ -165,26 +176,43 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
   // Screencast stream lifecycle
   useEffect(() => {
     const bus = busRef?.current;
-    if (!connected || !bus?.emit || !watchedId) return;
+    if (!connected || !bus?.emit || !watchedId) {
+      console.log("TEMP DIAGNOSTIC pane stream.start SKIPPED", {
+        connected, hasBus: !!bus?.emit, watchedId, tabsCount: tabs.length, activeTargetId
+      });
+      return;
+    }
     let stopped = false;
     const rect = stageRef.current?.getBoundingClientRect();
     // A failed start leaves the pane input-dead (every browser:input throws
     // "No stream active") — retry a few times instead of waiting for the user
     // to poke the stage.
     let retries = 0;
+    let currentStartedId = watchedId;
+    streamedTargetIdRef.current = watchedId;
     const start = () => {
-      bus.emit("browser:stream.start", {
+      // Retina honesty on a local link: render at the viewer's physical pixel
+      // density + top jpeg quality. Tunnel omits both → host defaults (1.2x, 85).
+      const boost = localStreamParams(isLocal);
+      const params = {
         targetId: watchedId,
         profile,
         width: Math.round(viewportPreset?.width || rect?.width || 720),
         height: Math.round(viewportPreset?.height || rect?.height || 1280),
-        // Retina honesty: render at the viewer's physical pixel density.
-        scale: Math.min(2, window.devicePixelRatio || 1),
-        quality: quality || undefined
-      }, (res) => {
+        mobile: !!viewportPreset?.mobile,
+        scale: boost.scale,
+        quality: qualityRef.current || boost.quality
+      };
+      console.log(`TEMP DIAGNOSTIC pane stream.start tid=${String(watchedId).slice(-6)} local=${isLocal} scale=${params.scale ?? "default"} quality=${params.quality ?? "default"}`);
+      bus.emit("browser:stream.start", params, (res) => {
+        console.log("TEMP DIAGNOSTIC pane stream.start cb", res);
         // Host healed a stale tab id to the profile's live tab — follow it so
         // the pane streams and inputs target the same tab.
-        if (res?.ok && res.targetId && res.targetId !== watchedId) setActive(wsKey, res.targetId);
+        if (res?.ok && res.targetId) {
+          currentStartedId = res.targetId;
+          streamedTargetIdRef.current = res.targetId;
+          if (res.targetId !== watchedId) setActive(wsKey, res.targetId);
+        }
         if (res?.ok && res.quality) setQuality(res.quality);
         if (!res?.ok && !stopped && retries < 3) {
           retries += 1;
@@ -195,9 +223,10 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     start();
     return () => {
       stopped = true;
-      bus.emit("browser:stream.stop", { targetId: watchedId });
+      const toStop = streamedTargetIdRef.current || currentStartedId || watchedId;
+      bus.emit("browser:stream.stop", { targetId: toStop });
     };
-  }, [busRef, connected, watchedId, restartTick, viewportPreset, profile, quality, setActive, wsKey]);
+  }, [busRef, connected, watchedId, restartTick, viewportPreset, profile, isLocal, setActive, wsKey]);
 
   // Binary frames arrive on the file lane — reassembled, decoded off-thread
   // and painted to the canvas by the hook; the pane only tracks paint events
@@ -222,18 +251,20 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
   useEffect(() => {
     const w = bytesWindowRef.current;
     w.mark = Date.now();
+    const budget = ADAPTIVE_BUDGET_BYTES * (isLocal ? ADAPTIVE_BUDGET_LOCAL_MULT : 1);
     const timer = setInterval(() => {
       const now = Date.now();
       const bytes = w.bytes;
       w.bytes = 0;
       w.mark = now;
-      if (bytes > ADAPTIVE_BUDGET_BYTES && now - w.applied > 3000) {
+      if (bytes > budget && now - w.applied > 3000) {
         w.applied = now;
         setQuality((q) => Math.max(55, (q ?? 85) - 15));
+        console.warn(`TEMP DIAGNOSTIC pane quality step-down tid=${String(watchedId).slice(-6)} bytes=${bytes} budget=${budget} local=${isLocal}`);
       }
     }, 3000);
     return () => clearInterval(timer);
-  }, []);
+  }, [isLocal, watchedId]);
 
   // Stream only while this tab is actually watched: hidden (switched tab /
   // minimized) → stop the screencast; back → restart with the cached frame.
@@ -248,6 +279,12 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     document.addEventListener("visibilitychange", onVisibility);
     return () => document.removeEventListener("visibilitychange", onVisibility);
   }, [busRef, watchedId]);
+
+  // Chrome cold start costs seconds — boot the profile's browser the moment
+  // the pane opens, not when the first URL is typed. Fire-and-forget.
+  useEffect(() => {
+    if (connected) invoke("warm");
+  }, [connected, invoke]);
 
   // New-tab page: a blank tab lists the host's running dev servers.
   const blankTab = !activeTab?.url || /^about:blank$/.test(activeTab.url || "");
@@ -683,12 +720,32 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
       // No LIVE tab (none yet, or a stale persisted id after a Chrome restart):
       // the typed address boots a fresh tab instead of failing on the dead one.
       const liveTabs = useBrowserStore.getState().tabsByWorkspace[wsKey] || [];
-      const res = watchedId && liveTabs.some((tb) => tb.id === watchedId)
+      const goLive = watchedId && liveTabs.some((tb) => tb.id === watchedId);
+      // Boot placeholder: the strip (and this pane's loading state) shows the
+      // tab WHILE Chrome launches — swapped for the real id once open resolves.
+      const bootId = goLive ? null : `boot_${Date.now()}`;
+      if (bootId) {
+        const st = useBrowserStore.getState();
+        st.setTabs(wsKey, [...(st.tabsByWorkspace[wsKey] || []), { id: bootId, url, title: "", booting: true }]);
+        setActive(wsKey, bootId);
+      }
+      const res = goLive
         ? await invoke("go", { targetId: watchedId, url })
         : await invoke("open", { url });
       setLoading(false);
+      if (bootId) {
+        const st = useBrowserStore.getState();
+        const cur = (st.tabsByWorkspace[wsKey] || []).filter((tb) => tb.id !== bootId);
+        if (res?.ok && res.id && !cur.some((tb) => tb.id === res.id)) cur.push({ id: res.id, url: res.url, title: "" });
+        st.setTabs(wsKey, cur);
+        st.setActive(wsKey, (res?.ok && res.id) || cur[cur.length - 1]?.id || null);
+      }
       if (res?.ok && res.id) {
         setActive(wsKey, res.id);
+        // The opened (or heal-opened) tab names the workspace's Chrome window —
+        // without it useBrowserTabs watches nothing and the strip never gets
+        // host pushes, so dead tabs pile up after a Chrome restart.
+        if (res.windowId != null) setWindowFor(wsKey, res.windowId);
         // Optimistic tab entry — the host's push (2s poll) replaces it; without
         // this the stream waits a full poll cycle before starting.
         const cur = useBrowserStore.getState().tabsByWorkspace[wsKey] || [];
@@ -961,7 +1018,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
             <div className="absolute bottom-10 left-0 flex flex-col p-1 rounded-xl card-elev animate-in fade-in duration-100 min-w-[150px]">
               {[
                 { label: "Fit (follow pane)", w: null, h: null },
-                { label: "Mobile 375×667", w: 375, h: 667 },
+                { label: "Mobile 375×667", w: 375, h: 667, mobile: true },
                 { label: "Tablet 768×1024", w: 768, h: 1024 },
                 { label: "Desktop 1120×780", w: 1120, h: 780 }
               ].map((opt) => (
@@ -969,9 +1026,10 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
                   key={opt.label}
                   onClick={() => {
                     vibrate();
-                    setViewportPreset(opt.w ? { width: opt.w, height: opt.h } : null);
-                    if (opt.w) invoke("viewport", { targetId: watchedId, width: opt.w, height: opt.h });
-                    else setRestartTick((n) => n + 1);
+                    setViewportPreset(opt.w ? { width: opt.w, height: opt.h, mobile: !!opt.mobile } : null);
+                    if (opt.w) invoke("viewport", { targetId: watchedId, width: opt.w, height: opt.h, mobile: !!opt.mobile });
+                    else invoke("viewport", { targetId: watchedId, reset: true });
+                    setRestartTick((n) => n + 1);
                     setVpMenu(false);
                   }}
                   className={`text-left px-2.5 py-1.5 rounded-brand text-xs transition-colors ${

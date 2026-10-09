@@ -10,6 +10,8 @@ import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
 import { useBrowserInvoke } from "@/features/browser/hooks/useBrowserInvoke";
 import { useBrowserFrame } from "@/features/browser/hooks/useBrowserFrame";
+import { useConnectionStore } from "@/shared/stores/connectionStore";
+import { isLocalLink, localStreamParams } from "@/features/browser/lib/browserFrame";
 
 // Chrome viewport for the popup — larger than the drawn box so the image
 // downscales (sharp) instead of upscales (blurry).
@@ -18,6 +20,9 @@ const POPUP_VIEWPORT = { width: 720, height: 900 };
 export default function BrowserPopupWindow({ busRef, connected = false, targetId, url, profile = "default", onClose }) {
   const { t } = useI18n();
   const invoke = useBrowserInvoke(busRef, profile);
+  // LAN/loopback link earns the sharp stream (retina raster + q95); tunnel
+  // keeps host defaults.
+  const isLocal = isLocalLink(useConnectionStore((s) => s.connectionMode));
   const stageRef = useRef(null);
   const dragRef = useRef(null);
   const hoverTimer = useRef(null);
@@ -26,20 +31,21 @@ export default function BrowserPopupWindow({ busRef, connected = false, targetId
   const touchPts = useRef(new Map());
 
   // Screencast for the popup target — the parent pane's stream keeps running
-  // underneath; the host supports one stream per tab.
+  // underneath; isPopup stops the host from evicting it.
   useEffect(() => {
     const bus = busRef?.current;
     if (!connected || !bus?.emit || !targetId) return;
     bus.emit("browser:stream.start", {
       targetId,
       ...POPUP_VIEWPORT,
-      scale: Math.min(2, window.devicePixelRatio || 1),
-      profile
+      ...localStreamParams(isLocal),
+      profile,
+      isPopup: true
     });
     return () => {
       bus.emit("browser:stream.stop", { targetId });
     };
-  }, [busRef, connected, targetId]);
+  }, [busRef, connected, targetId, isLocal]);
 
   // Binary frames painted to a canvas by the shared hook (ack after paint).
   const { canvasRef: imgRef, frame, frameRef } = useBrowserFrame({ busRef, connected, targetId });

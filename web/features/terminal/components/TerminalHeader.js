@@ -2,7 +2,7 @@
 
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import {
-  ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2, Link2
+  ChevronLeft, ChevronRight, Menu, PanelLeft, PanelRight, Settings, Monitor, Smartphone, Plus, Pencil, Trash2, X, Globe, RotateCw, Github, Star, Bot, Zap, Check, Image as ImageIcon, Sparkles, Maximize2, Minimize2, Eye, EyeOff, Columns2, Link2, Loader2
 } from "@/shared/components/ui/Icon";
 import NotificationsBell from "./NotificationsBell";
 import SessionStatusBadge from "./SessionStatusBadge";
@@ -557,7 +557,9 @@ function TerminalHeader({
                 }`}
               >
                 <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
-                  <Globe size={13} className="w-3.5 h-3.5 text-text sm:group-hover:hidden" />
+                  {tab.booting
+                    ? <Loader2 size={13} className="w-3.5 h-3.5 animate-spin text-text-muted" />
+                    : <Globe size={13} className="w-3.5 h-3.5 text-text sm:group-hover:hidden" />}
                   <button
                     onClick={(e) => {
                       e.stopPropagation();

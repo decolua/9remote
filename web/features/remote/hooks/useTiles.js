@@ -74,7 +74,9 @@ async function _decodeTile(blob) {
   return bitmap;
 }
 
-export function useTiles(busRef, streaming, canvasRef) {
+// resetWorker=false: the decode worker is shared by every useTiles consumer, so a
+// secondary consumer (browser pane) must not terminate it under Remote Desktop.
+export function useTiles(busRef, streaming, canvasRef, { ackEvent = "tile-ack", verifyEvent = "request-screen-with-hashes", targetId = null, resetWorker = true } = {}) {
   const [totalTileCount, setTotalTileCount] = useState(126);
   // Flips once the first real frame lands — the canvas is black until then and the pane
   // has to say so rather than look broken.
@@ -125,11 +127,15 @@ export function useTiles(busRef, streaming, canvasRef) {
         invalidateTileHash();
       }
     }
+    if (targetId) console.log(`TEMP DIAGNOSTIC raf-flush tiles=${rafQueueRef.current.size} maxTs=${maxTs} lagMs=${maxTs ? Date.now() - maxTs : -1}`); // TEMP DIAGNOSTIC
     rafQueueRef.current.clear();
     // App-level flow control: ack the newest painted frame so the host releases
     // its window=1 slot and sends the next frame (caps hidden SCTP queue at ~1).
-    if (maxTs > 0) busRef?.current?.emit("tile-ack", { ts: maxTs });
-  }, [canvasRef, busRef]);
+    if (maxTs > 0) {
+      const payload = targetId ? { targetId, ts: maxTs } : { ts: maxTs };
+      busRef?.current?.emit(ackEvent, payload);
+    }
+  }, [canvasRef, busRef, ackEvent, targetId]);
 
   const scheduleRaf = useCallback((forceReschedule = false) => {
     // For WebRTC: cancel and reschedule so we accumulate all chunks before flush
@@ -326,7 +332,7 @@ export function useTiles(busRef, streaming, canvasRef) {
     } catch (error) {
       console.error("Tiles data error:", error);
     }
-  }, [canvasRef]);
+  }, [canvasRef, scheduleRaf]);
 
   // Handle binary tile batch — decode in worker, reuse tiles-data flow
   // v=1 → legacy 24B header (no hash), v=2 → 28B header (hash embedded → atomic sync)
@@ -408,16 +414,18 @@ export function useTiles(busRef, streaming, canvasRef) {
     }
 
     isRequestingRef.current = true;
-    busRef.current.emit("request-screen-with-hashes", {
-      tileHashes: clientTileHashesRef.current
-    });
+    const payload = targetId
+      ? { targetId, tileHashes: clientTileHashesRef.current }
+      : { tileHashes: clientTileHashesRef.current };
+    if (targetId) console.log(`TEMP DIAGNOSTIC verify-send hashes=${clientTileHashesRef.current.length} filled=${clientTileHashesRef.current.filter((h) => h != null).length} rendered=${renderedTilesRef.current.size} sinceData=${timeSinceLastData}ms`); // TEMP DIAGNOSTIC
+    busRef.current.emit(verifyEvent, payload);
 
     const resetTimeoutId = setTimeout(() => {
       cleanupTimeoutsRef.current.delete(resetTimeoutId);
       isRequestingRef.current = false;
     }, 1000);
     cleanupTimeoutsRef.current.add(resetTimeoutId);
-  }, []);
+  }, [busRef, verifyEvent, targetId]);
 
   const cleanupTiles = useCallback(() => {
     for (const [, tileData] of loadingTilesRef.current.entries()) {
@@ -432,13 +440,13 @@ export function useTiles(busRef, streaming, canvasRef) {
     setHasFrame(false);
     // Kill the (possibly suspended) decode worker + drop orphan promises so a fresh one
     // is spawned on the next tile batch — otherwise tiles never draw (black canvas).
-    resetBinWorker();
+    if (resetWorker) resetBinWorker();
     if (rafIdRef.current) {
       cancelAnimationFrame(rafIdRef.current);
       rafIdRef.current = null;
     }
     rafQueueRef.current.clear();
-  }, []);
+  }, [resetWorker]);
 
   // Cleanup all timeouts on unmount
   useEffect(() => {
@@ -464,6 +472,8 @@ export function useTiles(busRef, streaming, canvasRef) {
     startStreamingWithTiles,
     handleScreenDimensions,
     cleanupTiles,
-    requestScreenWithHashes
+    requestScreenWithHashes,
+    clientTileHashesRef,
+    tileTimestampRef
   };
 }
