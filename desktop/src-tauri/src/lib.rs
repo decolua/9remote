@@ -493,10 +493,9 @@ fn home_dir() -> String {
 // Children resolve bare `node` via PATH. A Finder-launched GUI only inherits
 // /usr/bin:/bin:/usr/sbin:/sbin, so nvm/fnm/volta installs are invisible and the child
 // fails: ENOENT from a direct spawn, exit 127 from koffi's `sh -c node ...`. Put our
-// resolved node dir first. The extra bins are preserved verbatim from the inline
-// server-spawn block so its PATH stays byte-identical. The host's own superset
-// (host/features/ai/adapters/env.js) only reaches its AI tool spawns, so nothing
-// downstream re-adds them for this child.
+// resolved node dir first; the extra bins are copied verbatim from the inline
+// server-spawn block, keeping both PATHs byte-identical. The host's own superset
+// (host/features/ai/adapters/env.js) reaches only its AI tool spawns, never this child.
 fn apply_node_path(cmd: &mut std::process::Command, node: &str) {
     if let Some(dir) = std::path::Path::new(node).parent() {
         let existing = std::env::var("PATH").unwrap_or_default();
