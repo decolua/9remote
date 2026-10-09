@@ -293,7 +293,9 @@ export const MARKER_EXPRESSION = `(() => { const state=(${snapshotBody()}); retu
 // pipe rows, nested lists indent 2 spaces per level. Same NOISE/visibility
 // rules and cap as the snapshot walker.
 export function readExpression(parent, from = 0, len = null) {
-  const needle = JSON.stringify(String(parent || "").toLowerCase());
+  // Section names cap at 40 chars (segName) and match by containment — a needle
+  // longer than the name can never hit, so clip it to the same cap up front.
+  const needle = JSON.stringify(String(parent || "").toLowerCase().slice(0, 40));
   const fromNum = Math.max(0, Math.floor(Number(from) || 0));
   const lenNum = len == null ? PAGE_TEXT_CAP : Math.min(READ_TOTAL_CAP, Math.max(1, Math.floor(Number(len) || 1)));
   return `(() => {
@@ -316,7 +318,13 @@ export function readExpression(parent, from = 0, len = null) {
     for (const e of root.querySelectorAll('*')) if (e.shadowRoot) f.push(...deep(e.shadowRoot,sel)); return f;};
   const named=deep(document,SEG_SEL).map(segName).filter(Boolean);
   let root=document.body;
-  if(needle!==''){
+  if(needle===''){
+    // No parent given: auto-scope to the page's sole article/main — the main
+    // content on article pages, so a bare read skips nav/sidebar noise without
+    // the caller having to know a section name. Ambiguity (0 or many) = whole body.
+    const solo=sel=>{const f=deep(document,sel); return f.length===1?f[0]:null;};
+    root=solo('article')||solo('main,[role="main"]')||root;
+  } else {
     const hit=deep(document,SEG_SEL).find(s=>{const n=segName(s); return n&&n.toLowerCase().includes(needle);});
     if(!hit) return {error:'no section matches',sections:[...new Set(named)]};
     root=hit;

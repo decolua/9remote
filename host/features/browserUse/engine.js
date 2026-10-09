@@ -156,19 +156,14 @@ function findAttachedDevToolsInfo() {
   return null;
 }
 
-// The DevToolsActivePort file outlives a toggle-off until Chrome restarts —
-// probe the socket, never trust the file alone. The probe connection is REUSED:
-// open/close cycles trip Chrome's debug-WS throttle and fake a "not attached".
+// Shared browser-level CDP connection for attached sessions — Chrome serves
+// ONE debug WS, so it is reused across sessions and never closed per-run.
 let attachProbe = null;
 
+// The DevToolsActivePort file outlives a toggle-off until Chrome restarts —
+// probe the port, never trust the file alone. TCP only: a WS handshake is a
+// real debug attach and trips Chrome's "Allow remote debugging?" dialog.
 async function attachAlive(info) {
-  if (info.wsUrl) {
-    if (attachProbe && !attachProbe.closed) return true;
-    try {
-      attachProbe = await CdpClient.connect(info.wsUrl, ATTACH_PROBE_TIMEOUT_MS);
-      return true;
-    } catch { attachProbe = null; return false; }
-  }
   return new Promise((resolve) => {
     const s = net.connect(info.port, "127.0.0.1");
     const done = (ok) => { s.destroy(); resolve(ok); };
@@ -243,7 +238,7 @@ async function windowOfTarget(client, targetId) {
   } catch { return null; }
 }
 
-function makeSession({ profile, sessionKey = null, mode, port, child, client, sessionId, targetId, headless = false, shared = false }) {
+function makeSession({ profile, sessionKey = null, keyed = false, mode, port, child, client, sessionId, targetId, headless = false, shared = false }) {
   const call = (method, params = {}) => client.call(method, params, session.sessionId);
   const enter = (type) => ({
     type, key: "Enter", code: "Enter", windowsVirtualKeyCode: 13, nativeVirtualKeyCode: 13,
@@ -255,7 +250,7 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
   const unsubs = []; // client.on unsubscribe fns — drained in close() (shared clients)
 
   const session = {
-    profile, sessionKey, mode, port, targetId, sessionId, headless, client,
+    profile, sessionKey, keyed, mode, port, targetId, sessionId, headless, client,
     lastState: null,
     docOrigin: null, docUrl: null,
     cancelRequested: false,
@@ -329,6 +324,9 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
       await session.setup();
       session.lastState = null;
       await session.stampTitle().catch(() => {});
+      // The shared real-browser session persists its working tab so the next
+      // launch (host restart included) resumes it instead of stacking a new one.
+      if (!session.keyed && session.mode !== "own" && session.ownsTargets.has(targetId)) rememberAttachTarget(targetId);
     },
 
     async switchTab(selector) {
@@ -1059,14 +1057,17 @@ function makeSession({ profile, sessionKey = null, mode, port, child, client, se
       writeAtomic(stepFramePath(session.profile), Buffer.from(result.data, "base64"));
     },
 
-    async close() {
+    async close({ keepTabs = false } = {}) {
       sessions.delete(sessionKey || profile);
       // Shared connections (attach probe, extension relay) outlive the session —
       // its event handlers must not pile up on them across rebuilds.
       for (const off of unsubs) off();
-      // Close only what the engine opened — a borrowed (attach) tab is the user's.
-      for (const targetId of session.ownsTargets) {
-        try { await client.call("Target.closeTarget", { targetId }); } catch { /* already gone */ }
+      // Close only what the engine opened — a borrowed (attach) tab is the
+      // user's. A relaunch keeps its tabs: reclaimPriorTab re-adopts them.
+      if (!keepTabs) {
+        for (const targetId of session.ownsTargets) {
+          try { await client.call("Target.closeTarget", { targetId }); } catch { /* already gone */ }
+        }
       }
       if (!shared) client.close(); // the shared attach connection outlives one session
       try { child?.kill(); } catch { /* already exited */ }
@@ -1343,8 +1344,36 @@ export function keyEventFor(spec) {
   return modifiers ? { ...base, modifiers } : base;
 }
 
-async function dropSession(session) {
-  try { await session.close(); } catch { /* already dead */ }
+async function dropSession(session, keepTabs = false) {
+  try { await session.close({ keepTabs }); } catch { /* already dead */ }
+}
+
+// Snapshot of a session's owned tabs, taken before a relaunch drops it — a
+// real browser outlives its session, so the tabs can be re-adopted after.
+const priorTabsOf = (s) => (s ? { ownedIds: [...s.ownsTargets], activeId: s.targetId } : null);
+
+// A relaunch usually happens while the browser and its tabs still live (WS
+// blip, DEAD_SESSION, extension reconnect): re-adopt the old owned tab and
+// close the blank duplicate the launch spawned, instead of stacking tabs.
+async function reclaimPriorTab(fresh, prior) {
+  const owned = prior?.ownedIds?.filter(Boolean) || [];
+  if (!owned.length || fresh.client?.closed) return;
+  let pages;
+  try {
+    const { targetInfos = [] } = await fresh.client.call("Target.getTargets");
+    pages = targetInfos.filter((t) => t.type === "page");
+  } catch { return; }
+  const alive = new Set(pages.map((t) => t.targetId));
+  const back = owned.find((id) => alive.has(id));
+  if (!back || back === fresh.targetId) return;
+  const spawned = fresh.targetId;
+  try { await fresh.adopt(back); } catch { return; }
+  fresh.ownsTargets.add(back);
+  if (!fresh.keyed) rememberAttachTarget(back);
+  if (fresh.ownsTargets.delete(spawned)) {
+    try { await fresh.client.call("Target.closeTarget", { targetId: spawned }); } catch { /* already gone */ }
+  }
+  logger.info(`relaunch reclaimed tab ${back} (duplicate ${spawned} closed)`);
 }
 
 // Open (or reuse) a session for a profile. Serialized per profile. Self-healing:
@@ -1362,21 +1391,30 @@ function resolveSessionKey(options = {}) {
   return {
     mode,
     sessionKey: rawProfile,
+    keyed,
     base: rawProfile.includes("#") ? rawProfile.slice(0, rawProfile.indexOf("#")) : rawProfile
   };
 }
 
 export async function withSession(options = {}, fn) {
   const mode = options.mode === "attach" || options.mode === "extension" ? options.mode : "own";
-  const { sessionKey, base } = resolveSessionKey(options);
+  const { sessionKey, keyed, base } = resolveSessionKey(options);
   return serialize(sessionKey, async () => {
+    const launch = async (prior = null) => {
+      const session = await launchSession({ ...options, profile: base, sessionKey, keyed });
+      await reclaimPriorTab(session, prior);
+      return session;
+    };
     let existing = sessions.get(sessionKey);
     // Dead WS or a settings mode switch: the old browser no longer matches.
+    // Tabs are kept — the relaunch below re-adopts whatever still lives.
+    let stale = null;
     if (existing?.client?.closed || (existing && options.mode && existing.mode !== options.mode)) {
-      await dropSession(existing);
+      stale = priorTabsOf(existing);
+      await dropSession(existing, true);
       existing = null;
     }
-    let session = existing || await launchSession({ ...options, profile: base, sessionKey });
+    let session = existing || await launch(stale);
     const runWith = async (s) => {
       // One tab per site in BOTH modes (see openOrReuseTab); an identical URL
       // is a no-op, so re-opening never resets a live observation.
@@ -1387,14 +1425,15 @@ export async function withSession(options = {}, fn) {
       return await runWith(session);
     } catch (e) {
       if (!existing || !DEAD_SESSION.test(e.message)) throw e;
-      await dropSession(session);
-      session = await launchSession({ ...options, profile: base, sessionKey });
+      const prior = priorTabsOf(session);
+      await dropSession(session, true);
+      session = await launch(prior);
       return runWith(session);
     }
   });
 }
 
-async function launchSession({ profile = "default", sessionKey = null, url, mode = "own", attachPort = null, headless = false }) {
+async function launchSession({ profile = "default", sessionKey = null, keyed = false, url, mode = "own", attachPort = null, headless = false }) {
   const mapKey = sessionKey || profile;
   let port;
   let child = null;
@@ -1451,7 +1490,7 @@ async function launchSession({ profile = "default", sessionKey = null, url, mode
       const pageTargets = targetInfos.filter((t) => t.type === "page");
       // Keyed sessions (per-agent tabs) are short-lived — only the shared
       // engine remembers its tab across host restarts.
-      const remembered = sessionKey ? null : readRememberedAttachTarget();
+      const remembered = keyed ? null : readRememberedAttachTarget();
       const alive = remembered && pageTargets.find((t) => t.targetId === remembered);
       if (alive) {
         targetId = alive.targetId;
@@ -1485,15 +1524,17 @@ async function launchSession({ profile = "default", sessionKey = null, url, mode
       throw e;
     }
     const session = makeSession({
-      profile, sessionKey, mode, port, child, client, sessionId: attached.sessionId, targetId, headless,
+      profile, sessionKey, keyed, mode, port, child, client, sessionId: attached.sessionId, targetId, headless,
       shared: mode !== "own" // a borrowed browser outlives every session
     });
-    if (created) session.ownsTargets.add(targetId);
+    // The resumed remembered tab is engine-created by construction — own it,
+    // or openOrReuseTab would treat the session as tab-less and twin-adopt.
+    session.ownsTargets.add(targetId);
     await session.setup();
     if (mode !== "own") {
-      // Remember and focus ONLY engine-created tabs — a resumed user tab must
-      // not be re-driven on the next host restart, nor brought to the front.
-      if (session.ownsTargets.has(targetId) && !sessionKey) {
+      // Remember and focus only the shared engine's tab — a keyed session's
+      // tab is short-lived and must not be re-driven after a host restart.
+      if (!keyed) {
         rememberAttachTarget(targetId);
         try { await client.call("Page.bringToFront", {}, attached.sessionId); } catch { /* ignore */ }
       }

@@ -657,6 +657,10 @@ const searchUrlVariants = (pattern) => {
   } catch { return []; }
 };
 const MAX_CHAIN_STEPS = 50;
+// Default line bound for an unscoped chain read: keeps N full reads inside ONE
+// chain response (under the caller-side persisted-output cap). head/tail/from
+// still override it; the summary names the cut tail so the agent can page on.
+const CHAIN_READ_DEFAULT_HEAD = 60;
 // Consecutive read-only chains per profile: exploration via one-poke-per-call
 // is the same shot burner as action ping-pong, so the second in a row gets called out.
 const readOnlyStreaks = new Map();
@@ -755,13 +759,21 @@ async function runChain(opts, steps, chainParent = null) {
             summary = `go ${String(step.url).slice(0, 40)}`;
           }
         } else if (step.op === "read") {
-          const read = await session.readSection(parent);
-          let lines = String(read.text || "").split("\n");
+          // from/len window past the page-level char cap (long-page continuation).
+          const read = await session.readSection(parent,
+            Number(step.from) > 0 ? Math.floor(Number(step.from)) : 0,
+            Number(step.len) > 0 ? Math.floor(Number(step.len)) : null);
+          const full = String(read.text || "");
+          let lines = full.split("\n");
           if (Number.isFinite(+step.head) && +step.head > 0) lines = lines.slice(0, Math.floor(+step.head));
           else if (Number.isFinite(+step.tail) && +step.tail > 0) lines = lines.slice(-Math.floor(+step.tail));
+          else if (!(Number(step.from) > 0) && lines.length > CHAIN_READ_DEFAULT_HEAD) lines = lines.slice(0, CHAIN_READ_DEFAULT_HEAD);
           const text = lines.join("\n");
+          const cut = full.length - text.length;
           results.push({ step: stepNo, op: step.op, ok: true,
-            summary: `${step.op} ${text.length} chars`, text });
+            summary: cut > 0
+              ? `${step.op} ${text.length}/${full.length} chars (+${cut} more: head/tail/from)`
+              : `${step.op} ${text.length} chars`, text });
           continue;
         } else if (step.op === "search") {
           let read = await session.readSection(parent);
