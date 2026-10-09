@@ -5,7 +5,7 @@ import {
   X, ChevronLeft, Settings, Palette, Terminal, Bell, Sparkles, Globe,
   Download, RefreshCw, LogOut, Loader2, Monitor, Type,
   Sun, Moon, Keyboard, PanelRight, ChevronRight, Zap, Image, Bot,
-  Power, Lock, PowerOff, Mic, Bug, Copy, Trash2
+  Power, Lock, PowerOff, Mic, Bug, Copy, Trash2, Link2
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -13,7 +13,6 @@ import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
-import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
 import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonIcons";
 import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
@@ -35,7 +34,7 @@ import { useVoiceStore } from "@/shared/stores/voiceStore";
 import { useLogStore } from "@/shared/stores/logStore";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
-const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Mic, Bug, Globe };
+const ICONS = { Settings, Palette, Terminal, Bell, Sparkles, Keyboard, Zap, PanelRight, Image, Bot, Monitor, Mic, Bug, Globe, Link2 };
 
 
 /**
@@ -115,6 +114,23 @@ export default function SettingsDialog({
       document.body.style.overflow = "";
     };
   }, [onClose, languageOpen, confirmShutdown]);
+
+  // One list, three pages: each toggle declares its page (`section`) and, optionally,
+  // a hint line — same shape as the artifact row.
+  const renderToggles = (section, title) => (
+    <Group title={title}>
+      {buttonToggles.buttons.filter((b) => b.section === section).map((btn) => (
+        <ToggleRow
+          key={btn.id}
+          icon={BUTTON_TOGGLE_ICONS[btn.id]}
+          label={t(btn.labelKey)}
+          hint={btn.descKey ? t(btn.descKey) : undefined}
+          value={buttonToggles.isOn(btn)}
+          onChange={() => buttonToggles.toggle(btn)}
+        />
+      ))}
+    </Group>
+  );
 
   // Actions that navigate away close the dialog first
   const run = useCallback((fn) => { vibrate(); onClose(); setTimeout(() => fn?.(), 50); }, [onClose]);
@@ -302,19 +318,7 @@ export default function SettingsDialog({
                   <ToggleRow icon={Monitor} label={t("menu.webgl")} hint={t("menu.webglHint")} value={webglEnabled} onChange={setWebglEnabled} />
                 </Group>
 
-                {BUTTON_GROUPS.map(({ group, titleKey }) => (
-                  <Group key={group} title={t(titleKey)}>
-                    {buttonToggles.buttons.filter((b) => b.group === group).map((btn) => (
-                      <ToggleRow
-                        key={btn.id}
-                        icon={BUTTON_TOGGLE_ICONS[btn.id]}
-                        label={t(btn.labelKey)}
-                        value={buttonToggles.isOn(btn)}
-                        onChange={() => buttonToggles.toggle(btn)}
-                      />
-                    ))}
-                  </Group>
-                ))}
+                {renderToggles("terminal", t("menu.showButtons"))}
               </div>
             )}
 
@@ -346,6 +350,8 @@ export default function SettingsDialog({
               </div>
             )}
 
+            {section === "remote" && renderToggles("remote")}
+
             {section === "mcp" && (
               <div className="space-y-6">
                 {artifactSupported && (<>
@@ -363,6 +369,7 @@ export default function SettingsDialog({
 
                   <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.mcpRestartHint")}</p>
                 </>)}
+                {renderToggles("plugins")}
               </div>
             )}
 

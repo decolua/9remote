@@ -1,8 +1,8 @@
 // Desktop settings dialog nav — order and labels live here, not in the component.
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 
-// Browser-use settings — released
-const BROWSER_USE_UI_ENABLED = true;
+// Browser-use settings — hidden from the nav for now
+const BROWSER_USE_UI_ENABLED = false;
 
 export const SETTINGS_CATEGORIES = [
   { id: "general", labelKey: "menu.settingsGeneral", icon: "Settings" },
@@ -15,6 +15,7 @@ export const SETTINGS_CATEGORIES = [
   { id: "background", labelKey: "menu.terminalBackground", icon: "Image" },
   { id: "voice", labelKey: "menu.settingsVoice", icon: "Mic" },
   ...(BROWSER_USE_UI_ENABLED ? [{ id: "browser", labelKey: "menu.settingsBrowser", icon: "Globe" }] : []),
+  { id: "remote", labelKey: "menu.settingsRemote", icon: "Link2" },
   { id: "mcp", labelKey: "menu.settingsMcp", icon: "Zap" },
   ...(JARVIS_ENABLED ? [{ id: "jarvis", labelKey: "menu.settingsJarvis", icon: "Bot" }] : []),
   { id: "debug", labelKey: "menu.settingsDebug", icon: "Bug" },

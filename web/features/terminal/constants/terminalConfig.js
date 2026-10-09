@@ -40,18 +40,15 @@ export const RIGHT_PANEL_WIDTH = { default: 190, min: 190, max: Infinity };
 export const EDITOR_PANEL_WIDTH = { default: 420, min: 280, max: Infinity };
 
 // Buttons user can toggle in settings; Update and Settings are excluded.
+// group = where the flag is stored (shared header array vs own pane boolean);
+// section = which settings page lists it.
 export const TOGGLEABLE_BUTTONS = [
-  { id: "remote", labelKey: "menu.remoteDesktop", group: "header" },
-  { id: "mobile", labelKey: "mobile.androidDevice", group: "header" },
-  { id: "sites", labelKey: "menu.sites", group: "header" },
-  { id: "notifications", labelKey: "menu.notificationsButton", group: "header" },
-  { id: "folder", labelKey: "menu.showFolder", group: "pane", storeKey: "showFolderButton", setterKey: "setShowFolderButton" },
-  { id: "note", labelKey: "menu.showNote", group: "pane", storeKey: "showNoteButton", setterKey: "setShowNoteButton" }
-];
-
-export const BUTTON_GROUPS = [
-  { group: "header", titleKey: "menu.headerButtons" },
-  { group: "pane", titleKey: "menu.showButtons" }
+  { id: "remote", labelKey: "menu.remoteDesktop", descKey: "menu.remoteDesktopHint", group: "header", section: "remote" },
+  { id: "sites", labelKey: "menu.sites", descKey: "menu.sitesHint", group: "header", section: "remote" },
+  { id: "mobile", labelKey: "mobile.androidDevice", descKey: "mobile.androidDeviceHint", group: "header", section: "remote" },
+  { id: "notifications", labelKey: "menu.notificationsButton", descKey: "menu.notificationsButtonHint", group: "header", section: "plugins" },
+  { id: "folder", labelKey: "menu.showFolder", group: "pane", section: "terminal", storeKey: "showFolderButton", setterKey: "setShowFolderButton" },
+  { id: "note", labelKey: "menu.showNote", group: "pane", section: "terminal", storeKey: "showNoteButton", setterKey: "setShowNoteButton" }
 ];
 
 export const MOBILE_PANEL_WIDTH = { default: 300, min: 240, max: Infinity };

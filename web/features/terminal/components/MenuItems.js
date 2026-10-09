@@ -1,10 +1,9 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star, Check, Smartphone } from "@/shared/components/ui/Icon";
+import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star, Check, Smartphone, Link2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
-import { BUTTON_GROUPS } from "@/features/terminal/constants/terminalConfig";
 import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonIcons";
 import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 
@@ -47,6 +46,31 @@ export default function MenuItems({
   const closeMenu = useSlideMenuStore((s) => s.close);
   const { connectionMode = "tunnel", hostVersion, agentVersion } = useSlideMenuStore((s) => s.context);
   const buttonToggles = useButtonToggles();
+  // Same toggle list as the desktop settings screen: each button names its page
+  // (`section`). Remote desktop is not offered on mobile.
+  const renderToggles = (section) => {
+    if (hideActions.includes("headerButtons")) return null;
+    return buttonToggles.buttons.filter((b) => b.section === section && b.id !== "remote").map((btn) => {
+      const RowIcon = BUTTON_TOGGLE_ICONS[btn.id];
+      const on = buttonToggles.isOn(btn);
+      return (
+        <button
+          key={btn.id}
+          onClick={() => { vibrate(); buttonToggles.toggle(btn); }}
+          className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+        >
+          <RowIcon className="text-text shrink-0" size={16} />
+          <div className="flex flex-col flex-1 min-w-0">
+            <span className="text-sm">{t(btn.labelKey)}</span>
+            {btn.descKey && <span className="text-xs text-text-muted">{t(btn.descKey)}</span>}
+          </div>
+          <span className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${on ? "bg-brand-500" : "bg-surface-2"}`}>
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
+          </span>
+        </button>
+      );
+    });
+  };
   const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
   const setWebglEnabled = useTerminalStore((s) => s.setWebglEnabled);
@@ -57,8 +81,8 @@ export default function MenuItems({
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
   const { theme: appMode } = useTheme();
   const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
-  const [headerMenuOpen, setHeaderMenuOpen] = useState(false);
   const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
+  const [remoteMenuOpen, setRemoteMenuOpen] = useState(false);
   const [orientationOpen, setOrientationOpen] = useState(false);
   const [reloading, setReloading] = useState(false);
   const terminalMenuRef = useRef(null);
@@ -189,50 +213,7 @@ export default function MenuItems({
         </button>
       )}
 
-      {/* Terminal settings — collapsible dropdown (font + theme + GPU render) */}
-      {/* Header buttons — the same list the desktop settings screen offers, so a
-          button hidden on one is hidden on the other. */}
-      {!hideActions.includes('headerButtons') && (
-        <div className="bg-surface rounded-brand-lg overflow-hidden">
-          <button
-            onClick={() => { vibrate(); setHeaderMenuOpen((v) => !v); }}
-            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-          >
-            <PanelRight className="text-brand-500" size={16} />
-            <span className="text-sm flex-1">{t("menu.settingsButtons")}</span>
-            <ChevronDown className={`text-text-muted transition-transform duration-200 ${headerMenuOpen ? "rotate-180" : ""}`} size={16} />
-          </button>
-          {headerMenuOpen && (
-            <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
-              {BUTTON_GROUPS.map(({ group, titleKey }) => (
-                <div key={group} className="space-y-1.5">
-                  <p className="pt-1 text-[11px] font-semibold uppercase tracking-wide text-text-muted">{t(titleKey)}</p>
-                  {buttonToggles.buttons.filter((b) => b.group === group).map((btn) => {
-                    // Hide remote desktop button from mobile right menu
-                    if (btn.id === "remote") return null;
-                    const RowIcon = BUTTON_TOGGLE_ICONS[btn.id];
-                    const on = buttonToggles.isOn(btn);
-                    return (
-                      <button
-                        key={btn.id}
-                        onClick={() => { vibrate(); buttonToggles.toggle(btn); }}
-                        className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-                      >
-                        <RowIcon className="text-text" size={16} />
-                        <span className="text-sm flex-1">{t(btn.labelKey)}</span>
-                        <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${on ? "bg-brand-500" : "bg-surface-2"}`}>
-                          <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
+      {/* Terminal settings — collapsible dropdown (font + theme + GPU render + quick buttons) */}
       {!hideActions.includes('terminalSettings') && (
         <div ref={terminalMenuRef} className="bg-surface rounded-brand-lg overflow-hidden">
           <button
@@ -288,10 +269,24 @@ export default function MenuItems({
                     ))}
                 </select>
               </div>
+              {renderToggles("terminal")}
             </div>
           )}
         </div>
       )}
+
+      {/* Remote — doors to the host's screen, Chrome and Android devices */}
+      <div className="bg-surface rounded-brand-lg overflow-hidden">
+        <button
+          onClick={() => { vibrate(); setRemoteMenuOpen((v) => !v); }}
+          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+        >
+          <Link2 className="text-brand-500" size={16} />
+          <span className="text-sm flex-1">{t("menu.settingsRemote")}</span>
+          <ChevronDown className={`text-text-muted transition-transform duration-200 ${remoteMenuOpen ? "rotate-180" : ""}`} size={16} />
+        </button>
+        {remoteMenuOpen && <div className="pl-6 pr-3 pb-1.5 space-y-1.5">{renderToggles("remote")}</div>}
+      </div>
 
       {/* Plugins — AI extras + voice endpoint. Its own section rather than a terminal
           setting: it changes what the AI can do, not how a terminal looks. */}
@@ -321,6 +316,7 @@ export default function MenuItems({
               </div>
               <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.artifactHint")}</p>
             </>)}
+            {renderToggles("plugins")}
           </div>
         )}
       </div>
