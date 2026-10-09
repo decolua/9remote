@@ -17,6 +17,8 @@
     "host:publish": "npm run host:build && cd host && npm publish",
     "host:publish:local": "npm run host:build && cd host && npm publish --registry http://localhost:4873",
     "web:dev": "npm run dev --workspace=web",
+    "dev:local": "run-p host:dev:server _dev:local:web",
+    "_dev:local:web": "NEXT_PUBLIC_DEV_HOST=1 npm run dev --workspace=web",
     "web:deploy": "npm run deploy --workspace=web",
     "web:deploy:dev": "npm run deploy:dev --workspace=web",
     "pc:dev": "run-p _host:start _pc:tauri",
