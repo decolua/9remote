@@ -22,18 +22,12 @@ export function useBrowserTabs(busRef, enabled, profile = "default", windowId = 
 
   useEffect(() => {
     const bus = busRef?.current;
-    console.log("TEMP DIAGNOSTIC useBrowserTabs effect", { enabled, windowId, profile, wsId, hasBus: !!bus?.on });
     // No window yet = this workspace owns no browser tabs: watch nothing (the
     // null-window push is unfiltered host-side and would leak every window).
     if (!enabled || windowId == null || !bus?.on) return;
     const known = new Set();
     let primed = false;
     const onTabs = (data) => {
-      console.log("TEMP DIAGNOSTIC useBrowserTabs onTabs recv", {
-        dataProfile: data?.profile, profile,
-        dataWin: data?.windowId, windowId,
-        count: data?.tabs?.length
-      });
       // Pushes are keyed by profile+window — ignore every other window's tabs.
       if (data?.profile && data.profile !== profile) return;
       const pushedWindow = data?.windowId ?? null;

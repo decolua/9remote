@@ -756,13 +756,6 @@ export function useAiSession({
         // The host replays only the tail of a long log; the rest is fetched on scroll-up.
         olderSeqRef.current = events[0]?.seq ?? 0;
         setHasOlder(Boolean(res.session.hasMore) && events.length > 0);
-        // TEMP DIAGNOSTIC — what the host's tail actually carried. hasMore false here
-        // means the pane will never offer "load older", so scroll-up is a dead end by
-        // construction. Remove with the rest of the ai-page logging.
-        termLog("ai-page", "hydrate", {
-          sessionId, replayed: events.length, hasMore: res.session.hasMore, fromSeq: events[0]?.seq ?? 0,
-          lastSeq: snapshotSeq, oldestId: null
-        });
         // An empty host log means the host has nothing for this session yet (fresh
         // one, or a legacy session created before the daemon owned state). Leave
         // whatever the client already has instead of blanking it.
@@ -869,12 +862,6 @@ export function useAiSession({
             elapsedMs: res.session.elapsedMs || 0,
             lastTurnMs: res.session.isTurnRunning ? 0 : (res.session.lastTurnMs || 0)
           });
-          // TEMP DIAGNOSTIC — the last word on the turn after the replay is in. If this
-          // says one thing and the render line says another, the replay is not the writer.
-          termLog("ai-status", "restate", {
-            sessionId, isTurnRunning: Boolean(res.session.isTurnRunning),
-            elapsedMs: res.session.elapsedMs || 0, lastTurnMs: res.session.lastTurnMs || 0
-          });
         }
         // Only a real answer stands the ladder down. A rejected ack (`rtc-closed` is how
         // the carrier reports a dead RTC) means the host was never reached, so the rung
@@ -882,12 +869,6 @@ export function useAiSession({
         // armed is armed now, or that dropped frame costs the pane its history for good.
         if (res?.ok) { setSynced(true); setHydrateFailed(false); clearHydrateRetry(); }
         else scheduleHydrateRetry();
-        // TEMP DIAGNOSTIC — the state the pane renders from. `synced:false, hydrating:false`
-        // is exactly the "Syncing… that never ends" the user sees. Remove with the rest.
-        termLog("ai-hydrate", "settled", {
-          gen, stale: gen !== hydrateSeqRef.current, ok: res?.ok ?? null,
-          hydrating: hydratingRef.current, synced: !!res?.ok
-        });
       }
     });
   }, [sessionId, engine, workspacePath, bus, setTurnRunning, scheduleHydrateRetry, clearHydrateRetry]);
@@ -1408,7 +1389,6 @@ export function useAiSession({
     // instead of prepending one log's turns onto another's.
     const logSeq = olderSeqRef.current;
     try {
-      const t0 = Date.now();
       // One tap buys a PAGE, not a frame. The loop's rules live in lib/olderPaging so a
       // test drives the real code rather than a copy of it — the copy is what let a dead
       // scroll-up pass its own reachability test.
@@ -1426,16 +1406,7 @@ export function useAiSession({
           return reduceSessionEvents(events, engine, (curr?.messages?.length || 0) + held + 1).messages;
         }
       });
-      const { messages: older, before, hasMore, answered, chunks } = result;
-      // TEMP DIAGNOSTIC — the host side of the scroll-up fetch. A null ack means nobody
-      // answered (carrier or route), success:false means the host had nothing to give.
-      // Remove once paging is confirmed end to end.
-      termLog("ai-page", "loadOlder", {
-        sessionId, before: logSeq, ms: Date.now() - t0, transport: b.transport || b.carrier || "?",
-        chunks, messages: older.length,
-        bytes: Math.round(older.reduce((n, m) => n + estimateMessageBytes(m), 0) / 1024) + "KB",
-        hasMore
-      });
+      const { messages: older, before, hasMore, answered } = result;
       // The log changed under this fetch. Its turns belong to a conversation that is no
       // longer shown — dropping them here also keeps the marks below untouched, or the
       // fetch would report progress it never made and stall the paging for good.

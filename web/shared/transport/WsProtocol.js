@@ -285,7 +285,6 @@ export class WsProtocol extends BaseProtocol {
 
     socket.onAny((event, data) => {
       this._lastMsgAt = Date.now();
-      if (event === "file-bin") console.log(`TEMP DIAGNOSTIC ws file-bin recv bytes=${data?.byteLength ?? data?.length} type=${data?.constructor?.name}`); // TEMP DIAGNOSTIC
       this._emit("message", { event, data, source: "ws" });
     });
   }

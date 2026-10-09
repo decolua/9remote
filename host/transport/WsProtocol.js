@@ -58,11 +58,6 @@ export class WsProtocol extends BaseProtocol {
     return transport.writable === false;
   }
 
-  _bufferedDebug() {
-    const sock = this._socket?.conn?.transport?.socket;
-    return typeof sock?.getBufferedAmount === "function" ? sock.getBufferedAmount() : sock?.bufferedAmount ?? "?";
-  }
-
   send(channel, payload) {
     if (!this._socket?.connected) return false;
     // Use raw emit if available to bypass transport routing wrapper
@@ -86,10 +81,7 @@ export class WsProtocol extends BaseProtocol {
     // No separate lane over WS: mobile video shares the file event, frames are
     // self-tagged and the client routes them by magic (decodeMobileFrame).
     if (channel === CHANNELS.file || channel === CHANNELS.mobile) {
-      if (this._backpressured()) {
-        logger.info(`TEMP DIAGNOSTIC ws-file REFUSED bytes=${payload?.byteLength ?? payload?.length} buffered=${this._bufferedDebug()}`); // TEMP DIAGNOSTIC
-        return false;
-      }
+      if (this._backpressured()) return false;
       emit("file-bin", payload);
       return true;
     }

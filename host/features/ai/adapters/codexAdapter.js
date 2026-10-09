@@ -577,8 +577,6 @@ export class CodexAdapter {
    * ending the turn.
    */
   interrupt() {
-    // TEMP DIAGNOSTIC (esc-stop)
-    logger.info(`[TEMP DIAGNOSTIC] codex interrupt persistent=${this.persistent} thread=${this.activeThreadId || "-"} turn=${this.appServer?.turnId || "-"} transport=${this.transport || "-"}`);
     if (this.persistent) {
       // The server's own answer, not a guess: it needs BOTH the thread and the open turn,
       // and only it knows whether a turn is really running. Returning `true` off a thread

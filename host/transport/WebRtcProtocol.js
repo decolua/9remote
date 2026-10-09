@@ -180,14 +180,8 @@ export class WebRtcProtocol extends BaseProtocol {
       try {
         const raw = Array.isArray(payload) ? payload[0] : payload;
         const chunk = Buffer.isBuffer(raw) ? raw : Buffer.from(raw);
-        const ba = this._dcFile.bufferedAmount();
-        if (ba > FILE_TRANSFER.dcBufferThreshold) {
-          logger.info(`TEMP DIAGNOSTIC rtc-file BACKPRESSURE ba=${ba} thr=${FILE_TRANSFER.dcBufferThreshold}`);
-          return false;
-        }
-        const ok = this._dcFile.sendMessageBinary(chunk);
-        logger.info(`TEMP DIAGNOSTIC rtc-file ba=${ba} bytes=${chunk.byteLength} ok=${ok} open=${this._dcFile.isOpen()}`);
-        return ok;
+        if (this._dcFile.bufferedAmount() > FILE_TRANSFER.dcBufferThreshold) return false;
+        return this._dcFile.sendMessageBinary(chunk);
       } catch (err) {
         logger.error(`send file failed: ${err.message}`);
         return false;

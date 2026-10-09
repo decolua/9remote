@@ -326,7 +326,6 @@ export class WebRtcProtocol extends BaseProtocol {
 
     dcFile.onmessage = ({ data }) => {
       this._lastInboundAt = Date.now();
-      console.log(`TEMP DIAGNOSTIC rtc dcFile recv bytes=${data?.byteLength ?? data?.size} type=${data?.constructor?.name}`); // TEMP DIAGNOSTIC
       if (data instanceof ArrayBuffer) this._emit("binary", { channel: "file", buffer: data, source: "rtc" });
     };
     dcMobile.onmessage = ({ data }) => {

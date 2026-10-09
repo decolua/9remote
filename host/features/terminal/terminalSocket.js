@@ -526,7 +526,6 @@ export function setConnectCheckHandler(fn) { onConnectCheck = fn; }
 // Per-socket terminal + remote handlers (called from the single connection handler,
 // AFTER the transport bus is ready so remote tiles never race pm.init()).
 export async function setupTerminalHandlers(socket, io, apiKey) {
-  termLogger.info(`[diag] setupTerminalHandlers START id=${socket.id} virtual=${!!socket.defersWsAdapter}`); // TEMP DIAGNOSTIC
   trackConnection();
 
   onConnectCheck?.();

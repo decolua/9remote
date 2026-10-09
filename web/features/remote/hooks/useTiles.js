@@ -127,7 +127,6 @@ export function useTiles(busRef, streaming, canvasRef, { ackEvent = "tile-ack", 
         invalidateTileHash();
       }
     }
-    if (targetId) console.log(`TEMP DIAGNOSTIC raf-flush tiles=${rafQueueRef.current.size} maxTs=${maxTs} lagMs=${maxTs ? Date.now() - maxTs : -1}`); // TEMP DIAGNOSTIC
     rafQueueRef.current.clear();
     // App-level flow control: ack the newest painted frame so the host releases
     // its window=1 slot and sends the next frame (caps hidden SCTP queue at ~1).
@@ -417,7 +416,6 @@ export function useTiles(busRef, streaming, canvasRef, { ackEvent = "tile-ack", 
     const payload = targetId
       ? { targetId, tileHashes: clientTileHashesRef.current }
       : { tileHashes: clientTileHashesRef.current };
-    if (targetId) console.log(`TEMP DIAGNOSTIC verify-send hashes=${clientTileHashesRef.current.length} filled=${clientTileHashesRef.current.filter((h) => h != null).length} rendered=${renderedTilesRef.current.size} sinceData=${timeSinceLastData}ms`); // TEMP DIAGNOSTIC
     busRef.current.emit(verifyEvent, payload);
 
     const resetTimeoutId = setTimeout(() => {

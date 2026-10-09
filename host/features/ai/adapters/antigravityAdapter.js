@@ -544,12 +544,10 @@ export class AntigravityAdapter {
 
   // Interrupt current turn by stopping process.
   interrupt() {
-    logger.info(`[TEMP DIAGNOSTIC] agy interrupt turnRunning=${this.isTurnRunning} conv=${this.activeConversationId || "-"} proc=${this.proc?.constructor?.name || "none"}`);
     if (!this.isTurnRunning) return false;
     this.isTurnRunning = false;
     Promise.resolve(this.proc?.stop())
-      .then((r) => logger.info(`[TEMP DIAGNOSTIC] agy proc.stop → ${JSON.stringify(r ?? null).slice(0, 80)}`))
-      .catch((e) => logger.warn(`[TEMP DIAGNOSTIC] agy proc.stop refused: ${e.message}`));
+      .catch((e) => logger.warn(`agy proc.stop refused: ${e.message}`));
     return true;
   }
 

@@ -124,7 +124,6 @@ function joinStream(id) {
   // flash back to a stale frame) — nudge a repaint like fresh records do so
   // a static page still ships that full frame promptly.
   nudgeRepaint(existing);
-  logger.info(`TEMP DIAGNOSTIC startStream join-live tid=${id.slice(-6)} gen=${existing.tileGen}`);
   return { targetId: id, ...existing.size, scale: existing.scale, quality: existing.quality };
 }
 
@@ -143,7 +142,6 @@ async function startStreamInternal(client, id, viewport, emit) {
   const { size, box } = snapRaster(requested, scale);
   // Quality: clamped to 85 max to keep tile batches lightweight and fast.
   const quality = Math.min(85, Math.max(50, Math.round(Number(viewport?.quality) || STREAM_QUALITY)));
-  logger.info(`TEMP DIAGNOSTIC startStream params tid=${id.slice(-6)} ${size.width}x${size.height} scale=${scale} quality=${quality} mobile=${!!size.mobile}`);
   const record = {
     client, sessionId, detach, emit, size, scale, quality,
     seq: 0, lastSentAt: 0, stopped: false,
@@ -308,7 +306,6 @@ async function sendFrameLocked(record, targetId, params, now, seq) {
   // decode nulls tileHashes and bumps tileGen — storing this frame's hashes
   // over that reset would bring partial batches right back.
   const gen = record.tileGen || 0;
-  const t0 = performance.now(); // TEMP DIAGNOSTIC
   let raw;
   try {
     raw = await decodeJpegRaw(jpeg);
@@ -339,23 +336,17 @@ async function sendFrameLocked(record, targetId, params, now, seq) {
     return false;
   }
   // Remote desktop pipeline: 100% tiles, wire-chunked under 48KB, worker-decoded.
-  const t1 = performance.now(); // TEMP DIAGNOSTIC
   const tiles = await buildTilesBatch(raw, grid, diffed.changed, hashes, record.quality);
-  const t2 = performance.now(); // TEMP DIAGNOSTIC
   const payload = { targetId, seq, image: encodeTilesBatch(tiles, now), flags: BROWSER_FLAG_TILES, meta, tiles };
   const dims = dimsIfChanged(record, targetId, raw, grid, meta);
   if (dims) payload.dims = dims;
-  logger.info(`TEMP DIAGNOSTIC frame-timing tid=${targetId.slice(-6)} seq=${seq} src=${raw.width}x${raw.height} jpeg=${jpeg.byteLength}B decode+diff=${(t1 - t0).toFixed(0)}ms encode=${(t2 - t1).toFixed(0)}ms tiles=${tiles.length}/${grid.totalTiles} bytes=${payload.image.byteLength} inFlight=${record.inFlight.size} gap=${now - (record.prevFrameAt || now)}ms`); // TEMP DIAGNOSTIC
-  record.prevFrameAt = now; // TEMP DIAGNOSTIC
   if (record.emit(payload, now) === false) {
     record.lastSentAt = now + STREAM_REFUSED_BACKOFF_MS;
-    logger.info(`TEMP DIAGNOSTIC sendFrame tiles-refused tid=${targetId.slice(-6)} seq=${seq}`);
     return false;
   }
   if (dims) record.dimsKey = dims.key;
   commitDelivered(record, tiles, hashes, gen);
   record.lastJpegHash = jpegHash;
-  logger.info(`TEMP DIAGNOSTIC sendFrame tiles tid=${targetId.slice(-6)} changed=${diffed.changed.length}/${grid.totalTiles} sent=${tiles.length}`);
   return true;
 }
 
@@ -468,7 +459,6 @@ export async function compareRecordTileHashes(record, id, clientTileHashes) {
     for (let i = 0; i < grid.totalTiles; i++) {
       if (fresh || clientTileHashes[i] !== hashes.get(i)) changedIndices.push(i);
     }
-    logger.info(`TEMP DIAGNOSTIC compare-src tid=${id.slice(-6)} src=${raw.width}x${raw.height} clientHashes=${clientTileHashes?.length ?? 0} mismatched=${changedIndices.length}/${grid.totalTiles}`); // TEMP DIAGNOSTIC
     if (!changedIndices.length) return false;
 
     const tiles = await buildTilesBatch(raw, grid, changedIndices, hashes, record.quality);
@@ -484,7 +474,6 @@ export async function compareRecordTileHashes(record, id, clientTileHashes) {
     if (record.emit(payload, now) === false) return false;
     if (dims) record.dimsKey = dims.key;
     commitDelivered(record, tiles, hashes, gen);
-    logger.info(`TEMP DIAGNOSTIC compareClientTileHashes repaired ${changedIndices.length}/${grid.totalTiles} tiles tid=${id.slice(-6)}`);
     return true;
   } catch (e) {
     logger.warn(`compareClientTileHashes failed: ${e.message}`);
@@ -496,11 +485,7 @@ export async function compareRecordTileHashes(record, id, clientTileHashes) {
 
 export function ackFrame(targetId, seq) {
   const record = streams.get(String(targetId || ""));
-  if (!record) {
-    logger.info(`TEMP DIAGNOSTIC ack-unknown-target tid=${String(targetId).slice(-6)} live=${[...streams.keys()].map((k) => k.slice(-6)).join(",")}`); // TEMP DIAGNOSTIC
-    return;
-  }
-  releaseAck(record, seq);
+  if (record) releaseAck(record, seq);
 }
 
 // One in-flight batch per tab: socket handlers for separate browser:input
