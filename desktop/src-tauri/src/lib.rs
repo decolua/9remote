@@ -490,6 +490,30 @@ fn home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| std::env::var("USERPROFILE").unwrap_or_default())
 }
 
+// Children resolve bare `node` via PATH. A Finder-launched GUI only inherits
+// /usr/bin:/bin:/usr/sbin:/sbin, so nvm/fnm/volta installs are invisible and the child
+// fails: ENOENT from a direct spawn, exit 127 from koffi's `sh -c node ...`. Put our
+// resolved node dir first. The extra bins are preserved verbatim from the inline
+// server-spawn block so its PATH stays byte-identical; the host re-adds the same list
+// itself (host/features/ai/adapters/env.js).
+fn apply_node_path(cmd: &mut std::process::Command, node: &str) {
+    if let Some(dir) = std::path::Path::new(node).parent() {
+        let existing = std::env::var("PATH").unwrap_or_default();
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        #[cfg(unix)]
+        {
+            let home = home_dir();
+            let extra = format!(
+                "{sep}{}/.local/bin{sep}/opt/homebrew/bin{sep}/usr/local/bin{sep}{}/.cargo/bin{sep}{}/.bun/bin",
+                home, home, home
+            );
+            cmd.env("PATH", format!("{}{sep}{existing}{extra}", dir.display()));
+        }
+        #[cfg(not(unix))]
+        cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
+    }
+}
+
 // Setup trail: a GUI-subsystem binary has no visible stderr on Windows, so every
 // setup decision also lands in ~/.9remote/setup.log for support to read back
 fn note(msg: &str) {
@@ -1055,6 +1079,7 @@ fn npm_install_once(
     npm.args([npm_cli, "install", "--prefix", prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    apply_node_path(&mut npm, node); // koffi's install script shells out to bare `node`
     if let Some(registry) = registry {
         npm.args(["--registry", registry]);
     }
@@ -1246,24 +1271,7 @@ fn spawn_9remote_ui(app: AppHandle) {
             .stderr(Stdio::piped())
             .stdin(Stdio::null()); // GUI apps have no usable stdin — don't let the host inherit it
 
-        // The host respawns its server as bare `node`, resolved via PATH. A Finder-launched
-        // GUI only inherits /usr/bin:/bin:/usr/sbin:/sbin, so nvm/fnm/volta installs are invisible
-        // and the child dies with ENOENT. Put our resolved node dir first.
-        if let Some(dir) = std::path::Path::new(&node).parent() {
-            let existing = std::env::var("PATH").unwrap_or_default();
-            let sep = if cfg!(windows) { ";" } else { ":" };
-            #[cfg(unix)]
-            {
-                let home = home_dir();
-                let extra = format!(
-                    "{sep}{}/.local/bin{sep}/opt/homebrew/bin{sep}/usr/local/bin{sep}{}/.cargo/bin{sep}{}/.bun/bin",
-                    home, home, home
-                );
-                cmd.env("PATH", format!("{}{sep}{existing}{extra}", dir.display()));
-            }
-            #[cfg(not(unix))]
-            cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
-        }
+        apply_node_path(&mut cmd, &node); // the host respawns its server as bare `node`
 
         // Mark the host as shell-hosted: it must never spawn its own tray icon
         // (this shell owns one). Inherited through its self-update restart.
