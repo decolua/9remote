@@ -25,7 +25,7 @@ const NODE_LTS_VERSION: &str = "v24.19.0";
 const NODE_DIST_BASE: &str = "https://nodejs.org/dist";
 // Fallback sources when nodejs.org / npmjs.org are unreachable
 const NODE_MIRROR_DIST_BASE: &str = "https://registry.npmmirror.com/-/binary/node";
-const NPM_MIRROR_REGISTRY: &str = "https://registry.npmmirror.org";
+const NPM_MIRROR_REGISTRY: &str = "https://registry.npmmirror.com";
 const NODE_DOWNLOAD_TIMEOUT_SECS: u64 = 600;
 // Two shots per source: transient AV file locks and flaky links usually clear on retry
 const NODE_DOWNLOAD_ATTEMPTS: u32 = 2;
