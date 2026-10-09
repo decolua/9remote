@@ -74,8 +74,7 @@ export async function buildTilesBatch(frame, grid, indices, hashes, quality) {
   // Second lossy generation: boost quality + keep full chroma so the tile
   // never looks softer than the Chrome jpeg it was decoded from.
   const q = Math.min(STREAM_TILE_QUALITY_MAX, (quality || 85) + STREAM_TILE_QUALITY_BOOST);
-  const tiles = [];
-  for (const i of indices) {
+  const tasks = indices.map(async (i) => {
     const { x, y, width, height } = grid.tileRect(i);
     // Extract tile rows out of the full frame into a contiguous RGBA buffer.
     const tileBuf = Buffer.allocUnsafe(width * height * 4);
@@ -85,7 +84,7 @@ export async function buildTilesBatch(frame, grid, indices, hashes, quality) {
       frame.data.copy(tileBuf, ty * rowBytes, (y + ty) * frameRowBytes + x * 4, (y + ty) * frameRowBytes + (x + width) * 4);
     }
     const imageBuffer = await encodeJpeg(tileBuf, width, height, 4, q, "rgba", STREAM_TILE_SHARP_OPTS);
-    tiles.push({ tileIndex: i, x, y, width, height, hash: hashes.get(i) >>> 0, imageBuffer });
-  }
-  return tiles;
+    return { tileIndex: i, x, y, width, height, hash: hashes.get(i) >>> 0, imageBuffer };
+  });
+  return Promise.all(tasks);
 }

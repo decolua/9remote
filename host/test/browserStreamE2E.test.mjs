@@ -1,131 +1,92 @@
-// E2E: real Chrome screencast → binary frame chunks at the transport edge.
-// Exercises the exact path the pane uses: stream.start → CDP screencastFrame →
-// handleFrame (ack window) → browserFrameChunks → sendBinary(file lane) →
+// E2E: real Chrome screencast -> tile batches at the transport edge.
+// Exercises the exact path the pane uses: stream.start -> CDP screencastFrame ->
+// handleFrame (ack window) -> tile diff/encode -> pm.sendTiles(browser lane) ->
 // client ack releases the window. The only fake is the PM at the wire edge.
 // Run: node test/browserStreamE2E.test.mjs (skips silently without Chrome)
 import assert from "node:assert/strict";
-import { EventEmitter } from "node:events";
-import { decodeBrowserFrame } from "../features/browser/browserFrame.js";
-import { closeTab, createProfile, getOrLaunchBrowser, openTab, removeProfile, resolveChromeBinary } from "../features/browser/browserEngine.js";
+import { closeTab, createProfile, openTab, removeProfile, resolveChromeBinary } from "../features/browser/browserEngine.js";
 import { setupBrowserHandlers } from "../features/browser/browserSocket.js";
-import { registerProtocol, unregisterProtocol } from "../transport/broadcast.js";
 import { CHANNELS } from "../lib/transportConstants.js";
 
 // Unique profile per run: the previous run's graceful Chrome close releases
 // its profile lock async — a reused name races the singleton forward.
 const TARGET = `e2e-stream-${Date.now().toString(36)}`;
-const sentChunks = [];
-const lanes = [];
 
-// Fake PM at the wire edge: records every binary chunk by lane.
-const fakePm = {
-  _deviceId: `${TARGET}:1`,
-  type: "ws",
-  hasReadyAdapter: () => true,
-  sendBinary: (channel, buf) => {
-    sentChunks.push(buf);
-    lanes.push(channel);
-    return true;
-  },
-  emit: () => true
-};
+// Fake PM at the wire edge: records every tile batch + control event.
+function makePm() {
+  return {
+    batches: [], controls: [],
+    emit(event, payload) { this.controls.push({ event, payload }); return true; },
+    sendTiles(payload, _encode, channel) { this.batches.push({ ...payload, channel }); return payload.tiles; }
+  };
+}
 
-// Minimal socket: setupBrowserHandlers only needs .on + handler dispatch.
-function makeSocket() {
+// Minimal socket: setupBrowserHandlers only needs .on, .id and data.protocol.
+function makeSocket(id, pm) {
   const handlers = new Map();
   return {
-    id: "sock-e2e",
+    id,
     connected: true,
+    data: { protocol: pm },
     on: (ev, fn) => handlers.set(ev, fn),
     emitClient: (ev, data, cb) => handlers.get(ev)?.(data, cb)
   };
 }
 
-function collectFrames(ms = 4000) {
-  const frames = new Map(); // seq → {got, count, parts, flags}
+// Resolves with the next batch past `from`, or null on timeout.
+function nextBatch(pm, from, ms) {
   const deadline = Date.now() + ms;
   return new Promise((resolve) => {
     const tick = setInterval(() => {
-      for (const buf of sentChunks) {
-        const dec = decodeBrowserFrame(buf);
-        if (!dec) continue;
-        let entry = frames.get(dec.seq);
-        if (!entry) { entry = { got: 0, count: dec.chunkCount, parts: [], flags: dec.flags }; frames.set(dec.seq, entry); }
-        if (entry.parts[dec.chunkIdx]) continue;
-        entry.parts[dec.chunkIdx] = dec.payload;
-        entry.got++;
-      }
-      const done = [...frames.entries()].find(([, e]) => e.got === e.count);
-      if (done || Date.now() > deadline) {
+      if (pm.batches.length > from || Date.now() > deadline) {
         clearInterval(tick);
-        resolve(done ? { seq: done[0], entry: done[1] } : null);
+        resolve(pm.batches[from] || null);
       }
     }, 50);
   });
-}
-
-function joinedPayload(entry) {
-  return Buffer.concat(entry.parts);
-}
-
-function tileCountOf(entry) {
-  const buf = joinedPayload(entry);
-  if (entry.flags !== 1) return -1;
-  return new DataView(buf.buffer, buf.byteOffset, buf.byteLength).getUint32(0, true);
 }
 
 let failed = 0;
 const tests = [];
 const test = (name, fn) => tests.push([name, fn]);
 
-test("real Chrome frames arrive as decodable binary chunks on the file lane", async () => {
+test("real Chrome frames arrive as tile batches on the browser lane, only for the watcher", async () => {
   if (!resolveChromeBinary()) return;
   await createProfile(TARGET);
-  registerProtocol(fakePm);
-  const socket = makeSocket();
+  const pm = makePm();
+  const bystander = makePm();
+  const socket = makeSocket("sock-e2e", pm);
   setupBrowserHandlers(socket);
+  setupBrowserHandlers(makeSocket("sock-bystander", bystander)); // connected, watches nothing
   try {
     const tab = await openTab(TARGET, "data:text/html,<h1 style='background:#369;color:#fff;height:100%'>stream e2e</h1>");
     const startRes = await new Promise((res) => socket.emitClient("browser:stream.start", { targetId: tab.id, width: 640, height: 480, profile: TARGET }, res));
     assert.ok(startRes?.ok, `stream.start failed: ${startRes?.error}`);
 
-    const first = await collectFrames(9000);
-    assert.ok(first, "no complete frame within 9s");
-    assert.ok(lanes.every((l) => l === CHANNELS.file), "all chunks rode the file lane");
-    // Hybrid: first frame = every tile changed → Chrome's jpeg passes through.
-    assert.equal(first.entry.flags, 0, "first frame forwards the original jpeg");
-    const jpeg = joinedPayload(first.entry);
-    assert.equal(jpeg[0], 0xff, "passthrough payload is the raw JPEG SOI");
-    assert.equal(jpeg[1], 0xd8);
+    const first = await nextBatch(pm, 0, 9000);
+    assert.ok(first, "no tile batch within 9s");
+    assert.equal(first.channel, CHANNELS.browser, "tiles ride the browser lane");
+    assert.ok(first.tiles.length > 0, "first batch carries tiles");
+    const dims = pm.controls.find((c) => c.event === "browser:screen-dimensions");
+    assert.ok(dims && dims.payload.targetId === tab.id && dims.payload.frameW > 0, "size announced before/with the first tiles");
 
-    // The ack window must release on the client ack → a next frame flows.
-    // (Small-edit granularity — one tile for a 20×20 blot — is covered
-    // deterministically by the unit tests; here we only prove the pipe.)
+    // The ack window must release on the client ack -> a next frame flows.
     // One retry: an occasional engine CDP hiccup drops the first mutation.
     let next = null;
     for (let attempt = 0; attempt < 2 && !next; attempt++) {
-      sentChunks.length = 0;
-      socket.emitClient("browser:stream.ack", { targetId: tab.id, seq: first.seq + 50 });
+      const from = pm.batches.length;
+      socket.emitClient("browser:stream.ack", { targetId: tab.id, ts: Date.now() + 60_000 });
       // Static page: a body-background change is reliable compositor damage.
       await new Promise((res) => socket.emitClient("browser:invoke", { action: "eval", payload: { targetId: tab.id, profile: TARGET, expression: `document.body.style.background='#c${3 + attempt}3'` } }, res));
-      next = await collectFrames(6000);
+      next = await nextBatch(pm, from, 6000);
     }
-    assert.ok(next, "no frame after ack — window never released");
-    assert.ok(next.seq > first.seq, `seq monotonic: ${next.seq} > ${first.seq}`);
-    // The background repaint covers most of the viewport — still ≥ the hybrid
-    // threshold only if the grid says so; assert whichever flavor arrived is
-    // well-formed: passthrough jpeg or a tile batch with tiles.
-    if (next.entry.flags === 1) {
-      assert.ok(tileCountOf(next.entry) > 0, "tile batch carries tiles");
-    } else {
-      const j2 = joinedPayload(next.entry);
-      assert.equal(j2[0], 0xff, "passthrough payload is JPEG");
-    }
+    assert.ok(next, "no frame after ack - window never released");
+    assert.ok(next.tiles.length > 0, "tile batch carries tiles");
+    assert.equal(bystander.batches.length, 0, "a client not watching the tab gets no tiles");
 
     socket.emitClient("browser:stream.stop", { targetId: tab.id });
     await closeTab(TARGET, tab.id).catch(() => {});
   } finally {
-    unregisterProtocol(fakePm);
     await removeProfile(TARGET).catch(() => {});
   }
 });

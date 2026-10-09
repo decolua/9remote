@@ -1,11 +1,11 @@
 import { createLogger } from "../../lib/logger.js";
 import { getIO } from "../../transport/server.js";
-import { activeProtocols, broadcast } from "../../transport/broadcast.js";
+import { broadcast } from "../../transport/broadcast.js";
 import { CHANNELS } from "../../lib/transportConstants.js";
-import { STREAM_FRAME_CHUNK_BYTES, TABS_POLL_MS } from "./constants.js";
-import { browserFrameChunks } from "./browserFrame.js";
+import { STREAM_RESYNC_MIN_MS, TABS_POLL_MS } from "./constants.js";
+import { encodeTilesBatch } from "../remote/handlers/ScreenHandler.js";
 import { closeTab, createProfile, enrichHistory, evalJs, focusTab, getOrLaunchBrowser, goBack, goForward, inspectElementAt, listProfiles, listTabs, navState, navigateTab, noteBrowserActivity, noteWatchedWindow, openTab, peekBrowser, peekTabs, pickElementsInRect, reloadTab, removeProfile, safeProfileName, searchHistory, setViewport, syncActiveTab } from "./browserEngine.js";
-import { ackFrame, dispatchInput, startStream, stopStream } from "./stream.js";
+import { ackFrame, compareClientTileHashes, dispatchInput, startStream, stopStream } from "./stream.js";
 import { importCookiesToSession, parseCookiesContent } from "./cookieImport.js";
 import { detectInstalledBrowsers, extractBrowserCookies } from "./browserDetect.js";
 import { setTabsPushHook } from "./browserEngine.js";
@@ -26,14 +26,27 @@ async function pushTabs(profile, windowId = null) {
     const instance = peekBrowser(profile);
     if (instance) await syncActiveTab(instance);
     let tabs = await peekTabs(profile);
-    if (windowId != null) tabs = tabs.filter((t) => t.windowId === windowId);
+    if (windowId != null) {
+      const base = tabs.filter((t) => t.windowId === windowId);
+      // A window.open popup is its OWN Chrome window — keep it in the push so
+      // the pane can float it (OAuth flows), as long as its opener lives in
+      // the watched window.
+      const ids = new Set(base.map((t) => t.id));
+      tabs = [...base, ...tabs.filter((t) => t.openerId && ids.has(t.openerId))];
+    }
     enrichHistory(tabs);
     const json = JSON.stringify(tabs);
-    if (json === lastTabsJsonByProfile.get(profile)) return;
-    lastTabsJsonByProfile.set(profile, json);
+    const dedupeKey = `${profile}|${windowId == null ? "" : windowId}`;
+    if (json === lastTabsJsonByProfile.get(dedupeKey)) return;
+    lastTabsJsonByProfile.set(dedupeKey, json);
     const io = getIO();
-    if (io) broadcast(io, "browser:tabs", { profile, windowId, tabs });
-  } catch { /* wait next poll */ }
+    if (io) {
+      logger.info(`TEMP DIAGNOSTIC broadcast browser:tabs profile=${profile} win=${windowId} count=${tabs.length}`);
+      broadcast(io, "browser:tabs", { profile, windowId, tabs });
+    }
+  } catch (err) {
+    logger.warn(`TEMP DIAGNOSTIC pushTabs error: ${err.message}`);
+  }
 }
 
 // Agent tabs ride every browser:tabs push so any profile the engine drives is
@@ -101,6 +114,9 @@ const CURSOR_EXPRESSION = `(() => {
 })()`;
 const lastCursorAt = new Map(); // targetId -> ts
 const lastCursorValue = new Map(); // targetId -> cursor
+// Resync throttle (per target): each resync mints a full frame — a spamming
+// or looping client must not turn that into a bandwidth firehose.
+const lastResyncAt = new Map();
 
 async function probeCursor(profile, targetId, x, y) {
   const id = String(targetId || "");
@@ -121,6 +137,50 @@ async function probeCursor(profile, targetId, x, y) {
   } catch { /* probe is best-effort */ }
 }
 
+// Watchers per streamed tab across ALL sockets: the stream tears down when
+// the LAST socket stops watching (a pane on another client keeps it alive).
+// A socket-id Map, not a counter — a stop racing an in-flight start can
+// neither inflate nor deflate it, so zombie records cannot pile up.
+const streamWatchers = new Map(); // targetId -> Map<socketId, socket>
+
+function watchTarget(socket, tid) {
+  let watchers = streamWatchers.get(tid);
+  if (!watchers) { watchers = new Map(); streamWatchers.set(tid, watchers); }
+  watchers.set(socket.id, socket);
+}
+
+function unwatchTarget(socketId, tid) {
+  const watchers = streamWatchers.get(tid);
+  if (!watchers) return;
+  watchers.delete(socketId);
+  if (!watchers.size) {
+    streamWatchers.delete(tid);
+    void stopStream(tid);
+  }
+}
+
+// Tiles carry no target id on the wire, so they go ONLY to clients watching
+// this tab — a phone on tab Y must never paint tab X's tiles.
+// Rides CHANNELS.browser (dcBrowser on RTC, browser:tiles-bin on WS), exactly
+// like Remote Desktop's protocol.sendTiles pipeline.
+function emitTiles(frame, frameTs = Date.now()) {
+  if (!frame) return false;
+  const tiles = frame.tiles;
+  if (!Array.isArray(tiles) || !tiles.length) return true;
+  const pms = new Set();
+  for (const socket of streamWatchers.get(frame.targetId)?.values() || []) {
+    if (socket.data?.protocol) pms.add(socket.data.protocol);
+  }
+  let sentAny = false;
+  for (const pm of pms) {
+    // Size first (control lane, ordered): tiles must never paint on a canvas of the wrong size.
+    if (frame.dims) pm.emit("browser:screen-dimensions", frame.dims);
+    const sent = pm.sendTiles({ tiles, timestamp: frameTs }, encodeTilesBatch, CHANNELS.browser);
+    if (sent?.length) sentAny = true;
+  }
+  return sentAny;
+}
+
 export function setupBrowserHandlers(socket) {
   ensureAgentPoll();
   // One watched (profile, window) per socket — the workspace the client is
@@ -139,6 +199,7 @@ export function setupBrowserHandlers(socket) {
   });
 
   socket.on("browser:tabs.watch", ({ on, profile, windowId } = {}) => {
+    logger.info(`TEMP DIAGNOSTIC socket recv browser:tabs.watch on=${on} profile=${profile} windowId=${windowId}`);
     const name = safeProfileName(profile) ? profile : "default";
     const win = Number.isFinite(Number(windowId)) && Number(windowId) > 0 ? Number(windowId) : null;
     const next = on !== false;
@@ -160,6 +221,7 @@ export function setupBrowserHandlers(socket) {
   });
 
   socket.on("browser:invoke", async ({ action, payload = {} } = {}, cb) => {
+    logger.info(`TEMP DIAGNOSTIC socket recv browser:invoke action=${action} profile=${payload.profile}`);
     const profile = payload.profile || "default";
     noteBrowserActivity(profile);
     try {
@@ -169,8 +231,11 @@ export function setupBrowserHandlers(socket) {
         case "tabs.peek":
           // Read-only: fills the strip without ever launching Chrome.
           return cb?.({ ok: true, tabs: await peekTabs(profile) });
+        case "warm":
+          // Pre-boot the profile's Chrome so the first URL skips the cold start.
+          return cb?.({ ok: true, ...(await getOrLaunchBrowser(profile).then(() => ({}), (e) => ({ error: e.message }))) });
         case "viewport":
-          return cb?.({ ok: true, ...(await setViewport(profile, payload.targetId, payload.width, payload.height)) });
+          return cb?.({ ok: true, ...(await setViewport(profile, payload.targetId, payload.width, payload.height, { mobile: !!payload.mobile, reset: !!payload.reset })) });
         case "open":
           return cb?.({ ok: true, ...(await openTab(profile, payload.url, { newWindow: !!payload.newWindow, windowId: payload.windowId || null })) });
         case "close":
@@ -252,57 +317,72 @@ export function setupBrowserHandlers(socket) {
     }
   });
 
-  socket.on("browser:stream.start", async ({ targetId, width, height, quality, profile = "default" } = {}, cb) => {
+  socket.on("browser:stream.start", async ({ targetId, width, height, quality, scale, mobile, profile = "default", isPopup = false } = {}, cb) => {
+    logger.info(`TEMP DIAGNOSTIC socket recv browser:stream.start targetId=${targetId} profile=${profile} size=${width}x${height}`);
     try {
       noteBrowserActivity(profile);
       const browser = await getOrLaunchBrowser(profile);
-      // Frames ride the ordered binary "file" lane (self-tagged chunks, like
-      // mobile video) — no base64, no JSON, RTC-preferred like remote tiles.
-      // Returns false when no ready lane took it (stream.js keeps the seq out
-      // of the ack window so a dead link cannot lock it full).
-      const emit = (frame) => {
-        // stream.js payload fields are `image`/`flags`; the codec wants `payload`/`flags`.
-        const chunks = browserFrameChunks({
-          targetId: frame.targetId, seq: frame.seq, meta: frame.meta,
-          payload: frame.image, flags: frame.flags
-        }, STREAM_FRAME_CHUNK_BYTES);
-        let sent = false;
-        for (const pm of activeProtocols()) {
-          for (const chunk of chunks) {
-            if (pm.sendBinary?.(CHANNELS.file, chunk) !== false) sent = true;
-          }
-        }
-        return sent;
-      };
       let id = String(targetId || "");
+      // Watch BEFORE the start: its first frame (an immediate capture) fires
+      // inside startStream and must already have a recipient.
+      watchTarget(socket, id);
       let res;
       try {
-        res = await startStream(browser.client, id, { width, height, quality }, emit);
+        res = await startStream(browser.client, id, { width, height, quality, scale, mobile }, emitTiles);
       } catch (e) {
         // Stale tab id (Chrome restarted / tab closed): stream the profile's
         // live tab instead — a dead-stream error leaves the pane unhealable.
-        if (!/No target/i.test(String(e?.message))) throw e;
+        if (!/No target/i.test(String(e?.message))) {
+          unwatchTarget(socket.id, id);
+          throw e;
+        }
+        unwatchTarget(socket.id, id);
         const tabs = await listTabs(profile);
         const live = tabs.find((t) => t.active) || tabs[0];
         if (!live) throw e;
         id = live.id;
-        res = await startStream(browser.client, id, { width, height, quality }, emit);
+        watchTarget(socket, id);
+        res = await startStream(browser.client, id, { width, height, quality, scale, mobile }, emitTiles);
+      }
+      // Non-popup: evict any prior tab streamed on this socket so 2 tabs never interleave.
+      if (!isPopup) {
+        for (const oldId of [...activeTargetStreams]) {
+          if (oldId !== id) {
+            activeTargetStreams.delete(oldId);
+            unwatchTarget(socket.id, oldId);
+          }
+        }
       }
       activeTargetStreams.add(id);
-      cb?.({ ok: true, ...res });
+      watchTarget(socket, id);
+      cb?.({ ok: true, ...res, targetId: id });
     } catch (e) {
       logger.error(`stream.start failed: ${e.message}`);
       cb?.({ ok: false, error: e.message });
     }
   });
 
-  socket.on("browser:stream.ack", ({ targetId, seq } = {}) => {
-    ackFrame(targetId, seq);
+  socket.on("browser:stream.ack", (payload = {}) => {
+    ackFrame(payload.targetId, payload.seq ?? payload.ts);
   });
 
   socket.on("browser:stream.stop", ({ targetId } = {}) => {
-    activeTargetStreams.delete(String(targetId || ""));
-    void stopStream(targetId);
+    const id = String(targetId || "");
+    logger.info(`TEMP DIAGNOSTIC socket recv browser:stream.stop targetId=${id.slice(-6)}`);
+    activeTargetStreams.delete(id);
+    // Teardown only when no OTHER socket still watches this tab.
+    unwatchTarget(socket.id, id);
+  });
+
+  // Remote Desktop compareClientTileHashes: client sends array of tileHashes;
+  // host diffs with current screen and sends missing/mismatched tiles.
+  socket.on("browser:request-tiles-hashes", ({ targetId, tileHashes } = {}) => {
+    const id = String(targetId || "");
+    if (!id) return;
+    const now = Date.now();
+    if (now - (lastResyncAt.get(id) || 0) < STREAM_RESYNC_MIN_MS) return;
+    lastResyncAt.set(id, now);
+    void compareClientTileHashes(id, Array.isArray(tileHashes) ? tileHashes : []);
   });
 
   socket.on("browser:input", async ({ targetId, events, profile = "default" } = {}, cb) => {
@@ -322,7 +402,7 @@ export function setupBrowserHandlers(socket) {
 
   socket.on("disconnect", () => {
     if (watchingProfile) setTabsWatching(-1, watchingProfile, watchingWindowId);
-    for (const tid of activeTargetStreams) void stopStream(tid);
+    for (const tid of activeTargetStreams) unwatchTarget(socket.id, tid);
     activeTargetStreams.clear();
   });
 }

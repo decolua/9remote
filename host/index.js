@@ -505,7 +505,10 @@ export async function startServer() {
       const io = getIO();
       if (io) { io.emit("server:shutdown"); io.close(() => logger.info("✓ Socket.IO closed")); }
       // Orphaned Chrome keeps the profile dir locked — the next boot's launch fails.
-      try { await closeAllBrowsers(); } catch { /* best-effort */ }
+      // Dev: keep Chrome alive so the next nodemon boot adopts it (tabs/state intact).
+      if (process.env.NODE_ENV !== "development") {
+        try { await closeAllBrowsers(); } catch { /* best-effort */ }
+      }
       await new Promise((r) => setTimeout(r, 500));
       clearTimeout(forceExit);
       logger.info("✅ Server stopped cleanly");

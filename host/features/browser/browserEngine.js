@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { createLogger } from "../../lib/logger.js";
 import { CdpClient, waitForDevTools } from "./cdp.js";
-import { ANTI_DETECTION_SCRIPT, headlessOverride, readUserAgentIdentity } from "./antiDetection.js";
+import { ANTI_DETECTION_SCRIPT, cacheUserAgentIdentity, headlessOverride, readUserAgentIdentity } from "./antiDetection.js";
 import {
   CHROME_CANDIDATES,
   DEFAULT_VIEWPORT,
@@ -14,7 +14,7 @@ import {
   LAUNCH_TIMEOUT_MS,
   getProfilesDir
 } from "./constants.js";
-import { hasActiveStreamFor } from "./stream.js";
+import { applyEmulation, hasActiveStreamFor } from "./stream.js";
 
 const logger = createLogger("browser");
 
@@ -191,11 +191,54 @@ export function noteBrowserActivity(profileName = "default") {
   if (instance) instance.lastActiveAt = Date.now();
 }
 
+// Chrome writes DevToolsActivePort into the user-data-dir while running: a
+// live port there means that browser already owns the profile. Returns
+// { port, client, headless } or null (stale file / unreachable / ws refused).
+async function probeProfileDevTools(profileDir) {
+  let port;
+  try {
+    port = Number(fs.readFileSync(path.join(profileDir, "DevToolsActivePort"), "utf8").split("\n")[0]);
+  } catch { return null; }
+  if (!Number.isInteger(port) || port <= 0) return null;
+  const info = await waitForDevTools(port, 1000).catch(() => null);
+  if (!info) return null;
+  const client = await CdpClient.connect(info.webSocketDebuggerUrl).catch(() => null);
+  if (!client) return null;
+  return { port, client, headless: /headless/i.test(info.Browser || "") };
+}
+
+function clearStaleProfileLock(profileDir) {
+  const lockPath = path.join(profileDir, "SingletonLock");
+  try {
+    let exists = false;
+    try {
+      exists = fs.existsSync(lockPath) || fs.lstatSync(lockPath).isSymbolicLink();
+    } catch {}
+    if (exists) {
+      let pid = null;
+      try {
+        const target = fs.readlinkSync(lockPath);
+        const match = target.match(/-(\d+)$/);
+        if (match) pid = Number(match[1]);
+      } catch {}
+      if (pid && Number.isInteger(pid) && pid > 0) {
+        try {
+          process.kill(pid, 0);
+          logger.warn(`Killing zombie Chrome (PID ${pid}) holding SingletonLock for ${profileDir}`);
+          process.kill(pid, "SIGKILL");
+        } catch {}
+      }
+      for (const name of ["SingletonLock", "SingletonCookie", "SingletonSocket", "DevToolsActivePort"]) {
+        try { fs.unlinkSync(path.join(profileDir, name)); } catch {}
+      }
+    }
+  } catch {}
+}
+
 async function launchBrowser(name, headless) {
   const bin = resolveChromeBinary();
   if (!bin) throw new Error("No Chrome/Chromium binary found on this host");
 
-  const port = await reservePort();
   const profileDir = path.join(getProfilesDir(), name);
   if (name !== "default" && !fs.existsSync(profileDir)) {
     const known = listProfiles().map((p) => p.name).join(", ");
@@ -203,7 +246,23 @@ async function launchBrowser(name, headless) {
   }
   fs.mkdirSync(profileDir, { recursive: true });
 
-  const args = [
+  // A Chrome already holding this profile (another host process, or a zombie
+  // the idle sweep missed) makes a fresh spawn hand off and exit without ever
+  // opening its port — adopt the live browser instead of fighting the lock.
+  const live = await probeProfileDevTools(profileDir);
+  let port;
+  let child = null;
+  let client;
+  let clientHeadless = !!headless;
+  if (live) {
+    port = live.port;
+    client = live.client;
+    clientHeadless = live.headless;
+    logger.info(`Reusing live Chrome on port ${port} for profile "${name}"`);
+  } else {
+    clearStaleProfileLock(profileDir);
+    port = await reservePort();
+    const args = [
     `--user-data-dir=${profileDir}`,
     `--remote-debugging-port=${port}`,
     "--no-first-run",
@@ -223,20 +282,20 @@ async function launchBrowser(name, headless) {
     "--disable-blink-features=AutomationControlled",
     // Reopen the previous tabs on relaunch after an idle close — graceful close
     // (Browser.close) flushes the session this flag restores, tabs and all.
-    "--restore-last-session"
-  ];
-  if (headless) args.push("--headless=new");
+      "--restore-last-session"
+    ];
+    if (headless) args.push("--headless=new");
 
-  const child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
-  child.on("error", (e) => logger.error(`Chrome spawn error: ${e.message}`));
+    child = spawn(bin, args, { stdio: ["ignore", "ignore", "pipe"] });
+    child.on("error", (e) => logger.error(`Chrome spawn error: ${e.message}`));
 
-  let client;
-  try {
-    const info = await waitForDevTools(port, LAUNCH_TIMEOUT_MS);
-    client = await CdpClient.connect(info.webSocketDebuggerUrl);
-  } catch (e) {
-    child.kill();
-    throw new Error(`Failed to connect to Chrome: ${e.message}`);
+    try {
+      const info = await waitForDevTools(port, LAUNCH_TIMEOUT_MS);
+      client = await CdpClient.connect(info.webSocketDebuggerUrl);
+    } catch (e) {
+      child.kill();
+      throw new Error(`Failed to connect to Chrome: ${e.message}`);
+    }
   }
 
   // Browser-wide UA identity, cached from a REAL page target: fresh about:blank
@@ -251,6 +310,8 @@ async function launchBrowser(name, headless) {
       const attached = await client.call("Target.attachToTarget", { targetId: page.targetId, flatten: true });
       const identity = await readUserAgentIdentity(client, attached.sessionId);
       void client.call("Target.detachFromTarget", { sessionId: attached.sessionId }).catch(() => {});
+      // Cache for applyEmulation's desktop restore after a mobile preset.
+      if (identity?.userAgent) cacheUserAgentIdentity(client, identity);
       return identity;
     } catch { return null; }
   })();
@@ -315,7 +376,7 @@ async function launchBrowser(name, headless) {
     client,
     sessionFor,
     activeTargetId: null,
-    headless: !!headless,
+    headless: clientHeadless, // the reused browser's real mode, not the request's
     lastActiveAt: Date.now()
   };
   // Tab lifecycle/url events count as activity — this is also what keeps an
@@ -343,7 +404,8 @@ async function launchBrowser(name, headless) {
 // a raw kill discards them and the profile loses its logins on next use.
 const CHROME_GRACEFUL_MS = 2500;
 async function gracefullyCloseChrome(instance) {
-  const exited = new Promise((resolve) => instance.child.once("exit", () => resolve(true)));
+  // An adopted (reused) browser has no child process of ours to wait on.
+  const exited = new Promise((resolve) => (instance.child ? instance.child.once("exit", () => resolve(true)) : resolve(false)));
   try { await instance.client.call("Browser.close"); } catch { /* already gone */ }
   if (await Promise.race([exited, sleep(CHROME_GRACEFUL_MS, false)])) return;
   try { instance.child.kill("SIGTERM"); } catch { /* ignore */ }
@@ -458,16 +520,18 @@ export async function peekTabs(profileName = "default") {
   } catch { return []; }
 }
 
-export async function setViewport(profileName = "default", targetId, width, height) {
+// Viewport preset switch, mobile emulation included: metrics + UA + touch move
+// together via applyEmulation, so a "Mobile" preset is a full Android identity
+// (never a narrow desktop window) and switching back restores the desktop one.
+export async function setViewport(profileName = "default", targetId, width, height, { mobile = false, reset = false } = {}) {
   const browser = await getOrLaunchBrowser(profileName);
   const sessionId = await browser.sessionFor(targetId);
-  await browser.client.call("Emulation.setDeviceMetricsOverride", {
+  await applyEmulation(browser.client, sessionId, reset ? {} : {
     width: Math.max(200, Math.min(4000, Math.round(Number(width) || 1120))),
     height: Math.max(200, Math.min(4000, Math.round(Number(height) || 780))),
-    deviceScaleFactor: 1,
-    mobile: false
-  }, sessionId);
-  return { viewport: { width, height } };
+    mobile: !!mobile
+  });
+  return { viewport: { width, height, mobile: !!mobile && !reset }, reset: !!reset };
 }
 
 export async function openTab(profileName = "default", url = "about:blank", { newWindow = false, windowId = null } = {}) {

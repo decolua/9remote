@@ -3,6 +3,8 @@
 // APIs, own-instance properties and non-native function sources are all
 // deployed detector checks. Headless=new already matches headful on plugins,
 // notifications and UA-CH brands, so the script stays minimal.
+import { BROWSER_MOBILE_EMULATION } from "./constants.js";
+
 const GPU_RENDERERS = {
   darwin: "ANGLE (Apple, ANGLE Metal Renderer: Apple M2, Unspecified Version)",
   win32: "ANGLE (Intel, Intel(R) UHD Graphics 630 Direct3D11 vs_5_0 ps_5_0, D3D11)",
@@ -72,21 +74,25 @@ export async function readUserAgentIdentity(client, sessionId) {
   } catch { return null; }
 }
 
-// setUserAgentOverride params stripping ONLY the Headless token. Hand-built
-// brand lists lack the mandatory grease brand (e.g. "Not(A:Brand") and get the
-// whole call rejected by CDP with "Invalid parameters" — copy the browser's
-// own hints instead. Null when there is nothing to strip.
-export function headlessOverride(identity) {
-  if (!identity?.userAgent || !/HeadlessChrome/i.test(identity.userAgent)) return null;
-  const params = { userAgent: stripHeadlessUa(identity.userAgent) };
-  const hints = identity.hints;
+// Browser-wide identity cache (WeakMap on the CDP client = one per launch):
+// emulation switches restore the DESKTOP identity later, when the live session
+// may already be mobile-poisoned.
+const identityByClient = new WeakMap();
+export function cacheUserAgentIdentity(client, identity) { if (identity) identityByClient.set(client, identity); }
+export function cachedUserAgentIdentity(client) { return identityByClient.get(client) || null; }
+
+// setUserAgentOverride params from the browser's OWN hints — hand-built brand
+// lists lack the mandatory grease brand (e.g. "Not(A:Brand") and get the whole
+// call rejected by CDP with "Invalid parameters".
+function overrideParams(userAgent, hints) {
+  const params = { userAgent };
   if (hints?.brands?.length) {
     const full = (hints.fullVersionList || []).find((b) => /Google Chrome/i.test(b.brand));
     params.userAgentMetadata = {
       // Older headless builds brand themselves "Headless Chromium" — retag.
       brands: hints.brands.map((b) => (/headless/i.test(b.brand) ? { ...b, brand: "Google Chrome" } : b)),
       fullVersionList: hints.fullVersionList,
-      fullVersion: full?.version || (/Chrome\/([\d.]+)/.exec(identity.userAgent) || [])[1],
+      fullVersion: full?.version || (/Chrome\/([\d.]+)/.exec(userAgent) || [])[1],
       mobile: hints.mobile,
       platform: hints.platform,
       platformVersion: hints.platformVersion,
@@ -96,4 +102,41 @@ export function headlessOverride(identity) {
     };
   }
   return params;
+}
+
+// Strips ONLY the Headless token. Null when there is nothing to strip.
+export function headlessOverride(identity) {
+  if (!identity?.userAgent || !/HeadlessChrome/i.test(identity.userAgent)) return null;
+  return overrideParams(stripHeadlessUa(identity.userAgent), identity.hints);
+}
+
+// Desktop restore for emulation switches: unlike headlessOverride it returns
+// params even without a Headless token — a session left on the mobile override
+// needs the desktop UA pushed back.
+export function identityOverride(identity) {
+  if (!identity?.userAgent) return null;
+  return overrideParams(stripHeadlessUa(identity.userAgent), identity.hints);
+}
+
+// Android emulation derived from the browser's own version/brands — Android
+// (not iOS) because the engine is real Chrome with window.chrome, which iOS
+// never shows. Keeps the true Chrome version and grease intact.
+export function mobileOverride(identity) {
+  if (!identity?.hints?.brands?.length) return null;
+  const full = (identity.hints.fullVersionList || []).find((b) => /Google Chrome/i.test(b.brand))?.version || "";
+  const androidMajor = BROWSER_MOBILE_EMULATION.platformVersion.split(".")[0];
+  return {
+    userAgent: `Mozilla/5.0 (Linux; Android ${androidMajor}; ${BROWSER_MOBILE_EMULATION.model}) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${full} Mobile Safari/537.36`,
+    userAgentMetadata: {
+      brands: identity.hints.brands,
+      fullVersionList: identity.hints.fullVersionList,
+      fullVersion: full,
+      mobile: true,
+      platform: BROWSER_MOBILE_EMULATION.platform,
+      platformVersion: BROWSER_MOBILE_EMULATION.platformVersion,
+      architecture: "",
+      bitness: "",
+      model: BROWSER_MOBILE_EMULATION.model
+    }
+  };
 }

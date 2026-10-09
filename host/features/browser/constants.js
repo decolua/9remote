@@ -3,7 +3,8 @@ import os from "node:os";
 
 export const DEFAULT_VIEWPORT = { width: 1120, height: 780 };
 export const CDP_CALL_TIMEOUT_MS = 30000;
-export const LAUNCH_TIMEOUT_MS = 15000;
+// --restore-last-session can take well past 15s when many tabs come back.
+export const LAUNCH_TIMEOUT_MS = 30000;
 
 export const STREAM_QUALITY = 85;
 export const STREAM_EVERY_NTH = 1;
@@ -15,21 +16,38 @@ export const STREAM_INPUT_BATCH_MAX = 50;
 // client paint-ack, and how long silence releases the window (lost/old client).
 export const STREAM_ACK_WINDOW = 2;
 export const STREAM_ACK_DEAD_MS = 2000;
-// Frame chunk cap for the ordered file lane — must fit the DC message size.
-export const STREAM_FRAME_CHUNK_BYTES = 48 * 1024;
+// Client-triggered full resync (remote's request-screen-with-hashes, minimal):
+// host-side throttle so a spamming client cannot mint free full frames.
+export const STREAM_RESYNC_MIN_MS = 750;
+// Wire refused a frame (backpressure): pause decoding/diffing a beat instead
+// of re-encoding the same CDP frame at screencast rate.
+export const STREAM_REFUSED_BACKOFF_MS = 500;
 // Tile grid for frame diffing — matches the remote desktop pipeline (128px on
 // darwin). Tiles ride the wire in remote's encodeTilesBatch format verbatim.
 export const BROWSER_TILE_SIZE = 128;
 // Hybrid: when this share of the grid changed, re-encoding every tile costs
 // more than it saves — forward Chrome's own jpeg instead (zero re-encode).
 export const STREAM_TILE_FULL_RATIO = 0.7;
-// Tiles are a SECOND lossy generation (Chrome jpeg → tile webp): encode them
-// sharper than the source so re-compression stays visually transparent.
-export const STREAM_TILE_QUALITY_BOOST = 10;
-export const STREAM_TILE_QUALITY_MAX = 95;
-export const STREAM_TILE_SHARP_OPTS = { chromaSubsampling: "4:4:4" };
+// Tiles are re-compressed from decoded screencast frames.
+export const STREAM_TILE_QUALITY_BOOST = 0;
+export const STREAM_TILE_QUALITY_MAX = 85;
+export const STREAM_TILE_SHARP_OPTS = {};
 
 export const TABS_POLL_MS = 2000;
+
+// Mobile emulation (the pane's "Mobile" viewport preset): an Android device
+// profile derived from the host's real Chrome version — Android (not iOS)
+// because the engine IS Chrome with window.chrome + Chrome brands, which iOS
+// never shows.
+export const BROWSER_MOBILE_EMULATION = {
+  model: "Pixel 8",
+  platform: "Android",
+  platformVersion: "14.0.0",
+  width: 375,
+  height: 667,
+  deviceScaleFactor: 2,
+  maxTouchPoints: 5
+};
 
 // Headless RAM reclaim: an idle headless Chrome (no stream, no invoke, no tab
 // events) closes after this long; the next invoke relaunches and restores the

@@ -1,16 +1,18 @@
 import {
   KEY_DEFINITIONS,
+  BROWSER_MOBILE_EMULATION,
   BROWSER_TILE_SIZE,
   STREAM_ACK_DEAD_MS,
   STREAM_ACK_WINDOW,
   STREAM_EVERY_NTH,
+  STREAM_REFUSED_BACKOFF_MS,
   STREAM_INPUT_BATCH_MAX,
   STREAM_MAX_EDGE,
   STREAM_MIN_INTERVAL_MS,
-  STREAM_QUALITY,
-  STREAM_TILE_FULL_RATIO
+  STREAM_QUALITY
 } from "./constants.js";
-import { BROWSER_FLAG_FULL, BROWSER_FLAG_TILES } from "./browserFrame.js";
+import { cachedUserAgentIdentity, identityOverride, mobileOverride, readUserAgentIdentity } from "./antiDetection.js";
+import { BROWSER_FLAG_TILES } from "./browserFrame.js";
 import crypto from "node:crypto";
 import { buildTilesBatch, decodeJpegRaw, diffTiles, makeGrid } from "./browserTileGrid.js";
 import { encodeTilesBatch } from "../remote/handlers/ScreenHandler.js";
@@ -22,10 +24,6 @@ const streams = new Map();
 // Host-side raster density — 2× proved crisp but stuttery (encode+broadcast
 // cost); 1.2× rides the binary lane + ack-window headroom from the tile work.
 export const RENDER_SCALE = 1.2;
-// Last frame per tab, kept across stop/start so a reconnecting pane paints
-// instantly instead of staring at a black stage until the next repaint.
-const lastFrames = new Map();
-const LAST_FRAMES_MAX = 8;
 
 // Touch batch normalization — max 5 fingers, numbers clamped.
 export function cdpTouchPoints(points) {
@@ -39,37 +37,122 @@ export function clampViewport(raw = {}) {
     return Number.isFinite(n) && n > 0 ? Math.min(n, STREAM_MAX_EDGE) : fallback;
   };
   const scale = Math.min(2, Math.max(1, Number(raw.scale) || 1));
-  return { width: num(raw.width, 720), height: num(raw.height, 1280), scale };
+  return { width: num(raw.width, 720), height: num(raw.height, 1280), scale, mobile: !!raw.mobile };
+}
+
+// Chrome fits the screencast into a maxWidth×maxHeight box and rounds DOWN, so
+// a fractional raster (1284×1.25=1605, 397×1.25=496.25) flips the frame between
+// 1605 and 1604 wide — every flip reshapes the tile grid and wipes the canvas.
+// Snap the viewport so viewport×scale is an exact integer and use that as the box.
+// Desktop only: a mobile preset keeps its exact CSS size (dsf comes from the profile).
+export function snapRaster(size, scale) {
+  if (size.mobile) {
+    return { size, box: { width: Math.ceil(size.width * scale), height: Math.ceil(size.height * scale) } };
+  }
+  const step = scale === 1 ? 1 : 4; // 0.25 steps: ×4 makes the product integral
+  const width = Math.max(step, Math.floor(size.width / step) * step);
+  const height = Math.max(step, Math.floor(size.height / step) * step);
+  return { size: { ...size, width, height }, box: { width: width * scale, height: height * scale } };
 }
 
 export function frameAdmitted(lastSentAt, now, minIntervalMs = STREAM_MIN_INTERVAL_MS) {
   return now - lastSentAt >= minIntervalMs;
 }
 
-export async function startStream(client, targetId, viewport, emit) {
+// Viewport + identity emulation, ONE door shared by setViewport and stream
+// starts: metrics, UA override and touch capability must move together — a
+// mobile viewport under a desktop UA (or a stale mobile UA after switching
+// back) is exactly the fingerprint mismatch sites block on. Width/height null
+// = clear the metrics override (back to the window's own size).
+export async function applyEmulation(client, sessionId, { width = null, height = null, mobile = false, scale = 0 } = {}) {
+  if (width && height) {
+    await client.call("Emulation.setDeviceMetricsOverride", {
+      width,
+      height,
+      // Client-driven density (local links send the viewer's real DPR); 0/1 = the tuned default.
+      deviceScaleFactor: mobile ? BROWSER_MOBILE_EMULATION.deviceScaleFactor : (scale > 1 ? scale : RENDER_SCALE),
+      mobile,
+      ...(mobile ? { screenWidth: width, screenHeight: height, screenOrientation: { type: "portraitPrimary", angle: 0 } } : {})
+    }, sessionId);
+  } else {
+    await client.call("Emulation.clearDeviceMetricsOverride", {}, sessionId).catch(() => {});
+  }
+  const identity = cachedUserAgentIdentity(client) || (await readUserAgentIdentity(client, sessionId));
+  const params = mobile ? mobileOverride(identity) : identityOverride(identity);
+  // Identity is essential — let a real failure propagate (callers log it);
+  // touch capability is best-effort on older builds.
+  if (params) await client.call("Emulation.setUserAgentOverride", params, sessionId);
+  await client.call("Emulation.setTouchEmulationEnabled", {
+    enabled: mobile,
+    ...(mobile ? { maxTouchPoints: BROWSER_MOBILE_EMULATION.maxTouchPoints } : {})
+  }, sessionId).catch(() => {});
+}
+
+// Serialize stream starts per tab: two concurrent startStreams both pass the
+// existing-record check (it runs before the attach await resolves) and create
+// TWO records — the loser's onFrame listener is never removed, so two
+// screencast pipelines emit interleaved seqs and stale tiles paint over fresh
+// ones. A second start now waits for the first, then joins its record.
+const startingStreams = new Map(); // targetId -> Promise
+
+export function startStream(client, targetId, viewport, emit) {
   const id = String(targetId || "");
   if (!id) throw new Error("Missing field: targetId");
-  // Two panes (two workspaces) may stream the SAME tab. A second start used to
-  // kill the first pane's stream — with client retries that became an endless
-  // steal-war of alternating images. Share one record per tab instead.
+  const prev = startingStreams.get(id);
+  const run = (prev ? prev.catch(() => {}) : Promise.resolve())
+    .then(() => startStreamInternal(client, id, viewport, emit));
+  startingStreams.set(id, run);
+  run.finally(() => { if (startingStreams.get(id) === run) startingStreams.delete(id); })
+    .catch(() => {});
+  return run;
+}
+
+// Two panes (two workspaces) may stream the SAME tab. A second start used to
+// kill the first pane's stream — with client retries that became an endless
+// steal-war of alternating images. Share one record per tab instead.
+function joinStream(id) {
   const existing = streams.get(id);
-  if (existing && !existing.stopped) {
-    existing.refs += 1;
-    return { targetId: id, ...existing.size, quality: existing.quality };
-  }
+  if (!existing || existing.stopped) return null;
+  // The joining pane's canvas is BLANK, but the record's tile hashes describe
+  // the old pane's canvas — the next diff would emit a partial batch the
+  // newcomer paints as holes. Drop the hashes: the next CDP frame re-diffs
+  // against nothing and the hybrid rule forwards a FULL frame to every pane.
+  existing.tileHashes = null;
+  existing.dimsKey = null; // the joiner never saw the size
+  existing.tileGen = (existing.tileGen || 0) + 1;
+  // No cached-frame replay here (emit broadcasts; the old pane must not
+  // flash back to a stale frame) — nudge a repaint like fresh records do so
+  // a static page still ships that full frame promptly.
+  nudgeRepaint(existing);
+  logger.info(`TEMP DIAGNOSTIC startStream join-live tid=${id.slice(-6)} gen=${existing.tileGen}`);
+  return { targetId: id, ...existing.size, scale: existing.scale, quality: existing.quality };
+}
+
+async function startStreamInternal(client, id, viewport, emit) {
+  const joined = joinStream(id);
+  if (joined) return joined;
 
   const attached = await client.call("Target.attachToTarget", { targetId: id, flatten: true });
   const sessionId = attached.sessionId;
   const detach = () => client.call("Target.detachFromTarget", { sessionId }).catch(() => {});
 
-  const size = clampViewport(viewport);
-  // Client-driven quality (adaptive): clamped, defaulting to the constant.
-  const quality = Math.min(95, Math.max(50, Math.round(Number(viewport?.quality) || STREAM_QUALITY)));
+  const requested = clampViewport(viewport);
+  // Raster density: tuned to 1.25x max (2x quadruples tile count and saturates transport),
+  // in 0.25 steps so snapRaster can keep the raster integral.
+  const scale = Math.min(1.25, Math.max(0.75, Math.round((Number(requested.scale) || RENDER_SCALE) * 4) / 4));
+  const { size, box } = snapRaster(requested, scale);
+  // Quality: clamped to 85 max to keep tile batches lightweight and fast.
+  const quality = Math.min(85, Math.max(50, Math.round(Number(viewport?.quality) || STREAM_QUALITY)));
+  logger.info(`TEMP DIAGNOSTIC startStream params tid=${id.slice(-6)} ${size.width}x${size.height} scale=${scale} quality=${quality} mobile=${!!size.mobile}`);
   const record = {
-    client, sessionId, detach, emit, size, quality,
-    seq: 0, lastSentAt: 0, stopped: false, refs: 1,
+    client, sessionId, detach, emit, size, scale, quality,
+    seq: 0, lastSentAt: 0, stopped: false,
     inFlight: new Set(), pendingFrame: null,
-    tileHashes: null, gridW: 0, gridH: 0, lastJpegHash: null
+    tileHashes: null, gridW: 0, gridH: 0, lastJpegHash: null, tileGen: 0,
+    // tileIndex -> seq that last delivered it — lets a verify request tell
+    // "client never got this tile" (sent AFTER its last full frame) apart
+    // from "client has it via the full frame" (no hash claim needed).
+    tileSentSeq: new Map(), verifyBusy: false
   };
 
   const onFrame = (params, evSessionId) => {
@@ -107,25 +190,18 @@ export async function startStream(client, targetId, viewport, emit) {
         });
       }
     } catch { /* best-effort; the override below still pins the viewport */ }
-    // Lock the viewport to the requested size — without this Chrome keeps its
-    // own (window chrome eats ~90px) and every input coordinate lands offset.
-    // dsf MUST match the launch flag (--force-device-scale-factor=2): the
-    // override REPLACES it, and 1 here rasters at half the physical pixels —
-    // the pane then upscales = the blurry stream on a Retina host.
-    // Input stays pixel-correct: coords map through meta.deviceWidth (DIPs).
-    await client.call("Emulation.setDeviceMetricsOverride", {
-      width: size.width,
-      height: size.height,
-      deviceScaleFactor: RENDER_SCALE,
-      mobile: false
-    }, sessionId);
+    // Lock the viewport + identity emulation to the requested size — without
+    // this Chrome keeps its own (window chrome eats ~90px) and every input
+    // coordinate lands offset. Input stays pixel-correct: coords map through
+    // meta.deviceWidth (DIPs).
+    await applyEmulation(client, sessionId, { width: size.width, height: size.height, mobile: !!size.mobile, scale });
     await client.call("Page.startScreencast", {
       format: "jpeg",
       quality,
-      // 2× raster + jpeg: the sharpness came from RENDER_SCALE, png only
+      // 2× raster + jpeg: the sharpness came from the raster scale, png only
       // stalled the frame pipeline (multi-MB frames, ~1 frame/10s).
-      maxWidth: Math.round(size.width * RENDER_SCALE),
-      maxHeight: Math.round(size.height * RENDER_SCALE),
+      maxWidth: box.width,
+      maxHeight: box.height,
       everyNthFrame: STREAM_EVERY_NTH
     }, sessionId);
   } catch (e) {
@@ -133,31 +209,24 @@ export async function startStream(client, targetId, viewport, emit) {
     throw e;
   }
 
-  // Paint the cached frame immediately; a static page emits nothing until it
-  // repaints, which otherwise reads as a dead stream right after connect.
-  // BUT only when it matches the requested viewport: a cached frame from a
-  // smaller viewport (mobile preset, old stage size) would paint BLURRY and
-  // linger — the metrics override above forces a fresh repaint anyway.
-  const cached = lastFrames.get(id);
-  if (cached) {
-    // Paint instantly on rejoin — even a stale-size frame reads far better
-    // than a black stage while the resize settles. The cached seq keeps the
-    // sequence monotonic: new frames continue from it. Tile hashes reset: the
-    // next CDP frame re-diffs against a blank client → full batch.
-    record.seq = cached.seq;
-    record.inFlight.add(cached.seq);
-    record.lastSentAt = Date.now();
-    record.tileHashes = null;
-    record.gridW = 0;
-    record.gridH = 0;
-    record.emit(cached);
-  }
   // Nudge a repaint so the first LIVE frame at the requested size arrives
   // without waiting for one.
-  client.call("Input.dispatchMouseEvent", { type: "mouseMoved", x: 8, y: 8 }, sessionId)
+  nudgeRepaint(record);
+  // Guarantee CURRENT pixels on a quiet page: a static page emits no
+  // screencast damage and the cached full may predate many tile frames, so
+  // one forced capture seeds the stream and refreshes the replay cache.
+  client.call("Page.captureScreenshot", { format: "jpeg", quality }, sessionId)
+    .then((shot) => {
+      if (record.stopped || !shot?.data) return;
+      return sendFrame(record, id, {
+        data: shot.data,
+        metadata: { deviceWidth: size.width, deviceHeight: size.height, scrollOffsetX: 0, scrollOffsetY: 0 },
+        sessionId: 0
+      }, Date.now());
+    })
     .catch(() => {});
 
-  return { targetId: id, ...size, quality };
+  return { targetId: id, ...size, scale, quality };
 
 }
 
@@ -186,13 +255,38 @@ function cdpAck(record, frameSessionId) {
 
 // Build + send one frame. Reserves the ack-window slot SYNCHRONOUSLY (before
 // the async decode) so two in-flight CDP frames can't both see free room.
-// Chrome's jpeg goes through the tile grid: identical pixels → nothing on the
-// wire, small edits → one tile, undecodable input → full-jpeg fallback.
+// Remote-desktop delivery contract: tileHashes is the DELIVERED baseline —
+// only tiles the wire accepted advance it (TileManager.commitHashes model);
+// refused tiles re-diff next frame. Partial batches travel as multiple
+// self-contained under-cap messages, never one chunked blob, so a slow link
+// can never strand half a frame.
 async function sendFrame(record, targetId, params, now) {
   record.seq += 1;
   const seq = record.seq;
   record.inFlight.add(seq);
+  record.inFlightTs ??= new Map();
+  record.inFlightTs.set(now, seq);
   record.lastSentAt = now;
+  // Serialize the async pipeline per record: CDP frames arrive fire-and-forget
+  // and two concurrent sendFrames interleave their wire writes at every await,
+  // emitting seq N+1 before N — the client drops out-of-order frames, so those
+  // tiles would be committed-but-never-painted holes.
+  const prevTail = record.sendTail || Promise.resolve();
+  let release;
+  record.sendTail = new Promise((r) => (release = r));
+  await prevTail.catch(() => {});
+  try {
+    if (record.stopped) {
+      record.inFlight.delete(seq);
+      return false;
+    }
+    return await sendFrameLocked(record, targetId, params, now, seq);
+  } finally {
+    release();
+  }
+}
+
+async function sendFrameLocked(record, targetId, params, now, seq) {
   const m = params.metadata || {};
   const meta = {
     deviceWidth: m.deviceWidth,
@@ -203,66 +297,98 @@ async function sendFrame(record, targetId, params, now) {
     offsetTop: m.offsetTop
   };
   const jpeg = Buffer.from(params.data, "base64");
-  // Fast path: Chrome re-emitted the exact same jpeg — identical bytes are
+  // Fast path: this exact jpeg was already DELIVERED — identical bytes are
   // identical pixels, skip the decode entirely.
   const jpegHash = crypto.hash("md5", jpeg);
   if (record.tileHashes && record.lastJpegHash === jpegHash) {
-    record.inFlight.delete(seq);
+    dropInFlight(record, seq, now);
     return false;
   }
-  record.lastJpegHash = jpegHash;
-  let image = jpeg;
-  let flags = BROWSER_FLAG_FULL;
+  // Stamp the hash generation before the async decode: a pane joining mid-
+  // decode nulls tileHashes and bumps tileGen — storing this frame's hashes
+  // over that reset would bring partial batches right back.
+  const gen = record.tileGen || 0;
+  const t0 = performance.now(); // TEMP DIAGNOSTIC
+  let raw;
   try {
-    const raw = await decodeJpegRaw(jpeg);
-    if (record.gridW !== raw.width || record.gridH !== raw.height) {
-      record.tileHashes = null;
-      record.gridW = raw.width;
-      record.gridH = raw.height;
-    }
-    const grid = makeGrid(raw.width, raw.height, BROWSER_TILE_SIZE);
-    const { changed, hashes } = diffTiles(record.tileHashes, raw, grid);
-    record.tileHashes = hashes;
-    meta.frameW = raw.width;
-    meta.frameH = raw.height;
-    if (changed.length === 0) {
-      // Nothing changed — release the slot, keep the pacing timestamp.
-      record.inFlight.delete(seq);
-      return false;
-    }
-    // Hybrid: a wholesale change (scroll, navigation, first frame) re-encodes
-    // every tile for no byte savings — forward Chrome's own jpeg instead.
-    // The tile hashes above still advance, so the next partial diff is exact.
-    if (changed.length < Math.ceil(grid.totalTiles * STREAM_TILE_FULL_RATIO)) {
-      const tiles = await buildTilesBatch(raw, grid, changed, hashes, record.quality);
-      image = encodeTilesBatch(tiles, now);
-      flags = BROWSER_FLAG_TILES;
-    }
+    raw = await decodeJpegRaw(jpeg);
   } catch (e) {
-    logger.warn(`tile pipeline failed, falling back to full jpeg: ${e.message}`);
-  }
-  const payload = { targetId, seq, image, flags, meta };
-  // Replay cache holds FULL frames only — a partial batch is useless to a
-  // pane with a blank canvas.
-  if (flags === BROWSER_FLAG_FULL || tileCount(payload) === gridTileCount(record)) {
-    if (lastFrames.size >= LAST_FRAMES_MAX) lastFrames.delete(lastFrames.keys().next().value);
-    lastFrames.set(targetId, payload);
-  }
-  if (record.emit(payload) === false) {
-    record.inFlight.delete(seq);
+    // The wire only carries tiles: drop the frame, free its slot, and let the
+    // client's hash verify repair from a fresh capture.
+    logger.warn(`sendFrame undecodable jpeg tid=${targetId.slice(-6)} seq=${seq}: ${e.message}`);
+    dropInFlight(record, seq, now);
     return false;
   }
+  if (record.gridW !== raw.width || record.gridH !== raw.height) {
+    record.tileHashes = null;
+    record.gridW = raw.width;
+    record.gridH = raw.height;
+  }
+  const grid = makeGrid(raw.width, raw.height, BROWSER_TILE_SIZE);
+  const diffed = diffTiles(record.tileHashes, raw, grid);
+  const hashes = diffed.hashes;
+  // Verify-repair reads pixels AND hashes from this very decode — a fresh
+  // captureScreenshot is a different raster and never hashes the same.
+  record.lastRaw = { raw, grid, hashes };
+  meta.frameW = raw.width;
+  meta.frameH = raw.height;
+  if (diffed.changed.length === 0) {
+    // Delivered baseline already matches — nothing to send.
+    dropInFlight(record, seq, now);
+    if ((record.tileGen || 0) === gen) record.lastJpegHash = jpegHash;
+    return false;
+  }
+  // Remote desktop pipeline: 100% tiles, wire-chunked under 48KB, worker-decoded.
+  const t1 = performance.now(); // TEMP DIAGNOSTIC
+  const tiles = await buildTilesBatch(raw, grid, diffed.changed, hashes, record.quality);
+  const t2 = performance.now(); // TEMP DIAGNOSTIC
+  const payload = { targetId, seq, image: encodeTilesBatch(tiles, now), flags: BROWSER_FLAG_TILES, meta, tiles };
+  const dims = dimsIfChanged(record, targetId, raw, grid, meta);
+  if (dims) payload.dims = dims;
+  logger.info(`TEMP DIAGNOSTIC frame-timing tid=${targetId.slice(-6)} seq=${seq} src=${raw.width}x${raw.height} jpeg=${jpeg.byteLength}B decode+diff=${(t1 - t0).toFixed(0)}ms encode=${(t2 - t1).toFixed(0)}ms tiles=${tiles.length}/${grid.totalTiles} bytes=${payload.image.byteLength} inFlight=${record.inFlight.size} gap=${now - (record.prevFrameAt || now)}ms`); // TEMP DIAGNOSTIC
+  record.prevFrameAt = now; // TEMP DIAGNOSTIC
+  if (record.emit(payload, now) === false) {
+    record.lastSentAt = now + STREAM_REFUSED_BACKOFF_MS;
+    logger.info(`TEMP DIAGNOSTIC sendFrame tiles-refused tid=${targetId.slice(-6)} seq=${seq}`);
+    return false;
+  }
+  if (dims) record.dimsKey = dims.key;
+  commitDelivered(record, tiles, hashes, gen);
+  record.lastJpegHash = jpegHash;
+  logger.info(`TEMP DIAGNOSTIC sendFrame tiles tid=${targetId.slice(-6)} changed=${diffed.changed.length}/${grid.totalTiles} sent=${tiles.length}`);
   return true;
 }
 
-function tileCount(payload) {
-  if (payload.flags !== BROWSER_FLAG_TILES) return -1;
-  return new DataView(payload.image.buffer, payload.image.byteOffset, payload.image.byteLength).getUint32(0, true);
+// A frame that sent nothing must free its window slot AND its ts index, or
+// inFlightTs grows forever on a mostly-static page.
+function dropInFlight(record, seq, ts) {
+  record.inFlight.delete(seq);
+  record.inFlightTs?.delete(ts);
 }
 
-function gridTileCount(record) {
-  if (!record.gridW || !record.gridH) return -1;
-  return Math.ceil(record.gridW / BROWSER_TILE_SIZE) * Math.ceil(record.gridH / BROWSER_TILE_SIZE);
+// Tile batches carry no frame size (remote's wire format is shared), so the
+// pane learns it from a small side message: the REAL raster size (canvas) and
+// the page's CSS viewport (input mapping). Sent only when it changes.
+function dimsIfChanged(record, targetId, raw, grid, meta) {
+  const key = `${raw.width}x${raw.height}|${meta.deviceWidth}x${meta.deviceHeight}`;
+  if (record.dimsKey === key) return null;
+  return {
+    key, targetId,
+    frameW: raw.width, frameH: raw.height,
+    deviceWidth: meta.deviceWidth, deviceHeight: meta.deviceHeight,
+    tileCount: grid.totalTiles
+  };
+}
+
+// Advance the delivered baseline for exactly the tiles the wire took —
+// remote's TileManager.commitHashes contract.
+function commitDelivered(record, tiles, hashes, gen) {
+  if (!tiles.length || (record.tileGen || 0) !== gen) return;
+  const committed = record.tileHashes ? new Map(record.tileHashes) : new Map();
+  for (const t of tiles) {
+    committed.set(t.tileIndex, hashes.get(t.tileIndex) >>> 0);
+  }
+  record.tileHashes = committed;
 }
 
 export async function handleFrame(record, targetId, params, now = Date.now()) {
@@ -283,10 +409,24 @@ export async function handleFrame(record, targetId, params, now = Date.now()) {
   await sendFrame(record, targetId, params, now);
 }
 
-// Ordered lane: acking seq covers every older frame too.
-export async function releaseAck(record, seq) {
-  for (const s of record.inFlight) {
-    if (s <= seq) record.inFlight.delete(s);
+// Ordered lane: acking seq (or timestamp from useTiles) covers every older frame too.
+export async function releaseAck(record, ackVal) {
+  if (typeof ackVal === "number" && ackVal > 1_000_000_000_000) {
+    if (record.inFlightTs) {
+      for (const [ts, s] of record.inFlightTs) {
+        if (ts <= ackVal) {
+          record.inFlight.delete(s);
+          record.inFlightTs.delete(ts);
+        }
+      }
+    }
+  } else if (typeof ackVal === "number") {
+    for (const s of record.inFlight) {
+      if (s <= ackVal) record.inFlight.delete(s);
+    }
+  } else {
+    const oldest = record.inFlight.values().next().value;
+    if (oldest != null) record.inFlight.delete(oldest);
   }
   if (record.pendingFrame && record.inFlight.size < STREAM_ACK_WINDOW) {
     const held = record.pendingFrame;
@@ -295,9 +435,72 @@ export async function releaseAck(record, seq) {
   }
 }
 
+// Force a repaint on a quiet page — Chrome only screencasts damage.
+function nudgeRepaint(record) {
+  record.client.call("Input.dispatchMouseEvent", { type: "mouseMoved", x: 8, y: 8 }, record.sessionId)
+    .catch(() => {});
+}
+
+// Client-driven verify-repair — Remote Desktop's compareClientTileHashes contract:
+// the client periodically sends the hashes of the tiles it painted; the host
+// answers with exactly the tiles that differ. The reference is the latest
+// decoded stream frame (same raster the client's hashes came from), so a
+// healthy client never mismatches and no screenshot is taken.
+export async function compareClientTileHashes(targetId, clientTileHashes) {
+  const id = String(targetId || "");
+  const record = streams.get(id);
+  if (!record || record.stopped) return false;
+  return compareRecordTileHashes(record, id, clientTileHashes);
+}
+
+export async function compareRecordTileHashes(record, id, clientTileHashes) {
+  if (record.isComparing) return false;
+  const last = record.lastRaw;
+  if (!last) return false; // no decoded frame yet — the client's next verify retries
+  const fresh = !clientTileHashes?.length;
+  // A frame still on the wire is not a lost tile, just a stale claim.
+  if (!fresh && record.inFlight.size && Date.now() - record.lastSentAt < STREAM_ACK_DEAD_MS) return false;
+  record.isComparing = true;
+  try {
+    const { raw, grid, hashes } = last;
+    const gen = record.tileGen || 0;
+    const changedIndices = [];
+    for (let i = 0; i < grid.totalTiles; i++) {
+      if (fresh || clientTileHashes[i] !== hashes.get(i)) changedIndices.push(i);
+    }
+    logger.info(`TEMP DIAGNOSTIC compare-src tid=${id.slice(-6)} src=${raw.width}x${raw.height} clientHashes=${clientTileHashes?.length ?? 0} mismatched=${changedIndices.length}/${grid.totalTiles}`); // TEMP DIAGNOSTIC
+    if (!changedIndices.length) return false;
+
+    const tiles = await buildTilesBatch(raw, grid, changedIndices, hashes, record.quality);
+    if (record.stopped) return false;
+    const now = Date.now();
+    const meta = { frameW: raw.width, frameH: raw.height, deviceWidth: record.size.width, deviceHeight: record.size.height };
+    record.seq += 1;
+    const payload = { targetId: id, seq: record.seq, image: encodeTilesBatch(tiles, now), flags: BROWSER_FLAG_TILES, meta, tiles };
+    // A client repairing with empty hashes may be a fresh pane: always re-announce the size.
+    if (fresh) record.dimsKey = null;
+    const dims = dimsIfChanged(record, id, raw, grid, meta);
+    if (dims) payload.dims = dims;
+    if (record.emit(payload, now) === false) return false;
+    if (dims) record.dimsKey = dims.key;
+    commitDelivered(record, tiles, hashes, gen);
+    logger.info(`TEMP DIAGNOSTIC compareClientTileHashes repaired ${changedIndices.length}/${grid.totalTiles} tiles tid=${id.slice(-6)}`);
+    return true;
+  } catch (e) {
+    logger.warn(`compareClientTileHashes failed: ${e.message}`);
+    return false;
+  } finally {
+    record.isComparing = false;
+  }
+}
+
 export function ackFrame(targetId, seq) {
   const record = streams.get(String(targetId || ""));
-  if (record) releaseAck(record, seq);
+  if (!record) {
+    logger.info(`TEMP DIAGNOSTIC ack-unknown-target tid=${String(targetId).slice(-6)} live=${[...streams.keys()].map((k) => k.slice(-6)).join(",")}`); // TEMP DIAGNOSTIC
+    return;
+  }
+  releaseAck(record, seq);
 }
 
 // One in-flight batch per tab: socket handlers for separate browser:input
