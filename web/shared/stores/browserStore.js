@@ -13,8 +13,8 @@ import { persist } from "zustand/middleware";
 export const useBrowserStore = create(persist((set, get) => ({
   tabsByWorkspace: {},
   activeByWorkspace: {},
-  // Engine-driven tabs across ALL profiles (agent group of the strip) —
-  // pushed by the host with every browser:tabs event, never persisted.
+  // Engine-driven (own-mode) tabs across ALL profiles — agent group of the strip,
+  // pushed by the host, never persisted.
   agentTabs: [],
   setAgentTabs: (tabs) => set({ agentTabs: Array.isArray(tabs) ? tabs : [] }),
   workspaceProfiles: {},
@@ -27,8 +27,10 @@ export const useBrowserStore = create(persist((set, get) => ({
   })),
   setProfileFor: (wsId, profile) => set((s) => ({
     workspaceProfiles: { ...s.workspaceProfiles, [wsId || "default"]: profile || "default" },
-    // A different profile means a different Chrome — the old window id is dead.
-    workspaceWindows: { ...s.workspaceWindows, [wsId || "default"]: null }
+    // A different profile means a different Chrome — the old window id and its tabs are dead.
+    workspaceWindows: { ...s.workspaceWindows, [wsId || "default"]: null },
+    tabsByWorkspace: { ...s.tabsByWorkspace, [wsId || "default"]: [] },
+    activeByWorkspace: { ...s.activeByWorkspace, [wsId || "default"]: null }
   })),
   setWindowFor: (wsId, windowId) => set((s) => ({
     workspaceWindows: { ...s.workspaceWindows, [wsId || "default"]: windowId || null }
@@ -62,9 +64,3 @@ export const useBrowserStore = create(persist((set, get) => ({
     }
   }
 }));
-
-// Engine stamps the working tab "🚀 [N] Title" in real-browser modes — the strip
-// shows the clean title (the stamp is host-side state, not user information).
-export function cleanTabTitle(title) {
-  return String(title || "").replace(/^🚀\s*\[\d+\]\s*/, "").trim();
-}

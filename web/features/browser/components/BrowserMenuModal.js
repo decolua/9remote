@@ -13,8 +13,12 @@ import {
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import BrowserModalShell from "./BrowserModalShell";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 
 import { ProfileAvatar } from "@/features/browser/lib/profileAvatar";
+
+// Host safeProfileName cap (browserEngine.js) — longer names are rejected there.
+const PROFILE_NAME_MAX = 32;
 
 export default function BrowserMenuModal({
   invoke,
@@ -57,9 +61,11 @@ export default function BrowserMenuModal({
     });
   }, [invoke]);
 
+  // Switching rebinds the whole pane — close so the new profile's pane is what the user sees.
   const handleSelectProfile = (name) => {
     vibrate();
     selectProfile(name);
+    onClose?.();
   };
 
   const handleCreateProfile = async () => {
@@ -136,35 +142,31 @@ export default function BrowserMenuModal({
     }
   };
 
-  // Import modal flow: name FIRST (e.g. 9remote_chrome), then pick the source
-  // browser profile — the created profile gets the typed name.
-  const handleImportCreate = async (family, profileDirectory, label, defaultName) => {
-    // No name-first gate: a source click imports IMMEDIATELY, defaulting the
-    // profile name from the source (chrome_Default). The input only overrides.
-    const sourceName = String(defaultName || label).replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "").slice(0, 40) || family;
-    const name = importName.trim() || sourceName;
+  // Source click imports immediately. Default name = source profile first, platform
+  // after (9remote_chrome); the input only overrides. Host caps names at 32 chars,
+  // so trim the profile part and keep the platform suffix.
+  const handleImportCreate = async (family, profileDirectory, label, sourceProfileName) => {
+    const suffix = `_${family}`;
+    const base = String(sourceProfileName).replace(/[^a-zA-Z0-9]/g, "_").replace(/_+/g, "_").replace(/^_|_$/g, "");
+    const name = importName.trim() || (base ? base.slice(0, PROFILE_NAME_MAX - suffix.length) + suffix : family);
     vibrate();
+    // Close now: the host extract + Chrome launch takes seconds, a lingering modal invites double imports.
+    setImportOpen(false);
     setImportStatus(`Importing from ${label}…`);
     const res = await invoke?.("profiles.createFromBrowser", { family, profileDirectory, name });
     if (res?.ok) {
       const listRes = await invoke?.("profiles.list");
       if (listRes?.ok) setProfiles(listRes.profiles);
-      selectProfile(res.profile || name);
-      setImportOpen(false);
       setImportStatus(null);
+      handleSelectProfile(res.profile || name);
     } else {
       setImportStatus(res?.error || "Import failed");
     }
   };
 
   const handleDeleteProfile = async (name) => {
-    if (confirmDelete !== name) {
-      setConfirmDelete(name);
-      return;
-    }
     vibrate();
     const res = await invoke?.("profiles.remove", { name });
-    setConfirmDelete(null);
     if (res?.ok) {
       if (profile === name) selectProfile("default");
       const listRes = await invoke?.("profiles.list");
@@ -176,6 +178,11 @@ export default function BrowserMenuModal({
     <>
     <BrowserModalShell wide title="Browser & Profiles" onClose={onClose}>
       <div className="flex flex-col gap-3">
+        {importStatus && !importOpen && (
+          <div className="p-2 rounded bg-brand-500/10 border border-brand-500/20 text-xs text-brand-500 font-medium">
+            {importStatus}
+          </div>
+        )}
         {/* Profiles — Chrome's people list: avatar + name, check for the active one */}
         <div className="flex flex-col gap-1">
           <span className="text-[11px] font-semibold text-text uppercase tracking-wider">Profiles</span>
@@ -193,11 +200,9 @@ export default function BrowserMenuModal({
                 {profile === p.name && <Check size={13} className="text-brand-500 shrink-0" />}
                 {p.name !== "default" && (
                   <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteProfile(p.name); }}
-                    className={`p-1 rounded shrink-0 transition-colors ${
-                      confirmDelete === p.name ? "text-red-500 opacity-100" : "text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 focus:opacity-100"
-                    } hover:bg-surface/60`}
-                    title={confirmDelete === p.name ? "Click again to delete" : "Delete profile"}
+                    onClick={(e) => { e.stopPropagation(); setConfirmDelete(p.name); }}
+                    className="p-1 rounded shrink-0 transition-colors text-text-muted hover:text-red-500 opacity-0 group-hover:opacity-100 focus:opacity-100 hover:bg-surface/60"
+                    title="Delete profile"
                   >
                     <Trash2 size={12} />
                   </button>
@@ -241,7 +246,7 @@ export default function BrowserMenuModal({
           )}
         </div>
 
-        {/* Add profile — new profile + cookies imported from an installed browser */}
+        {/* Import profile — new profile + cookies imported from an installed browser */}
         <button
           onClick={() => { setImportName(""); setImportOpen(true); }}
           className="flex items-center gap-2 px-2 py-1.5 rounded-brand text-xs text-text-muted hover:bg-surface-2 hover:text-text transition-colors -mt-1"
@@ -249,7 +254,7 @@ export default function BrowserMenuModal({
           <span className="w-5 h-5 shrink-0 rounded-full border border-dashed border-border-subtle flex items-center justify-center">
             <Plus size={11} />
           </span>
-          <span>Add profile</span>
+          <span>Import Profile</span>
         </button>
 
       </div>
@@ -259,7 +264,7 @@ export default function BrowserMenuModal({
     {importOpen && (
       <BrowserModalShell
         wide
-        title="Add profile"
+        title="Import Profile"
         onClose={() => setImportOpen(false)}
         footer={
           <div className="flex items-center gap-2">
@@ -268,7 +273,7 @@ export default function BrowserMenuModal({
               type="text"
               value={importName}
               onChange={(e) => setImportName(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && detectedBrowsers?.[0]?.profiles?.[0] && handleImportCreate(detectedBrowsers[0].family, detectedBrowsers[0].profiles[0].directory, `${detectedBrowsers[0].label} (${detectedBrowsers[0].profiles[0].name})`, `${detectedBrowsers[0].family}_${detectedBrowsers[0].profiles[0].name}`)}
+              onKeyDown={(e) => e.key === "Enter" && detectedBrowsers?.[0]?.profiles?.[0] && handleImportCreate(detectedBrowsers[0].family, detectedBrowsers[0].profiles[0].directory, `${detectedBrowsers[0].label} (${detectedBrowsers[0].profiles[0].name})`, detectedBrowsers[0].profiles[0].name)}
               placeholder="Custom profile name (optional, defaults to source)"
               className="flex-1 px-3 py-1.5 bg-surface-2 border border-border-subtle rounded-brand text-xs text-text placeholder-text-muted focus:outline-none focus:border-brand-500"
             />
@@ -293,7 +298,7 @@ export default function BrowserMenuModal({
                 {b.profiles.map((p2) => (
                   <button
                     key={p2.directory}
-                    onClick={() => handleImportCreate(b.family, p2.directory, `${b.label} (${p2.name})`, `${b.family}_${p2.name}`)}
+                    onClick={() => handleImportCreate(b.family, p2.directory, `${b.label} (${p2.name})`, p2.name)}
                     disabled={importingBrowser === `${b.family}:${p2.directory}`}
                     className="text-left px-2.5 py-1.5 rounded-brand text-xs text-text hover:bg-surface-2 disabled:opacity-40 flex items-center justify-between gap-2"
                   >
@@ -334,6 +339,15 @@ export default function BrowserMenuModal({
         </div>
       </BrowserModalShell>
     )}
+
+    <ConfirmDialog
+      isOpen={!!confirmDelete}
+      onClose={() => setConfirmDelete(null)}
+      onConfirm={() => handleDeleteProfile(confirmDelete)}
+      title="Delete profile"
+      message={`Delete profile "${confirmDelete}" and its saved logins?`}
+      confirmText="Delete"
+    />
     </>
   );
 }

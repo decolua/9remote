@@ -44,7 +44,7 @@ async function pushTabs(profile, windowId = null) {
   } catch { /* wait next poll */ }
 }
 
-// Agent tabs ride every browser:tabs push so any profile the engine drives is
+// Agent tabs ride their own broadcast so any profile the engine drives is
 // visible on every strip. Lazy import keeps the browser feature loadable
 // without browserUse.
 let agentTabsModule = null;
