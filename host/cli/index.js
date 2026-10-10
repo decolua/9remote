@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import "../lib/stdioGuard.js";
 import "../lib/loadEnv.js";
 import { getVersion } from "./session/key.js";
 import { initLogger } from "../lib/logger.js";

@@ -2,6 +2,7 @@
  * Server entry point - config-driven HTTP router + Socket.IO
  */
 
+import "./lib/stdioGuard.js";
 import { createServer, request as httpRequest } from "http";
 import { execFile, execSync, spawn } from "child_process";
 import { readFileSync, existsSync, statSync } from "fs";
