@@ -15,7 +15,11 @@ const AXIS = {
   x: { pos: "clientX", start: "left", size: "width" }
 };
 
-export function useDragReorder({ axis = "y", threshold = 12, onCommit }) {
+// onTap(id): a mouse press released on its own slot reorders nothing, so it is a tap on the
+// pressed item — however far the pointer drifted. Selecting here, not in `click`, matters:
+// WebKit sends `click` to the common ancestor when down/up land on different elements, so a
+// light trackpad press that slides onto a neighbour never reaches the item's own onClick.
+export function useDragReorder({ axis = "y", threshold = 12, onCommit, onTap }) {
   const [dragId, setDragId] = useState(null);
   const elsRef = useRef(new Map()); // item id -> element
   const movedRef = useRef(false);
@@ -61,6 +65,9 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit }) {
     movedRef.current = false;
     if (clearMovedRef.current) { clearTimeout(clearMovedRef.current); clearMovedRef.current = null; }
 
+    // Ctrl+click is a context menu on macOS; a press on a nested control belongs to that control.
+    const tapOk = !!onTap && e.pointerType === "mouse" && !e.ctrlKey
+      && !e.target?.closest?.("button, a, input, textarea, select");
     const self = boxes[fromIdx];
     const startPos = e[a.pos];
     let toIdx = fromIdx;
@@ -83,8 +90,9 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit }) {
     };
 
     const onMove = (ev) => {
+      // No button left down = the release was lost (WebKit tap-to-click); it still counts as a release.
       if (ev.pointerType === "mouse" && ev.buttons === 0) {
-        onUp();
+        finish(true, true);
         return;
       }
       const delta = ev[a.pos] - startPos;
@@ -105,7 +113,8 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit }) {
 
     // Tears the drag down. `commit` is false when the release was never seen (a newer
     // drag superseding this one), so a half-finished drag never reorders the list.
-    const finish = (commit) => {
+    // `released` is true only for a real pointerup (not blur/cancel/lost release).
+    const finish = (commit, released = false) => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", onUp);
       window.removeEventListener("pointercancel", onUp);
@@ -113,7 +122,15 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit }) {
       finishRef.current = null;
       if (frame) { cancelAnimationFrame(frame); frame = null; }
       for (const el of elsRef.current.values()) if (el) el.style.transform = "";
-      setDragId(null);
+      // A tap is selected before any state write, so the selection is not queued behind a render.
+      const tapped = commit && tapOk && released && !movedRef.current && toIdx === fromIdx;
+      if (tapped) {
+        movedRef.current = true;
+        clearMovedRef.current = setTimeout(() => { clearMovedRef.current = null; movedRef.current = false; }, 0);
+        onTap(id);
+        return;
+      }
+      if (movedRef.current) setDragId(null);
       if (!commit || !movedRef.current) return;
       // The click (if any) lands synchronously right after this — a timeout out-lives it.
       clearMovedRef.current = setTimeout(() => { clearMovedRef.current = null; movedRef.current = false; }, 0);
@@ -124,14 +141,14 @@ export function useDragReorder({ axis = "y", threshold = 12, onCommit }) {
       onCommit?.(next);
     };
 
-    const onUp = () => finish(true);
+    const onUp = (ev) => finish(true, ev?.type === "pointerup");
     finishRef.current = finish;
 
     window.addEventListener("pointermove", onMove, { passive: false });
     window.addEventListener("pointerup", onUp);
     window.addEventListener("pointercancel", onUp);
     window.addEventListener("blur", onUp);
-  }, [axis, threshold, onCommit]);
+  }, [axis, threshold, onCommit, onTap]);
 
   return { dragId, registerEl, startDrag, consumeClick };
 }

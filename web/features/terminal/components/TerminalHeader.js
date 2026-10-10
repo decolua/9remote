@@ -186,11 +186,17 @@ function TerminalHeader({
   }, [isActive, jarvisEnabled, toggleJarvis]);
   // Drag-reorder the tab strip. No grip here — the strip is too tight for one — so a
   // press only becomes a drag past the threshold; below it the tab still switches.
+  const selectTab = (sessionId) => {
+    vibrate();
+    if (hiddenPaneSessionIds.includes(sessionId)) unhidePane(sessionId);
+    onSwitchSession?.(sessionId);
+  };
   const { dragId, registerEl, startDrag, consumeClick } = useDragReorder({
     axis: "x",
     // Higher than the sidebar's: that has a grip to grab, a tab is its own handle, so a
     // twitch while clicking must still read as "switch to this tab".
     threshold: 12,
+    onTap: selectTab,
     onCommit: onReorderSession
   });
 
@@ -297,6 +303,15 @@ function TerminalHeader({
   };
   const clearTabLongPress = () => {
     if (longPressRef.current) { clearTimeout(longPressRef.current); longPressRef.current = null; }
+  };
+
+  // Same long-press contract for browser tabs — opens their menu instead.
+  const handleBrowserTabTouchStart = (e, tab) => {
+    const touch = e.touches[0];
+    longPressRef.current = setTimeout(() => {
+      vibrate();
+      setBrowserTabMenu({ targetId: tab.id, x: touch.clientX, y: touch.clientY });
+    }, 500);
   };
 
   const startTabRename = (session) => {
@@ -449,9 +464,7 @@ function TerminalHeader({
                 }}
                 onClick={() => {
                   if (consumeClick()) return;
-                  vibrate();
-                  if (isHidden) unhidePane(session.id);
-                  onSwitchSession?.(session.id);
+                  selectTab(session.id);
                 }}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
@@ -545,6 +558,9 @@ function TerminalHeader({
                   e.preventDefault();
                   setBrowserTabMenu({ targetId: tab.id, x: e.clientX, y: e.clientY });
                 }}
+                onTouchStart={(e) => handleBrowserTabTouchStart(e, tab)}
+                onTouchMove={clearTabLongPress}
+                onTouchEnd={clearTabLongPress}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" || e.key === " ") {
                     e.preventDefault();

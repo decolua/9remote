@@ -107,8 +107,10 @@ export default function HostTree({
     busTag.current.emit("getShells", (res) => setShells(res?.shells || []));
   }, [termModalWs, busTag]);
 
+  const selectRow = (sessionId) => { vibrate(); actions.selectSession?.(sessionId); };
   const { dragId, registerEl, startDrag, consumeClick } = useDragReorder({
     axis: "y",
+    onTap: selectRow,
     onCommit: (orderedIds) => actions.reorderSession?.(orderedIds)
   });
 
@@ -250,7 +252,7 @@ export default function HostTree({
                       className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
                         isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
                       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
-                      onClick={(e) => { if (consumeClick()) return; vibrate(); actions.selectSession?.(s.id); }}
+                      onClick={() => { if (consumeClick()) return; selectRow(s.id); }}
                       onPointerDown={(e) => armHold(e, s.id, sessions.map((i) => i.id))}
                       onPointerMove={moveHold}
                       onPointerUp={clearHold}
