@@ -112,3 +112,6 @@ expo/
 # CodeGraph dev tool
 codegraph.json
 .codegraph/
+
+# Static-export build mirror (scripts/buildWebStatic.mjs)
+web/.staticBuild/
