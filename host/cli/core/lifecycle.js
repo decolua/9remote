@@ -2,7 +2,7 @@ import { spawn, execSync } from "child_process";
 import path from "path";
 import fs from "fs";
 import { fileURLToPath } from "url";
-import { SERVER_PORT, RETRY_CONFIG, NODE_BIN, nodeSpawnEnv } from "../../lib/constants.js";
+import { SERVER_PORT, RETRY_CONFIG, NODE_BIN, nodeSpawnEnv, PATHS } from "../../lib/constants.js";
 import { createLogger } from "../../lib/logger.js";
 import { computeDelay } from "../utils/backoff.js";
 
@@ -58,7 +58,9 @@ export function startServerWithRestart(onReady, onServerCrash, onRestarted) {
     if (!useDevServer) delete spawnEnv.NODE_ENV;
 
     currentProcess = spawn(NODE_BIN, [serverPath], {
-      cwd: path.dirname(serverPath),
+      // Neutral cwd (#42): the install dir must stay renamable — Windows pins a
+      // process's cwd, so children inheriting dist/ block `npm i -g` with EBUSY.
+      cwd: PATHS.ROOT,
       stdio: ["ignore", "inherit", "inherit"],
       detached: false,
       windowsHide: true,
