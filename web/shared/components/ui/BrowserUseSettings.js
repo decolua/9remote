@@ -8,6 +8,7 @@ import { useBrowserUseStore } from "@/shared/stores/browserUseStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { vibrate } from "@/shared/utils/vibration";
 import { Copy, Check } from "@/shared/components/ui/Icon";
+import { useI18n } from "@/shared/i18n";
 
 export function useBrowserUseInvoke(busRef) {
   return useCallback((action, payload) => new Promise((resolve) => {
@@ -18,15 +19,40 @@ export function useBrowserUseInvoke(busRef) {
 }
 
 const ATTACH_GUIDE_URL = "chrome://inspect/#remote-debugging";
+const EXT_PAGE_URL = "chrome://extensions/";
+
+function CopyRow({ value }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    vibrate();
+    try {
+      await navigator.clipboard.writeText(value);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {}
+  };
+  return (
+    <div className="flex items-center gap-1.5 my-1">
+      <code className="flex-1 min-w-0 px-2 py-1 bg-surface-2 rounded-brand text-[11px] text-text truncate select-all">
+        {value}
+      </code>
+      <button onClick={copy} title="Copy" className="shrink-0 p-1.5 bg-surface-2 rounded-brand text-text-muted hover:text-text">
+        {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+      </button>
+    </div>
+  );
+}
 
 const EXAMPLE_PROMPTS = [
-  "Find flights from Tokyo to Paris next month and compare prices",
-  "Find today's top 3 trending AI repos on GitHub and summarize them",
-  "Open Hacker News and check today's 3 top tech stories",
-  "Log into the portal, go to Payments and download the latest PDF invoice"
+  "Use the 9r-browser skill to open my latest Shopee order and tell me where the package is",
+  "Use the 9r-browser skill to compare iPhone 17 prices across the top 3 shopping sites",
+  "Use the 9r-browser skill to log into Netflix and download my latest invoice PDF",
+  "Use the 9r-browser skill to search LinkedIn for React jobs posted this week in Ho Chi Minh City",
+  "Use the 9r-browser skill to log into Facebook and list today's new posts in my groups"
 ];
 
 function ExtensionStatus({ busRef }) {
+  const { t } = useI18n();
   const invoke = useBrowserUseInvoke(busRef);
   const [ext, setExt] = useState(null);
   useEffect(() => {
@@ -37,28 +63,24 @@ function ExtensionStatus({ busRef }) {
     return () => { alive = false; clearInterval(t); };
   }, [invoke]);
 
-  const install = async () => {
-    vibrate();
-    await invoke("ext.install", {});
-  };
-
   return (
     <div className="rounded-brand border border-border-subtle p-2.5 space-y-2">
-      <div className="flex items-center justify-between gap-2">
-        <span className={`flex items-center gap-1.5 text-xs font-medium ${ext?.connected ? "text-emerald-500" : "text-amber-500"}`}>
-          <span className={`inline-block h-1.5 w-1.5 rounded-full ${ext?.connected ? "bg-emerald-500" : "bg-amber-500"}`} />
-          {!ext ? "Checking…" : ext.ok === false ? (ext.error || "Unavailable") : ext.connected ? "Extension connected" : "Extension not connected"}
-        </span>
-        {ext?.ok && (
-          <button onClick={install} className="px-2 py-1 bg-brand-500 text-white rounded-brand text-xs">
-            {ext.installed ? "Reveal folder" : "Install"}
-          </button>
-        )}
-      </div>
+      <span className={`flex items-center gap-1.5 text-xs font-medium ${ext?.connected ? "text-emerald-500" : "text-amber-500"}`}>
+        <span className={`inline-block h-1.5 w-1.5 rounded-full ${ext?.connected ? "bg-emerald-500" : "bg-amber-500"}`} />
+        {!ext ? "Checking…" : ext.ok === false ? (ext.error || "Unavailable") : ext.connected ? "Extension connected" : "Extension not connected"}
+      </span>
       {ext?.ok && !ext.connected && (
-        <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-0.5">
-          {(ext.guide || []).map((step, i) => <li key={i}>{step}</li>)}
-        </ol>
+        <>
+          <CopyRow value={EXT_PAGE_URL} />
+          <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-0.5">
+            {["extGuide1", "extGuide2", "extGuide3"].map((key, i) => (
+              <li key={key}>
+                {t(`menu.${key}`)}
+                {i === 1 && <CopyRow value={ext.dir || "~/.9remote/browser-extension"} />}
+              </li>
+            ))}
+          </ol>
+        </>
       )}
     </div>
   );
@@ -122,9 +144,8 @@ export default function BrowserUseConfigForm({ busRef }) {
         Browser mode
         <select value={store.mode || "own"} onChange={(e) => save({ mode: e.target.value })}
           className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text">
-          <option value="own">Own browser — isolated profile (default, safe)</option>
-          <option value="attach">Real browser — attach via debug mode</option>
-          <option value="extension">Real browser — 9remote extension</option>
+          <option value="own">Own browser (default)</option>
+          <option value="extension">Real browser (extension)</option>
         </select>
       </label>
 
@@ -178,9 +199,9 @@ export default function BrowserUseConfigForm({ busRef }) {
               key={prompt}
               type="button"
               onClick={() => copyPrompt(prompt)}
-              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-surface-2/80 flex items-center justify-between gap-2 group transition-colors"
+              className="w-full text-left px-2.5 py-1.5 rounded hover:bg-surface-2/80 flex items-start justify-between gap-2 group transition-colors"
             >
-              <span className="text-[11.5px] text-text truncate font-mono">
+              <span className="text-[11.5px] text-text break-words font-mono">
                 {prompt}
               </span>
               <span className="flex-shrink-0 text-text-muted group-hover:text-text">

@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
-  "name": "9remote Browser Bridge",
-  "version": "1.1.1",
-  "description": "Lets the 9remote host drive this browser. All logic lives on the host — this is only a CDP pipe.",
-  "permissions": ["tabs", "tabGroups", "storage", "webNavigation", "scripting", "debugger"],
+  "name": "9remote Bridge",
+  "version": "1.2.0",
+  "description": "Lets the 9remote host drive this browser. All logic lives on the host — this is only a pipe.",
+  "permissions": ["tabs", "tabGroups", "storage", "webNavigation", "scripting"],
   "host_permissions": ["<all_urls>"],
   "background": { "service_worker": "background.js" },
   "action": { "default_popup": "popup.html" },

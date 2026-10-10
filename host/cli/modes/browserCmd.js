@@ -326,12 +326,6 @@ export async function cmdBrowser(args, { fromBatch = false } = {}) {
       printState(data);
       return;
     }
-    case "undbg": {
-      const data = mustOk(await call("undbg", { ...payload(), ms: Number(opts.ms) || undefined }));
-      console.log(`debugger detached ${data.ms}ms — state re-served after re-attach`);
-      if (opts.state !== false && data.state) printState(data.state); // mid-nav: stateAfter may be null
-      break;
-    }
     case "clear": {
       const data = mustOk(await call("clear", payload()));
       console.log(`cleared site data: ${data.cleared}`);
@@ -526,13 +520,9 @@ export async function cmdBrowser(args, { fromBatch = false } = {}) {
           for (const line of r.text.split("\n")) console.log(`      ${line}`);
         }
       }
-      if (data.failedStep) {
-        console.error(`chain stopped at step ${data.failedStep}`);
-        // The break state is data, not a crash — but a failing exit code lets
-        // callers (and their harnesses) tell success from repair-needed.
-        process.exitCode = 1;
-      }
-      if (data.goal) console.error(`goal "${data.goal}" — reached ${data.progress}`);
+      // Break is data, not a crash: stdout + exit 0 keeps the tool card from rendering red.
+      if (data.failedStep) console.log(`chain stopped at step ${data.failedStep}`);
+      if (data.goal) console.log(`goal "${data.goal}" — reached ${data.progress}`);
       if (data.pending?.length) console.log(`pending: ${JSON.stringify(data.pending)}`);
       if (data.note) console.log(data.note);
       printConsole(data.console);

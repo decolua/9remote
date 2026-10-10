@@ -13,19 +13,10 @@ async function render() {
   $("label").textContent = paused ? "Bridge paused" : s.connected ? "Connected" : "Reconnecting…";
   $("pauseHint").textContent = paused ? "Blocked until you turn it back on" : "Host may drive this browser";
   $("bridge").checked = !paused;
-  $("light").checked = s.light !== false;
-  $("lightHint").textContent = s.light
-    ? "Light — no debug banner"
-    : "Debugger — trusted events, shows Chrome's banner";
 }
 
 $("bridge").addEventListener("change", async (e) => {
   await ask({ t: "setPaused", paused: !e.target.checked });
-  render();
-});
-
-$("light").addEventListener("change", async (e) => {
-  await ask({ t: "setLight", light: e.target.checked });
   render();
 });
 

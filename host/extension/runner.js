@@ -260,12 +260,6 @@ if (!window.__9rRunner) {
     readyState: () => document.readyState,
     href: () => location.href,
     iframeCount: () => document.querySelectorAll('iframe').length,
-    stampTitle: (n) => {
-      const raw = document.title || '';
-      const clean = raw.replace(/^🚀\s*\[\d+\]\s*/, '').trim();
-      document.title = clean ? ('🚀 [' + n + '] ' + clean) : ('🚀 [' + n + ']');
-      return true;
-    },
     decorate: (p) => {
       const c = window.__9rFast; if (!c) return;
       const e = c.nodes.get(p.node);

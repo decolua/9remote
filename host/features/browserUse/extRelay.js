@@ -13,7 +13,7 @@ import { WebSocketServer } from "ws";
 import { getIO } from "../../transport/server.js";
 import { broadcast } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
-import { CDP_CALL_TIMEOUT_MS, EXT_GUIDE_STEPS, EXT_HEARTBEAT_MS, EXT_RELAY_PATH } from "./constants.js";
+import { CDP_CALL_TIMEOUT_MS, EXT_HEARTBEAT_MS, EXT_PAGE_URL, EXT_RELAY_PATH } from "./constants.js";
 
 const logger = createLogger("browserUse:ext");
 
@@ -138,14 +138,11 @@ export function getExtClient() {
 }
 
 // ---- status + install ----------------------------------------------------------
-// The opt-in way to kill the debug banner entirely: Chrome must be (re)started
-// with the switch — suppresses it for EVERY extension that session.
-const SILENCE_FLAG = "--silent-debugger-extension-api";
 export function extStatus() {
-  const silenceCmd = process.platform === "darwin"
-    ? `open -a "Google Chrome" --args ${SILENCE_FLAG}`
-    : SILENCE_FLAG; // win/linux: append to the Chrome shortcut target
-  return { connected: Boolean(sock), installed: fs.existsSync(installDir()), guide: EXT_GUIDE_STEPS, silenceCmd };
+  const dir = installDir();
+  // The user is told to pick this folder, so it must exist before they look.
+  if (!fs.existsSync(dir)) materializeExtension();
+  return { connected: Boolean(sock), dir };
 }
 
 function installDir() {
@@ -162,13 +159,11 @@ function templateDir() {
   throw new Error("Extension template not found in the package");
 }
 
-// Materialize the load-unpacked folder with the relay URL baked into the
-// worker (no import, no config file — no SW-module cache issues), then open the
-// extensions page and reveal the folder. Only run on the host's own machine.
-export function ensureExtensionInstall() {
+// Writes the load-unpacked folder with the relay URL baked into the worker
+// (no import, no config file — no SW-module cache issues).
+function materializeExtension() {
   const dst = installDir();
   const src = templateDir();
-  fs.mkdirSync(dst, { recursive: true });
   const url = `ws://127.0.0.1:${relayPort}${EXT_RELAY_PATH}?token=${relayToken()}`;
   // Recursive copy (icons/ is a subfolder) with the URL baked into the worker.
   const copyDir = (from, to) => {
@@ -186,13 +181,19 @@ export function ensureExtensionInstall() {
   };
   copyDir(src, dst);
   fs.rmSync(path.join(dst, "config.js"), { force: true }); // stale from older installs
+  return dst;
+}
+
+// Writes the folder, then reveals it and opens the extensions page. Only run on the host's own machine.
+export function ensureExtensionInstall() {
+  const dst = materializeExtension();
   if (process.platform === "win32") {
     spawn("explorer", [dst], { detached: true, stdio: "ignore" }).unref();
   } else if (process.platform === "darwin") {
     spawn("open", [dst], { detached: true, stdio: "ignore" }).unref();
-    spawn("open", ["-a", "Google Chrome", "chrome://extensions/"], { detached: true, stdio: "ignore" }).unref();
+    spawn("open", ["-a", "Google Chrome", EXT_PAGE_URL], { detached: true, stdio: "ignore" }).unref();
   } else {
     spawn("xdg-open", [dst], { detached: true, stdio: "ignore" }).unref();
   }
-  return { dir: dst, opened: "chrome://extensions/" };
+  return { dir: dst, opened: EXT_PAGE_URL };
 }

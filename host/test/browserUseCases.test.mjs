@@ -2,16 +2,11 @@
 // No login, no network: every page is a local fixture served in-process.
 // Run: node host/test/browserUseCases.test.mjs
 import assert from "node:assert/strict";
+import "./chromeGuard.mjs";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-
-const TEST_PROFILES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-test-usecases-"));
-process.env.NREMOTE_BROWSER_PROFILES_DIR = TEST_PROFILES_DIR;
-process.on("exit", () => {
-  try { fs.rmSync(TEST_PROFILES_DIR, { recursive: true, force: true }); } catch {}
-});
 
 let pass = 0, fail = 0;
 const onlyCases = process.env.CASES?.split(","); // CASES=7,49 — run a subset by number
@@ -1489,15 +1484,6 @@ if (!hasChrome) {
       const after = await invoke("read", { profile });
       assert.match(after.text, /EMPTY/, `marker must be gone after clear: ${after.text}`);
     } finally { delete dynamicPages["/clearme"]; }
-  });
-
-  await test("76. undbg detaches the debugger and the next op re-attaches", async () => {
-    const { invoke } = await import("../features/browserUse/browserUseSocket.js");
-    await open("/duo");
-    // Own mode has no separate debugger to drop — the op must say so clearly
-    // (the real detach flow needs the extension and is validated live).
-    await assert.rejects(() => invoke("undbg", { profile, ms: 600 }),
-      /extension-mode only/);
   });
 
   await test("77. renderTreeLines with coords includes [x,y] center points", async () => {

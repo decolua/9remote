@@ -223,36 +223,6 @@ export async function invoke(action, payload = {}) {
       return { ok: true, ...state,
         dialogs: await withSession(sessionOpts(payload), (session) => session.dialogLog) };
     }
-    case "undbg": {
-      // Drop chrome.debugger for the working tab and let the page breathe:
-      // Google GIS refuses to render its button (FedCM cooldown) while a
-      // debugger is attached — detach, wait, then serve a fresh state. The
-      // next CDP call re-attaches automatically (shim retry).
-      const opts = sessionOpts(payload);
-      if (!ALLOWED_MODES.includes("extension")) {
-        throw new Error("undbg is extension-mode only — extension mode is temporarily disabled");
-      }
-      if (opts.mode !== "extension") {
-        throw new Error("undbg is extension-mode only — in other modes the debugger IS the engine connection");
-      }
-      const ms = Math.min(60000, Math.max(500, Number(payload.ms) || 15000));
-      const url = typeof payload.url === "string" && /^https?:\/\//i.test(payload.url) ? payload.url : null;
-      const result = await withSession(opts, async (session) => {
-        // Arm a delayed navigation BEFORE detaching (if one is wanted): the
-        // page then loads while NO debugger is attached — GIS decides to render
-        // its button at load time, so a post-hoc detach changes nothing.
-        if (url) {
-          await session.client.call("Runtime.evaluate",
-            { expression: `setTimeout(() => { location.href = ${JSON.stringify(url)} }, 200)` },
-            session.sessionId);
-        }
-        await session.client.call("SHIM.Debugger.detach", { targetId: session.sessionId });
-        await new Promise((r) => setTimeout(r, ms));
-        session.lastState = null; // serve a fresh table, not the pre-detach cache
-        return { detached: true, ms, ...(url ? { url } : {}) };
-      });
-      return { ok: true, ...result, state: await stateAfter(payload) };
-    }
     case "clear": {
       // Wipe site data for one origin — resets GIS One-Tap cooldowns ("button
       // vanished") without touching the signed-in Google profile cookies.

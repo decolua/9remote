@@ -100,12 +100,9 @@ export const ATTACH_GUIDE_STEPS = [
   "Come back and Check again"
 ];
 
-// Extension bridge (mode "extension") — same engine, CDP over chrome.debugger.
+// Extension bridge (mode "extension") — same engine, driving pages through a
+// content-script runner with synthetic events (no chrome.debugger, no banner).
 export const EXT_PROFILE = "__extension__";
 export const EXT_RELAY_PATH = "/browser-relay";
 export const EXT_HEARTBEAT_MS = 15000; // keeps the MV3 service worker from idling out
-export const EXT_GUIDE_STEPS = [
-  "Click Install — the host opens Chrome's extensions page and the extension folder",
-  "Turn on Developer mode, then \"Load unpacked\" and pick that folder",
-  "The status here flips to connected once the extension loads"
-];
+export const EXT_PAGE_URL = "chrome://extensions/";

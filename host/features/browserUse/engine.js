@@ -323,7 +323,6 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       session.iframes.clear();
       await session.setup();
       session.lastState = null;
-      await session.stampTitle().catch(() => {});
       // The shared real-browser session persists its working tab so the next
       // launch (host restart included) resumes it instead of stacking a new one.
       if (!session.keyed && session.mode !== "own" && session.ownsTargets.has(targetId)) rememberAttachTarget(targetId);
@@ -335,28 +334,8 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       const idx = pages.findIndex((p) => p.targetId === target.targetId) + 1;
       await session.adopt(target.targetId);
       try { await client.call("Page.bringToFront", {}, session.sessionId); } catch { /* ignore */ }
-      await session.stampTitle().catch(() => {});
       const nowState = await session.current();
-      return { ok: true, index: idx, id: target.targetId, url: nowState.url || target.url, title: formatStampedTitle(idx, target.title) };
-    },
-
-    async stampTitle() {
-      // Own mode keeps the REAL page title — tests and agents read it as page
-      // state. Only a browser the user is watching (extension/attach) gets the
-      // 🚀 [N] marker; `tabs` renders the prefix display-only there.
-      if (session.mode === "own") return;
-      try {
-        const pages = await pageTargets(session);
-        const idx = pages.findIndex((p) => p.targetId === session.targetId);
-        if (idx >= 0) {
-          const tabNum = idx + 1;
-          await evaluate(client, session.sessionId, `(() => {
-            const raw = document.title || '';
-            const clean = raw.replace(/^🚀\\s*\\[\\d+\\]\\s*/, '').trim();
-            document.title = clean ? ('🚀 [' + ${tabNum} + '] ' + clean) : ('🚀 [' + ${tabNum} + ']');
-          })()`, { op: "stampTitle", opArgs: [tabNum] });
-        }
-      } catch { /* ignore */ }
+      return { ok: true, index: idx, id: target.targetId, url: nowState.url || target.url, title: target.title };
     },
 
     // Working tab management: reuse existing tab if targetUrl matches, navigate
@@ -366,7 +345,6 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       try {
         // An identical re-open is a no-op — never reset a live observation.
         if (!newTab && session.lastState?.url && urlsMatch(session.lastState.url, targetUrl)) {
-          await session.stampTitle().catch(() => {});
           return;
         }
         const pages = await pageTargets(session);
@@ -385,7 +363,6 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
             }
             if (other) {
               await session.adopt(other.targetId);
-              await session.stampTitle().catch(() => {});
               return;
             }
           }
@@ -393,7 +370,6 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
           if (work) {
             if (work.targetId !== session.targetId) await session.adopt(work.targetId);
             await session.navigate(targetUrl);
-            await session.stampTitle().catch(() => {});
             return;
           }
         }
@@ -414,10 +390,8 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
             await new Promise((r) => setTimeout(r, 50));
           }
         }
-        await session.stampTitle().catch(() => {});
       } catch {
         await session.navigate(targetUrl);
-        await session.stampTitle().catch(() => {});
       }
     },
 
@@ -1559,12 +1533,13 @@ async function launchSession({ profile = "default", sessionKey = null, keyed = f
   }
 }
 
-// Agent-owned tabs across every profile, for the terminal strip's agent group.
+// Own-mode agent tabs across every profile, for the terminal strip's agent group.
 // Best-effort: dead sessions skip, one getTargets per live session (2s poll).
+// Extension/attach tabs are the user's own browser — the strip never lists them.
 export async function agentTabsSnapshot() {
   const out = [];
   for (const session of [...sessions.values()]) {
-    if (!session.client || session.client.closed) continue;
+    if (session.mode !== "own" || !session.client || session.client.closed) continue;
     try {
       const { targetInfos = [] } = await session.client.call("Target.getTargets");
       for (const t of targetInfos) {
@@ -1678,17 +1653,6 @@ export function requestCancel(profile) {
   return { profile, cancelRequested: true };
 }
 
-const STAMP_RE = /^🚀\s*\[\d+\]\s*/;
-
-export function cleanStampedTitle(title) {
-  return String(title || "").replace(STAMP_RE, "").trim();
-}
-
-export function formatStampedTitle(index, rawTitle) {
-  const clean = cleanStampedTitle(rawTitle);
-  return clean ? `🚀 [${index}] ${clean}` : `🚀 [${index}]`;
-}
-
 export function syncTabOrder(session, rawTargets) {
   if (!session.tabOrder) session.tabOrder = [];
   const currentIds = new Set(rawTargets.map((t) => t.targetId));
@@ -1719,8 +1683,7 @@ export function resolveTab(pages, selector) {
     pages.find((t) => t.targetId?.toLowerCase().startsWith(lower));
   if (idHit) return idHit;
 
-  const norm = (str) => cleanStampedTitle(str).toLowerCase();
-  const match = pages.find((t) => norm(t.title).includes(lower) || t.url?.toLowerCase().includes(lower));
+  const match = pages.find((t) => t.title?.toLowerCase().includes(lower) || t.url?.toLowerCase().includes(lower));
   if (match) return match;
 
   throw new Error(`No tab matching "${selector}" (${pages.length} open)`);
@@ -1739,7 +1702,7 @@ export async function listTabs(options = {}) {
       return pages.map((t, i) => ({
         index: i + 1,
         id: t.targetId,
-        title: formatStampedTitle(i + 1, t.title),
+        title: t.title,
         url: t.url,
         active: t.targetId === session.targetId
       }));
@@ -1771,7 +1734,6 @@ export async function closeTab(options, selector = null) {
       const rest = pages.filter((p) => p.targetId !== target.targetId);
       if (rest.length) {
         await session.adopt(rest[0].targetId);
-        await session.stampTitle().catch(() => {});
       } else {
         // Last tab: tearing the map entry alone leaks the Chrome child holding
         // the user-data-dir — close the session first.
