@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useEffect } from "react";
+import { memo, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, Loader2, CheckCircle2, AlertCircle, ExternalLink, Eye } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
@@ -20,21 +20,16 @@ export const AiToolCard = memo(function AiToolCard({
   status = "done",
   children = [],
   engine = "claude",
-  workspacePath = "",
-  deferred = false
+  workspacePath = ""
 }) {
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
 
-  // History opens collapsed: an error row is auto-opened because it matters, but a
-  // screenful of them would dump every output into the DOM at once.
-  const [expanded, setExpanded] = useState(isError && !deferred);
+  // Collapsed by default, errors included — the red icon marks the row, the body
+  // is one click away.
+  const [expanded, setExpanded] = useState(false);
   const [copied, setCopied] = useState(false);
   const openEditorFile = useTerminalStore((s) => s.openEditorFile);
-
-  useEffect(() => {
-    if (isError && !deferred) setExpanded(true);
-  }, [isError, deferred]);
 
   const isCommand = Boolean(command) || typeof input !== "string" && Boolean(input?.command);
   const pathArg = typeof input === "string" ? "" : input?.file_path || input?.notebook_path || input?.path || input?.file || "";
@@ -143,10 +138,10 @@ export const AiToolCard = memo(function AiToolCard({
             <div className="text-text-muted whitespace-pre-wrap break-all leading-relaxed mb-1.5">{inputText}</div>
           )}
           {error && (
-            <div className="text-danger mb-1.5 whitespace-pre-wrap">{error}</div>
+            <div className="text-danger mb-1.5 whitespace-pre-wrap wrap-anywhere">{error}</div>
           )}
           {output ? (
-            <div className="text-text whitespace-pre-wrap leading-relaxed">
+            <div className="text-text whitespace-pre-wrap wrap-anywhere leading-relaxed">
               {typeof output === "string" ? output : JSON.stringify(output, null, 2)}
             </div>
           ) : !error ? (

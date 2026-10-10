@@ -1,6 +1,6 @@
 "use client";
 
-import { memo, useState, useEffect } from "react";
+import { memo, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, AlertCircle, Loader2, CheckCircle2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { shellIdFromResult } from "../../lib/shellId";
@@ -13,22 +13,16 @@ export const AiBashCard = memo(function AiBashCard({
   output = "",
   error = "",
   status = "done",
-  deferred = false,
   defaultExpanded = false
 }) {
   const { sessionId: paneSessionId } = useAiPaneScope();
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
-  // History opens collapsed: an error row is auto-opened because it matters, but a
-  // screenful of them would dump every output into the DOM at once. A reader that
-  // opened the card FOR its output (the task modal) says so and starts open.
-  const [expanded, setExpanded] = useState((isError && !deferred) || defaultExpanded);
+  // Collapsed by default, errors included — the red icon marks the row. A reader
+  // that opened the card FOR its output (the task modal) says so and starts open.
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const [copiedCmd, setCopiedCmd] = useState(false);
   const [copiedOut, setCopiedOut] = useState(false);
-
-  useEffect(() => {
-    if (isError && !deferred) setExpanded(true);
-  }, [isError, deferred]);
 
   const command = input?.command || "";
   const description = input?.description || "";
@@ -127,7 +121,7 @@ export const AiBashCard = memo(function AiBashCard({
           {description && (
             <div className="px-2 pt-1.5 text-[10px] text-text-muted/70 italic"># {description}</div>
           )}
-          <pre className={`p-2 whitespace-pre-wrap leading-relaxed ${isError ? "text-danger" : "text-text"}`}>
+          <pre className={`p-2 whitespace-pre-wrap wrap-anywhere leading-relaxed ${isError ? "text-danger" : "text-text"}`}>
             {content}
           </pre>
           <button
