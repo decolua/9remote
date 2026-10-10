@@ -129,7 +129,7 @@ export function onBinary(pm, msg) {
 }
 
 // Idempotent read/create requests safe to retry over WS upon RTC ack timeout.
-const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces", "bg:get", "bg:list", "ai:create", "ai:peekSeq"]);
+const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces", "bg:get", "bg:list", "ai:create", "ai:peekSeq", "aiSince"]);
 
 export function scheduleAckTimeout(pm, ackId, ctx) {
   const timer = setTimeout(() => {

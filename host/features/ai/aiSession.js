@@ -173,7 +173,14 @@ const SKIP_MESSAGE = "User skipped this request";
 
 // Snapshot seqs can repeat or run backwards; the client's scroll-up stops at the first one, so renumber on load.
 function renumber(events) {
-  return (events || []).map((ev, i) => (ev.seq === i + 1 ? ev : { ...ev, seq: i + 1 }));
+  return (events || []).map((ev, i) => {
+    if (ev.seq === i + 1) return ev;
+    const next = { ...ev, seq: i + 1 };
+    // A merged stream record's run position indexes the numbering that just ended —
+    // unknown now, so force the client's overlap check to treat it as straddling.
+    if (next._fromSeq != null) next._fromSeq = 0;
+    return next;
+  });
 }
 
 // Idempotent cap over snapshot-loaded events whose payloads predate capEvent.
@@ -207,7 +214,12 @@ function compactEvents(events) {
     const last = compacted[compacted.length - 1];
     if (last && last.event === ev.event && (ev.event === "delta" || ev.event === "thinking")) {
       last.data = { text: (last.data?.text || "") + (ev.data?.text || "") };
-      if (ev.seq) last.seq = ev.seq;
+      if (ev.seq) {
+        // The run's first seq — a client whose watermark sits inside the run already
+        // holds part of this text and must not be handed the merged record.
+        if (last.seq != null && last._fromSeq == null) last._fromSeq = last.seq;
+        last.seq = ev.seq;
+      }
     } else {
       compacted.push({ ...ev });
     }
@@ -291,6 +303,9 @@ export class AiSession {
     this._settleRestoredAsync();
     // Seeded from the log so pre-counter snapshots still continue upward.
     this.seqCounter = this.history.at(-1)?.seq || 0;
+    // Log generation — bumped on every renumber (rebuild, /clear, KV merge). Time-seeded
+    // so a host restart cannot reuse a generation a client still holds a watermark for.
+    this.logEpoch = Math.floor(Date.now() / 1000);
     // Snapshot write in flight / coalesced, so a streaming turn does not re-serialize on every delta.
     this.persisting = false;
     this.persistAgain = false;
@@ -414,6 +429,7 @@ export class AiSession {
         if (missing.length) {
           this.history = renumber(mergeCarried(missing, this.history));
           this.seqCounter = this.history.length;
+          this.logEpoch++;
         }
       }
       this._kvSaved = saved;
@@ -603,12 +619,13 @@ export class AiSession {
     // From 1, and the counter restarts — else the next live event carries the dead log's seq and is dropped.
     const log = renumber(capLog(merged));
     this.seqCounter = log.length;
+    this.logEpoch++;
     this.history = log;
     // Same window door as the hydrate ack — steps over events too wide for one frame.
     const { events: replay, hasMore, fromSeq } = replayWindow(log, AI_REPLAY_BYTES);
     // Turn state rides with the reset, matching the hydrate ack so either arrival order agrees.
     this.onEvent?.(this.id, "conversation_reset", {
-      hasMore, fromSeq,
+      hasMore, fromSeq, epoch: this.logEpoch,
       lastTurnMs: this.lastTurnMs,
       taskRecords: this.taskRecords(),
       queue: this.getQueue(),
@@ -755,7 +772,9 @@ export class AiSession {
     }
 
     // A counter, never the array length — compaction and the cap shrink the log and a length-derived seq went backwards.
-    const seq = ++this.seqCounter;
+    // Only a RECORDED event takes a number: an unrecorded one would leave a hole the
+    // client reads as a lost event and re-fetches for nothing.
+    const seq = record ? ++this.seqCounter : undefined;
     // record=false broadcasts without logging — per-connect metadata must not accumulate on every F5.
     if (record) {
       this.history.push({ seq, event: wire.event, data, timestamp: Date.now() });
@@ -764,7 +783,7 @@ export class AiSession {
     // Unrecorded events carry no seq — the client's watermark only knows recorded ones.
     // Chats have no PTY, so without this stamp the idle watchdog sees every turn as stalled from birth.
     touchOutput(this.id);
-    this.onEvent?.(this.id, wire.event, data, record ? seq : undefined);
+    this.onEvent?.(this.id, wire.event, data, seq, this.logEpoch);
     if (record) this.scheduleSaveSnapshot();
 
     // The CLI's own task-end record settles the async row and disarms its clock (keyed by tool_use_id).
@@ -1074,6 +1093,7 @@ export class AiSession {
       this.history = [];
       // Counter restarts with the new log, or its first events read as already applied.
       this.seqCounter = 0;
+      this.logEpoch++;
       // A fresh process numbers its lines from scratch.
       this.consumedLines = 0;
       this.consumedEpoch = null;
@@ -1092,7 +1112,7 @@ export class AiSession {
       const init = this.metadata();
       this.history.push({ seq: ++this.seqCounter, event: "init", data: init, timestamp: Date.now() });
       this.onEvent?.(this.id, "conversation_reset", {
-        hasMore: false, fromSeq: 0,
+        hasMore: false, fromSeq: 0, epoch: this.logEpoch,
         // Empty and stated — silence keeps the old task set drawn.
         taskRecords: [],
         lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0

@@ -27,6 +27,7 @@ export const AI_SOCKET_EVENTS = {
   DESTROY: "ai:destroy",
   LIST: "ai:list",
   REWIND: "ai:rewind",
+  SINCE: "aiSince",
   FILES: "ai:files",
   DOCTOR: "ai:doctor",
   QUEUE_REMOVE: "ai:queueRemove",
@@ -52,6 +53,9 @@ export const AI_TASK_RECORDS_BYTES = 8 * 1024;
 
 // Max stretch budget to include incomplete tool calls in replay.
 export const AI_REPLAY_WIDEN_BYTES = 48 * 1024;
+
+// Budget for a missing-range patch (aiSince) — twice the replay window; past this the client resyncs whole.
+export const AI_SINCE_MAX_BYTES = 64 * 1024;
 
 export const AI_MAX_EVENTS = 5000;
 // Cap on single tool result output to prevent overflowing replay budget.

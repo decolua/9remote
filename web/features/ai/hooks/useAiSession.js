@@ -14,7 +14,7 @@ import { upsertTask } from "../lib/taskList";
 import { estimateMessageBytes } from "../lib/messageWindow";
 import { collectOlderPage } from "../lib/olderPaging";
 import { createRetryLadder, shouldApplyHydrateAck } from "../lib/hydrateRetry";
-import { isAlreadyApplied } from "../lib/seqDedupe";
+import { classifyLiveEvent, fetchedIsSafe } from "../lib/gapFill";
 import { termLog } from "@/shared/utils/termLog";
 import { RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { RESOLVE_ACK_TIMEOUT_MS } from "../constants";
@@ -29,6 +29,15 @@ const HYDRATE_TIMEOUT_MS = 4000;
 const HISTORY_TIMEOUT_MS = 4000;
 // A rewind spawns the CLI twice on the host, each allowed a minute — the fetch budget reported a working one as failed.
 const REWIND_APPLY_TIMEOUT_MS = 130000;
+// Fetch-the-hole budget; an older host without the handler never answers it.
+const GAP_FETCH_TIMEOUT_MS = 3000;
+// A quiet running turn is probed after this much silence, backing off to the cap while quiet.
+const SILENCE_PEEK_FIRST_MS = 10_000;
+const SILENCE_PEEK_MAX_MS = 120_000;
+// A gap must survive a re-probe before acting — an event still in flight can mimic one.
+const GAP_CONFIRM_MS = 1500;
+// Events held while a hole is fetched; past this the pane resyncs whole instead.
+const MAX_GAP_HELD = 200;
 
 // The CLI reports some failures twice (streamed prose + `result`); only the last message is checked to stay cheap.
 function alreadySaid(messages, text) {
@@ -604,8 +613,9 @@ export function useAiSession({
 
   // Highest host seq applied; events at or below it must not be applied twice.
   const appliedSeqRef = useRef(0);
-  // Bumped when the host replaces the log; in-flight seqs from the old log must not read as newer.
-  const logEpochRef = useRef(0);
+  // The host's log generation (null until an ack or stamped event sets it); seqs from
+  // another generation must read as neither newer nor already-applied.
+  const logEpochRef = useRef(null);
   // Live events held during a hydrate — the ack's replay would wipe anything applied now.
   const hydratingRef = useRef(false);
   const pendingLiveRef = useRef([]);
@@ -630,6 +640,17 @@ export function useAiSession({
   const pendingRecoverRef = useRef(null);
   const peekDebounceRef = useRef(null);
   const peekDeadlineRef = useRef(null);
+
+  // Gap-fill: events held while the missing range is fetched, and that fetch's busy flag.
+  const gapHeldRef = useRef([]);
+  const gapBusyRef = useRef(false);
+  // Silence probe: last inbound ai:event, the silence threshold (backs off while quiet),
+  // its in-flight flag, consecutive misses, and when the user last sent a prompt.
+  const lastEventAtRef = useRef(0);
+  const silenceNeedRef = useRef(SILENCE_PEEK_FIRST_MS);
+  const probeBusyRef = useRef(false);
+  const peekMissRef = useRef(0);
+  const promptSentAtRef = useRef(0);
 
   const clearHydrateRetry = useCallback(() => {
     if (retryTimerRef.current) clearTimeout(retryTimerRef.current);
@@ -670,6 +691,9 @@ export function useAiSession({
     hydratingRef.current = true;
     setHydrating(true);
     pendingLiveRef.current = [];
+    // A fresh replay supersedes any patch in flight; its events arrive held above.
+    gapHeldRef.current = [];
+    gapBusyRef.current = false;
     olderSeqRef.current = 0;
     const sentAt = Date.now();
     termLog("ai-hydrate", "emit ai:create", {
@@ -687,7 +711,7 @@ export function useAiSession({
           // A reset restarts the log at seq 1 — the snapshot's watermark no longer applies.
           if (p.event === "conversation_reset") {
             appliedSeqRef.current = 0;
-            logEpochRef.current++;
+            logEpochRef.current = p.data?.epoch ?? (logEpochRef.current ?? 0) + 1;
             olderSeqRef.current = p.data?.fromSeq ?? 0;
             setHasOlder(Boolean(p.data?.hasMore));
             applyEventRef.current(sessionId, p.event, p.data);
@@ -834,6 +858,8 @@ export function useAiSession({
         // /resume or /clear the host starts a NEW log whose seqs begin at 1, so a
         // higher watermark left over from the previous log would drop every replay.
         appliedSeqRef.current = snapshotSeq;
+        // Same for the generation — the watermark above is only valid inside it.
+        if (res.session.epoch != null) logEpochRef.current = res.session.epoch;
       } finally {
         // Always drains — a failed ack must not discard events that really arrived.
         clearTimeout(releaseTimer);
@@ -909,7 +935,7 @@ export function useAiSession({
         requestHydrate();
       }, PEEK_TIMEOUT_MS);
       peekDeadlineRef.current = deadline;
-      bus.emit("ai:peekSeq", { sessionId }, (res) => {
+      bus.emit("ai:peekSeq", { sessionId, haveSeq: appliedSeqRef.current, epoch: logEpochRef.current }, (res) => {
         answered = true;
         clearTimeout(deadline);
         peekDeadlineRef.current = null;
@@ -980,6 +1006,13 @@ export function useAiSession({
       clearHydrateRetry();
       setSynced(false);
       setHydrateFailed(false);
+      // Its watermark/generation and probe clocks belong to the previous chat.
+      logEpochRef.current = null;
+      gapHeldRef.current = [];
+      gapBusyRef.current = false;
+      lastEventAtRef.current = 0;
+      peekMissRef.current = 0;
+      promptSentAtRef.current = 0;
     }
     // Held in a ref: re-running this effect on a store-action identity change would
     // re-emit ai:create over a session that is mid-stream.
@@ -1138,47 +1171,165 @@ export function useAiSession({
 
     const handleAiEvent = (payload) => {
       if (!payload || payload.sessionId !== sessionId) return;
+      // Any inbound proves the carrier delivers — reset the silence probe's clock.
+      lastEventAtRef.current = Date.now();
+      silenceNeedRef.current = SILENCE_PEEK_FIRST_MS;
       // Mid-hydrate: the store is about to be reset and replayed, so applying now
       // would be thrown away. Hold it; the ack drains this queue after the replay.
       if (hydratingRef.current) {
         pendingLiveRef.current.push(payload);
         return;
       }
-      // Anything below either changes what the pane may do, or restarts the log the
-      // buffered text belongs to — queueEvent folds that text in ahead of the event it
-      // preceded, so the order the reader sees is still the order the host sent.
-      const isStream = payload.event === "delta" || payload.event === "thinking";
       // A reset means the host is starting a NEW log whose seqs begin again at 1.
       // The old watermark would drop every replayed event as "already applied", so
       // it must be cleared before the replay that follows.
       if (payload.event === "conversation_reset") {
         appliedSeqRef.current = 0;
-        logEpochRef.current++;
+        logEpochRef.current = payload.data?.epoch ?? (logEpochRef.current ?? 0) + 1;
         // The window belongs to the log that just ended. Keeping it would make the next
         // scroll-up fetch seqs the fresh log already replays — every turn rendered twice.
         // The host replays a tail only, so the reset states where that tail starts.
         olderSeqRef.current = payload.data?.fromSeq ?? 0;
         setHasOlder(Boolean(payload.data?.hasMore));
+        gapHeldRef.current = [];
         queueEvent(payload.event, payload.data);
         return;
       }
-      // Already covered by a replay this client hydrated from — applying it again
-      // would duplicate the message. The rule itself is pinned in lib/seqDedupe.
-      // Ahead of the stream branch, not behind it: a delta replayed by the same hydrate
-      // that just reset the store appended its text a second time, so the answer grew a
-      // duplicate tail while the prompt bubble (a non-stream event) was already covered.
-      if (isAlreadyApplied(payload.seq, appliedSeqRef.current)) return;
-      if (payload.seq != null) appliedSeqRef.current = payload.seq;
-      if (isStream) {
-        bufferStream(payload.event, payload.data?.text);
+      // One door for every live verdict — dedupe, generation, hole. Pinned in
+      // lib/gapFill; the seqDedupe law it embeds is the one the replay relied on.
+      const verdict = classifyLiveEvent(payload, { appliedSeq: appliedSeqRef.current, logEpoch: logEpochRef.current });
+      if (verdict === "adopt") logEpochRef.current = payload.epoch;
+      else if (verdict === "resync") {
+        // A newer log generation whose reset never arrived: the watermark now swallows
+        // every live event. Only a full pull re-establishes the truth.
+        gapHeldRef.current = [];
+        doorRef.current.request?.();
+        return;
+      } else if (verdict === "stale" || verdict === "dup") return;
+      else if (verdict === "gap") {
+        // A recorded event went missing; hold everything past the hole and fetch it.
+        gapHeldRef.current.push(payload);
+        if (gapHeldRef.current.length > MAX_GAP_HELD) {
+          gapHeldRef.current = [];
+          doorRef.current.request?.();
+          return;
+        }
+        scheduleGapFetch();
         return;
       }
-      queueEvent(payload.event, payload.data);
+      if (payload.seq != null) appliedSeqRef.current = payload.seq;
+      applyLive(payload.event, payload.data);
     };
+
+    // Anything below either changes what the pane may do, or restarts the log the
+    // buffered text belongs to — queueEvent folds that text in ahead of the event it
+    // preceded, so the order the reader sees is still the order the host sent.
+    function applyLive(event, data) {
+      if (event === "delta" || event === "thinking") {
+        bufferStream(event, data?.text);
+        return;
+      }
+      queueEvent(event, data);
+    }
+
+    // Events that arrived while the hole was being filled, re-checked one by one;
+    // a hole that persists arms the next fetch (bounded by MAX_GAP_HELD above).
+    const drainGapHeld = () => {
+      const held = gapHeldRef.current;
+      gapHeldRef.current = [];
+      let blocked = false;
+      for (const p of held) {
+        if (blocked) { gapHeldRef.current.push(p); continue; }
+        const v = classifyLiveEvent(p, { appliedSeq: appliedSeqRef.current, logEpoch: logEpochRef.current });
+        if (v === "gap") { gapHeldRef.current.push(p); blocked = true; continue; }
+        if (v === "stale" || v === "dup") continue;
+        if (v === "resync") { gapHeldRef.current = []; doorRef.current.request?.(); return; }
+        if (v === "adopt") logEpochRef.current = p.epoch;
+        if (p.seq != null) appliedSeqRef.current = p.seq;
+        applyLive(p.event, p.data);
+      }
+      if (blocked) scheduleGapFetch();
+    };
+
+    // Fetch the missing range and splice it in. Anything the fetch cannot make safe —
+    // an older host (timeout), another generation, a gap past the byte cap, or a
+    // compacted stream record overlapping applied text — resyncs whole instead.
+    const scheduleGapFetch = () => {
+      if (gapBusyRef.current || hydratingRef.current) return;
+      if (!useConnectionStore.getState().connected) return;
+      const b = busRef.current;
+      if (!b) return;
+      gapBusyRef.current = true;
+      const after = appliedSeqRef.current;
+      const epoch = logEpochRef.current;
+      let settled = false;
+      const finish = (res) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        gapBusyRef.current = false;
+        // A hydrate that started meanwhile supersedes any patch.
+        if (hydratingRef.current) return;
+        const plan = fetchedIsSafe(res?.ok ? res.events || [] : [], appliedSeqRef.current);
+        if (!res?.ok || res.resync || res.epoch !== epoch || res.hasMore || !plan.safe) {
+          gapHeldRef.current = [];
+          doorRef.current.request?.();
+          return;
+        }
+        for (const ev of plan.apply) {
+          appliedSeqRef.current = ev.seq;
+          applyLive(ev.event, ev.data);
+        }
+        drainGapHeld();
+      };
+      const timer = setTimeout(() => finish(null), GAP_FETCH_TIMEOUT_MS);
+      b.emit("aiSince", { sessionId, after, epoch }, finish);
+    };
+
+    // Silence probe: a turn quiet for 10s may have lost its tail — the carrier drops
+    // events nobody re-sends. Ask the host where it is; behind twice in a row (an
+    // in-flight event can mimic a gap once) patches the hole or resyncs whole.
+    const probeSilence = () => {
+      if (probeBusyRef.current || hydratingRef.current || gapBusyRef.current) return;
+      if (!isVisibleRef.current || !useConnectionStore.getState().connected) return;
+      probeBusyRef.current = true;
+      let settled = false;
+      const finish = (res) => {
+        if (settled) return;
+        settled = true;
+        clearTimeout(timer);
+        probeBusyRef.current = false;
+        const behind = Boolean(res?.ok) && (
+          (res.epoch != null && logEpochRef.current != null && res.epoch !== logEpochRef.current)
+          || (typeof res.seq === "number" && res.seq > appliedSeqRef.current)
+        );
+        if (!behind) {
+          peekMissRef.current = 0;
+          silenceNeedRef.current = Math.min(silenceNeedRef.current * 2, SILENCE_PEEK_MAX_MS);
+          return;
+        }
+        peekMissRef.current++;
+        if (peekMissRef.current === 1) { setTimeout(probeSilence, GAP_CONFIRM_MS); return; }
+        peekMissRef.current = 0;
+        if (res.epoch != null && res.epoch === logEpochRef.current) scheduleGapFetch();
+        else doorRef.current.request?.();
+      };
+      const timer = setTimeout(() => finish(null), PEEK_TIMEOUT_MS);
+      busRef.current?.emit("ai:peekSeq", { sessionId, haveSeq: appliedSeqRef.current, epoch: logEpochRef.current }, finish);
+    };
+    const silenceTimer = setInterval(() => {
+      const st = useAiStore.getState().bySession[sessionId];
+      // Cover the sent-but-unechoed prompt too: its user_message lost leaves no running flag to watch.
+      const promptPending = Date.now() - promptSentAtRef.current < 15_000;
+      if (!st?.isTurnRunning && !promptPending) { peekMissRef.current = 0; return; }
+      if (!lastEventAtRef.current || Date.now() - lastEventAtRef.current < silenceNeedRef.current) return;
+      probeSilence();
+    }, 5000);
 
     bus.on("ai:event", handleAiEvent);
     return () => {
       bus.off("ai:event", handleAiEvent);
+      clearInterval(silenceTimer);
       // A pane closing mid-frame must not swallow the last tokens it received.
       flushStreamed();
     };
@@ -1188,6 +1339,9 @@ export function useAiSession({
   const sendPrompt = useCallback(
     (text, { attachments = null } = {}) => {
       if (!text && !attachments?.length) return;
+      // Arm the silence probe's prompt window: a lost user_message echo leaves no
+      // running flag for it to key on.
+      promptSentAtRef.current = Date.now();
       const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
       // Sending is what marks the previous turn read (the terminal side clears on typing) —
       // focusing the composer is not. The store emits clearStatus down to the host itself.

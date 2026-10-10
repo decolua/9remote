@@ -86,6 +86,22 @@ export function aiHistoryChunk(events, before, maxBytes) {
   return { events: sliceWindow(events, starts, end, maxBytes), hasMore: starts > 0 };
 }
 
+// Events strictly after a watermark, oldest-first, byte-capped. `hasMore` true means
+// the gap reaches past the cap — the client is too far behind to patch and must resync.
+export function eventsSince(events, after, maxBytes) {
+  const idx = events.findIndex((e) => (e.seq ?? 0) > after);
+  if (idx === -1) return { events: [], hasMore: false };
+  let end = idx;
+  let bytes = 0;
+  while (end < events.length) {
+    const n = aiEventBytes(events[end]) + 1;
+    if (bytes + n > maxBytes) break;
+    bytes += n;
+    end++;
+  }
+  return { events: events.slice(idx, end), hasMore: end < events.length };
+}
+
 function backToTurnStart(events, start) {
   let i = start;
   while (i > 0 && events[i].event !== "user_message") i--;

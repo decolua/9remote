@@ -1,7 +1,7 @@
 // Tests for the AI chat log windowing (agent/features/ai/aiEventSlice.js).
 // Run: node agent/test/aiEventSlice.test.mjs
 import assert from "node:assert/strict";
-import { aiTailStart, aiHistoryChunk, aiEventBytes, windowBytes, replayWindow } from "../features/ai/aiEventSlice.js";
+import { aiTailStart, aiHistoryChunk, aiEventBytes, windowBytes, replayWindow, eventsSince } from "../features/ai/aiEventSlice.js";
 import { AI_REPLAY_BYTES } from "../features/ai/constants.js";
 
 let pass = 0, fail = 0;
@@ -253,6 +253,27 @@ test("the replayed tail carries the calls its own results need", () => {
   const ids = new Set(tail.filter((e) => e.event === "tool_start").map((e) => e.data.id));
   assert.ok(ids.has("t9"), "the tail's result has its call above it");
   assert.ok(windowBytes(tail) <= 8192, "and the tail still fits");
+});
+
+
+test("eventsSince returns the range strictly after the watermark", () => {
+  const events = log(2); // seqs 1..6
+  const { events: gap, hasMore } = eventsSince(events, 3, 64 * 1024);
+  assert.deepEqual(gap.map((e) => e.seq), [4, 5, 6]);
+  assert.equal(hasMore, false);
+});
+
+test("eventsSince at the head returns everything, past-the-end returns nothing", () => {
+  const events = log(2);
+  assert.equal(eventsSince(events, 0, 64 * 1024).events.length, events.length);
+  assert.deepEqual(eventsSince(events, 6, 64 * 1024).events, []);
+});
+
+test("eventsSince flags hasMore when the gap reaches past the byte cap", () => {
+  const events = log(30);
+  const { events: gap, hasMore } = eventsSince(events, 0, 2048);
+  assert.equal(hasMore, true);
+  assert.ok(windowBytes(gap) <= 2048 + 200, "the patch respects its budget");
 });
 
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);

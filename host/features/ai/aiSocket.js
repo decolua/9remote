@@ -12,8 +12,8 @@ import { broadcastAiStatus, listSessionRoots } from "../terminal/terminalSocket.
 import { getConversation, getSessionAgent, setConversationId, getStatus, touchWorking, requestAutoName } from "../terminal/statusManager.js";
 import { engineFromAgent } from "../terminal/conversationModes.js";
 import { SESSION_ID_RE } from "../terminal/agentCatalog.js";
-import { replayWindow } from "./aiEventSlice.js";
-import { AI_REPLAY_BYTES, AI_ENGINES, AI_MODEL_CACHE_TTL_MS } from "./constants.js";
+import { replayWindow, eventsSince } from "./aiEventSlice.js";
+import { AI_REPLAY_BYTES, AI_SINCE_MAX_BYTES, AI_ENGINES, AI_MODEL_CACHE_TTL_MS } from "./constants.js";
 import { rewindSupport, unsupportedReason, resolveRewindTarget } from "./rewind.js";
 import { listRewindPoints, rewindable, previewRewind, applyRewind } from "./opencodeRewind.js";
 import * as claudeRewind from "./claudeRewind.js";
@@ -185,6 +185,8 @@ export function publicSession(session) {
     lastTurnMs: session.lastTurnMs || null,
     // Highest seq, NOT length — the log sheds its head past AI_MAX_EVENTS.
     seq: session.history.at(-1)?.seq ?? 0,
+    // Which log generation those seqs belong to — a client's watermark is only valid within it.
+    epoch: session.logEpoch ?? null,
     permissionMode: session.permissionMode,
     // Outside the window: a task announced early in a long turn falls outside a 32KB tail.
     taskRecords: session.taskRecords(),
@@ -269,7 +271,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   // 1. Forward events from AiManager to clients exactly ONCE via global broadcast
   if (io && !broadcastAttached) {
     broadcastAttached = true;
-    manager.onEvent((sessionId, event, data, seq) => {
+    manager.onEvent((sessionId, event, data, seq, epoch) => {
       // Streaming events fire per chunk and cli_event fires per CLI notification —
       // logging them drowns the file (cli_event alone was 94% of ai:debug lines).
       if (event !== "delta" && event !== "thinking" && event !== "cli_event") logger.debug(`[ai] event: ${event} session: ${sessionId}`);
@@ -281,7 +283,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
         logger.warn(`[ai] turn failed: session=${sessionId} subtype=${data.subtype || "-"} result=${String(data.result || "").slice(0, 300)}`);
       }
       // seq separates a replayed event from a new one — without it the same prompt arrives twice.
-      broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq });
+      broadcast(io, AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq, epoch });
       const engine = manager.getSession(sessionId)?.engine || "claude";
       mirrorAiStatus(manager, sessionId, event, data, engine);
       mirrorAiConversation(sessionId, event, data, engine);
@@ -294,9 +296,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
 
   // Fallback for tests or direct socket mocking
   if (!io || typeof io.emit !== "function") {
-    const unsubscribe = manager.onEvent((sessionId, event, data, seq) => {
+    const unsubscribe = manager.onEvent((sessionId, event, data, seq, epoch) => {
       try {
-        socket.emit(AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq });
+        socket.emit(AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq, epoch });
       } catch {}
     });
     socket.on("disconnect", () => {
@@ -489,16 +491,39 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     }
   });
 
-  socket.on(AI_SOCKET_EVENTS.PEEK_SEQ, ({ sessionId } = {}, cb) => {
+  socket.on(AI_SOCKET_EVENTS.PEEK_SEQ, ({ sessionId, haveSeq, epoch: clientEpoch } = {}, cb) => {
     try {
       const session = manager.getSession(sessionId);
       if (!session) return cb?.({ ok: false, error: "not_found" });
+      const seq = session.history.at(-1)?.seq ?? 0;
+      // The lost-event signature: a client behind the host while its turn runs. Peeks
+      // only fire on silence, so this line is evidence, not stream noise.
+      if (typeof haveSeq === "number" && haveSeq < seq) {
+        logger.warn(`[ai] peek gap: session=${sessionId} have=${haveSeq} host=${seq} epoch=${session.logEpoch ?? "-"} clientEpoch=${clientEpoch ?? "-"} turn=${session.isTurnRunning}`);
+      }
       cb?.({
         ok: true,
-        seq: session.history.at(-1)?.seq ?? 0,
+        seq,
+        epoch: session.logEpoch ?? null,
         isTurnRunning: Boolean(session.isTurnRunning),
         queueLength: session.promptQueue?.length || 0
       });
+    } catch (err) {
+      cb?.({ ok: false, error: err.message });
+    }
+  });
+
+  // Missing-range patch: every recorded event after a watermark, within one log generation.
+  socket.on(AI_SOCKET_EVENTS.SINCE, ({ sessionId, after = 0, epoch = null } = {}, cb) => {
+    try {
+      const session = manager.getSession(sessionId);
+      if (!session) return cb?.({ ok: false, error: "not_found" });
+      // A watermark from another generation indexes a different log — resync whole, not patch.
+      if (epoch != null && session.logEpoch !== epoch) {
+        return cb?.({ ok: true, resync: true, epoch: session.logEpoch ?? null, seq: session.history.at(-1)?.seq ?? 0, events: [] });
+      }
+      const { events, hasMore } = eventsSince(session.history, after, AI_SINCE_MAX_BYTES);
+      cb?.({ ok: true, events, hasMore, epoch: session.logEpoch ?? null, seq: session.history.at(-1)?.seq ?? 0 });
     } catch (err) {
       cb?.({ ok: false, error: err.message });
     }

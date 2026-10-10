@@ -21,6 +21,7 @@ const DAEMON = fs.readFileSync(path.join(root, "host/features/terminal/ptyDaemon
 const TRANSCRIPT = fs.readFileSync(path.join(root, "host/features/ai/claudeTranscript.js"), "utf8");
 const CLIENT = fs.readFileSync(path.join(root, "host/features/terminal/ptyDaemonClient.js"), "utf8");
 const HOOK = fs.readFileSync(path.join(root, "web/features/ai/hooks/useAiSession.js"), "utf8");
+const GAPFILL = fs.readFileSync(path.join(root, "web/features/ai/lib/gapFill.js"), "utf8");
 const SOCKET = fs.readFileSync(path.join(root, "host/features/ai/aiSocket.js"), "utf8");
 
 console.log("Running AI daemon session tests...");
@@ -74,16 +75,19 @@ test("the agent owns the chat snapshot, under the agent's own root", () => {
 
 // ── Event log + seq watermark ──
 
-test("every event carries a monotonic seq", () => {
+test("every recorded event takes a contiguous seq; an unrecorded one takes none", () => {
   const SESSION = fs.readFileSync(path.join(root, "host/features/ai/aiSession.js"), "utf8");
-  assert.match(SESSION, /const seq = \+\+this\.seqCounter;/);
+  // Only recorded events number themselves — an unrecorded one would leave a hole the
+  // client reads as a lost event.
+  assert.match(SESSION, /const seq = record \? \+\+this\.seqCounter : undefined;/);
   assert.match(SESSION, /this\.history\.push\(\{ seq, event: wire\.event, data, timestamp: Date\.now\(\) \}\);/);
+  assert.match(SESSION, /this\.onEvent\?\.\(this\.id, wire\.event, data, seq, this\.logEpoch\);/);
 });
 
 test("the published watermark is the newest seq, not the log's length", () => {
   const SESSION = fs.readFileSync(path.join(root, "host/features/ai/aiSession.js"), "utf8");
   assert.match(SOCKET, /seq: session\.history\.at\(-1\)\?\.seq \?\? 0/);
-  assert.match(SESSION, /const seq = \+\+this\.seqCounter;/);
+  assert.match(SESSION, /const seq = record \? \+\+this\.seqCounter : undefined;/);
   assert.match(SESSION, /this\.history\.length > AI_MAX_EVENTS/);
 });
 
@@ -91,11 +95,12 @@ test("a rebuilt log is delivered like a hydrate: a tail plus where the window st
   const SESSION = fs.readFileSync(path.join(root, "host/features/ai/aiSession.js"), "utf8");
   assert.match(SESSION, /_adoptLog\(events\) \{/);
   assert.match(SESSION, /const \{ events: replay, hasMore, fromSeq \} = replayWindow\(log, AI_REPLAY_BYTES\)/);
-  assert.match(SESSION, /"conversation_reset", \{\s*hasMore, fromSeq,\s*lastTurnMs: this\.lastTurnMs,\s*taskRecords: this\.taskRecords\(\),\s*\.\.\.this\.turnState\(\)\s*\}\)/);
+  // The reset also states the generation — a client's watermark is only valid inside it.
+  assert.match(SESSION, /"conversation_reset", \{\s*hasMore, fromSeq, epoch: this\.logEpoch,\s*lastTurnMs: this\.lastTurnMs,\s*taskRecords: this\.taskRecords\(\),\s*queue: this\.getQueue\(\),\s*\.\.\.this\.turnState\(\)\s*\}\)/);
   assert.match(SESSION, /this\.onEvent\?\.\(this\.id, ev\.event, \{ \.\.\.ev\.data, replay: true \}, ev\.seq\)/);
   const callers = (SESSION.match(/this\._adoptLog\(/g) || []).length;
   assert.equal(callers, 3, `hydrate, rewind and resume must share the one delivery, saw ${callers}`);
-  assert.match(SESSION, /conversation_reset", \{\s*hasMore: false, fromSeq: 0,[^}]*taskRecords: \[\],[^}]*lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0\s*\}\)/);
+  assert.match(SESSION, /conversation_reset", \{\s*hasMore: false, fromSeq: 0, epoch: this\.logEpoch,[^}]*taskRecords: \[\],[^}]*lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0\s*\}\)/);
 });
 
 test("a hydrate ack ships a tail and says there is more — that is what arms scroll-up", () => {
@@ -135,7 +140,13 @@ test("live events are gated by the client's applied-seq watermark", () => {
   const RULE = fs.readFileSync(path.join(root, "web/features/ai/lib/seqDedupe.js"), "utf8");
   assert.match(RULE, /seq <= \(appliedSeq \|\| 0\)/);
   assert.match(RULE, /if \(seq == null\) return false/);
-  assert.match(HOOK, /if \(isAlreadyApplied\(payload\.seq, appliedSeqRef\.current\)\) return;/);
+  // The gate itself moved into one pure door — dedupe, generation, hole — wired by the hook.
+  assert.match(GAPFILL, /if \(seq <= appliedSeq\) return "dup";/);
+  assert.match(GAPFILL, /if \(seq == null\) return "apply";/);
+  assert.match(HOOK, /classifyLiveEvent\(payload, \{ appliedSeq: appliedSeqRef\.current, logEpoch: logEpochRef\.current \}\)/);
+  // A hole is held and fetched, never skipped over.
+  assert.match(HOOK, /gapHeldRef\.current\.push\(payload\);/);
+  assert.match(HOOK, /b\.emit\("aiSince", \{ sessionId, after, epoch \}, finish\);/);
 });
 
 // ── Permission / question correlation ──
