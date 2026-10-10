@@ -25,7 +25,7 @@ const NODE_LTS_VERSION: &str = "v24.19.0";
 const NODE_DIST_BASE: &str = "https://nodejs.org/dist";
 // Fallback sources when nodejs.org / npmjs.org are unreachable
 const NODE_MIRROR_DIST_BASE: &str = "https://registry.npmmirror.com/-/binary/node";
-const NPM_MIRROR_REGISTRY: &str = "https://registry.npmmirror.org";
+const NPM_MIRROR_REGISTRY: &str = "https://registry.npmmirror.com";
 const NODE_DOWNLOAD_TIMEOUT_SECS: u64 = 600;
 // Two shots per source: transient AV file locks and flaky links usually clear on retry
 const NODE_DOWNLOAD_ATTEMPTS: u32 = 2;
@@ -488,6 +488,30 @@ fn open_external(app: AppHandle, url: String) -> Result<(), String> {
 
 fn home_dir() -> String {
     std::env::var("HOME").unwrap_or_else(|_| std::env::var("USERPROFILE").unwrap_or_default())
+}
+
+// Children resolve bare `node` via PATH. A Finder-launched GUI only inherits
+// /usr/bin:/bin:/usr/sbin:/sbin, so nvm/fnm/volta installs are invisible and the child
+// fails: ENOENT from a direct spawn, exit 127 from koffi's `sh -c node ...`. Put our
+// resolved node dir first; the extra bins are copied verbatim from the inline
+// server-spawn block, keeping both PATHs byte-identical. The host's own superset
+// (host/features/ai/adapters/env.js) reaches only its AI tool spawns, never this child.
+fn apply_node_path(cmd: &mut std::process::Command, node: &str) {
+    if let Some(dir) = std::path::Path::new(node).parent() {
+        let existing = std::env::var("PATH").unwrap_or_default();
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        #[cfg(unix)]
+        {
+            let home = home_dir();
+            let extra = format!(
+                "{sep}{}/.local/bin{sep}/opt/homebrew/bin{sep}/usr/local/bin{sep}{}/.cargo/bin{sep}{}/.bun/bin",
+                home, home, home
+            );
+            cmd.env("PATH", format!("{}{sep}{existing}{extra}", dir.display()));
+        }
+        #[cfg(not(unix))]
+        cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
+    }
 }
 
 // Setup trail: a GUI-subsystem binary has no visible stderr on Windows, so every
@@ -1055,6 +1079,7 @@ fn npm_install_once(
     npm.args([npm_cli, "install", "--prefix", prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    apply_node_path(&mut npm, node); // koffi's install script shells out to bare `node`
     if let Some(registry) = registry {
         npm.args(["--registry", registry]);
     }
@@ -1246,24 +1271,7 @@ fn spawn_9remote_ui(app: AppHandle) {
             .stderr(Stdio::piped())
             .stdin(Stdio::null()); // GUI apps have no usable stdin — don't let the host inherit it
 
-        // The host respawns its server as bare `node`, resolved via PATH. A Finder-launched
-        // GUI only inherits /usr/bin:/bin:/usr/sbin:/sbin, so nvm/fnm/volta installs are invisible
-        // and the child dies with ENOENT. Put our resolved node dir first.
-        if let Some(dir) = std::path::Path::new(&node).parent() {
-            let existing = std::env::var("PATH").unwrap_or_default();
-            let sep = if cfg!(windows) { ";" } else { ":" };
-            #[cfg(unix)]
-            {
-                let home = home_dir();
-                let extra = format!(
-                    "{sep}{}/.local/bin{sep}/opt/homebrew/bin{sep}/usr/local/bin{sep}{}/.cargo/bin{sep}{}/.bun/bin",
-                    home, home, home
-                );
-                cmd.env("PATH", format!("{}{sep}{existing}{extra}", dir.display()));
-            }
-            #[cfg(not(unix))]
-            cmd.env("PATH", format!("{}{sep}{existing}", dir.display()));
-        }
+        apply_node_path(&mut cmd, &node); // the host respawns its server as bare `node`
 
         // Mark the host as shell-hosted: it must never spawn its own tray icon
         // (this shell owns one). Inherited through its self-update restart.
@@ -1583,4 +1591,41 @@ pub fn run() {
             }
             _ => {}
         });
+}
+
+#[cfg(test)]
+mod tests {
+    // The layout the PATH fix rests on: our node dir first, the inherited PATH intact
+    // behind it, the GUI-install fallbacks last.
+    #[test]
+    fn apply_node_path_orders_node_dir_inherited_then_extras() {
+        let node = "/tmp/9remote-test/bin/node";
+        let mut cmd = std::process::Command::new(node);
+        super::apply_node_path(&mut cmd, node);
+        let path = cmd
+            .get_envs()
+            .find(|(k, _)| *k == std::ffi::OsStr::new("PATH"))
+            .and_then(|(_, v)| v)
+            .expect("apply_node_path must set PATH");
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        let entries: Vec<&str> = path.to_str().unwrap().split(sep).collect();
+        assert_eq!(entries.first(), Some(&"/tmp/9remote-test/bin"));
+        // or the child loses every tool but node
+        for inherited in std::env::var("PATH").unwrap_or_default().split(sep).filter(|e| !e.is_empty()) {
+            assert!(entries.contains(&inherited), "inherited PATH entry {inherited} was dropped");
+        }
+        // pinned by position, not by `contains`: the ambient PATH already holds some of these
+        #[cfg(unix)]
+        {
+            let home = super::home_dir();
+            let want = [
+                format!("{home}/.local/bin"),
+                "/opt/homebrew/bin".into(),
+                "/usr/local/bin".into(),
+                format!("{home}/.cargo/bin"),
+                format!("{home}/.bun/bin"),
+            ];
+            assert_eq!(entries[entries.len() - want.len()..], want[..], "extra bins must be the PATH tail");
+        }
+    }
 }
