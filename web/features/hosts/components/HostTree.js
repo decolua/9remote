@@ -249,7 +249,7 @@ export default function HostTree({
                     <div
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6" : "pl-3.5"} pr-2 py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
+                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
                         isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
                       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
                       onClick={() => { if (consumeClick()) return; selectRow(s.id); }}
