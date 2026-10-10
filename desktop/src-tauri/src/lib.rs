@@ -1052,10 +1052,20 @@ fn run_npm_install(target: &str, progress: Option<&AppHandle>) -> bool {
     // the mirror covers networks npmjs.org can't reach.
     for (i, registry) in [None, None, Some(NPM_MIRROR_REGISTRY)].into_iter().enumerate() {
         note(&format!("npm install {target}: attempt {} ({})", i + 1, registry.unwrap_or("registry.npmjs.org")));
-        if npm_install_once(&node, &npm_cli, &prefix, target, registry, progress) {
+        if npm_install_once(&node, &npm_cli, &prefix, target, registry, false, progress) {
             return true;
         }
     }
+
+    // Fallback: retry with --ignore-scripts if lifecycle scripts fail (e.g. AV blocks, missing toolchains)
+    note(&format!("npm install {target}: standard attempts failed, falling back to --ignore-scripts"));
+    for (i, registry) in [None, Some(NPM_MIRROR_REGISTRY)].into_iter().enumerate() {
+        note(&format!("npm install {target}: fallback attempt {} ({}, --ignore-scripts)", i + 1, registry.unwrap_or("registry.npmjs.org")));
+        if npm_install_once(&node, &npm_cli, &prefix, target, registry, true, progress) {
+            return true;
+        }
+    }
+
     if let Some(app) = progress {
         let _ = app.emit("setup_error", "Install failed. Check that you are online, then reopen 9Remote.");
     }
@@ -1068,6 +1078,7 @@ fn npm_install_once(
     prefix: &str,
     target: &str,
     registry: Option<&str>,
+    ignore_scripts: bool,
     progress: Option<&AppHandle>,
 ) -> bool {
     use std::io::{BufRead, BufReader};
@@ -1079,6 +1090,9 @@ fn npm_install_once(
     npm.args([npm_cli, "install", "--prefix", prefix, "--no-audit", "--no-fund", "--loglevel", "http", target])
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    if ignore_scripts {
+        npm.arg("--ignore-scripts");
+    }
     apply_node_path(&mut npm, node); // koffi's install script shells out to bare `node`
     if let Some(registry) = registry {
         npm.args(["--registry", registry]);
