@@ -3,6 +3,7 @@
 // text the AGENT provided (never generated); password fields are observable but
 // value-masked at the snapshot source. Run: node host/test/browserUseEval.test.mjs
 import assert from "node:assert/strict";
+import "./chromeGuard.mjs";
 import fs from "node:fs";
 import http from "node:http";
 

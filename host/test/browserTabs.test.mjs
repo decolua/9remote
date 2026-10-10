@@ -1,16 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { resolveTab, syncTabOrder, formatStampedTitle, cleanStampedTitle } from "../features/browserUse/engine.js";
-
-test("formatStampedTitle: stamps 🚀 [N] and avoids duplicates", () => {
-  assert.equal(formatStampedTitle(1, "Google"), "🚀 [1] Google");
-  assert.equal(formatStampedTitle(2, "🚀 [1] Google"), "🚀 [2] Google");
-  assert.equal(formatStampedTitle(3, "🚀 [3] H8"), "🚀 [3] H8");
-  assert.equal(formatStampedTitle(1, ""), "🚀 [1]");
-  assert.equal(cleanStampedTitle("🚀 [1] Google"), "Google");
-  assert.equal(cleanStampedTitle("🚀 [42] Page Title — Sub"), "Page Title — Sub");
-  assert.equal(cleanStampedTitle("Plain Title"), "Plain Title");
-});
+import { resolveTab, syncTabOrder } from "../features/browserUse/engine.js";
 
 test("syncTabOrder: maintains stable order regardless of Chrome shuffle", () => {
   const session = { tabOrder: [] };

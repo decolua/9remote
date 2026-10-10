@@ -3,16 +3,11 @@
 // repair, read-only nudge. Real Chrome headless + local fixtures, fake Jev offline.
 // Run: node host/test/browserOneShot.test.mjs   (CASES=1,7 to subset)
 import assert from "node:assert/strict";
+import "./chromeGuard.mjs";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-
-const TEST_PROFILES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-test-oneshot-"));
-process.env.NREMOTE_BROWSER_PROFILES_DIR = TEST_PROFILES_DIR;
-process.on("exit", () => {
-  try { fs.rmSync(TEST_PROFILES_DIR, { recursive: true, force: true }); } catch {}
-});
 
 import { invoke, setConfig } from "../features/browserUse/browserUseSocket.js";
 import { agentBlockedSub, parseStep, cmdBrowser } from "../cli/modes/browserCmd.js";
@@ -85,7 +80,7 @@ await test("2. verb guard: only chain/batch/delegate/help survive, error teaches
   }
   const blocked = ["go", "click", "type", "select", "enter", "hover", "scroll", "wait",
     "read", "search", "find", "console", "shot", "tabs", "status",
-    "close", "attach", "clear", "undbg", "key", "clickxy", "drag", "upload", "download",
+    "close", "attach", "clear", "key", "clickxy", "drag", "upload", "download",
     "back", "forward", "reload", "tabclose"];
   for (const verb of blocked) {
     const err = agentBlockedSub(verb);

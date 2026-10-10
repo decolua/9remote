@@ -2,6 +2,7 @@
 // with and without --parent scoping. Success = the Shipping Save was clicked
 // (page title flips to SHIP; the wrong pick flips it to BILL).
 // Run: node host/test/browserUseParentE2e.mjs   (free lane, no key)
+import "./chromeGuard.mjs";
 import http from "node:http";
 import { withSession, profiles } from "../features/browserUse/engine.js";
 import { runTask } from "../features/browserUse/agentLoop.js";

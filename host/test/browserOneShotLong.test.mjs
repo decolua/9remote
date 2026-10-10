@@ -5,16 +5,11 @@
 // read bound. Real Chrome headless + local fixtures, fake Jev offline.
 // Run: node host/test/browserOneShotLong.test.mjs   (CASES=1,7 to subset)
 import assert from "node:assert/strict";
+import "./chromeGuard.mjs";
 import fs from "node:fs";
 import http from "node:http";
 import os from "node:os";
 import path from "node:path";
-
-const TEST_PROFILES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-test-oneshot-long-"));
-process.env.NREMOTE_BROWSER_PROFILES_DIR = TEST_PROFILES_DIR;
-process.on("exit", () => {
-  try { fs.rmSync(TEST_PROFILES_DIR, { recursive: true, force: true }); } catch {}
-});
 
 import { invoke, setConfig } from "../features/browserUse/browserUseSocket.js";
 

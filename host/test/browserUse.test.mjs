@@ -3,6 +3,7 @@
 // (offline, deterministic) and skips gracefully when no Chrome exists.
 // Real-Jev e2e: BROWSER_USE_E2E_REAL=1 + configured presets (manual, costs nothing on free lane).
 import assert from "node:assert/strict";
+import "./chromeGuard.mjs";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";

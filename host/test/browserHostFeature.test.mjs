@@ -1,14 +1,9 @@
 import assert from "node:assert/strict";
+import "./chromeGuard.mjs";
 import fs from "node:fs";
 import sharp from "sharp";
 import os from "node:os";
 import path from "node:path";
-
-const TEST_PROFILES_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "9remote-test-host-"));
-process.env.NREMOTE_BROWSER_PROFILES_DIR = TEST_PROFILES_DIR;
-process.on("exit", () => {
-  try { fs.rmSync(TEST_PROFILES_DIR, { recursive: true, force: true }); } catch {}
-});
 
 import { clampViewport, snapRaster, cdpTouchPoints, frameAdmitted, hasActiveStreamFor, handleFrame, releaseAck, startStream, stopStream, compareRecordTileHashes } from "../features/browser/stream.js";
 import { ANTI_DETECTION_SCRIPT, headlessOverride, identityOverride, mobileOverride, stripHeadlessUa } from "../features/browser/antiDetection.js";

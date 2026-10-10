@@ -4,6 +4,7 @@
 // client ack releases the window. The only fake is the PM at the wire edge.
 // Run: node test/browserStreamE2E.test.mjs (skips silently without Chrome)
 import assert from "node:assert/strict";
+import "./chromeGuard.mjs";
 import { closeTab, createProfile, openTab, removeProfile, resolveChromeBinary } from "../features/browser/browserEngine.js";
 import { setupBrowserHandlers } from "../features/browser/browserSocket.js";
 import { CHANNELS } from "../lib/transportConstants.js";
