@@ -754,6 +754,10 @@ async function runChain(opts, steps, chainParent = null) {
             if (!step.url) throw new Error("Missing field: url");
             const prevUrl = lastUrl;
             await session.openOrReuseTab(String(step.url), { newTab: Boolean(step.newTab) });
+            // SPA soft navs commit the route after the nav call returns — settle
+            // before sampling or lastUrl lags one route behind and the next step
+            // trips the nav guard on the very page go just landed on.
+            await session.settle();
             lastUrl = (await session.current()).url;
             idsUntrusted = prevUrl === null || prevUrl !== lastUrl;
             summary = `go ${String(step.url).slice(0, 40)}`;

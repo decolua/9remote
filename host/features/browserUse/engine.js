@@ -294,7 +294,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       await call("Page.navigate", { url });
       const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
       while (Date.now() < deadline) {
-        if (await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
+        if (await evaluate(client, session.sessionId, "document.readyState", { op: "readyState" }) === "complete") break;
         await new Promise((r) => setTimeout(r, 50));
       }
       // Two pages can render identically — never serve the old table after a navigate.
@@ -305,7 +305,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
     // section when parent is given (same vocabulary as run's --parent). from/len
     // window past the default cap on long pages.
     async readSection(parent = null, from = 0, len = null) {
-      const result = await evaluate(client, session.sessionId, readExpression(parent, from, len));
+      const result = await evaluate(client, session.sessionId, readExpression(parent, from, len), { op: "read", opArgs: [parent, from, len] });
       if (result?.error) {
         throw new Error(`No section matches "${parent}". Available: ${(result.sections || []).join(", ")}`);
       }
@@ -354,7 +354,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
             const raw = document.title || '';
             const clean = raw.replace(/^🚀\\s*\\[\\d+\\]\\s*/, '').trim();
             document.title = clean ? ('🚀 [' + ${tabNum} + '] ' + clean) : ('🚀 [' + ${tabNum} + ']');
-          })()`);
+          })()`, { op: "stampTitle", opArgs: [tabNum] });
         }
       } catch { /* ignore */ }
     },
@@ -408,9 +408,9 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         if (!isBlankTabUrl(targetUrl)) {
           const deadline = Date.now() + LAUNCH_TIMEOUT_MS;
           while (Date.now() < deadline) {
-            const href = await evaluate(client, session.sessionId, "location.href").catch(() => null);
+            const href = await evaluate(client, session.sessionId, "location.href", { op: "href" }).catch(() => null);
             if (href && urlsSameOrigin(href, targetUrl) &&
-                await evaluate(client, session.sessionId, "document.readyState") === "complete") break;
+                await evaluate(client, session.sessionId, "document.readyState", { op: "readyState" }) === "complete") break;
             await new Promise((r) => setTimeout(r, 50));
           }
         }
@@ -424,7 +424,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
     // Windowed one-shot table read (the `ls` op): bakes from/len into the
     // snapshot expression. observe() keeps the historical default window.
     async listState(win = {}) {
-      const state = await evaluate(client, session.sessionId, snapshotExpression(win));
+      const state = await evaluate(client, session.sessionId, snapshotExpression(win), { op: "snapshot", opArgs: [win] });
       await mergeIframes(state);
       return state;
     },
@@ -434,7 +434,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       let attempts = 0;
       for (;;) {
         let state = null;
-        try { state = await evaluate(client, session.sessionId, SNAPSHOT_EXPRESSION); }
+        try { state = await evaluate(client, session.sessionId, SNAPSHOT_EXPRESSION, { op: "snapshot", opArgs: [] }); }
         catch (e) {
           if (DEAD_SESSION.test(e.message)) throw e; // dead session — let withSession heal
           state = null; /* document navigating */
@@ -488,12 +488,12 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
     async fresh(page) {
       try {
         // Arrays off the wire never compare equal by reference — stringify both.
-        if (JSON.stringify(await evaluate(client, session.sessionId, MARKER_EXPRESSION)) !==
+        if (JSON.stringify(await evaluate(client, session.sessionId, MARKER_EXPRESSION, { op: "marker" })) !==
             JSON.stringify(page.marker)) return false;
         // Frame-aware freshness: a change INSIDE an iframe leaves the main marker
         // untouched — re-check each recorded frame on its own session.
         for (const frame of page.frames || []) {
-          const now = await evaluate(client, frame.sessionId, MARKER_EXPRESSION).catch(() => null);
+          const now = await evaluate(client, frame.sessionId, MARKER_EXPRESSION, { op: "marker" }).catch(() => null);
           if (now === null || JSON.stringify(now) !== JSON.stringify(frame.marker)) return false;
         }
         return true;
@@ -533,7 +533,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
             box.style.opacity = '0'; dot.style.opacity = '0';
             setTimeout(() => { box.remove(); dot.remove(); }, 320);
           }, 240);
-        })(${JSON.stringify({ node: action.node, x: point.x, y: point.y })})`);
+        })(${JSON.stringify({ node: action.node, x: point.x, y: point.y })})`, { op: "decorate", opArgs: [{ node: action.node, x: point.x, y: point.y }] });
         // Let the cursor glide land before the real click does.
         await new Promise((r) => setTimeout(r, 130));
       } catch { /* decoration must never block the action */ }
@@ -591,7 +591,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
           e.dispatchEvent(new Event('change', {bubbles:true}));
         }
         return { x: p.x, y: p.y };
-      })(${JSON.stringify({ node: action.node, kind: action.kind, value: action.value })})`);
+      })(${JSON.stringify({ node: action.node, kind: action.kind, value: action.value })})`, { op: "resolve", opArgs: [{ node: action.node, kind: action.kind, value: action.value }] });
     },
 
     // resolve() in the element's own frame, then lift iframe-local points into
@@ -624,7 +624,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         }
         const t = vis.join("\\n");
         return { y: Math.round(window.scrollY), hit: n.length > 0 && n.every((s) => t.includes(s)) };
-      })(${JSON.stringify(needles.map(String))})`);
+      })(${JSON.stringify(needles.map(String))})`, { op: "scrollBurstStep", opArgs: [Number(delta) || 0, needles.map(String)] });
       session.lastState = null;
       return r ?? { y: 0, hit: false };
     },
@@ -634,7 +634,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
     async scrollToY(y) {
       const target = Math.max(0, Math.floor(Number(y) || 0));
       await evaluate(client, session.sessionId,
-        `window.scrollTo({ top: Math.max(0, ${target} - Math.round(window.innerHeight / 2)), left: 0, behavior: 'instant' })`);
+        `window.scrollTo({ top: Math.max(0, ${target} - Math.round(window.innerHeight / 2)), left: 0, behavior: 'instant' })`, { op: "scrollToY", opArgs: [target] });
       await session.settle();
       session.lastState = null;
       return { scrolledTo: target };
@@ -649,7 +649,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         if (!e?.isConnected) return false;
         e.scrollIntoView({ block: 'center', inline: 'center', behavior: 'instant' });
         return true;
-      })(${action.node})`);
+      })(${action.node})`, { op: "scrollToAction", opArgs: [action.node] });
       if (!ok) throw stale("scroll-to: element gone");
       await session.settle();
       session.lastState = null;
@@ -672,7 +672,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
           }
         }
         return false;
-      })(${JSON.stringify(needle)})`);
+      })(${JSON.stringify(needle)})`, { op: "scrollToText", opArgs: [needle] });
       if (ok) {
         await session.settle();
         session.lastState = null;
@@ -712,7 +712,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
           setTimeout(hop, 0);
         };
         hop();
-      }))(${JSON.stringify((Array.isArray(needles) ? needles : [needles]).map(String))})`, { awaitPromise: true, timeoutMs: 8000 });
+      }))(${JSON.stringify((Array.isArray(needles) ? needles : [needles]).map(String))})`, { awaitPromise: true, timeoutMs: 8000, op: "scrollBurstTo", opArgs: [(Array.isArray(needles) ? needles : [needles]).map(String)] });
       session.lastState = null;
       return r ?? { found: false, hops: 0, y: 0 };
     },
@@ -725,7 +725,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         e.scrollIntoView({ block: 'center' });
         e.click();
         return true;
-      })(${action.node})`);
+      })(${action.node})`, { op: "jsClick", opArgs: [action.node] });
       if (!ok) throw stale("js-click: element gone or hidden");
       if (!nowait) await session.settle(action);
       session.lastState = null;
@@ -739,7 +739,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         return { executed: action.id };
       }
       if (action.kind === "scroll") {
-        await evaluate(client, session.sessionId, `window.scrollBy({ top: ${action.delta || 0}, left: 0, behavior: 'instant' })`);
+        await evaluate(client, session.sessionId, `window.scrollBy({ top: ${action.delta || 0}, left: 0, behavior: 'instant' })`, { op: "scrollBy", opArgs: [action.delta || 0, "instant"] });
         if (nowait) { session.lastState = null; return { executed: action.id }; }
         await session.settle();
         return { executed: action.id };
@@ -780,7 +780,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       if (typeof text !== "string" || !text.trim()) throw new Error("Refusing to type empty text");
       await evaluate(client, action.frame || session.sessionId, `(node => {
         const e = window.__9rFast?.nodes.get(node); if (e) e.focus();
-      })(${action.node})`);
+      })(${action.node})`, { op: "focus", opArgs: [action.node] });
       const meta = process.platform === "darwin" ? 4 : 2;
       await call("Input.dispatchKeyEvent", { type: "keyDown", key: "a", code: "KeyA", modifiers: meta, commands: ["selectAll"] });
       await call("Input.dispatchKeyEvent", { type: "keyUp", key: "a", code: "KeyA", modifiers: meta });
@@ -793,13 +793,13 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
           const e = window.__9rFast?.nodes.get(node); if (!e) return true;
           const v = 'value' in e ? String(e.value) : (e.innerText || '');
           return v.includes(${JSON.stringify(text)});
-        })(${action.node})`);
+        })(${action.node})`, { op: "verifyText", opArgs: [action.node, text] });
       } catch { /* navigating right after typing — assume it landed */ }
       if (!landed) {
         await evaluate(client, action.frame || session.sessionId, `(node => {
           const e = window.__9rFast?.nodes.get(node); if (e) e.focus();
           document.execCommand('insertText', false, ${JSON.stringify(text)});
-        })(${action.node})`);
+        })(${action.node})`, { op: "focusInsert", opArgs: [action.node, text] });
       }
     },
 
@@ -882,7 +882,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       // quiet wait itself no longer polls the marker.
       let freshDoc = false, spaRoute = false;
       try {
-        const marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION);
+        const marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION, { op: "marker" });
         if (Array.isArray(marker)) {
           if (marker[0] !== session.docOrigin) {
             session.docOrigin = marker[0];
@@ -899,7 +899,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         const capLeft = Math.max(50, started + SETTLE_CAP_MS - Date.now());
         try {
           await evaluate(client, session.sessionId, stableDomExpression(SETTLE_QUIET_MS, minMs, capLeft),
-            { awaitPromise: true, timeoutMs: capLeft + 500 });
+            { awaitPromise: true, timeoutMs: capLeft + 500, op: "stableDom", opArgs: [SETTLE_QUIET_MS, minMs, capLeft] });
           break;
         } catch { /* context destroyed mid-wait (navigation) — retry until the cap */ }
       }
@@ -909,7 +909,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         try {
           const capLeft = Math.max(50, started + SETTLE_CAP_MS - Date.now());
           await evaluate(client, action.frame, stableDomExpression(SETTLE_QUIET_MS, 0, capLeft),
-            { awaitPromise: true, timeoutMs: capLeft + 500 });
+            { awaitPromise: true, timeoutMs: capLeft + 500, op: "stableDom", opArgs: [SETTLE_QUIET_MS, 0, capLeft] });
         } catch { /* frame mid-navigation — the nav tail bounds the wait */ }
       }
       // Navigation-aware tail: frameRequestedNavigation fires at the CLICK,
@@ -925,7 +925,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
         while (Date.now() < deadline) {
           if (session.navCommit >= req.ts) {
             let marker = null;
-            try { marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION); }
+            try { marker = await evaluate(client, session.sessionId, MARKER_EXPRESSION, { op: "marker" }); }
             catch { changedAt = Date.now(); await new Promise((r) => setTimeout(r, SETTLE_POLL_MS)); continue; }
             const key = Array.isArray(marker) ? marker.join("\u0001") : null;
             if (key === null || key !== prevKey) { prevKey = key; changedAt = Date.now(); }
@@ -958,11 +958,11 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
     async scrollBy(directionOrPx) {
       if (typeof directionOrPx === "string") {
         const sign = directionOrPx === "up" ? -1 : 1;
-        await evaluate(client, session.sessionId, `window.scrollBy({ top: Math.round(window.innerHeight * 0.85 * ${sign}), left: 0, behavior: 'instant' })`);
+        await evaluate(client, session.sessionId, `window.scrollBy({ top: Math.round(window.innerHeight * 0.85 * ${sign}), left: 0, behavior: 'instant' })`, { op: "scrollByPct", opArgs: [0.85 * sign] });
       } else {
         const px = Number(directionOrPx);
         if (!Number.isFinite(px) || px === 0) throw new Error("scroll needs a nonzero pixel amount or direction");
-        await evaluate(client, session.sessionId, `window.scrollBy({ top: ${px}, left: 0, behavior: 'instant' })`);
+        await evaluate(client, session.sessionId, `window.scrollBy({ top: ${px}, left: 0, behavior: 'instant' })`, { op: "scrollBy", opArgs: [px, "instant"] });
       }
       await session.settle();
       session.lastState = null;
@@ -972,7 +972,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
     async scrollToEdge(edge) {
       if (!["top", "bottom"].includes(edge)) throw new Error(`scroll edge must be top or bottom, got "${edge}"`);
       const height = await evaluate(client, session.sessionId, "document.documentElement.scrollHeight");
-      await evaluate(client, session.sessionId, `window.scrollTo({ top: ${edge === "top" ? 0 : height}, left: 0, behavior: 'instant' })`);
+      await evaluate(client, session.sessionId, `window.scrollTo({ top: ${edge === "top" ? 0 : height}, left: 0, behavior: 'instant' })`, { op: "scrollToEdge", opArgs: [edge] });
       await session.settle();
       session.lastState = null;
       return { scrolledTo: edge };
@@ -980,7 +980,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
 
     async historyGo(delta) {
       if (![ -1, 1 ].includes(delta)) throw new Error("history only supports back (-1) and forward (1)");
-      await evaluate(client, session.sessionId, `history.go(${delta})`);
+      await evaluate(client, session.sessionId, `history.go(${delta})`, { op: "historyGo", opArgs: [delta] });
       await session.settle();
       session.lastState = null;
       return { went: delta };
@@ -1095,40 +1095,49 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
     try {
       await evaluate(client, session.sessionId,
         stableDomExpression(SETTLE_QUIET_MS, OBSERVE_IFRAME_MIN_MS, OBSERVE_IFRAME_CAP_MS),
-        { awaitPromise: true, timeoutMs: OBSERVE_IFRAME_CAP_MS + 500 });
+        { awaitPromise: true, timeoutMs: OBSERVE_IFRAME_CAP_MS + 500, op: "stableDom", opArgs: [SETTLE_QUIET_MS, OBSERVE_IFRAME_MIN_MS, OBSERVE_IFRAME_CAP_MS] });
     } catch { /* navigating — snapshot what is there */ }
     const inDom = await evaluate(client, session.sessionId,
-      "document.querySelectorAll('iframe').length").catch(() => 0);
+      "document.querySelectorAll('iframe').length", { op: "iframeCount" }).catch(() => 0);
     if (!inDom) return;
     const deadline = Date.now() + IFRAME_ATTACH_CAP_MS; // targets attach async
     while (session.iframes.size < inDom && Date.now() < deadline) {
       await new Promise((r) => setTimeout(r, 60));
     }
     if (!session.iframes.size) return;
-    let frameNo = 0;
-    for (const info of session.iframes.values()) {
-      frameNo++;
-      // Frame-scoped counter: ids stay stable when the MAIN list shifts (the
-      // old `${mainLength + n}` scheme renumbered on every insert above).
-      let childSeq = 0;
+    // Frames load in parallel in the browser — settle/snapshot them in parallel
+    // too, then merge in original order so ids and the MAX_ELEMENTS budget
+    // match the sequential result exactly.
+    const frames = [...session.iframes.values()];
+    const gathered = await Promise.all(frames.map(async (info) => {
       try {
         await evaluate(client, info.sessionId,
           stableDomExpression(SETTLE_QUIET_MS, 0, IFRAME_FRAME_CAP_MS),
-          { awaitPromise: true, timeoutMs: IFRAME_FRAME_CAP_MS + 500 });
+          { awaitPromise: true, timeoutMs: IFRAME_FRAME_CAP_MS + 500, op: "stableDom", opArgs: [SETTLE_QUIET_MS, 0, IFRAME_FRAME_CAP_MS] });
       } catch { /* frame navigating — snapshot whatever is there */ }
       let child = null;
-      try { child = await evaluate(client, info.sessionId, SNAPSHOT_EXPRESSION); }
-      catch { continue; /* frame navigating */ }
-      if (!child) continue;
+      try { child = await evaluate(client, info.sessionId, SNAPSHOT_EXPRESSION, { op: "snapshot", opArgs: [] }); }
+      catch { return null; /* frame navigating */ }
+      if (!child) return null;
       if (child.url) info.url = child.url; // targetInfo.url is "" right after attach
       let host = "iframe";
       try { host = `iframe: ${new URL(info.url).hostname}`; } catch { /* keep */ }
       const off = await iframeOffset(info.sessionId);
+      return { child, host, off };
+    }));
+    for (let i = 0; i < gathered.length; i++) {
+      const item = gathered[i];
+      if (!item) continue;
+      const { child, host, off } = item;
+      const frameNo = i + 1;
+      // Frame-scoped counter: ids stay stable when the MAIN list shifts (the
+      // old `${mainLength + n}` scheme renumbered on every insert above).
+      let childSeq = 0;
       for (const a of child.actions) {
         if (a.kind === "wait" || a.kind === "scroll") continue; // parent owns controls
         if (state.actions.length >= MAX_ELEMENTS) { state.omitted_actions++; continue; } // choice cap budget
         a.id = `${a.pfx || 'ifr'}f${frameNo}_${++childSeq}`;
-        a.frame = info.sessionId;
+        a.frame = frames[i].sessionId;
         if (off && a.rect) {
           a.rect = { x: Math.round(a.rect.x + off.x), y: Math.round(a.rect.y + off.y), w: a.rect.w, h: a.rect.h };
         }
@@ -1138,7 +1147,7 @@ function makeSession({ profile, sessionKey = null, keyed = false, mode, port, ch
       }
       state.omitted_actions = (state.omitted_actions || 0) + (child.omitted_actions || 0);
       state.frames = [...(state.frames || []),
-        { sessionId: info.sessionId, url: info.url, marker: child.marker }];
+        { sessionId: frames[i].sessionId, url: frames[i].url, marker: child.marker }];
       state.contentMarker = [...(state.contentMarker || []), child.contentMarker];
     }
     // Rows appended AFTER the page-side window: recount so element_from/

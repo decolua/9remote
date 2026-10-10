@@ -90,8 +90,7 @@ export const JEV_CONFIG_DEFAULTS = {
   mode: "own"         // "own" = engine's isolated Chrome · "attach" = real browser (debug port) · "extension" = real browser (bridge extension)
 };
 
-// Modes currently exposed. "extension" is parked: restore by adding back.
-export const ALLOWED_MODES = ["own", "attach"];
+export const ALLOWED_MODES = ["own", "attach", "extension"];
 
 export const KV_KEY = "browserUse.config";
 export const ATTACH_GUIDE_URL = "chrome://inspect/#remote-debugging";

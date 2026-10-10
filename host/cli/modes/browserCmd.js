@@ -13,7 +13,7 @@ function parseArgs(args) {
     if (a === "--url") { opts.url = args[++i]; continue; }
     if (a === "--max-steps") { opts.maxSteps = Number(args[++i]); continue; }
     if (a === "--attach") { throw new Error("--attach is temporarily disabled — own-profile Chrome only"); }
-    if (a === "--extension") { throw new Error("--extension is temporarily disabled — own-profile Chrome only"); }
+    if (a === "--extension") { opts.mode = "extension"; continue; }
     if (a === "--no-headless") { opts.headless = false; continue; }
     if (a === "--enter") { opts.enter = true; continue; }
     if (a === "--only") { opts.only = args[++i]; continue; }

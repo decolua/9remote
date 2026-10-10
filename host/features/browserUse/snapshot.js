@@ -426,9 +426,12 @@ export function readExpression(parent, from = 0, len = null) {
 })()`;
 }
 
-export async function evaluate(client, sessionId, expression, { awaitPromise = false, timeoutMs } = {}) {
+export async function evaluate(client, sessionId, expression, { awaitPromise = false, timeoutMs, op = null, opArgs = null } = {}) {
+  // op/opArgs: the extension's light mode cannot eval strings (MV3 CSP), so the
+  // host names the operation — the extension runs it as a static function.
+  // Debugger/CDP modes ignore them and run the expression.
   const result = await client.call("Runtime.evaluate",
-    { expression, returnByValue: true, awaitPromise }, sessionId, timeoutMs);
+    { expression, returnByValue: true, awaitPromise, ...(op ? { op, args: opArgs ?? [] } : {}) }, sessionId, timeoutMs);
   if (result.exceptionDetails) throw new Error("Snapshot evaluation failed — document changed");
   return result.result?.value ?? null;
 }

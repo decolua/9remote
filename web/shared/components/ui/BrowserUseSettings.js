@@ -26,6 +26,44 @@ const EXAMPLE_PROMPTS = [
   "Log into the portal, go to Payments and download the latest PDF invoice"
 ];
 
+function ExtensionStatus({ busRef }) {
+  const invoke = useBrowserUseInvoke(busRef);
+  const [ext, setExt] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    const poll = () => invoke("ext.status", {}).then((r) => { if (alive) setExt(r); });
+    poll();
+    const t = setInterval(poll, 3000);
+    return () => { alive = false; clearInterval(t); };
+  }, [invoke]);
+
+  const install = async () => {
+    vibrate();
+    await invoke("ext.install", {});
+  };
+
+  return (
+    <div className="rounded-brand border border-border-subtle p-2.5 space-y-2">
+      <div className="flex items-center justify-between gap-2">
+        <span className={`flex items-center gap-1.5 text-xs font-medium ${ext?.connected ? "text-emerald-500" : "text-amber-500"}`}>
+          <span className={`inline-block h-1.5 w-1.5 rounded-full ${ext?.connected ? "bg-emerald-500" : "bg-amber-500"}`} />
+          {!ext ? "Checking…" : ext.ok === false ? (ext.error || "Unavailable") : ext.connected ? "Extension connected" : "Extension not connected"}
+        </span>
+        {ext?.ok && (
+          <button onClick={install} className="px-2 py-1 bg-brand-500 text-white rounded-brand text-xs">
+            {ext.installed ? "Reveal folder" : "Install"}
+          </button>
+        )}
+      </div>
+      {ext?.ok && !ext.connected && (
+        <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-0.5">
+          {(ext.guide || []).map((step, i) => <li key={i}>{step}</li>)}
+        </ol>
+      )}
+    </div>
+  );
+}
+
 export default function BrowserUseConfigForm({ busRef }) {
   const store = useBrowserUseStore();
   const invoke = useBrowserUseInvoke(busRef);
@@ -86,6 +124,7 @@ export default function BrowserUseConfigForm({ busRef }) {
           className="mt-1 w-full px-2 py-1.5 bg-surface-2 rounded-brand text-sm text-text">
           <option value="own">Own browser — isolated profile (default, safe)</option>
           <option value="attach">Real browser — attach via debug mode</option>
+          <option value="extension">Real browser — 9remote extension</option>
         </select>
       </label>
 
@@ -125,6 +164,8 @@ export default function BrowserUseConfigForm({ busRef }) {
           )}
         </div>
       )}
+
+      {store.mode === "extension" && <ExtensionStatus busRef={busRef} />}
 
       {/* Example Prompts */}
       <div className="space-y-1.5">

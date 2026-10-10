@@ -19,6 +19,126 @@ const idleDetached = new Set(); // tabs WE detached while idle
 let lastCallAt = 0;
 const IDLE_DETACH_MS = 10000;
 const IDLE_SWEEP_MS = 3000;
+const GROUP_TITLE = "9remote"; // agent tabs share one named tab group
+const GROUP_COLOR = "orange"; // matches the 9remote brand
+
+// Serializes grouping so two quick creates cannot each mint their own group.
+let groupQueue = Promise.resolve();
+// Cosmetic only: a grouping failure must never break the agent's command.
+function groupAgentTab(tab) {
+  groupQueue = groupQueue.then(async () => {
+    const [group] = await chrome.tabGroups.query({ title: GROUP_TITLE, windowId: tab.windowId });
+    const groupId = await chrome.tabs.group(group ? { tabIds: tab.id, groupId: group.id } : { tabIds: tab.id });
+    if (!group) await chrome.tabGroups.update(groupId, { title: GROUP_TITLE, color: GROUP_COLOR });
+  }).catch(() => {});
+}
+
+// ---- light mode (no debugger banner) -----------------------------------------
+// Drives pages with a static content-script runner + synthetic DOM events
+// instead of chrome.debugger (AutoAgent pattern), so Chrome never shows the
+// "started debugging" banner. Costs: synthetic events are not trusted
+// (isTrusted=false) — some sites reject them; screenshots, file upload and
+// js-dialog dismissal are gone; pages whose CSP forbids eval (e.g. GitHub)
+// refuse expressions — flip Drive mode to Debugger in the popup for those.
+let lightMode = true;
+const lightActive = () => lightMode;
+
+// Setup verbs the light path accepts and ignores — no debugger session exists.
+const LIGHT_NOOP = new Set(["Page.enable", "DOM.enable", "Runtime.enable", "Log.enable",
+  "Target.setAutoAttach", "Target.setDiscoverTargets",
+  "Emulation.setDeviceMetricsOverride", "Emulation.setFocusEmulationEnabled"]);
+const LIGHT_UNSUPPORTED = new Set(["Page.captureScreenshot", "DOM.getDocument",
+  "DOM.requestNode", "DOM.setFileInputFiles"]);
+
+// Normalize chrome API errors into the CDP shapes the engine's DEAD_SESSION
+// regex keys on, so a closed tab heals the session instead of wedging it.
+function normErr(tid, e) {
+  const msg = e?.message || String(e);
+  if (/no tab|tab not found|cannot access|chrome:\/\/|chrome web store/i.test(msg)) return `No target with given id: ${tid}`;
+  if (/refused to evaluate|content security policy/i.test(msg)) {
+    return `page CSP blocks script injection — flip Drive mode to Debugger in the popup for this site`;
+  }
+  return msg; // anything else reads as "document navigating" to the engine
+}
+
+// The runner is injected once per tab (idempotent — see runner.js); navigation
+// destroys it, and the first sendMessage after that re-injects (AutoAgent
+// background pattern).
+const runnerTabs = new Set();
+async function ensureRunner(tabId) {
+  if (runnerTabs.has(tabId)) return;
+  await chrome.scripting.executeScript({ target: { tabId }, files: ["runner.js"] });
+  runnerTabs.add(tabId);
+}
+
+// Runtime.evaluate → a named op on the static runner (see runner.js — MV3 CSP
+// forbids eval, so the host tags every expression with an op name instead).
+// Promise-returning ops are awaited inside the runner before the reply.
+// A committing navigation wipes the runner and the injection can race it —
+// retry the inject+ask pair a bounded number of times before giving up.
+const TRANSIENT_INJECT = /receiving end does not exist|could not establish|message channel|cannot access contents/i;
+async function evalInTab(tid, params) {
+  if (!params.op) throw new Error("light mode needs op-tagged expressions (update the host)");
+  const tabId = Number(tid);
+  let lastErr = null;
+  for (let i = 0; i < 8; i++) {
+    try {
+      await ensureRunner(tabId);
+      const r = await chrome.tabs.sendMessage(tabId, { t: "op", op: params.op, args: params.args || [] });
+      if (!r) throw new Error(`No target with given id: ${tid}`);
+      if (!r.ok) throw normErr(tid, { message: r.err });
+      return r.v ?? null;
+    } catch (e) {
+      lastErr = e;
+      if (!TRANSIENT_INJECT.test(e?.message || "")) throw normErr(tid, e);
+      runnerTabs.delete(tabId); // document changed under us — inject fresh
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  }
+  throw normErr(tid, lastErr);
+}
+
+// Tab-level verbs the light path translates itself; the base SHIM below
+// (Target.*, closeTarget…) applies to both paths unchanged.
+const LIGHT_SHIM = {
+  "Page.navigate": async ({ url }, tid) => { await chrome.tabs.update(Number(tid), { url: url || "about:blank" }); return { frameId: 0 }; },
+  "Page.reload": async (_p, tid) => { await chrome.tabs.reload(Number(tid)); return {}; },
+  "Page.bringToFront": async () => ({}), // same reason as the base SHIM
+  "Browser.getWindowForTarget": async ({ targetId }) => ({ windowId: (await chrome.tabs.get(Number(targetId))).windowId }),
+  "Target.getTargetInfo": async ({ targetId }) => {
+    const t = await chrome.tabs.get(Number(targetId));
+    return { targetInfo: { targetId: String(t.id), type: "page", title: t.title, url: t.url } };
+  }
+};
+
+async function dispatchLight(method, params, targetId) {
+  if (LIGHT_NOOP.has(method)) return {};
+  if (method === "Runtime.evaluate") {
+    if (targetId == null) throw new Error("Runtime.evaluate needs a target in light mode");
+    // CDP envelope shape: the host's evaluate() unwraps result.result.value.
+    const value = await evalInTab(String(targetId), params);
+    return { result: { value: value ?? null } };
+  }
+  if (method === "Input.dispatchMouseEvent") {
+    inputAt = Date.now();
+    return evalInTab(String(targetId), { op: "mouse", args: [params.type, params.x, params.y] });
+  }
+  if (method === "Input.dispatchKeyEvent") {
+    inputAt = Date.now();
+    return evalInTab(String(targetId), { op: "key", args: [{ type: params.type, key: params.key, code: params.code,
+      modifiers: params.modifiers || 0, vk: params.windowsVirtualKeyCode, commands: params.commands }] });
+  }
+  if (method === "Input.insertText") {
+    inputAt = Date.now();
+    return evalInTab(String(targetId), { op: "insertText", args: [params.text] });
+  }
+  if (LIGHT_SHIM[method]) return LIGHT_SHIM[method](params, targetId);
+  if (SHIM[method]) return SHIM[method](params, targetId); // Target.* tab verbs work in both modes
+  if (LIGHT_UNSUPPORTED.has(method)) {
+    throw new Error(`${method} is not available in light mode — flip Drive mode to Debugger in the popup`);
+  }
+  throw new Error(`${method} is not available via the extension (light mode)`);
+}
 
 function send(frame) {
   try { ws?.send(JSON.stringify(frame)); } catch { /* relay down — close handler reconnects */ }
@@ -53,6 +173,7 @@ const SHIM = {
   // page render clean; the next engine call re-attaches automatically.
   "SHIM.Debugger.detach": async ({ targetId }) => {
     const tid = String(targetId);
+    if (lightActive()) return { detached: true }; // nothing attached in light mode
     await detachQuiet(tid);
     return { detached: true };
   },
@@ -65,6 +186,7 @@ const SHIM = {
     // emulation on the page keeps them rendering anyway).
     const tab = await chrome.tabs.create({ url: url || "about:blank", active: false });
     agentTabs.add(String(tab.id));
+    groupAgentTab(tab);
     return { targetId: String(tab.id) };
   },
   "Target.closeTarget": async ({ targetId }) => {
@@ -76,13 +198,15 @@ const SHIM = {
     // translate at each boundary and keep strings everywhere inside.
     const tid = String(targetId);
     if (attached.has(tid)) return { sessionId: tid }; // session heal re-attaches its own target
+    agentTabs.add(tid);
+    // Light mode never attaches a debugger — the session id IS the tab id.
+    if (lightActive()) return { sessionId: tid };
     // One attached page at a time — mirrors engine usage, avoids stacked infobars.
     for (const prev of [...attached]) if (prev !== tid) detachQuiet(prev);
     await attachDebugger(tid);
     attached.add(tid);
     // A popup our click spawned takes the focus Chrome gives it — hand it back
     // to the tab the user was actually reading. The agent drives in background.
-    agentTabs.add(tid);
     snapBackFocus(tid);
     return { sessionId: tid };
   },
@@ -127,7 +251,12 @@ async function attachDebugger(tid) {
 }
 
 async function dispatch(method, params, targetId) {
-  if (SHIM[method]) return SHIM[method](params || {});
+  if (lightActive()) return dispatchLight(method, params || {}, targetId);
+  return dispatchDebug(method, params || {}, targetId);
+}
+
+async function dispatchDebug(method, params, targetId) {
+  if (SHIM[method]) return SHIM[method](params);
   if (targetId == null) throw new Error(`${method} is not available via the extension`);
   if (method.startsWith("Input.")) inputAt = Date.now();
   const tid = String(targetId);
@@ -177,6 +306,18 @@ chrome.tabs.onCreated.addListener((tab) => {
     ...((tab.openerTabId != null && agentPopup) ? { openerId: String(tab.openerTabId) } : {})
   } } });
 });
+// Light mode: synthesize the main-frame navigation events settle() keys its
+// nav tail on (the debugger path gets them from CDP for free).
+chrome.webNavigation.onBeforeNavigate.addListener((d) => {
+  if (!lightActive() || d.frameId !== 0) return;
+  send({ t: "event", method: "Page.frameRequestedNavigation",
+    params: { frame: {}, disposition: "currentTab" }, sessionId: String(d.tabId) });
+});
+chrome.webNavigation.onCommitted.addListener((d) => {
+  if (!lightActive() || d.frameId !== 0) return;
+  send({ t: "event", method: "Page.frameNavigated",
+    params: { frame: { id: "0", url: d.url } }, sessionId: String(d.tabId) });
+});
 // Pure tracking: which tab Chrome shows, and which one came before it. The
 // user clicking ANY tab (agent tabs included, to watch it work) just updates
 // the trackers — focus is only ever restored at the adoption moment above.
@@ -187,6 +328,7 @@ chrome.tabs.onActivated.addListener(({ tabId }) => {
 chrome.tabs.onRemoved.addListener((tabId) => {
   attached.delete(String(tabId));
   idleDetached.delete(String(tabId));
+  runnerTabs.delete(tabId);
 });
 // The idle sweep behind the soft-detach (see idleDetached above).
 setInterval(() => {
@@ -227,13 +369,22 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     try { host = new URL(RELAY_URL).host; } catch { /* keep empty */ }
     sendResponse({
       connected: ws?.readyState === WebSocket.OPEN, host,
-      version: chrome.runtime.getManifest().version, paused
+      version: chrome.runtime.getManifest().version, paused,
+      light: lightMode, lightActive: lightActive()
     });
     return false;
   }
   if (msg?.t === "setPaused") {
     setPaused(Boolean(msg.paused)).then(() => sendResponse({ ok: true }));
     return true;
+  }
+  if (msg?.t === "setLight") {
+    lightMode = Boolean(msg.light);
+    try { chrome.storage.local.set({ light: lightMode }); } catch { /* non-fatal */ }
+    // Leaving debugger mode: drop every attach so the banner clears in seconds.
+    if (lightMode) for (const tid of [...attached]) detachQuiet(tid);
+    sendResponse({ ok: true, light: lightMode, active: lightActive() });
+    return false;
   }
 });
 
@@ -255,7 +406,8 @@ function connect() {
   ws.onerror = () => { try { ws?.close(); } catch { /* retry via onclose */ } };
 }
 // Boot: honor a persisted pause before the first connection attempt.
-chrome.storage.local.get(["paused"]).then((saved) => {
+chrome.storage.local.get(["paused", "light"]).then((saved) => {
   paused = Boolean(saved?.paused);
+  lightMode = saved?.light !== false; // light is the default — no banner
   if (!paused) connect();
 }).catch(() => connect());

@@ -236,6 +236,17 @@ export function shouldBlockNoChange(history) {
   return tail.length === 3 && tail.every((h) => h.page_changed === false && h.kind !== "wait");
 }
 
+// Reason with a repair hint: without `fields` the space has no TYPE_TEXT op, so
+// clicking an editable affordance is the only move Jev has — it focuses, never types.
+export function noProgressReason(history, fields) {
+  const hasFields = fields && Object.keys(fields).length > 0;
+  const editable = (h) => h.role === "textbox" || h.role === "searchbox" || h.role === "combobox" || h.kind === "fill";
+  if (!hasFields && history.slice(-3).some(editable)) {
+    return "three actions changed nothing — clicked an editable field with no fields configured; re-run with fields so Jev can type";
+  }
+  return "three actions changed nothing";
+}
+
 // Run one bounded chunk. Returns an outcome plus the step log; pass `resume`
 // (a previous result's history) to continue a session after a host-agent step.
 // The caller verifies — the loop itself never claims a verified pass.
@@ -322,7 +333,7 @@ export async function runTask(session, {
     lastScrollY = page.scroll?.y ?? 0;
     pageMoved = changed && page.url !== urlBefore;
     lastContent = contentKey(page);
-    history.push({ action: action.label, kind: action.kind, text: null, page_changed: changed });
+    history.push({ action: action.label, kind: action.kind, role: action.role || null, text: null, page_changed: changed });
     emit({
       operation, targetIndex: targetId, label: action.label, result: "ok",
       probability, pageChanged: changed, url: page.url
@@ -447,7 +458,7 @@ export async function runTask(session, {
       if (hit && checkExpectations(page, expect).passed) {
         return finish("needs_verification", "target verified on page state");
       }
-      if (shouldBlockNoChange(history)) return finish("no_progress", "three actions changed nothing");
+      if (shouldBlockNoChange(history)) return finish("no_progress", noProgressReason(history, fields));
       continue;
     }
 
@@ -484,7 +495,7 @@ export async function runTask(session, {
             if (expect && checkExpectations(page, expect).passed) {
               return finish("needs_verification", "target verified on page state");
             }
-            if (shouldBlockNoChange(history)) return finish("no_progress", "three actions changed nothing");
+            if (shouldBlockNoChange(history)) return finish("no_progress", noProgressReason(history, fields));
             continue;
           } catch { /* js-click failed too — fall through to re-observe */ }
         }
@@ -500,7 +511,7 @@ export async function runTask(session, {
     if (expect && checkExpectations(page, expect).passed) {
       return finish("needs_verification", "target verified on page state");
     }
-    if (shouldBlockNoChange(history)) return finish("no_progress", "three actions changed nothing");
+    if (shouldBlockNoChange(history)) return finish("no_progress", noProgressReason(history, fields));
 
     // Micro-plan: follow-up answers from the SAME decision run while the page
     // holds still — one model call carries a same-view sequence. Any doubt
@@ -527,7 +538,7 @@ export async function runTask(session, {
       if (expect && checkExpectations(page, expect).passed) {
         return finish("needs_verification", "target verified on page state");
       }
-      if (shouldBlockNoChange(history)) return finish("no_progress", "three actions changed nothing");
+      if (shouldBlockNoChange(history)) return finish("no_progress", noProgressReason(history, fields));
     }
   }
   return finish("step_limit", `${maxSteps} steps used; resume to continue`);
