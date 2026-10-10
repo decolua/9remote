@@ -14,7 +14,7 @@ export { checkExpectations };
 import {
   attachStatus, closeProfile, listTabs, openAttachGuide, readStepFrame, framePathFor,
   requestCancel, runTask, sessionStatus, shoot, withSession, clickById, typeById, pressEnter,
-  switchTab, closeTab, matchActionId
+  switchTab, closeTab, matchActionId, beginAgentCall
 } from "./engine.js";
 import { ensureExtensionInstall, extStatus } from "./extRelay.js";
 import { ALLOWED_MODES, AUTO_CONTINUE_CHUNKS, CONSOLE_FAIL_TAIL, ELEMENT_DEEP_CAP, JEV_CONFIG_DEFAULTS, KEEP_REPORTS, KV_KEY, MAX_MS_DEFAULT, MAX_MS_HARD, MAX_STEPS_DEFAULT, MAX_STEPS_HARD } from "./constants.js";
@@ -159,7 +159,19 @@ const waitGate = async (payload) => {
   return { found };
 };
 
+// The CLI names its caller (tabKey = terminal session id): any tab this call opened
+// is stamped with that owner so the strip can scope the agent group per workspace.
 export async function invoke(action, payload = {}) {
+  const profile = payload?.profile || "default";
+  const endCall = beginAgentCall(profile, payload?.tabKey);
+  try {
+    return await invokeAction(action, payload);
+  } finally {
+    endCall();
+  }
+}
+
+async function invokeAction(action, payload = {}) {
   await loadConfig();
   switch (action) {
     case "config.get":

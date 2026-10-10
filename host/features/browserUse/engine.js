@@ -1533,23 +1533,76 @@ async function launchSession({ profile = "default", sessionKey = null, keyed = f
   }
 }
 
+// Terminal session that opened each agent tab (targetId -> session id). One session
+// serves every agent of a profile, so the owner is stamped only for tabs that appear
+// during a call that names its caller (see beginAgentCall).
+const TAB_OWNER_RE = /^[a-z0-9][a-z0-9_-]{0,40}$/i;
+const tabOwners = new Map();
+
+const ownedTargetsOf = (profile) => {
+  const ids = new Set();
+  for (const s of sessions.values()) {
+    if (s.mode === "own" && s.profile === profile) for (const id of s.ownsTargets) ids.add(id);
+  }
+  return ids;
+};
+
+// Calls in flight per profile. A caller owns only the tabs that APPEARED during its
+// own call: claiming every unowned tab would hand it tabs an agent outside the app
+// opened. Any overlap (including an untagged caller) makes ownership ambiguous, so
+// nothing is claimed and the strip keeps showing the tab in every workspace.
+const callsInFlight = new Map(); // profile -> Set(call)
+
+function claimNew(call) {
+  if (!call.owner || call.overlapped) return;
+  for (const id of ownedTargetsOf(call.profile)) {
+    if (!call.baseline.has(id) && !tabOwners.has(id)) tabOwners.set(id, call.owner);
+  }
+}
+
+export function beginAgentCall(profile, owner) {
+  const call = {
+    profile,
+    owner: TAB_OWNER_RE.test(owner ?? "") ? String(owner).toLowerCase() : null,
+    baseline: ownedTargetsOf(profile),
+    overlapped: false
+  };
+  const active = callsInFlight.get(profile) ?? new Set();
+  if (active.size) {
+    call.overlapped = true;
+    for (const other of active) other.overlapped = true;
+  }
+  active.add(call);
+  callsInFlight.set(profile, active);
+  return () => {
+    claimNew(call);
+    active.delete(call);
+    if (!active.size) callsInFlight.delete(profile);
+  };
+}
+
 // Own-mode agent tabs across every profile, for the terminal strip's agent group.
 // Best-effort: dead sessions skip, one getTargets per live session (2s poll).
 // Extension/attach tabs are the user's own browser — the strip never lists them.
 export async function agentTabsSnapshot() {
   const out = [];
+  const live = new Set();
   for (const session of [...sessions.values()]) {
     if (session.mode !== "own" || !session.client || session.client.closed) continue;
+    // A tab born mid-call is on screen before the call returns: claim it now.
+    for (const call of callsInFlight.get(session.profile) ?? []) claimNew(call);
     try {
       const { targetInfos = [] } = await session.client.call("Target.getTargets");
       for (const t of targetInfos) {
         if (t.type !== "page" || !session.ownsTargets.has(t.targetId)) continue;
+        live.add(t.targetId);
         let windowId = null;
         try { windowId = (await session.client.call("Browser.getWindowForTarget", { targetId: t.targetId })).windowId ?? null; } catch { /* dead target */ }
-        out.push({ profile: session.profile, id: t.targetId, title: t.title || "", url: t.url || "about:blank", windowId });
+        out.push({ profile: session.profile, id: t.targetId, title: t.title || "", url: t.url || "about:blank", windowId, owner: tabOwners.get(t.targetId) || null });
       }
     } catch { /* session died mid-scan */ }
   }
+  for (const id of tabOwners.keys()) if (!live.has(id)) tabOwners.delete(id);
   return out;
 }
 

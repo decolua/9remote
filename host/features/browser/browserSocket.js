@@ -48,13 +48,25 @@ async function pushTabs(profile, windowId = null) {
 // visible on every strip. Lazy import keeps the browser feature loadable
 // without browserUse.
 let agentTabsModule = null;
+let terminalModule = null;
 async function currentAgentTabs() {
   if (agentTabsModule === null) {
     agentTabsModule = await import("../browserUse/engine.js").catch(() => false);
   }
   if (!agentTabsModule) return [];
-  try { return await agentTabsModule.agentTabsSnapshot(); }
-  catch { return []; }
+  if (terminalModule === null) {
+    terminalModule = await import("../terminal/terminalSocket.js").catch(() => false);
+  }
+  try {
+    const tabs = await agentTabsModule.agentTabsSnapshot();
+    // Owner session -> workspace key (web keys an ungrouped session "default"). Unknown
+    // owner (no owner, or not a terminal session) = null: the strip then shows the tab
+    // in every workspace rather than hiding it.
+    return tabs.map(({ owner, ...tab }) => {
+      const ws = owner && terminalModule ? terminalModule.workspaceOfSession(owner) : undefined;
+      return { ...tab, workspaceId: ws === undefined ? null : (ws ?? "default") };
+    });
+  } catch { return []; }
 }
 let lastAgentTabsJson = "";
 

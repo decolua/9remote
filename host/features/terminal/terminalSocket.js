@@ -218,6 +218,13 @@ function adoptOrphanSessions() {
 
 // Live sessions with the path each is rooted at. Read by the git handlers so removing a
 // worktree can warn about terminals still running inside it.
+// Workspace of a terminal session: id, null = known but ungrouped, undefined = not a
+// terminal session at all (e.g. an AI chat) — callers must not guess a workspace then.
+export function workspaceOfSession(sessionId) {
+  if (!sessions.has(sessionId)) return undefined;
+  return sessionWorkspaces[sessionId] ?? null;
+}
+
 export function listSessionRoots() {
   return [...sessions.entries()].map(([id, s]) => ({
     id, name: s.name, workspacePath: s.workspacePath || null, cwd: s.cwd || null
