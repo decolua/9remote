@@ -8,8 +8,10 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import {
   ChevronLeft,
   ChevronRight,
+  CornerDownLeft,
   ExternalLink,
   Globe,
+  Keyboard,
   Link2,
   Loader2,
   RotateCw,
@@ -28,6 +30,7 @@ import { isLocalLink, localStreamParams, STREAM_QUALITY_LOCAL } from "@/features
 import { useBrowserInvoke } from "@/features/browser/hooks/useBrowserInvoke";
 import { useBrowserFrame } from "@/features/browser/hooks/useBrowserFrame";
 import { pinchDistance } from "@/features/browser/lib/pointerMap";
+import { nextStageLock, shouldRestartStream } from "@/features/browser/lib/stageLock";
 import BrowserInspectSheet from "./BrowserInspectSheet";
 import BrowserAnnotationsDrawer from "./BrowserAnnotationsDrawer";
 import BrowserMarkupOverlay from "./BrowserMarkupOverlay";
@@ -62,6 +65,9 @@ const VIEWPORT_PRESETS = [
 ];
 // Overlay controls sit inside the stage: their pointer events must not reach the stage's page-input handlers.
 const stopStagePointer = (e) => e.stopPropagation();
+// Floating mobile pill states (dark plate, so the icons stay white in both themes).
+const PILL_ON = "bg-white/15 text-white";
+const PILL_OFF = "text-white/60 hover:text-white";
 const SPECIAL_KEYS = {
   Enter: "enter", Tab: "tab", Escape: "escape", Backspace: "backspace", Delete: "delete",
   ArrowUp: "arrowup", ArrowDown: "arrowdown", ArrowLeft: "arrowleft", ArrowRight: "arrowright",
@@ -82,6 +88,19 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
   const [address, setAddress] = useState("");
   const [textOpen, setTextOpen] = useState(false);
   const [textDraft, setTextDraft] = useState("");
+  // Always-mounted sink for the strip input — the keyboard button focuses it
+  // synchronously inside the tap gesture (iOS blocks async focus).
+  const textInputRef = useRef(null);
+  const toggleTextStrip = () => {
+    vibrate();
+    if (textOpen) {
+      setTextOpen(false);
+      textInputRef.current?.blur();
+    } else {
+      setTextOpen(true);
+      textInputRef.current?.focus();
+    }
+  };
   const [restartTick, setRestartTick] = useState(0);
   // Adaptive quality: null = host default (85, or 95 while local). The pane
   // watches outgoing bytes and steps quality down when a 3s window exceeds
@@ -371,30 +390,62 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     return () => ro.disconnect();
   }, [hasFrame, imgRef]);
 
-  // Stage resized (layout settling, pane split, fullscreen) → restart the
-  // stream at the new size. The stream measures the stage ONCE at start; left
-  // alone it would keep serving the old resolution stretched = blurry.
   // Wheel coalescing: CDP mouseWheel costs 18-45ms host-side, so one-message-
   // per-event saturates the serial input queue (measured). 50ms keeps ~20
   // dispatches/s while deltas arrive in order (host serializes).
   const wheelRef = useRef(null);
   const stageSizeRef = useRef(null);
+  // Soft-KB lock (mobile, TerminalPane pattern): the keyboard shrinks the
+  // viewport, not the page — the stage keeps its keyboard-closed height (canvas
+  // stays full-size, pane scrolls instead) and restart decisions compare TRUE
+  // sizes only, so a keyboard cycle never restarts the screencast.
+  // ponytail: stage keeps touch-none while locked — drag the topbar/strip to
+  // scroll the pane; give the stage pan-y + input gating if that's not enough.
+  const paneRootRef = useRef(null);
+  const [stageLockH, setStageLockH] = useState(null);
+  const lockRef = useRef(null);
+  const stageFreeHRef = useRef(0);
+  const isMobileRef = useRef(isMobile);
+  useEffect(() => { isMobileRef.current = isMobile; }, [isMobile]);
   useEffect(() => {
+    const root = paneRootRef.current;
     const stage = stageRef.current;
-    if (!stage) return;
+    if (!root || !stage) return;
     let timer = null;
+    // Root = viewport-driven (keyboard), stage = content-driven (strip open):
+    // watching both keeps the true size honest through both kinds of change.
     const ro = new ResizeObserver(() => {
-      const r = stage.getBoundingClientRect();
+      const size = { w: Math.round(root.clientWidth), h: Math.round(root.clientHeight) };
+      const lock = isMobileRef.current
+        ? nextStageLock(lockRef.current, size)
+        : { width: size.w, height: size.h, lockedH: null, kbShrunk: false };
+      const wasShrunk = lockRef.current?.kbShrunk;
+      lockRef.current = lock;
+      // Free height only updates while unlocked — on the shrink event the stage
+      // has already collapsed, so the pre-shrink value is the one to keep.
+      if (!lock.kbShrunk) stageFreeHRef.current = Math.round(stage.getBoundingClientRect().height);
+      setStageLockH(lock.kbShrunk ? stageFreeHRef.current : null);
+      // Focus below the fold (text strip) stays visible: scroll it in once when
+      // the keyboard opens — the fixed html doesn't do it by itself.
+      if (lock.kbShrunk && !wasShrunk) {
+        const el = document.activeElement;
+        if (root.contains(el)) {
+          requestAnimationFrame(() => {
+            const past = el.getBoundingClientRect().bottom - root.getBoundingClientRect().bottom;
+            if (past > 0) root.scrollTop += past;
+          });
+        }
+      }
+      const trueSize = { w: size.w, h: stageFreeHRef.current || size.h };
       const last = stageSizeRef.current;
-      stageSizeRef.current = { w: Math.round(r.width), h: Math.round(r.height) };
+      stageSizeRef.current = trueSize;
       if (!last) return;
       clearTimeout(timer);
       timer = setTimeout(() => {
-        if (Math.abs(r.width - last.w) + Math.abs(r.height - last.h) > 24) {
-          setRestartTick((n) => n + 1);
-        }
+        if (shouldRestartStream(last, trueSize)) setRestartTick((n) => n + 1);
       }, 300);
     });
+    ro.observe(root);
     ro.observe(stage);
     return () => {
       clearTimeout(timer);
@@ -863,34 +914,42 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
 
   // Pick + Device size, labelled so they read as features. `float` = mobile pill:
   // the preset menu then opens upward from the stage corner.
-  const pageTools = (float) => (
+  const pageTools = (float) => {
+    // Mobile pill floats over arbitrary page pixels on a fixed dark plate: white icons, selected = brighter.
+    // Desktop toolbar keeps the labels and the brand fill.
+    const toolBtn = float ? "h-9 w-9 justify-center rounded-full" : "h-8 gap-1.5 px-2 rounded-[6px]";
+    const toolOn = float ? PILL_ON : "bg-brand-500 text-white hover:bg-brand-600";
+    const toolOff = float ? PILL_OFF : "text-text-muted hover:text-text hover:bg-surface-2";
+    return (
     <>
       <button
         onClick={() => { vibrate(); setGrabIntent((g) => (g === "pick" ? null : "pick")); setInspectedElement(null); setHoverRect(null); }}
         disabled={!frame}
-        className={`h-8 shrink-0 flex items-center gap-1.5 px-2 rounded-[6px] text-xs font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none ${
-          grabIntent === "pick" ? "bg-brand-500 text-white hover:bg-brand-600" : "text-text-muted hover:text-text hover:bg-surface-2"
+        aria-label={t("sites.browserPanePickTitle")}
+        className={`${toolBtn} shrink-0 flex items-center text-xs font-medium transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+          grabIntent === "pick" ? toolOn : toolOff
         }`}
         title={t("sites.browserPanePickTitle")}
       >
         <Target size={16} />
-        <span>{t("sites.browserPanePick")}</span>
+        {!float && <span>{t("sites.browserPanePick")}</span>}
       </button>
       <div className="relative">
         <button
           onClick={() => { vibrate(); setVpMenu((v) => !v); }}
-          className={`h-8 shrink-0 flex items-center gap-1.5 px-2 rounded-[6px] text-xs font-medium transition-colors ${
-            viewportPreset ? "bg-brand-500 text-white hover:bg-brand-600" : "text-text-muted hover:text-text hover:bg-surface-2"
+          aria-label={t("sites.browserPaneDeviceTitle")}
+          className={`${toolBtn} shrink-0 flex items-center text-xs font-medium transition-colors ${
+            viewportPreset ? toolOn : toolOff
           }`}
           title={t("sites.browserPaneDeviceTitle")}
         >
           <Smartphone size={16} />
-          <span>{viewportPreset ? `${viewportPreset.width}×${viewportPreset.height}` : t("sites.browserPaneDevice")}</span>
+          {!float && <span>{viewportPreset ? `${viewportPreset.width}×${viewportPreset.height}` : t("sites.browserPaneDevice")}</span>}
         </button>
         {vpMenu && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setVpMenu(false)} />
-            <div className={`absolute z-20 flex flex-col p-1 rounded-xl card-elev animate-in fade-in duration-100 min-w-[170px] ${float ? "bottom-10 right-0" : "top-10 right-0"}`}>
+            <div className={`absolute z-20 flex flex-col p-1 rounded-xl card-elev animate-in fade-in duration-100 min-w-[170px] ${float ? "bottom-12 left-0" : "top-10 right-0"}`}>
               {VIEWPORT_PRESETS.map((opt) => (
                 <button
                   key={opt.label}
@@ -914,10 +973,14 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
         )}
       </div>
     </>
-  );
+    );
+  };
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-surface text-text transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+    <div
+      ref={paneRootRef}
+      className={`absolute inset-0 z-20 flex flex-col bg-surface text-text transition-all duration-300 ease-out animate-in slide-in-from-bottom ${stageLockH ? "overflow-y-auto overscroll-contain" : ""}`}
+    >
       {/* Toolbar — orca BrowserPane layout: nav · address · tools · ⋯.
           Tabs live in the terminal header strip (orca's unified tabs). */}
       <div className="shrink-0 relative z-30 flex items-center gap-1 md:gap-2 border-b border-border-subtle bg-surface/95 px-2 md:px-3 py-1.5">
@@ -1015,8 +1078,8 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
         onPointerCancel={onPointerUp}
         onContextMenu={(e) => { e.preventDefault(); openContextMenu(e.clientX, e.clientY); }}
         onPointerLeave={() => { setHoverRect(null); if (hoverTimerRef.current) { clearTimeout(hoverTimerRef.current); hoverTimerRef.current = null; } }}
-        style={{ cursor: grabIntent ? "crosshair" : cursor }}
-        className="flex-1 min-h-0 bg-black relative overflow-hidden outline-none touch-none select-none flex items-center justify-center"
+        style={{ cursor: grabIntent ? "crosshair" : cursor, ...(stageLockH ? { height: stageLockH } : {}) }}
+        className={`${stageLockH ? "shrink-0" : "flex-1 min-h-0"} bg-black relative overflow-hidden outline-none touch-none select-none flex items-start justify-center`}
       >
         {/* Always mounted — paint() needs the canvas BEFORE the first frame
             state exists; hiding it via opacity breaks that chicken-and-egg. */}
@@ -1051,13 +1114,24 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
         )}
         {isMobile && (
           <div
-            className="absolute bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 z-10 flex items-center gap-0.5 rounded-full bg-surface/90 backdrop-blur shadow-[0_2px_10px_rgba(0,0,0,0.4)] p-0.5"
+            className="absolute bottom-[calc(var(--safe-bottom)+0.75rem)] left-3 z-10 flex items-center gap-0.5 rounded-full bg-black/70 backdrop-blur shadow-[0_2px_10px_rgba(0,0,0,0.4)] p-0.5"
             onPointerDown={stopStagePointer}
             onPointerMove={stopStagePointer}
             onPointerUp={stopStagePointer}
             onPointerCancel={stopStagePointer}
             onContextMenu={stopStagePointer}
           >
+            <button
+              onClick={toggleTextStrip}
+              disabled={!frame}
+              aria-label={t("mobileKeyboard.toggleTextInput")}
+              title={t("mobileKeyboard.toggleTextInput")}
+              className={`h-9 w-9 shrink-0 flex items-center justify-center rounded-full text-xs transition-colors disabled:opacity-40 disabled:pointer-events-none ${
+                textOpen ? PILL_ON : PILL_OFF
+              }`}
+            >
+              <Keyboard size={16} />
+            </button>
             {pageTools(true)}
           </div>
         )}
@@ -1065,7 +1139,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
         {/* Pick chip — bottom-right: send picks or exit pick mode */}
         {(grabIntent === "pick" || picked.length > 0) && !pickOpen && (
           <div
-            className="absolute bottom-3 right-3 z-10 flex items-center gap-1.5 rounded-full shadow-xl p-0.5"
+            className="absolute bottom-[calc(var(--safe-bottom)+0.75rem)] right-3 z-10 flex items-center gap-1.5 rounded-full shadow-xl p-0.5"
             onPointerDown={stopStagePointer}
             onPointerMove={stopStagePointer}
             onPointerUp={stopStagePointer}
@@ -1075,21 +1149,21 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
             {picked.length > 0 ? (
               <button
                 onClick={() => { vibrate(); setPickOpen(true); }}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium shadow-md transition-colors"
+                className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-brand-500 hover:bg-brand-600 text-white text-xs font-medium shadow-md transition-colors"
               >
                 <Target size={13} />
                 <span>{`${picked.length} picked — Send`}</span>
               </button>
             ) : (
-              <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-surface/95 text-text border border-border-subtle text-xs font-medium backdrop-blur">
-                <Target size={13} className="text-brand-500" />
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-black/70 text-white border border-white/10 text-xs font-medium backdrop-blur">
+                <Target size={13} className="text-white" />
                 <span>Pick elements</span>
               </div>
             )}
             {grabIntent === "pick" && (
               <button
                 onClick={() => { vibrate(); setGrabIntent(null); }}
-                className="w-7 h-7 flex items-center justify-center rounded-full bg-surface/90 hover:bg-surface text-text-muted hover:text-text border border-border-subtle transition-colors"
+                className="w-6 h-6 flex items-center justify-center rounded-full bg-black/70 text-white/70 hover:text-white border border-white/10 backdrop-blur transition-colors"
                 title="Exit pick mode"
               >
                 <X size={12} />
@@ -1176,25 +1250,36 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
         )}
       </div>
 
-      {/* Virtual text input strip */}
-      {textOpen && (
+      {/* Virtual text input strip — always mounted on mobile so the keyboard
+          button can focus it synchronously inside the tap gesture (iOS). */}
+      {(isMobile || textOpen) && (
         <div
-          className="flex items-center gap-2 p-2 border-t border-border-subtle shrink-0 bg-surface"
-          style={{ paddingBottom: "max(0.5rem, env(safe-area-inset-bottom))" }}
+          className={`flex items-center gap-2 shrink-0 bg-surface ${textOpen ? "p-2 border-t border-border-subtle" : "h-0 overflow-hidden"}`}
+          style={{ paddingBottom: textOpen ? "max(0.5rem, var(--safe-bottom))" : undefined }}
         >
           <input
+            ref={textInputRef}
             type="text"
             value={textDraft}
             onChange={(e) => setTextDraft(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && sendText()}
             placeholder={t("sites.browserPaneSendText")}
+            enterKeyHint="send"
             autoCapitalize="off"
             autoCorrect="off"
             spellCheck={false}
-            className="flex-1 px-3 py-1.5 bg-surface-2 rounded-brand text-sm text-text placeholder-text-muted focus:outline-none"
+            className="flex-1 min-w-0 h-11 px-4 bg-surface-2 rounded-full text-sm text-text placeholder-text-muted focus:outline-none"
           />
-          <button onClick={sendText} className="px-3 py-1.5 bg-brand-500 text-white rounded-brand text-sm">
-            {t("sites.open")}
+          {/* mousedown default kept off so the tap never steals focus — the keyboard stays up */}
+          <button
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={sendText}
+            disabled={!textDraft}
+            aria-label={t("mobileKeyboard.send")}
+            title={t("mobileKeyboard.send")}
+            className="h-11 w-11 shrink-0 flex items-center justify-center rounded-full bg-brand-500 text-white transition-opacity disabled:opacity-40"
+          >
+            <CornerDownLeft size={18} />
           </button>
         </div>
       )}
