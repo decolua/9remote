@@ -21,6 +21,7 @@ import {
 } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
+import { AGENT_PORT } from "@/shared/constants/API";
 import { useBrowserStore } from "@/shared/stores/browserStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { isLocalLink, localStreamParams, STREAM_QUALITY_LOCAL } from "@/features/browser/lib/browserFrame";
@@ -293,7 +294,8 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     const bus = busRef?.current;
     if (!bus?.emit) return;
     bus.emit("getLocalSites", (res) => {
-      if (Array.isArray(res?.sites)) setLocalSites(res.sites);
+      // Old hosts still report the host's own UI server — drop it here too.
+      if (Array.isArray(res?.sites)) setLocalSites(res.sites.filter((s) => s.port !== AGENT_PORT));
     });
   }, [busRef, connected, blankTab, watchedId]);
 
@@ -327,7 +329,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
       events,
       profile
     });
-  }, [busRef, watchedId]);
+  }, [busRef, watchedId, profile]);
 
   // Pixel-perfect mapping: the img shrink-fits the stage, so its rect is the
   // drawn frame; scale through the ratio into the page's own device pixels.
@@ -342,7 +344,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     const x = Math.round(((clientX - rect.left) / rect.width) * vW);
     const y = Math.round(((clientY - rect.top) / rect.height) * vH);
     return { x: Math.max(0, Math.min(vW, x)), y: Math.max(0, Math.min(vH, y)) };
-  }, []);
+  }, [imgRef, frameRef]);
   const point = useCallback((e) => pagePoint(e.clientX, e.clientY), [pagePoint]);
 
   // Drawn-frame box (stage-relative): rings and the sweep rect position against
@@ -367,7 +369,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     if (stageRef.current) ro.observe(stageRef.current);
     if (imgRef.current) ro.observe(imgRef.current);
     return () => ro.disconnect();
-  }, [hasFrame]);
+  }, [hasFrame, imgRef]);
 
   // Stage resized (layout settling, pane split, fullscreen) → restart the
   // stream at the new size. The stream measures the stage ONCE at start; left
@@ -695,7 +697,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, [watchedId, grabIntent, sendInput, pagePoint]);
+  }, [watchedId, grabIntent, sendInput, pagePoint, frameRef]);
 
   const onKeyDown = (e) => {
     // Orca chords: Mod+L focuses the address bar; Escape disarms grab/annotate.
@@ -1049,7 +1051,7 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
         )}
         {isMobile && (
           <div
-            className="absolute bottom-3 left-3 z-10 flex items-center gap-0.5 rounded-full bg-surface/90 backdrop-blur shadow-[0_2px_10px_rgba(0,0,0,0.4)] p-0.5"
+            className="absolute bottom-[calc(env(safe-area-inset-bottom)+0.75rem)] left-3 z-10 flex items-center gap-0.5 rounded-full bg-surface/90 backdrop-blur shadow-[0_2px_10px_rgba(0,0,0,0.4)] p-0.5"
             onPointerDown={stopStagePointer}
             onPointerMove={stopStagePointer}
             onPointerUp={stopStagePointer}
@@ -1100,29 +1102,47 @@ export default function BrowserPane({ busRef, connected = false, onBack, profile
             {t("sites.browserPaneNotConnected")}
           </div>
         )}
-        {(connected && (!watchedId || blankTab)) && localSites !== null && localSites.length > 0 && (
+        {(connected && (!watchedId || blankTab)) && (
           <div className="absolute inset-0 z-[7] overflow-y-auto bg-surface">
-            <div className="pt-[14vh] flex flex-wrap justify-center gap-x-1 gap-y-5 px-6 max-w-2xl mx-auto">
-              {localSites.map((site) => {
-                const label = site.name && !/^localhost:\d+$/.test(site.name) ? site.name : null;
-                return (
-                  <button
-                    key={site.port}
-                    onClick={() => { vibrate(); navigate(site.url); }}
-                    className="group flex w-[84px] flex-col items-center gap-1.5 p-2 rounded-lg hover:bg-surface-2/70 transition-colors"
-                    title={site.url}
-                  >
-                    <span
-                      className="w-11 h-11 rounded-full flex items-center justify-center text-white text-[13px] font-bold font-mono"
-                      style={{ backgroundColor: siteHue(site.port) }}
-                    >
-                      {site.port}
-                    </span>
-                    <span className="text-xs text-text font-medium font-mono">:{site.port}</span>
-                    {label && <span className="w-full text-center text-[10px] text-text-muted truncate">{label}</span>}
-                  </button>
-                );
-              })}
+            <div className="pt-[10vh] pb-6 px-6 max-w-2xl mx-auto flex flex-col gap-6">
+              <div className="flex flex-col items-center gap-2 text-center">
+                <Globe size={28} className="text-brand-500" />
+                <h2 className="text-sm font-semibold text-text">{t("sites.browserPaneIntroTitle")}</h2>
+                <p className="text-xs text-text-muted max-w-sm">{t("sites.browserPaneIntroDesc")}</p>
+              </div>
+              <p className="flex items-start justify-center gap-2 text-xs text-text-muted text-center">
+                <Target size={14} className="mt-px shrink-0 text-brand-500" />
+                <span>{t("sites.browserPaneTipPick")}</span>
+              </p>
+              {localSites?.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-text-muted text-center">{t("sites.browserPaneLocalSites")}</span>
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                    {localSites.map((site) => {
+                      const label = site.name && !/^localhost:\d+$/.test(site.name) ? site.name : "localhost";
+                      return (
+                        <button
+                          key={site.port}
+                          onClick={() => { vibrate(); navigate(site.url); }}
+                          className="flex items-center gap-2.5 p-2 rounded-lg border border-border-subtle bg-surface-2/50 hover:bg-surface-2 hover:border-border transition-colors text-left min-w-0"
+                          title={site.url}
+                        >
+                          <span
+                            className="w-9 h-9 shrink-0 rounded-md flex items-center justify-center text-white text-[11px] font-bold font-mono"
+                            style={{ backgroundColor: siteHue(site.port) }}
+                          >
+                            {site.port}
+                          </span>
+                          <span className="min-w-0 flex flex-col">
+                            <span className="text-xs text-text font-medium truncate">{label}</span>
+                            <span className="text-[10px] text-text-muted font-mono">:{site.port}</span>
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

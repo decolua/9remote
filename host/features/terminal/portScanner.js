@@ -4,6 +4,7 @@ import path from "path";
 import fs from "fs";
 import { exec } from "child_process";
 import { promisify } from "util";
+import { SERVER_PORT } from "../../lib/constants.js";
 
 const execAsync = promisify(exec);
 
@@ -241,10 +242,12 @@ export async function scanLocalSites({ io = realIo, now = Date.now } = {}) {
     }
 
     const cwds = await io.cwds([...new Set(accepted.map((r) => r.pid).filter(Boolean))]);
+    // The host's own UI server is not a site to open inside itself.
+    const ownUiPort = parseInt(process.env.PORT, 10) || SERVER_PORT;
     sites = accepted
       // Ephemeral-range listeners (49152+) are tooling internals spawned with
       // random ports (next HMR, wrangler workerd) — never a site to open.
-      .filter((row) => row.port < 49152)
+      .filter((row) => row.port < 49152 && row.port !== ownUiPort)
       .map((row) => {
         const cwd = cwds.get(row.pid) || null;
         return {
