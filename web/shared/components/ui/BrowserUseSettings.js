@@ -21,7 +21,8 @@ export function useBrowserUseInvoke(busRef) {
 const ATTACH_GUIDE_URL = "chrome://inspect/#remote-debugging";
 const EXT_PAGE_URL = "chrome://extensions/";
 
-function CopyRow({ value }) {
+// Inline copy: tiny icon (+ optional code chip) that flows inside a guide line.
+function CopyInline({ value, showValue = false }) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     vibrate();
@@ -32,14 +33,16 @@ function CopyRow({ value }) {
     } catch {}
   };
   return (
-    <div className="flex items-center gap-1.5 my-1">
-      <code className="flex-1 min-w-0 px-2 py-1 bg-surface-2 rounded-brand text-[11px] text-text truncate select-all">
-        {value}
-      </code>
-      <button onClick={copy} title="Copy" className="shrink-0 p-1.5 bg-surface-2 rounded-brand text-text-muted hover:text-text">
-        {copied ? <Check size={13} className="text-emerald-500" /> : <Copy size={13} />}
+    <span className="inline-flex items-center gap-1 align-middle">
+      {showValue && (
+        <code className="px-1.5 py-0.5 bg-surface-2 rounded-brand text-[10.5px] text-text select-all break-all">
+          {value}
+        </code>
+      )}
+      <button onClick={copy} title="Copy" className="p-0.5 text-text-muted hover:text-text">
+        {copied ? <Check size={12} className="text-emerald-500" /> : <Copy size={12} />}
       </button>
-    </div>
+    </span>
   );
 }
 
@@ -70,17 +73,21 @@ function ExtensionStatus({ busRef }) {
         {!ext ? "Checking…" : ext.ok === false ? (ext.error || "Unavailable") : ext.connected ? "Extension connected" : "Extension not connected"}
       </span>
       {ext?.ok && !ext.connected && (
-        <>
-          <CopyRow value={EXT_PAGE_URL} />
-          <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-0.5">
-            {["extGuide1", "extGuide2", "extGuide3"].map((key, i) => (
-              <li key={key}>
-                {t(`menu.${key}`)}
-                {i === 1 && <CopyRow value={ext.dir || "~/.9remote/browser-extension"} />}
-              </li>
-            ))}
-          </ol>
-        </>
+        <ol className="list-decimal ml-4 text-[11px] text-text-muted space-y-1">
+          <li>
+            <span className="flex items-center flex-wrap gap-1">
+              {t("menu.extGuide1")}
+              <CopyInline value={EXT_PAGE_URL} showValue />
+            </span>
+          </li>
+          <li>
+            <span className="flex items-center flex-wrap gap-1">
+              {t("menu.extGuide2")}
+              <CopyInline value={ext.dir || "~/.9remote/browser-extension"} showValue />
+            </span>
+          </li>
+          <li>{t("menu.extGuide3")}</li>
+        </ol>
       )}
     </div>
   );

@@ -152,7 +152,7 @@ export default {
     settingsAppearance: "Appearance",
     settingsTerminalTab: "Terminal",
     settingsBrowser: "Browser Use",
-    extGuide1: "Mở chrome://extensions (nút Copy bên trên), bật Developer mode (góc trên phải)",
+    extGuide1: "Mở link sau, bật Developer mode (góc trên phải):",
     extGuide2: "Bấm \"Load unpacked\", chọn folder:",
     extGuide3: "Trạng thái sẽ tự chuyển sang connected sau vài giây",
     settingsMcp: "Plugins",

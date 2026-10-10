@@ -208,7 +208,7 @@ export default {
     settingsSystem: "System",
     settingsVoice: "Voice",
     settingsBrowser: "Browser Use",
-    extGuide1: "Open chrome://extensions (Copy button above) and turn on Developer mode (top right)",
+    extGuide1: "Open this link, then turn on Developer mode (top right):",
     extGuide2: "Click \"Load unpacked\" and pick this folder:",
     extGuide3: "Status flips to connected in a few seconds",
     voiceInput: "Voice Input",
