@@ -613,3 +613,50 @@ test("opencode revert and agent switch become info rows", () => {
 test("unknown opencode records stay silent, not dropped", () => {
   assert.equal(noticeFrom("session.next.shell.started", { command: "x" }), null);
 });
+
+// --- CLI 2.1.296 frames: the live retry and the silent model switch ---
+
+test("an api_retry frame draws a warning naming the status, the wait and the attempt", () => {
+  const out = reduceSessionEvents([rec("api_retry", { attempt: 2, max_retries: 10, retry_delay_ms: 30000, error_status: 503, error: "server_error" })], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].level, "warning");
+  assert.match(rows[0].content, /503/);
+  assert.match(rows[0].content, /30s/);
+  assert.match(rows[0].content, /2\/10/);
+});
+
+test("a live retry storm replaces its own row instead of stacking one per attempt", () => {
+  const retry = (n) => ({ subtype: "api_retry", level: "warning", retrying: true, content: `API error 503 — retrying in 30s (attempt ${n}/10)` });
+  useAiStore.getState().addNotice("live-retry", retry(1));
+  useAiStore.getState().addNotice("live-retry", retry(2));
+  const rows = useAiStore.getState().bySession["live-retry"].messages.filter((m) => m.role === "notice");
+  assert.equal(rows.length, 1, "one row, replaced each attempt");
+  assert.match(rows[0].content, /2\/10/);
+});
+
+test("a model fallback frame names the model that actually answered", () => {
+  const out = reduceSessionEvents([rec("model_fallback", { original_model: "cc/claude-sonnet-5-5", fallback_model: "cc/claude-haiku-5-5", content: "overloaded" })], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].level, "warning");
+  assert.match(rows[0].content, /sonnet/);
+  assert.match(rows[0].content, /haiku/);
+  assert.match(rows[0].content, /overloaded/);
+});
+
+test("model_consent_fallback joins the same wording family", () => {
+  const out = reduceSessionEvents([rec("model_consent_fallback", { original_model: "a-model", fallback_model: "b-model" })], "claude");
+  const rows = notices(out);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].content, /a-model/);
+  assert.match(rows[0].content, /b-model/);
+});
+
+test("a prompt_suggestion frame draws no timeline row", () => {
+  const out = reduceSessionEvents([{
+    seq: 1, event: "cli_event",
+    data: { type: "prompt_suggestion", record: { type: "prompt_suggestion", suggestions: ["run tests", "commit"] } }
+  }], "claude");
+  assert.equal(notices(out).length, 0);
+});

@@ -41,3 +41,8 @@ export const SKIP_MESSAGE = "User skipped this request";
 // A carrier can take the emit and still lose the bytes (a zombie RTC data channel), and
 // an answer nobody was told about is the same stuck chat as one never sent.
 export const RESOLVE_ACK_TIMEOUT_MS = 5000;
+
+// A prompt that neither acked nor errored within this window fell into a dead
+// carrier — surface it as a resendable error instead of silent loss (#48). Longer
+// than the gate's 5s: the host may auto-create the session before answering.
+export const PROMPT_ACK_TIMEOUT_MS = 8000;

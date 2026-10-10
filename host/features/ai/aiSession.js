@@ -90,11 +90,15 @@ const LIVE_ONLY_CLI_SUBTYPES = new Set([
   "hook_progress",
   "hook_response",
   "status",
-  "control_response"
+  "control_response",
+  // The live retry frame; the transcript's settled api_error record is what replay needs.
+  "api_retry"
 ]);
 
-// Same rule for codex records (spelled as a method); codex writes none of them to its rollout.
+// Same rule, keyed by wire type: codex's method-spelled records and claude's live-only state frames.
 const LIVE_ONLY_CLI_TYPES = new Set([
+  "prompt_suggestion",
+  "rate_limit_event",
   "hook/started",
   "hook/completed",
   "rawResponseItem/completed",
@@ -717,6 +721,12 @@ export class AiSession {
   }
 
   emitNormalized(event, data, record = true) {
+    // The CLI reset its own conversation (/clear elsewhere, plan-mode exit, fresh-session):
+    // rebind and rewind — the process already lives on, so no rebuild.
+    if (event === "cli_reset") {
+      this._resetConversation({ conversationId: data?.conversationId || null });
+      return;
+    }
     // A record the harness itself does not keep is not history — see LIVE_ONLY_CLI_SUBTYPES.
     if (record && event === "cli_event" && LIVE_ONLY_CLI_SUBTYPES.has(data?.subtype)) record = false;
     if (record && event === "cli_event" && LIVE_ONLY_CLI_TYPES.has(data?.type)) record = false;
@@ -1079,6 +1089,45 @@ export class AiSession {
     }
   }
 
+  // One reset for both doors: the host's /clear and the CLI's own conversation_reset frame.
+  // `conversationId` is the id the CLI just switched to (absent when the host clears).
+  _resetConversation({ conversationId = null, rebuildProcess = false } = {}) {
+    // Drop the CLI conversation too, or the cleared chat resumes on the next restart.
+    this.threadId = null;
+    this.threadTitle = "";
+    this.cliSessionId = conversationId;
+    this.history = [];
+    // Counter restarts with the new log, or its first events read as already applied.
+    this.seqCounter = 0;
+    this.logEpoch++;
+    // A fresh process numbers its lines from scratch.
+    this.consumedLines = 0;
+    this.consumedEpoch = null;
+    // The offset indexes one transcript file; left behind it would resume mid-record in the next one.
+    this.attachmentOffset = null;
+    this.isTurnRunning = false;
+    // The old conversation's turn span goes with it.
+    this.turnStartedAt = 0;
+    this.lastTurnMs = 0;
+    this.flushSaveSnapshot();
+    if (rebuildProcess && !this.options.mock && !this.managed) {
+      // Kill first — an adapter dropped without stop() leaves its CLI running; under the daemon there is nothing to rebuild.
+      try { this.adapter?.stop(); } catch {}
+      this.ready = this.initAdapter();
+    }
+    const init = this.metadata();
+    this.history.push({ seq: ++this.seqCounter, event: "init", data: init, timestamp: Date.now() });
+    this.onEvent?.(this.id, "conversation_reset", {
+      hasMore: false, fromSeq: 0, epoch: this.logEpoch,
+      // Empty and stated — silence keeps the old task set drawn.
+      taskRecords: [],
+      lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0
+    });
+    this.onEvent?.(this.id, "init", init);
+    this.clearQueue();
+    this.flushSaveSnapshot();
+  }
+
   sendPrompt(prompt, attachments = null) {
     // /clear is a host-side reset, not a message.
     if (String(prompt).trim() === "/clear") {
@@ -1087,39 +1136,7 @@ export class AiSession {
         this.emitNormalized("error", { message: "Turn is still running — stop it before /clear." });
         return;
       }
-      // Drop the CLI conversation too, or the cleared chat resumes on the next restart.
-      this.threadId = null;
-      this.cliSessionId = null;
-      this.history = [];
-      // Counter restarts with the new log, or its first events read as already applied.
-      this.seqCounter = 0;
-      this.logEpoch++;
-      // A fresh process numbers its lines from scratch.
-      this.consumedLines = 0;
-      this.consumedEpoch = null;
-      // The offset indexes one transcript file; left behind it would resume mid-record in the next one.
-      this.attachmentOffset = null;
-      this.isTurnRunning = false;
-      // The old conversation's turn span goes with it.
-      this.turnStartedAt = 0;
-      this.lastTurnMs = 0;
-      this.flushSaveSnapshot();
-      if (!this.options.mock && !this.managed) {
-        // Kill first — an adapter dropped without stop() leaves its CLI running; under the daemon there is nothing to rebuild.
-        try { this.adapter?.stop(); } catch {}
-        this.ready = this.initAdapter();
-      }
-      const init = this.metadata();
-      this.history.push({ seq: ++this.seqCounter, event: "init", data: init, timestamp: Date.now() });
-      this.onEvent?.(this.id, "conversation_reset", {
-        hasMore: false, fromSeq: 0, epoch: this.logEpoch,
-        // Empty and stated — silence keeps the old task set drawn.
-        taskRecords: [],
-        lastTurnMs: 0, isTurnRunning: false, elapsedMs: 0
-      });
-      this.onEvent?.(this.id, "init", init);
-      this.clearQueue();
-      this.flushSaveSnapshot();
+      this._resetConversation({ rebuildProcess: true });
       return;
     }
 

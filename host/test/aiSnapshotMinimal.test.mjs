@@ -155,7 +155,7 @@ function replayTranscript(lines) {
   return recoverFromClaudeTranscript(TRANSCRIPT_CWD, CLAUDE_ID) || [];
 }
 
-const RENDERED_SYSTEM = ["api_error", "local_command", "compact_boundary", "informational", "away_summary", "model_refusal_fallback"];
+const RENDERED_SYSTEM = ["api_error", "local_command", "compact_boundary", "informational", "away_summary", "model_refusal_fallback", "model_fallback", "model_consent_fallback"];
 const RENDERED_ATTACHMENT = ["edited_text_file", "queued_command"];
 
 test("every record the pane draws comes back from the CLI's transcript", () => {
@@ -295,6 +295,39 @@ test("an init that repeats the SAME id keeps the offset — that is a plain reat
   s.attachmentOffset = 15_000;
   s.emitNormalized("init", { sessionId: CLAUDE_ID });
   assert.equal(s.attachmentOffset, 15_000, "same conversation, same file, same offset");
+});
+
+test("an api_retry frame is broadcast live but never recorded — the transcript owns the settled copy", () => {
+  const seen = [];
+  const s = new AiSession({ id: `snapmin-${++seq}`, engine: "claude", cwd: TRANSCRIPT_CWD, options: { mock: true }, onEvent: (id, event) => seen.push(event) });
+  s.emitNormalized("cli_event", {
+    type: "system", subtype: "api_retry",
+    record: { type: "system", subtype: "api_retry", attempt: 1, max_retries: 10, retry_delay_ms: 30000, error_status: 503 }
+  });
+  assert.ok(seen.includes("cli_event"), "the live pane still sees the retry");
+  assert.ok(!s.history.some((e) => e.event === "cli_event" && e.data?.subtype === "api_retry"), "the log does not — replay reads the CLI's own api_error instead");
+});
+
+test("a prompt_suggestion frame is live-only state, not history", () => {
+  const s = makeSession();
+  s.emitNormalized("cli_event", { type: "prompt_suggestion", record: { type: "prompt_suggestion", suggestions: ["a"] } });
+  assert.ok(!s.history.some((e) => e.event === "cli_event" && e.data?.type === "prompt_suggestion"));
+});
+
+test("a CLI-side conversation_reset rebinds the id and rewinds the log", () => {
+  const seen = [];
+  const s = new AiSession({ id: `snapmin-${++seq}`, engine: "claude", cwd: TRANSCRIPT_CWD, options: { mock: true }, onEvent: (id, event, data) => seen.push([event, data]) });
+  s.emitNormalized("user_message", { text: "hi" });
+  s.emitNormalized("delta", { text: "hello" });
+  s.cliSessionId = "old-conv";
+  s.emitNormalized("cli_reset", { conversationId: "conv-9" });
+  assert.equal(s.cliSessionId, "conv-9", "the frame's id is the one to resume next");
+  assert.ok(!s.history.some((e) => e.event === "delta"), "the discarded conversation is gone from the log");
+  assert.equal(s.history.filter((e) => e.event === "init").length, 1, "the new log opens on its own init");
+  const reset = seen.find(([e]) => e === "conversation_reset");
+  assert.ok(reset, "clients are told to remount");
+  assert.equal(reset[1].epoch, s.logEpoch);
+  assert.ok(Array.isArray(reset[1].taskRecords) && reset[1].taskRecords.length === 0, "an empty task set is stated, not silent");
 });
 
 console.log(`\n${pass} passed, ${fail} failed`);

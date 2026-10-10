@@ -89,6 +89,8 @@ export class ClaudeAdapter {
     // Set when OUR interrupt went out: the CLI's `result` echo of it must not end a newer turn; consumed by the echo, never by a prompt.
     this._interrupted = false;
     this.metadata = { model: "", sessionId: "", tools: [], skills: [], slashCommands: [] };
+    // active_goal dedupe key — the frame bumps iterations every turn; the banner only cares about the condition.
+    this._goalKey = "";
     // Set when the resume id was refused, so the caller drops it instead of retrying a conversation the CLI does not have.
     this.resumeRejected = false;
     this._initializedThisSpawn = false;
@@ -256,6 +258,24 @@ export class ClaudeAdapter {
       };
       // Empty effort means the CLI decides — sending it would wipe the level init published.
       this.onEvent?.("init", { ...this.metadata, ...(this.effort ? { effort: this.effort } : {}) });
+      return;
+    }
+
+    // The CLI dropped this conversation itself (/clear, plan-mode exit, fresh-session) — a
+    // session-level reset, not a record.
+    if (data.type === "conversation_reset") {
+      this.metadata.sessionId = data.new_conversation_id || "";
+      this.onEvent?.("cli_reset", { conversationId: this.metadata.sessionId });
+      return;
+    }
+
+    // /goal's live state — `value` is null when cleared; one emission per condition, not per iteration bump.
+    if (data.type === "active_goal") {
+      const goal = data.value ? { objective: String(data.value.condition || "").trim(), status: "active" } : null;
+      const key = goal ? goal.objective : "";
+      if (key === this._goalKey) return;
+      this._goalKey = key;
+      this.onEvent?.("goal", { goal });
       return;
     }
 

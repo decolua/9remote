@@ -381,5 +381,22 @@ test("the SIGINT fallback arms the same echo swallow", () => {
   assert.equal(events.filter(([e]) => e === "turn_complete").length, 0, "the SIGINT echo draws nothing");
 });
 
+test("a conversation_reset frame becomes a session-level reset, not a passthrough record", () => {
+  const { of } = feeding([{ type: "conversation_reset", new_conversation_id: "conv-9" }]);
+  assert.equal(of("cli_reset").length, 1, "the frame drives the host's reset door");
+  assert.equal(of("cli_reset")[0][1].conversationId, "conv-9");
+  assert.equal(of("cli_event").length, 0, "the frame must not also land as an undrawn record");
+});
+
+test("an active_goal frame feeds the goal banner once per condition, and on clearing", () => {
+  const goal = (condition, iterations) => ({ type: "active_goal", value: { condition, iterations, set_at: 1, tokens_at_start: 2 } });
+  const { of } = feeding([goal("ship it", 1), goal("ship it", 2), { type: "active_goal", value: null }]);
+  const goals = of("goal");
+  assert.equal(goals.length, 2, "an unchanged condition emits once; the clearing emits");
+  assert.equal(goals[0][1].goal.objective, "ship it");
+  assert.equal(goals[0][1].goal.status, "active");
+  assert.equal(goals[1][1].goal, null);
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 if (fail) process.exitCode = 1;

@@ -69,6 +69,8 @@ export const Composer = memo(function Composer({
   const [text, setText] = useState("");
   // Queue from agent session store (persisted on host across mobile disconnects).
   const queue = useAiStore((s) => s.bySession[sessionId]?.queue) || EMPTY_ARRAY;
+  // #48: prompt lost to a dead carrier — the bar offers Resend.
+  const promptError = useAiStore((s) => s.bySession[sessionId]?.promptError) || null;
   const [historyIdx, setHistoryIdx] = useState(-1);
   const draftRef = useRef("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -337,6 +339,17 @@ export const Composer = memo(function Composer({
     vibrate();
     onStop?.();
   }, [onStop]);
+
+  const resendLostPrompt = useCallback(() => {
+    const lost = useAiStore.getState().bySession[sessionId]?.promptError;
+    if (!lost) return;
+    vibrate();
+    useAiStore.getState().clearPromptError(sessionId);
+    onSend?.(lost.text);
+  }, [sessionId, onSend]);
+  const dismissPromptError = useCallback(() => {
+    useAiStore.getState().clearPromptError(sessionId);
+  }, [sessionId]);
 
   const runSlashAction = useCallback((item) => {
     const action = item.action || "send";
@@ -632,6 +645,20 @@ export const Composer = memo(function Composer({
   }, [tierSpec, matchedModel]);
 
   return (    <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">
+      {/* Prompt lost to a dead carrier (#48) — say so, offer the text back */}
+      {promptError && (
+        <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted bg-surface border border-border-subtle rounded-brand">
+          <span className="truncate">
+            {t("common.promptNotSent")}{promptError.reason && promptError.reason !== "timeout" ? `: ${promptError.reason}` : ""}
+          </span>
+          <button type="button" onClick={resendLostPrompt} className="shrink-0 text-text-muted hover:text-text underline underline-offset-2">
+            {t("common.resend")}
+          </button>
+          <button type="button" onClick={dismissPromptError} className="shrink-0 text-text-muted hover:text-text">
+            <X size={11} />
+          </button>
+        </div>
+      )}
       {/* Autocomplete Menu popup — second-level option list when a submenu is open */}
       {menuOpen && submenuCmd && (
         <div

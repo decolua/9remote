@@ -358,6 +358,25 @@ export function noticeFrom(type, record, engine = null) {
   if (type === "model/rerouted") {
     return { subtype: type, level: "warning", content: `Model rerouted: ${record.fromModel} → ${record.toModel}` };
   }
+  // The CLI switched models itself (overload fallback, consent-gated default) — the same
+  // visibility rule as a reroute: the reader must see which model answered.
+  if (type === "system" && (record.subtype === "model_fallback" || record.subtype === "model_consent_fallback")) {
+    const swap = record.original_model && record.fallback_model
+      ? `${record.original_model} → ${record.fallback_model}`
+      : (record.original_model || record.fallback_model || "model changed");
+    const reason = typeof record.content === "string" ? record.content.trim() : "";
+    return { subtype: record.subtype, level: "warning", content: reason ? `Model fallback: ${swap} — ${reason}` : `Model fallback: ${swap}` };
+  }
+  // The live retry frame carries numbers, not prose — the numbers are the sentence. The
+  // store replaces the retrying row, so a ten-attempt storm stays one line.
+  if (type === "system" && record.subtype === "api_retry") {
+    const wait = Math.round((Number(record.retry_delay_ms) || 0) / 1000);
+    const status = record.error_status != null ? ` ${record.error_status}` : "";
+    return {
+      subtype: "api_retry", level: "warning", retrying: true,
+      content: `API error${status} — retrying in ${wait}s (attempt ${record.attempt ?? "?"}/${record.max_retries ?? "?"})`
+    };
+  }
   // Codex states a compaction as one notification and nothing else — no start, no counts,
   // and no content. It gets the same one-line row Claude's boundary gets, because it is
   // the same event in the conversation: the context behind this turn was folded, and a

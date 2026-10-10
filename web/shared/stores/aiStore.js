@@ -154,6 +154,15 @@ export const useAiStore = create(
           // The CLI re-announces a running compaction on a ~30s heartbeat (a precomputed compact
           // awaiting the turn) — same compaction, so the row and its clock stay as they are.
           if (notice?.compacting && lastIndexOfCompacting(curr.messages) !== -1) return state;
+          // A retry storm updates its own row — one line with the attempt climbing, not one per attempt.
+          if (notice?.retrying) {
+            const at = curr.messages.map((m) => m?.retrying).lastIndexOf(true);
+            if (at !== -1) {
+              const messages = [...curr.messages];
+              messages[at] = { ...messages[at], content };
+              return { bySession: { ...state.bySession, [sessionId]: { ...curr, messages } } };
+            }
+          }
           // Scan back, not the last row — another record can sit between a compaction's start and end.
           const runningAt = notice?.compactSettled ? lastIndexOfCompacting(curr.messages) : -1;
           // A settled compaction REPLACES the "Compacting…" row(s) it ends.
@@ -182,7 +191,9 @@ export const useAiStore = create(
             // The compaction's own numbers ("557k → 21k tokens") — see harnessTasks.compactFrom.
             ...(notice.compact ? { compact: notice.compact } : null),
             // A compaction still running, which the boundary record later settles.
-            ...(notice.compacting ? { compacting: true } : null)
+            ...(notice.compacting ? { compacting: true } : null),
+            // A retry storm in progress — the next attempt replaces this row.
+            ...(notice.retrying ? { retrying: true } : null)
           };
           // Drop the empty placeholder the prompt opened — the answer has not started (same rule as the replay door).
           const last = curr.messages[curr.messages.length - 1];
@@ -563,6 +574,28 @@ export const useAiStore = create(
               [sessionId]: { ...curr, activeBlocked: null }
             }
           };
+        });
+      },
+
+      // The prompt never reached the host (dead carrier) — kept so the composer can
+      // offer Resend. Cleared by the user_message echo of the same text.
+      setPromptError: (sessionId, text, reason) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          return {
+            bySession: {
+              ...state.bySession,
+              [sessionId]: { ...curr, promptError: { text, reason } }
+            }
+          };
+        });
+      },
+      clearPromptError: (sessionId) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          if (!curr.promptError) return state;
+          const { promptError, ...rest } = curr;
+          return { bySession: { ...state.bySession, [sessionId]: rest } };
         });
       },
 

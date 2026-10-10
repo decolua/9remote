@@ -17,7 +17,8 @@ import { createRetryLadder, shouldApplyHydrateAck } from "../lib/hydrateRetry";
 import { classifyLiveEvent, fetchedIsSafe } from "../lib/gapFill";
 import { termLog } from "@/shared/utils/termLog";
 import { RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
-import { RESOLVE_ACK_TIMEOUT_MS } from "../constants";
+import { RESOLVE_ACK_TIMEOUT_MS, PROMPT_ACK_TIMEOUT_MS } from "../constants";
+import { emitPromptAck } from "../lib/promptAck";
 
 // CLI reports skills as bare id strings, the agent scan as objects; normalize to one shape.
 const normalizeSkills = (skills) =>
@@ -113,6 +114,10 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
       }
       case "goal":
         metadata = { ...metadata, goal: data?.goal || null };
+        break;
+      // The CLI reset its conversation; the reset itself arrives as conversation_reset
+      // plus the fresh init that follows — this frame carries no replay payload of its own.
+      case "cli_reset":
         break;
       case "delta": {
         let last = messages[messages.length - 1];
@@ -437,6 +442,10 @@ export function useAiSession({
       case "user_message":
         // `replay` marks a re-sent log: the prompt already happened, so it opens no turn.
         addUserMessage(sid, data.text, data.attachments || null, Boolean(data?.replay));
+        // Echo of a prompt the composer reported lost — the host did get it.
+        if (useAiStore.getState().bySession[sid]?.promptError?.text === data.text) {
+          useAiStore.getState().clearPromptError(sid);
+        }
         break;
       case "init": {
         // Keep persisted descriptions when the CLI's bare ids arrive second.
@@ -1354,12 +1363,21 @@ export function useAiSession({
       // Staged images/files ride with the prompt: the host writes them where the CLI
       // can read them. `message` stays the user's own words so the echoed bubble is
       // the text they typed, not a path list.
-      b?.emit("ai:prompt", {
-        sessionId,
-        message: text,
-        cwd: workspacePath,
-        ...(attachments?.length ? { attachments } : {})
-      });
+      // #48: a dead-but-not-closed carrier swallows the emit silently — the ack wraps
+      // it so the loss surfaces as a resendable error instead of vanishing.
+      if (b) {
+        emitPromptAck(
+          (payload, done) => b.emit("ai:prompt", payload, done),
+          {
+            sessionId,
+            message: text,
+            cwd: workspacePath,
+            ...(attachments?.length ? { attachments } : {})
+          },
+          PROMPT_ACK_TIMEOUT_MS,
+          (reason) => useAiStore.getState().setPromptError(sessionId, text, reason)
+        );
+      }
     },
     [sessionId, workspacePath]
   );
