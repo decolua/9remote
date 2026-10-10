@@ -15,7 +15,7 @@ import { useDragReorder } from "@/features/terminal/hooks/useDragReorder";
 import { DRAG_HOLD_MS, DRAG_MOVE_TOLERANCE_PX } from "@/features/terminal/constants/terminalConfig";
 import { workspaceGitPath } from "@/features/terminal/lib/workspaceGrouping";
 import { ProfileAvatar } from "@/features/browser/lib/profileAvatar";
-import { useBrowserStore, cleanTabTitle } from "@/shared/stores/browserStore";
+import { useBrowserStore } from "@/shared/stores/browserStore";
 
 const NO_TABS = [];
 import { useTerminalStore } from "@/shared/stores/terminalStore";
@@ -534,7 +534,7 @@ function BrowserTreeRow({ busRef, storeKey, mobile, rowCls, activeWs, onSelectWo
   };
   return tabs.map((tab) => {
     const isActive = isBrowserView && activeWs && tab.id === activeTabId;
-    const title = cleanTabTitle(tab.title) || "Browser";
+    const title = tab.title || "Browser";
     return (
       <div
         key={tab.id}

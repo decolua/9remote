@@ -9,7 +9,7 @@ import SessionStatusBadge from "./SessionStatusBadge";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
-import { useBrowserStore, cleanTabTitle } from "@/shared/stores/browserStore";
+import { useBrowserStore } from "@/shared/stores/browserStore";
 
 // Stable fallbacks: a fresh [] / {} per selector call is a new getSnapshot every
 // render — React reads that as "store changed" and loops to max update depth.
@@ -108,8 +108,14 @@ function TerminalHeader({
   const wsBrowserProfile = useBrowserStore((s) => s.workspaceProfiles[wsKey] || "default");
   const wsWindowId = useBrowserStore((s) => s.workspaceWindows[wsKey] || null);
   const browserTabs = useBrowserStore((s) => s.tabsByWorkspace[wsKey] ?? NO_TABS);
-  // Engine-driven tabs of OTHER profiles: shown in the same strip so anything
-  // the agent opens is visible no matter which profile it landed on.
+  const activeBrowserTargetId = useBrowserStore((s) => s.activeByWorkspace[wsKey] || null);
+  const isBrowserView = useTerminalStore((s) => {
+    const stack = s.viewStack;
+    return Boolean(stack && stack[stack.length - 1]?.type === "browser");
+  });
+  const setActiveBrowserTab = useBrowserStore((s) => s.setActive);
+  // Engine-driven (own-mode) tabs of OTHER profiles/windows: shown in the same strip
+  // so anything the agent opens is visible no matter where it landed.
   const agentTabs = useBrowserStore((s) => s.agentTabs);
   const setProfileForWs = useBrowserStore((s) => s.setProfileFor);
   const setWindowForWs = useBrowserStore((s) => s.setWindowFor);
@@ -123,14 +129,9 @@ function TerminalHeader({
     setActiveBrowserTab(wsKey, tab.id);
     pushView({ type: "browser" });
   };
-  const activeBrowserTargetId = useBrowserStore((s) => s.activeByWorkspace[wsKey] || null);
-  const isBrowserView = useTerminalStore((s) => {
-    const stack = s.viewStack;
-    return Boolean(stack && stack[stack.length - 1]?.type === "browser");
-  });
-  const setActiveBrowserTab = useBrowserStore((s) => s.setActive);
   useBrowserTabs(busRef, connected, wsBrowserProfile, wsWindowId, wsKey);
   const pushView = useTerminalStore((s) => s.pushView);
+  const popView = useTerminalStore((s) => s.popView);
   const agentBySession = useTerminalStore((s) => s.agentBySession ?? NO_OBJ);
   const fullModes = useTerminalStore((s) => s.fullModes ?? NO_OBJ);
   const fullMode = fullModes[activeWorkspaceId ?? UNGROUPED_KEY] ?? false;
@@ -368,6 +369,20 @@ function TerminalHeader({
     [activeBrowserTargetId, browserTabs.length, isBrowserView]
   );
 
+  // Last browser tab gone (closed here or by the page itself) → leave the
+  // browser overlay: staying put strands the pane on an empty new-tab stage.
+  // prev > 0 guard: a just-opened pane boots with 0 tabs and must not bounce.
+  // A profile switch also empties the strip but the user stays in the pane.
+  const prevBrowserTabCountRef = useRef(browserTabs.length);
+  const prevBrowserProfileRef = useRef(wsBrowserProfile);
+  useEffect(() => {
+    const prev = prevBrowserTabCountRef.current;
+    const switched = prevBrowserProfileRef.current !== wsBrowserProfile;
+    prevBrowserTabCountRef.current = browserTabs.length;
+    prevBrowserProfileRef.current = wsBrowserProfile;
+    if (prev > 0 && browserTabs.length === 0 && isBrowserView && !switched) popView();
+  }, [browserTabs.length, isBrowserView, wsBrowserProfile, popView]);
+
   // Browser tab context menu — outside click / Escape closes, like the terminal one
   useEffect(() => {
     if (!browserTabMenu.targetId) return;
@@ -596,13 +611,12 @@ function TerminalHeader({
                     <X size={11} strokeWidth={2.4} />
                   </button>
                 </div>
-                <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={cleanTabTitle(tab.title) || t("sites.browserTab")}>
-                  {cleanTabTitle(tab.title) || t("sites.browserTab")}
+                <span className="truncate max-w-[90px] sm:max-w-[140px]" data-tip={tab.title || t("sites.browserTab")}>
+                  {tab.title || t("sites.browserTab")}
                 </span>
               </div>
             );
           })}
-
           {/* Agent group: engine-opened tabs of any other profile — 🤖 + profile
               name; picking one switches this workspace to that profile. */}
           {agentOnly.map((tab) => (
@@ -621,7 +635,7 @@ function TerminalHeader({
                 }
               }}
               className="term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation"
-              data-tip={`${cleanTabTitle(tab.title) || "Agent tab"} (${tab.profile})`}
+              data-tip={`${tab.title || "Agent tab"} (${tab.profile})`}
             >
               <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
                 <Bot size={13} className="w-3.5 h-3.5 text-brand-500 sm:group-hover:hidden" />
@@ -639,7 +653,7 @@ function TerminalHeader({
                 </button>
               </div>
               <Bot size={11} className="w-3 h-3 text-brand-500 shrink-0 sm:hidden" />
-              <span className="truncate max-w-[70px] sm:max-w-[110px]">{cleanTabTitle(tab.title) || "Agent tab"}</span>
+              <span className="truncate max-w-[70px] sm:max-w-[110px]">{tab.title || "Agent tab"}</span>
               <span className="hidden sm:inline text-[9px] text-text-muted shrink-0">{tab.profile}</span>
             </div>
           ))}
