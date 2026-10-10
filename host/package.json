@@ -1,6 +1,6 @@
 {
   "name": "9remote",
-  "version": "3.0.39",
+  "version": "3.0.40",
   "type": "module",
   "description": "Remote terminal access from anywhere",
   "license": "Apache-2.0",
