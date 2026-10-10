@@ -16,6 +16,7 @@ import { useBrowserStore } from "@/shared/stores/browserStore";
 const NO_TABS = [];
 const NO_OBJ = {};
 import { useBrowserTabs } from "@/features/browser/hooks/useBrowserTabs";
+import { agentTabsForWorkspace } from "@/features/browser/lib/agentTabsScope";
 import { useFleetStore } from "@/shared/stores/fleetStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { connForSession, connOf, useAllSessionStatus } from "@/shared/transport/hostConn";
@@ -119,7 +120,7 @@ function TerminalHeader({
   const agentTabs = useBrowserStore((s) => s.agentTabs);
   const setProfileForWs = useBrowserStore((s) => s.setProfileFor);
   const setWindowForWs = useBrowserStore((s) => s.setWindowFor);
-  const agentOnly = agentTabs.filter((t) => !(t.profile === wsBrowserProfile && browserTabs.some((b) => b.id === t.id)));
+  const agentOnly = agentTabsForWorkspace(agentTabs, { wsKey, profile: wsBrowserProfile, ownTabs: browserTabs });
   // Switching onto an agent tab must mirror the add-browser flow: profile AND
   // the tab's Chrome window — without the window the workspace watches nothing
   // and the pane has no tab to stream.
