@@ -3,8 +3,9 @@
   "version": "2.4.0",
   "type": "module",
   "scripts": {
-    "predev": "pkill -f 'workerd.*9remote' 2>/dev/null; true",
+    "predev": "node scripts/patchIos15Regex.mjs; pkill -f 'workerd.*9remote' 2>/dev/null; true",
     "dev": "next dev -H ::",
+    "prebuild": "node scripts/patchIos15Regex.mjs",
     "build": "NODE_ENV=production next build --webpack",
     "build:static": "node ../scripts/buildWebStatic.mjs",
     "build:cf": "npm run build && NODE_ENV=production opennextjs-cloudflare build && node scripts/injectSignalingDO.mjs && node scripts/injectHotRoutes.mjs && node scripts/injectSitesHost.mjs && node scripts/injectScheduled.mjs",
@@ -73,6 +74,13 @@
     "xlsx": "^0.18.5",
     "zustand": "^5.0.10"
   },
+  "browserslist": [
+    "chrome >= 111",
+    "edge >= 111",
+    "firefox >= 111",
+    "safari >= 15",
+    "ios >= 15"
+  ],
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20241218.0",
     "@opennextjs/cloudflare": "1.20.1",
