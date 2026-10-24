@@ -16,26 +16,33 @@ export function flushWinDns() {
 
 export async function resolveTunnelDns(hostname, timeoutMs = PROBE_DNS_TIMEOUT_MS) {
   const t0 = Date.now();
+  let timeout;
   try {
     const queryDual = async () => {
-      const [res4, res6] = await Promise.allSettled([
-        dnsResolver.resolve4(hostname),
-        dnsResolver.resolve6(hostname),
-      ]);
-      if (res4.status === "fulfilled" && res4.value?.length) return res4.value;
-      if (res6.status === "fulfilled" && res6.value?.length) return res6.value;
-      throw res4.reason || res6.reason || Object.assign(new Error("DNS query failed"), { code: "ENOTFOUND" });
+      const noAddresses = Object.assign(new Error("DNS query failed"), { code: "ENOTFOUND" });
+      const queryFamily = async (method) => {
+        const addrs = await dnsResolver[method](hostname);
+        if (!addrs?.length) throw noAddresses;
+        return addrs;
+      };
+      try {
+        return await Promise.any([queryFamily("resolve4"), queryFamily("resolve6")]);
+      } catch (err) {
+        throw err.errors.find((reason) => reason !== noAddresses) || noAddresses;
+      }
     };
 
     const addrs = await Promise.race([
       queryDual(),
-      new Promise((_, reject) =>
-        setTimeout(() => reject(Object.assign(new Error("DNS timeout"), { code: "ETIMEOUT" })), timeoutMs)
-      ),
+      new Promise((_, reject) => {
+        timeout = setTimeout(() => reject(Object.assign(new Error("DNS timeout"), { code: "ETIMEOUT" })), timeoutMs);
+      }),
     ]);
     return { ok: true, addrs, elapsedMs: Date.now() - t0 };
   } catch (err) {
     return { ok: false, code: err.code || err.message, elapsedMs: Date.now() - t0 };
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
