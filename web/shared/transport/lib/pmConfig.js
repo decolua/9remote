@@ -1,3 +1,5 @@
+// Modified by ARemote: standalone transport is WS-only.
+import { AREMOTE } from "@/shared/aremote/client";
 import { TRANSPORT_PROFILES, RTC_RESTART } from "@/shared/constants/transport";
 import { randomTag } from "./controlRouting";
 
@@ -7,7 +9,7 @@ import { randomTag } from "./controlRouting";
 export function buildConfig(wsConfig, rtcConfig) {
   const profileId = rtcConfig?.enableWebRTC ? "remoteDesktop" : "clientApp";
   const profile = { ...TRANSPORT_PROFILES[profileId] };
-  if (!rtcConfig?.enableWebRTC) profile.enabled = ["ws"];
+  if (AREMOTE || !rtcConfig?.enableWebRTC) profile.enabled = ["ws"];
   if (rtcConfig?.enableTurn) profile.rtc = { ...profile.rtc, enableTurn: true };
 
   const auth = {

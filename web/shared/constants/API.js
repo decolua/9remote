@@ -1,3 +1,4 @@
+// Modified by ARemote: never fall back to the official cloud.
 // API endpoints configuration
 // Same-origin in the browser (dev.9remote.cc / 9remote.cc follow the deploy).
 // Override with NEXT_PUBLIC_WORKER_URL to run the UI locally (npm run web:dev)
@@ -5,7 +6,7 @@
 // SSR fallback to prod so server renders don't break.
 const isBrowser = typeof location !== "undefined";
 export const WORKER_API = process.env.NEXT_PUBLIC_WORKER_URL
-  || (isBrowser ? location.origin : "https://9remote.cc");
+  || (isBrowser ? location.origin : "");
 export const HOMEPAGE_URL = "https://9remote.cc/";
 export const DOCS_URL = "https://docs.9remote.cc/";
 

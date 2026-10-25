@@ -1,3 +1,4 @@
+// Modified by ARemote: standalone relay never starts upstream signaling.
 // Process-wide signaling client — host joins the DO room ONCE at server start
 // (room = apiKey), independent of any socket.io connection. This breaks the
 // circular dep where signaling only worked after a tunnel carried socket.io.
@@ -46,6 +47,7 @@ export function onSignalingReady(fn) {
 let _roomKey = null;
 
 export function initSignalingGlobal(apiKey) {
+  if (process.env.AREMOTE_SERVER_URL) return;
   if (!apiKey) return;
   if (_client) {
     if (_roomKey === apiKey) return;

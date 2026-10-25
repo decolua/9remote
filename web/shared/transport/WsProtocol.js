@@ -1,3 +1,6 @@
+// Modified by ARemote: reverse relay adapter and reconnection.
+import { RelayAdapter } from "./adapters/RelayAdapter";
+import { AREMOTE } from "@/shared/aremote/client";
 import { BaseProtocol } from "./BaseProtocol";
 import { TunnelAdapter } from "./adapters/TunnelAdapter";
 import { LocalFirstAdapter } from "./adapters/LocalFirstAdapter";
@@ -125,6 +128,7 @@ export class WsProtocol extends BaseProtocol {
   }
 
   disconnect() {
+    this._activeAdapter?.disconnect?.();
     this._destroyed = true;
     this._retrySeq++;
     this._cancelRetry();
@@ -201,12 +205,15 @@ export class WsProtocol extends BaseProtocol {
 
     debugLog("transport", `[ws] connect: tunnelUrl=${this._auth.tunnelUrl} localIp=${this._auth.localIp || "none"}`);
 
-    const adapter = (FEATURES.localFirstConnection && this._auth.localIp && this._connectionMode !== "tunnel")
+    const adapter = AREMOTE ? new RelayAdapter(adapterConfig) : (FEATURES.localFirstConnection && this._auth.localIp && this._connectionMode !== "tunnel")
       ? new LocalFirstAdapter({ ...adapterConfig, localIp: this._auth.localIp })
       : new TunnelAdapter(adapterConfig);
 
+    this._activeAdapter?.disconnect?.();
+    this._activeAdapter = adapter;
     adapter.connect({
       onSocket: (socket, mode) => {
+        if (this._destroyed) { socket.disconnect(); return; }
         this._connecting = false;
         clearTimeout(this._connectingTimer);
         if (this._socket?.connected && this._socket !== socket) { try { socket.disconnect(); } catch {} return; }
@@ -391,6 +398,13 @@ export class WsProtocol extends BaseProtocol {
     termLog("switch", `ws retry ${attempt}/${this._maxAttempts}`);
     this._ctx?.onRetryStatus?.({ isRetrying: true, attempt, maxAttempts: this._maxAttempts, failed: false });
 
+    if (AREMOTE) {
+      this._socket?.disconnect();
+      this._connecting = false;
+      this._retryScheduled = false;
+      this._connectInternal();
+      return;
+    }
     try {
       const resp = await fetch(API_ENDPOINTS.connect, {
         method: "POST",

@@ -1,3 +1,5 @@
+// Modified by ARemote: authenticated reverse relay admission, preserving upstream feature handlers.
+import { relayIdentity } from "../aremote/relayIdentity.js";
 import { Server } from "socket.io";
 import { readFileSync } from "fs";
 import { join } from "path";
@@ -83,6 +85,7 @@ function authOf(socket) {
 
 // One gate for every carrier; signaling has no socket and presents no tail.
 function askGate(socket, deviceId) {
+  if (socket?.data?.aremote) return { step: "authz", decision: isDeviceKicked(deviceId) ? ADMISSION.reject : ADMISSION.admit };
   const presented = socket
     ? presentedTailOf(authOf(socket), openSealedTail)
     : undefined;
@@ -236,7 +239,7 @@ async function attachTransportBus(socket) {
   if (socket.data.protocol) return;
   const { webrtc, streaming } = REMOTE_CONFIG;
   const pm = new ProtocolManager(socket, {
-    enableWebRTC: webrtc.enableWebRTC,
+    enableWebRTC: !process.env.AREMOTE_SERVER_URL && webrtc.enableWebRTC,
     enableTurn: webrtc.enableTurn ?? false,
     apiKey: headOf(loadApiKey()),
     turnApiUrl: webrtc.turnApiUrl || null,
@@ -694,7 +697,7 @@ function isLoopbackSocket(socket) {
  *  tell them apart: cloudflared runs on this machine, so tunnel traffic lands on
  *  loopback too. The cf-connecting-ip header is what gives the outside away. */
 function isLocalSocket(socket) {
-  if (socket.handshake?.headers?.["cf-connecting-ip"]) return false;
+  if (socket.data?.aremote || socket.handshake?.headers?.["cf-connecting-ip"]) return false;
   return isLoopbackSocket(socket);
 }
 
@@ -782,6 +785,11 @@ export async function startTransportServer(server) {
   setRemoteAvailable(hasRemote);
 
   io.on("connection", (socket) => {
+    const identity = isLoopbackSocket(socket) && relayIdentity(socket.handshake.headers["x-aremote-session"]);
+    if (identity) {
+      socket.data.aremote = true;
+      socket.handshake.auth = { deviceId: identity.clientId, peerId: `${identity.clientId}:${identity.sessionId}` };
+    }
     // The network is up — revive the DO relay if it gave up during boot.
     retrySignalingNow("client-connected");
     const ip = socket.handshake.headers["x-forwarded-for"] || socket.handshake.address || "unknown";
@@ -805,7 +813,7 @@ export async function startTransportServer(server) {
 
     // Local UI trust = token + loopback + origin; resists CSWSH token theft.
     const isLoopback = isLoopbackSocket(socket);
-    const isTunnel = !!socket.handshake.headers["cf-connecting-ip"];
+    const isTunnel = socket.data.aremote || !!socket.handshake.headers["cf-connecting-ip"];
     const origin = socket.handshake.headers.origin;
     const originOk = !origin || LOCAL_UI_ORIGINS.includes(origin);
     if (!isTunnel && isLoopback && originOk && verifyLocalToken(socket.handshake.auth?.localToken)) {
@@ -865,6 +873,11 @@ export async function startTransportServer(server) {
       // PM cleanup is deferred to remoteSocket's grace timer when remote was attached.
       if (pm && !socket.data?.remoteAttached) disposeProtocol(pm);
     });
+
+    if (socket.data.aremote) {
+      setupSocketFeatures(socket).catch(() => socket.disconnect(true));
+      return;
+    }
 
     // Re-runnable for the offer grace wait; synchronous so nothing slips between decide and act.
     const route = () => {

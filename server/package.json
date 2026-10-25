@@ -1,0 +1,9 @@
+{
+  "name": "aremote-server",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=24.0.0" },
+  "scripts": { "start": "node index.js", "test": "node --test test/*.test.js" },
+  "dependencies": { "ws": "8.21.0" }
+}

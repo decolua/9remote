@@ -1,0 +1,3 @@
+{$AREMOTE_DOMAIN} {
+  reverse_proxy server:8080
+}

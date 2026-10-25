@@ -1,4 +1,7 @@
 "use client";
+// Modified by ARemote: self-hosted device login retains the existing workspace.
+import ARemoteLogin from "@/shared/aremote/Login";
+import { AREMOTE } from "@/shared/aremote/client";
 
 import { useState, useEffect, useRef, Suspense, useMemo, useCallback } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
@@ -679,6 +682,7 @@ function LoginFallback() {
 }
 
 export default function LoginPage() {
+  if (AREMOTE) return <ARemoteLogin />;
   return (
     <Suspense fallback={<LoginFallback />}>
       <LoginContent />

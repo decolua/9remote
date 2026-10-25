@@ -1,0 +1,5 @@
+ARemote is derived from 9Remote (https://github.com/decolua/9remote).
+Upstream copyright 2026 decolua. Licensed under Apache-2.0; see LICENSE.
+Initial upstream revision: 29ff890d6c96b60996fd2e4a9331c00198556ed6 (3.0.43).
+ARemote additions and modifications implement self-hosted authentication and relay.
+ARemote is an independent project and is not an official 9Remote service.

@@ -116,3 +116,21 @@ codegraph.json
 # Static-export build mirror (scripts/buildWebStatic.mjs)
 web/.staticBuild/
 .claude/skills/*
+
+# ARemote local secrets and deployment state
+.env
+deploy/certs/
+server/data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+artifacts/
+!docs/phase1/
+!docs/phase1/**
+!package-lock.json
+!server/package-lock.json
+client-shell/src-tauri/target/
+client-shell/android/.gradle/
+client-shell/android/**/build/
+client-shell/android/local.properties
+client-shell/android/app/src/main/assets/*

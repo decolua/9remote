@@ -3,16 +3,11 @@
   "version": "2.4.0",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/patchIos15Regex.mjs; pkill -f 'workerd.*9remote' 2>/dev/null; true",
+    "predev": "node scripts/patchIos15Regex.mjs",
     "dev": "next dev -H :: -p 2200",
     "prebuild": "node scripts/patchIos15Regex.mjs",
     "build": "NODE_ENV=production next build --webpack",
-    "build:static": "node ../scripts/buildWebStatic.mjs",
-    "build:cf": "npm run build && NODE_ENV=production opennextjs-cloudflare build && node scripts/injectSignalingDO.mjs && node scripts/injectHotRoutes.mjs && node scripts/injectScheduled.mjs",
-    "deploy": "npm run build:cf && opennextjs-cloudflare deploy",
-    "deploy:dev": "NEXT_PUBLIC_WORKER_URL=https://dev.9remote.cc npm run build:cf && opennextjs-cloudflare deploy --env dev",
-    "preview": "opennextjs-cloudflare preview",
-    "cf-typegen": "wrangler types --env-interface CloudflareEnv env.d.ts"
+    "build:static": "node ../scripts/buildWebStatic.mjs"
   },
   "dependencies": {
     "@breezystack/lamejs": "^1.2.7",
@@ -82,11 +77,8 @@
     "ios >= 15"
   ],
   "devDependencies": {
-    "@cloudflare/workers-types": "^4.20241218.0",
-    "@opennextjs/cloudflare": "1.20.1",
     "@tailwindcss/postcss": "^4",
     "javascript-obfuscator": "^5.4.1",
-    "tailwindcss": "^4",
-    "wrangler": "^4.65.0"
+    "tailwindcss": "^4"
   }
 }

@@ -1,3 +1,4 @@
+// Modified by ARemote: standalone startup, loopback binding and disabled official updates.
 /**
  * Server entry point - config-driven HTTP router + Socket.IO
  */
@@ -475,7 +476,8 @@ export async function startServer() {
     if (err?.code === "EADDRINUSE") process.exit(1);
   });
 
-  server.listen(port, (err) => {
+  server.listen(port, process.env.AREMOTE_SERVER_URL ? "127.0.0.1" : undefined, (err) => {
+    if (process.env.AREMOTE_SERVER_URL) return;
     if (err) throw err;
     const version = typeof __CLI_VERSION__ !== "undefined"
       ? __CLI_VERSION__
@@ -531,7 +533,7 @@ if (strayArgv.length) {
 }
 
 // Boot failure must be loud + fatal — the parent CLI restarts us with backoff
-startServer().catch((err) => {
+if (!process.env.AREMOTE_MANAGED_START) startServer().catch((err) => {
   logger.error(`Server failed to start: ${err?.stack || err?.message || err}`);
   process.exit(1);
 });

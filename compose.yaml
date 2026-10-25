@@ -1,0 +1,38 @@
+services:
+  server:
+    build: .
+    image: aremote/server:0.1.0
+    restart: unless-stopped
+    environment:
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Set ADMIN_PASSWORD in .env}
+      REGISTRATION_PASSWORD: ${REGISTRATION_PASSWORD:-}
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      PORT: 8080
+      DATA_PATH: /data/aremote.sqlite
+      WEB_DIR: /app/web/out
+    volumes:
+      - server-data:/data
+    networks: [aremote]
+  https:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    depends_on:
+      server:
+        condition: service_healthy
+    environment:
+      AREMOTE_DOMAIN: ${AREMOTE_DOMAIN:?Set AREMOTE_DOMAIN in .env}
+    ports:
+      - "${HTTP_PORT:-80}:80"
+      - "${HTTPS_PORT:-443}:443"
+    volumes:
+      - ${CADDYFILE:-./deploy/Caddyfile}:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+      - ./deploy/certs:/certs:ro
+    networks: [aremote]
+volumes:
+  server-data:
+  caddy-data:
+  caddy-config:
+networks:
+  aremote:

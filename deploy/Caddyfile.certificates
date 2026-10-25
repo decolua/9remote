@@ -1,0 +1,4 @@
+{$AREMOTE_DOMAIN} {
+  tls /certs/fullchain.pem /certs/privkey.pem
+  reverse_proxy server:8080
+}

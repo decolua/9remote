@@ -1,0 +1,14 @@
+.git
+**/node_modules
+**/.next
+**/out
+**/.staticBuild
+**/.open-next
+**/.wrangler
+**/dist
+**/.env*
+**/.dev.vars*
+**/data
+**/*.sqlite*
+deploy/certs
+.desktop

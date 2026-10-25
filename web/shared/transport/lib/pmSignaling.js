@@ -1,3 +1,5 @@
+// Modified by ARemote: relay endpoints do not use cloud discovery.
+import { AREMOTE } from "@/shared/aremote/client";
 import { SIGNALING_CONFIG, SIGNALING_ERRORS, ADAPTER_STATE } from "@/shared/constants/transport";
 import { WORKER_API } from "@/shared/constants/API";
 import { debugLog } from "@/shared/utils/debugLog";
@@ -102,6 +104,7 @@ export function flushSigBuffer(pm) {
 /** The cached tunnelUrl may be stale (cloudflared restarted → new trycloudflare
  * URL). Re-fetch the latest from the Worker before connecting. */
 export async function refreshTunnelUrl(pm) {
+  if (AREMOTE) return;
   // The page-origin carrier cannot go stale — only a remote tunnel URL can.
   // Skipping also keeps the host-served tab from calling the Worker at all.
   if (pm._auth.tunnelUrl === (typeof window !== "undefined" ? window.location.origin : "")) return;

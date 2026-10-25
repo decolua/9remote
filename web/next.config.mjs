@@ -1,17 +1,16 @@
+// Modified by ARemote: build without Cloudflare runtime initialization.
 /** @type {import('next').NextConfig} */
 import { readFileSync } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
-import { initOpenNextCloudflareForDev } from "@opennextjs/cloudflare";
+
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoRoot = path.resolve(__dirname, "..");
-const rootPkg = JSON.parse(readFileSync("../package.json", "utf-8"));
+const rootPkg = JSON.parse(readFileSync(path.join(monorepoRoot, "package.json"), "utf-8"));
 
 const isStaticExport = process.env.STATIC_EXPORT === "1";
-if (!isStaticExport) {
-  initOpenNextCloudflareForDev();
-}
+
 
 const nextConfig = {
   reactStrictMode: false,
@@ -44,7 +43,8 @@ const nextConfig = {
     "172.16.*.*"
   ],
   env: {
-    NEXT_PUBLIC_WORKER_URL: process.env.NEXT_PUBLIC_WORKER_URL || "https://9remote.cc",
+    NEXT_PUBLIC_AREMOTE: "1",
+    NEXT_PUBLIC_WORKER_URL: process.env.NEXT_PUBLIC_WORKER_URL || "",
     NEXT_PUBLIC_SERVER_VERSION: rootPkg.version,
     NEXT_PUBLIC_STATIC_EXPORT: process.env.STATIC_EXPORT || "0",
   },

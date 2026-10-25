@@ -1,3 +1,4 @@
+// Modified by ARemote: independent branding and no official mobile redirect/update gate.
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
@@ -20,15 +21,15 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata = {
-  title: "9Remote — Remote Everything, Everywhere",
+  title: "ARemote — Self-hosted Agent Workspace",
   description: "Remote IDE, desktop, files, emulator & vibe coding on PC, Web, iPad, and Mobile. Ultra-low latency WebRTC P2P dev suite.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
     statusBarStyle: "black-translucent",
-    title: "9Remote"
+    title: "ARemote"
   },
-  applicationName: "9Remote Terminal",
+  applicationName: "ARemote",
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -82,7 +83,7 @@ export default function RootLayout({ children }) {
       >
         {/* ScriptOnce: theme-init still runs before paint (SSR HTML), no React 19 script warning */}
         <ScriptOnce id="legacy-safari-polyfill" html={legacySafariPolyfill} />
-        <ScriptOnce id="expo-redirect" html={expoRedirectScript} />
+
         <ScriptOnce id="theme-init" html={themeInitScript} />
         <ScriptOnce id="safe-area-bridge" html={safeAreaScript} />
         <ScriptOnce
@@ -91,7 +92,7 @@ export default function RootLayout({ children }) {
         />
         <ThemeProvider>{children}</ThemeProvider>
         <RotateOverlay />
-        <AppUpdateGate />
+
         {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
       </body>
     </html>
