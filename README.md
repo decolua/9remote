@@ -1,6 +1,36 @@
 # ARemote — 自托管 Agent 工作区
 
-ARemote 是基于 9Remote 的自托管分支，通过自己的 Server 中继连接 Client 与 Host。安装与启动请按 [部署文档](docs/phase1/deployment.md) 操作；构建方法见 [构建文档](docs/phase1/build.md)，实际进度与限制见 [验证记录](docs/phase1/validation.md)。Phase 1 尚在验收，Android/Windows 安装包已构建，真机安装仍待验证。
+ARemote 是基于 9Remote（上游 [decolua/9remote](https://github.com/decolua/9remote)）的自托管分支：Client 与 Host 通过**你自己的 Server** 反向中继连接，不再依赖官方云服务——Cloudflare Tunnel / Workers / D1 / TURN / OTA 均已移出运行路径，Phase 1 以 WS 中继为唯一远程承载。
+
+## 组成
+
+| 目录 | 角色 |
+| --- | --- |
+| `server/` | 自托管中继 Server：HTTP 管理/设备 API、SQLite（设备身份、ACL、一次性配对码）、WS Relay、静态 Web UI |
+| `host/aremote/` | Host 反向连接入口（`node host/aremote/index.js register \| start \| rotate`），复用原 PTY / 文件 / Agent 运行时 |
+| `shared/relay/` | Host 与 Server 共用的中继协议、帧编码与限界常量 |
+| `web/` | 原 Next.js 工作区，静态导出后由 Server 提供；登录页为设备注册与 Host 选择 |
+| `client-shell/` | Windows（Tauri 2）与 Android（WebView）客户端薄壳，无原生命令桥接 |
+
+## 快速开始
+
+```bash
+git clone -b phase1/self-hosted-relay https://github.com/Ande-ZH/ARemote.git
+cd ARemote
+cp .env.example .env   # 设置 AREMOTE_DOMAIN 与独立的随机 ADMIN_PASSWORD
+docker compose up -d --build
+```
+
+- Host 端：`node host/aremote/index.js register`（配对码注册）→ `node host/aremote/index.js start`
+- Client 端：浏览器打开 `https://你的域名/login`，注册设备并由管理员授权后进入原工作区
+
+完整步骤、TLS 证书与数据卷说明见[部署文档](docs/phase1/deployment.md)；构建方法见[构建文档](docs/phase1/build.md)。
+
+## 当前状态（Phase 1）
+
+核心链路与本地部署已验证：Server 测试 9/9；Host 真实 PTY / 文件往返 / 敏感路径拒绝 / Server 重启后终端恢复集成测试；真实浏览器端到端（配对授权、终端键入、刷新恢复、Server 重启续用、编辑器保存落盘、无外部请求）；Docker 镜像构建与 Compose 本地可信 CA HTTPS 及凭证/ACL 持久化；CI（server / integration / docker / windows / android）全绿。
+
+尚未完成：Windows / Android 真机安装与使用、公网域名 ACME 签发、跨源部署、弱网长跑与并发规模等平台验收。进度与限制以[验证记录](docs/phase1/validation.md)为准，另见[独立验收复验报告](docs/phase1/acceptance-claude-glm53-recheck.md)。
 
 以下保留上游项目介绍与来源说明；其中官方服务地址、商店链接及 `9remote` 启动命令属于上游产品。ARemote Host 入口为 `node host/aremote/index.js`。
 
