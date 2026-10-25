@@ -37,6 +37,8 @@ try {
     const stored = JSON.parse(readFileSync(credentialsPath, "utf8"));
     const server = serverOrigin(process.env.AREMOTE_SERVER_URL || stored.server);
     if (server !== stored.server) throw new Error("Stored credential belongs to another Server; register a separate profile");
+    delete process.env.AREMOTE_PAIRING_CODE;
+    delete process.env.AREMOTE_REGISTRATION_PASSWORD;
     process.env.AREMOTE_SERVER_URL = server;
     process.env.AREMOTE_MANAGED_START = "1";
     process.env.NREMOTE_HOME = root;

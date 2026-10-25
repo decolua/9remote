@@ -1,4 +1,6 @@
 {$AREMOTE_DOMAIN} {
   tls /certs/fullchain.pem /certs/privkey.pem
-  reverse_proxy server:8080
+  reverse_proxy server:8080 {
+    header_up X-Forwarded-For {remote_host}
+  }
 }

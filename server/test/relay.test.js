@@ -6,7 +6,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import WebSocket from "ws";
 import { createApp } from "../app.js";
-import { PROTOCOL, encodeFrame, decodeFrame, LIMITS, send } from "../../shared/relay/protocol.js";
+import { PROTOCOL, CLOSE_CODES, encodeFrame, decodeFrame, LIMITS, send } from "../../shared/relay/protocol.js";
 const password = "test-admin-long-password";
 const registrationPassword = "test-registration-password";
 async function fixture(t, config = {}) {
@@ -79,6 +79,18 @@ test("credential rotation invalidates existing token and disconnects host", asyn
   assert.equal(result.status, 200); assert.notEqual(result.token, h.token);
   assert.equal((await f.api("/api/devices/rotate", h.token, {})).status, 401);
   const next = await connectHost(f, { ...h, token: result.token }); next.close();
+});
+test("a replacement Host stays online and reports a distinct close reason", async t => {
+  const f = await fixture(t), h = await f.register("host");
+  const first = await connectHost(f, h), closed = once(first, "close");
+  const second = await connectHost(f, h);
+  const [code] = await closed;
+  assert.equal(code, CLOSE_CODES.replaced);
+  assert.equal(second.readyState, WebSocket.OPEN);
+  assert.equal(f.app.relay.hosts.size, 1);
+  const [device] = (await f.api("/api/admin/status", f.admin)).devices;
+  assert.equal(device.online, true);
+  second.close();
 });
 test("password change expires all admin sessions and persists across restart", async t => {
   const dir = mkdtempSync(join(tmpdir(), "aremote-test-"));

@@ -1,12 +1,13 @@
 import { createServer } from "node:http";
 import { readFileSync, existsSync, statSync } from "node:fs";
 import { resolve, extname } from "node:path";
+import { isIP } from "node:net";
 import { passwordHash, verifyPassword, digest, secret, bearer } from "./auth.js";
 import { openStore } from "./store.js";
 import { attachRelay } from "./relay.js";
 import { LIMITS } from "../shared/relay/protocol.js";
 const publicDir = new URL("./public/", import.meta.url);
-const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2", ".txt": "text/x-component" };
+const MIME = { ".html": "text/html; charset=utf-8", ".js": "text/javascript", ".css": "text/css", ".json": "application/json", ".svg": "image/svg+xml", ".png": "image/png", ".ico": "image/x-icon", ".woff2": "font/woff2", ".ttf": "font/ttf", ".txt": "text/x-component" };
 function fail(status, message) { throw Object.assign(new Error(message), { status }); }
 async function body(req) {
   let bytes = 0; const chunks = [];
@@ -19,7 +20,9 @@ export async function createApp(config = {}) {
   const admins = new Map(), tickets = new Map(), attempts = new Map();
   const origins = new Set(config.origins || []);
   function limited(req) {
-    const key = req.socket.remoteAddress;
+    const forwarded = config.trustProxy && req.headers["x-forwarded-for"]?.split(",").at(-1).trim();
+    const ip = forwarded && isIP(forwarded) ? forwarded : req.socket.remoteAddress;
+    const key = `${ip}:${new URL(req.url, "http://localhost").pathname}`;
     const now = Date.now();
     for (const [ip, row] of attempts) if (row.until < now) attempts.delete(ip);
     let row = attempts.get(key);
@@ -141,7 +144,17 @@ export async function createApp(config = {}) {
         res.writeHead(200, { "Content-Type": MIME[extname(file)] }); return res.end(readFileSync(new URL(file, publicDir)));
       }
       if (config.webDir && req.method === "GET" && !path.startsWith("/api/")) {
-        const root = resolve(config.webDir), decoded = decodeURIComponent(path);
+        let decoded;
+        try { decoded = decodeURIComponent(path); } catch { fail(400, "Bad path"); }
+        if (["/admin", "/download"].some(prefix => decoded === prefix || decoded.startsWith(prefix + "/") || decoded === prefix + ".html" || decoded === prefix + ".txt")) fail(404, "Not found");
+        const terminal = /^\/workspace\/terminal\/([^/]+)\/?$/.exec(decoded);
+        if (terminal && !["default", "default.html", "default.txt"].includes(terminal[1]) && !terminal[1].endsWith(".txt")) {
+          const query = new URL(req.url, "http://localhost").searchParams;
+          query.set("session", terminal[1].replace(/\.html$/, ""));
+          res.writeHead(302, { Location: `/workspace/terminal/default?${query}` });
+          return res.end();
+        }
+        const root = resolve(config.webDir);
         const base = resolve(root, `.${decoded === "/" ? "/login" : decoded}`);
         if (base.startsWith(root + "/")) for (const file of [base, base + ".html", base + "/index.html"]) {
           if (existsSync(file) && statSync(file).isFile()) { res.writeHead(200, { "Content-Type": MIME[extname(file)] || "application/octet-stream" }); return res.end(readFileSync(file)); }

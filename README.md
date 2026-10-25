@@ -1,3 +1,11 @@
+# ARemote — 自托管 Agent 工作区
+
+ARemote 是基于 9Remote 的自托管分支，通过自己的 Server 中继连接 Client 与 Host。安装与启动请按 [部署文档](docs/phase1/deployment.md) 操作；构建方法见 [构建文档](docs/phase1/build.md)，实际进度与限制见 [验证记录](docs/phase1/validation.md)。Phase 1 尚在验收，Android/Windows 安装包已构建，真机安装仍待验证。
+
+以下保留上游项目介绍与来源说明；其中官方服务地址、商店链接及 `9remote` 启动命令属于上游产品。ARemote Host 入口为 `node host/aremote/index.js`。
+
+---
+
 # 9Remote — Remote Everything, Vibecode Everywhere
 
 Your entire dev workstation in your pocket. A remote IDE, 60fps desktop stream, visual file explorer, live mobile emulator, zero-config localhost preview, and every AI harness in one UI — Claude Code, Codex, Gemini CLI & 30+ agents — on PC, Web, iPad, or phone.

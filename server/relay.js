@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { WebSocketServer } from "ws";
-import { PROTOCOL, LIMITS, control, encodeFrame, decodeFrame, send } from "../shared/relay/protocol.js";
+import { PROTOCOL, CLOSE_CODES, LIMITS, control, encodeFrame, decodeFrame, send } from "../shared/relay/protocol.js";
 import { bearer } from "./auth.js";
 export function attachRelay(http, store, tickets, { heartbeatMs = LIMITS.heartbeatMs } = {}) {
   const wss = new WebSocketServer({ noServer: true, maxPayload: LIMITS.frame + 37, perMessageDeflate: false });
@@ -14,8 +14,8 @@ export function attachRelay(http, store, tickets, { heartbeatMs = LIMITS.heartbe
     s.client.close(1012, reason);
     store.log(reason, s.clientId, id);
   }
-  function dropDevice(id) {
-    hosts.get(id)?.close(4003, "Device credentials changed");
+  function dropDevice(id, code = CLOSE_CODES.credentials, reason = "Device credentials changed") {
+    hosts.get(id)?.close(code, reason);
     hosts.delete(id);
     for (const [sid, s] of sessions) if (s.clientId === id || s.hostId === id) closeSession(sid, "device-disabled");
     for (const [key, t] of tickets) if (t.clientId === id || t.hostId === id) tickets.delete(key);
@@ -54,7 +54,7 @@ export function attachRelay(http, store, tickets, { heartbeatMs = LIMITS.heartbe
     ws.on("close", () => { sockets.delete(ws); store.seen(deviceId); });
   }
   function onHost(ws, device) {
-    dropDevice(device.id);
+    dropDevice(device.id, CLOSE_CODES.replaced, "Host connected elsewhere");
     hosts.set(device.id, ws); track(ws, device.id);
     store.log("host-connected", device.id);
     ws.on("message", (raw, binary) => {

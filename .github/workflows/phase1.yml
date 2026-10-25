@@ -15,6 +15,31 @@ jobs:
           node-version: '24'
       - run: npm ci --prefix server --workspaces=false
       - run: npm test --prefix server --workspaces=false
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: npm rebuild node-pty
+      - run: npm ci --prefix server --workspaces=false
+      - run: node --test host/aremote/test/integration.test.js
+      - run: npm run client:build
+      - run: npm install --prefix "$RUNNER_TEMP/aremote-browser-tools" --no-save --ignore-scripts playwright@1.64.1
+      - run: node "$RUNNER_TEMP/aremote-browser-tools/node_modules/playwright/cli.js" install --with-deps chromium
+      - run: AREMOTE_PLAYWRIGHT_MODULE="$RUNNER_TEMP/aremote-browser-tools/node_modules/playwright/index.mjs" node scripts/validateBrowser.mjs
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ARemote-Web
+          path: web/out
+          if-no-files-found: error
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build --tag aremote/server:ci .
   windows:
     runs-on: windows-latest
     steps:

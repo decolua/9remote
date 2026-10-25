@@ -933,7 +933,7 @@ export default function WorkspaceLayout({ children }) {
   // and the transport reports connected when that opens. The STORE bus stays set
   // across a transient disconnect (an in-flight self-update), so only its first
   // absence counts as initializing.
-  const isInitializing = !hydrated || (!stableBus && !deliberatelyOff);
+  const isInitializing = !hydrated || ((!stableBus || !everConnected) && !deliberatelyOff);
 
   if (isInitializing) {
     return <ReconnectScreen label={t("workspace.loading")} />;
@@ -1157,7 +1157,7 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Desktop VSCode-like layout: replaces files/editor/git on a wide screen */}
-        {isDesktop && (currentView.type === "files" || currentView.type === "editor" || currentView.type === "git") && (() => {
+        {admitted && isDesktop && (currentView.type === "files" || currentView.type === "editor" || currentView.type === "git") && (() => {
           // For editor/git, fall back to the most recently pushed files view (last in stack,
           // not first — stale files views linger after workspace switches that only replace the top).
           const filesView = currentView.type === "files"
@@ -1193,7 +1193,7 @@ export default function WorkspaceLayout({ children }) {
         })()}
 
         {/* File Explorer (workspace mode) — mobile only */}
-        {!isDesktop && currentView.type === "files" && (
+        {admitted && !isDesktop && currentView.type === "files" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <FileExplorer
               scope={connScope}
@@ -1211,7 +1211,7 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Git Panel — mobile only */}
-        {!isDesktop && currentView.type === "git" && (
+        {admitted && !isDesktop && currentView.type === "git" && (
           <div className="absolute inset-0 z-30 transition-all duration-300 ease-out">
             <GitPanel
               workspace={currentView.workspace}

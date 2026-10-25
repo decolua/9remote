@@ -1,5 +1,6 @@
 FROM node:24-bookworm-slim AS web
 WORKDIR /app
+RUN apt-get update && apt-get install -y --no-install-recommends git ca-certificates && rm -rf /var/lib/apt/lists/*
 COPY package.json package-lock.json ./
 COPY host/package.json host/package.json
 COPY web/package.json web/package.json

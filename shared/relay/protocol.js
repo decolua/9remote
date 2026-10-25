@@ -1,5 +1,6 @@
 // ARemote relay v1; Socket.IO frames remain opaque end to end.
 export const PROTOCOL = "aremote.v1";
+export const CLOSE_CODES = Object.freeze({ replaced: 4001, credentials: 4003 });
 export const LIMITS = Object.freeze({ frame: 8 * 1024 * 1024, buffered: 16 * 1024 * 1024, sessions: 64, heartbeatMs: 15000, openTimeoutMs: 10000, ticketMs: 30000 });
 const ID = /^[a-f0-9-]{36}$/;
 export function encodeFrame(sessionId, payload, binary) {

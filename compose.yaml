@@ -10,6 +10,7 @@ services:
       PORT: 8080
       DATA_PATH: /data/aremote.sqlite
       WEB_DIR: /app/web/out
+      TRUST_PROXY: "1"
     volumes:
       - server-data:/data
     networks: [aremote]

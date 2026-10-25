@@ -1,11 +1,14 @@
 // Workspace route <-> view mapping (single source of truth for URL sync)
 
 export const WORKSPACE_BASE = "/workspace";
+const STATIC_CLIENT = process.env.NEXT_PUBLIC_AREMOTE === "1" && process.env.NEXT_PUBLIC_STATIC_EXPORT === "1";
 
 // View type -> URL builder. Path carries primary id; query carries extra data.
 export const VIEW_TO_PATH = {
   list: () => WORKSPACE_BASE,
-  terminal: (v) => `${WORKSPACE_BASE}/terminal/${encodeURIComponent(v.sessionId || "")}`,
+  terminal: (v) => STATIC_CLIENT
+    ? withQuery(`${WORKSPACE_BASE}/terminal/default`, { session: v.sessionId })
+    : `${WORKSPACE_BASE}/terminal/${encodeURIComponent(v.sessionId || "")}`,
   files: (v) => withQuery(`${WORKSPACE_BASE}/files`, { ws: v.workspace, p: v.currentPath }),
   editor: (v) => withQuery(`${WORKSPACE_BASE}/editor`, { path: v.path, line: v.line, col: v.column }),
   git: (v) => withQuery(`${WORKSPACE_BASE}/git`, { ws: v.workspace }),
@@ -55,7 +58,7 @@ export function pathToView(pathname, searchParams) {
   if (!type) return null;
   const q = (key) => searchParams?.get(key) || undefined;
   switch (type) {
-    case "terminal": return { type, sessionId: idPart ? decodeURIComponent(idPart) : undefined };
+    case "terminal": return { type, sessionId: STATIC_CLIENT && idPart === "default" ? q("session") : idPart ? decodeURIComponent(idPart) : undefined };
     case "files": return { type, workspace: q("ws"), currentPath: q("p") };
     case "editor": return { type, path: q("path"), line: numOrUndef(q("line")), column: numOrUndef(q("col")) };
     case "git": return { type, workspace: q("ws") };

@@ -1,5 +1,5 @@
 import WebSocket from "ws";
-import { PROTOCOL, LIMITS, send, control, encodeFrame, decodeFrame } from "../../shared/relay/protocol.js";
+import { PROTOCOL, CLOSE_CODES, LIMITS, send, control, encodeFrame, decodeFrame } from "../../shared/relay/protocol.js";
 import { issueRelayIdentity, removeRelayIdentity } from "./relayIdentity.js";
 export function connectRelay({ serverUrl, token, localPort, onStatus = () => {}, retryMinMs = 1000, retryMaxMs = 30000 }) {
   const url = new URL(serverUrl);
@@ -47,7 +47,8 @@ export function connectRelay({ serverUrl, token, localPort, onStatus = () => {},
     ws.on("close", (code) => {
       clearInterval(heartbeat); for (const id of [...sessions.keys()]) closeSession(id, false);
       if (stopped) return;
-      if (code === 4003) { onStatus("credentials-revoked"); return; }
+      if (code === CLOSE_CODES.credentials) { onStatus("credentials-revoked"); return; }
+      if (code === CLOSE_CODES.replaced) { onStatus("host-replaced"); return; }
       if (openedAt && Date.now() - openedAt > 30000) attempt = 0;
       const delay = Math.min(retryMaxMs, retryMinMs * 2 ** Math.min(attempt++, 10)) * (0.8 + Math.random() * 0.4);
       onStatus("reconnecting"); retry = setTimeout(connect, delay);

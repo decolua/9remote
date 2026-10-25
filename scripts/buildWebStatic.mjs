@@ -23,7 +23,7 @@ const SKIP_TOP = new Set([
   "test", "migrations", "durable-objects",
 ]);
 const SKIP_TOP_PREFIX = [".dev.vars", ".secrets-hash", ".env.development", "wrangler"];
-const SKIP_REL = new Set([path.join("app", "api")]);
+const SKIP_REL = new Set(["api", "admin", "download"].map(name => path.join("app", name)));
 
 function shouldCopy(src) {
   const rel = path.relative(WEB_DIR, src);
@@ -60,7 +60,7 @@ export function buildWebStatic() {
   execSync("npx next build --webpack", {
     cwd: MIRROR_DIR,
     stdio: "inherit",
-    env: { ...process.env, STATIC_EXPORT: "1", NODE_ENV: "production" },
+    env: { ...process.env, STATIC_EXPORT: "1", NODE_ENV: "production", NEXT_TELEMETRY_DISABLED: "1" },
   });
 
   fs.rmSync(OUT_DIR, { recursive: true, force: true });

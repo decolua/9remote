@@ -3,10 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { ThemeProvider } from "@/shared/theme/ThemeProvider";
 import { STORAGE_KEY, DEFAULT_THEME } from "@/shared/theme/themeConfig";
-import { GoogleAnalytics } from "@next/third-parties/google";
-import { GA_ID } from "@/shared/constants/analytics";
 import RotateOverlay from "@/shared/components/ui/RotateOverlay";
-import AppUpdateGate from "@/shared/components/ui/AppUpdateGate";
 import ScriptOnce from "@/shared/components/ui/ScriptOnce";
 import { legacySafariPolyfill } from "@/shared/polyfills/legacySafari";
 
@@ -22,7 +19,7 @@ const geistMono = Geist_Mono({
 
 export const metadata = {
   title: "ARemote — Self-hosted Agent Workspace",
-  description: "Remote IDE, desktop, files, emulator & vibe coding on PC, Web, iPad, and Mobile. Ultra-low latency WebRTC P2P dev suite.",
+  description: "Self-hosted remote terminal, Agent workspace, desktop and files through your own relay server.",
   manifest: "/manifest.json",
   appleWebApp: {
     capable: true,
@@ -55,9 +52,6 @@ export const viewport = {
 // Inline script - apply theme class before paint to prevent FOUC
 const themeInitScript = `(function(){try{var t=localStorage.getItem("${STORAGE_KEY}")||"${DEFAULT_THEME}";document.documentElement.classList.add(t);}catch(e){document.documentElement.classList.add("${DEFAULT_THEME}");}})();`;
 
-// Redirect Expo WebView from dev.9remote.cc to production 9remote.cc
-const expoRedirectScript = `(function(){try{if(location.hostname==="dev.9remote.cc"&&(window.ReactNativeWebView||/9Remote-Mobile/i.test(navigator.userAgent))){location.replace("https://9remote.cc"+location.pathname+location.search+location.hash);}}catch(e){}})();`;
-
 // Native shell bridge — expo injects the real status-bar/notch insets via
 // handleSafeAreaInset; web applies them as --pl-* (0 when unset, so browsers/PWA
 // are unaffected). Bottom inset is owned by bottom bars (.safe-area-bottom).
@@ -76,7 +70,7 @@ export default function RootLayout({ children }) {
       <head>
         {/* Material Symbols — icon font of the host dashboard port. A <link> so
             the load never depends on CSS-bundler @import ordering. */}
-        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@24,300..400,0..1,0&display=block" />
+        <link rel="stylesheet" href="/fonts/material-symbols.css" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
@@ -92,8 +86,6 @@ export default function RootLayout({ children }) {
         />
         <ThemeProvider>{children}</ThemeProvider>
         <RotateOverlay />
-
-        {GA_ID && <GoogleAnalytics gaId={GA_ID} />}
       </body>
     </html>
   );
