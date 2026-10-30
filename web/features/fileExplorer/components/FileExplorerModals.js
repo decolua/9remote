@@ -1,14 +1,17 @@
 "use client";
 
+import { useState, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, File, Folder, Loader2, Search, Upload, CornerDownLeft } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { useState, useEffect } from "react";
 
 // Modal + banner layer for the mobile FileExplorer: new item, rename, copy
 // conflict, and the transfer/error banners. Extracted verbatim from FileExplorer.
 
-const MODAL_WRAP = "fixed inset-0 z-50 flex items-center justify-center p-4";
+// Portaled frame: these dialogs open over transformed pane wrappers, and the overlay
+// tracks --app-height so the soft keyboard shrinks it.
+const MODAL_WRAP = "modal-overlay z-50";
 const INPUT = "w-full px-3 py-2 bg-surface-2 rounded-brand text-text focus:outline-none focus:ring-2 focus:ring-brand-500/40 transition-all duration-150 ease-out";
 const BTN_MUTED = "flex-1 py-2 bg-surface-2 text-text rounded-brand hover:bg-surface-3 transition-all duration-150 ease-out active:scale-[0.98]";
 const BTN_BRAND = "flex-1 py-2 bg-brand-500 text-white rounded-brand hover:bg-brand-600 transition-all duration-150 ease-out active:scale-[0.98]";
@@ -96,10 +99,10 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
-      <div className="relative card-elev w-full max-w-sm my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto">
+      <div className="relative card-elev w-full max-w-sm my-auto overflow-y-auto">
         <div className="px-4 py-3">
           <h3 className="text-text font-semibold">{t("files.createNew")}</h3>
         </div>
@@ -166,7 +169,8 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -185,7 +189,7 @@ export function RenameModal({ value, onChange, onSubmit, onClose }) {
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose]);
 
-  return (
+  return createPortal(
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
       <div className="relative card-elev w-full max-w-sm my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto">
@@ -215,7 +219,8 @@ export function RenameModal({ value, onChange, onSubmit, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 
@@ -245,7 +250,7 @@ export function ConflictModal({ name, onResolve }) {
       {hasEsc && <kbd className="hidden sm:inline-flex items-center text-[10px] font-mono px-1 py-0.5 rounded bg-surface-3 text-text-muted leading-none">Esc</kbd>}
     </button>
   );
-  return (
+  return createPortal(
     <div className={MODAL_WRAP}>
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => onResolve?.("skip")} />
       <div className="relative card-elev w-full max-w-sm">
@@ -262,6 +267,7 @@ export function ConflictModal({ name, onResolve }) {
           {choice("replaceAll", "bg-brand-500 text-white hover:bg-brand-600")}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

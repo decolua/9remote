@@ -70,6 +70,26 @@
   border-radius: 14px;
 }
 
+/* Centered modal overlay. Height follows --app-height (the visual viewport) so the
+   soft keyboard shrinks it: `inset-0` keeps measuring the layout viewport, which the
+   keyboard never resizes, leaving the lower half of the card under the keyboard. */
+.modal-overlay {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--app-height, 100dvh);
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+/* Caps the card to the measured viewport minus the overlay padding, so it scrolls
+   inside instead of running past the soft keyboard. */
+.modal-overlay > .card-elev {
+  max-height: 100%;
+}
+
 /* Pickable row inside a modal list (MCP servers, models, skills, sessions…). A hairline
    border on every row turned a list into a stack of boxes; the row stays flat until the
    pointer is on it, and the row's own actions fade in with the same hover. */

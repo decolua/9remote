@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { createPortal } from "react-dom";
 import { Mic, X, ExternalLink } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -260,10 +261,13 @@ export function VoiceConfigForm() {
 
 // Modal chrome around the form — launched from the drawer/menu row.
 function VoiceConfigModal({ onClose }) {
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+  if (typeof document === "undefined") return null;
+  // Portaled: the drawer panel keeps `transform` from its slide-in animation, which
+  // would trap a fixed overlay inside the panel instead of the viewport.
+  return createPortal(
+    <div className="modal-overlay z-[60]">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={onClose} />
-      <div className="relative card-elev max-w-md w-full max-h-[90dvh] flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-md w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text">Voice input</h3>
           <button
@@ -274,11 +278,12 @@ function VoiceConfigModal({ onClose }) {
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5 min-h-[320px]">
+        <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable px-5 pb-5">
           <VoiceConfigForm />
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
 

@@ -26,10 +26,7 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center px-4"
-      style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
-    >
+    <div className="modal-overlay z-[100]">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
@@ -40,7 +37,7 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
       <div
         role="dialog"
         aria-modal="true"
-        className="relative card-elev w-full max-w-xs p-5 my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto animate-in zoom-in-95 duration-150"
+        className="relative card-elev w-full max-w-xs p-5 my-auto overflow-y-auto animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >

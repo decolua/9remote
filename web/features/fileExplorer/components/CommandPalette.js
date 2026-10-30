@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Icon from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { isMac } from "@/features/terminal/constants/shortcuts";
@@ -147,10 +148,17 @@ export default function CommandPalette({
     );
   };
 
-  return (
-    <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" onMouseDown={onClose}>
+  if (typeof document === "undefined") return null;
+
+  // Portaled: the palette also opens from the workspace shell over transformed panes,
+  // and its search field is typed into — the overlay tracks the visual viewport.
+  return createPortal(
+    <div
+      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 flex justify-center pt-[12%] bg-black/60 backdrop-blur-[2px]"
+      onMouseDown={onClose}
+    >
       <div
-        className="absolute top-20 left-1/2 -translate-x-1/2 w-[640px] max-w-[90vw] card-elev overflow-hidden"
+        className="relative w-[640px] max-w-[90vw] max-h-[calc(var(--app-height,100dvh)-4rem)] card-elev overflow-hidden flex flex-col"
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border">
@@ -168,7 +176,7 @@ export default function CommandPalette({
           <span className="text-xs text-text-muted hidden sm:inline">{hint}</span>
         </div>
 
-        <div className="max-h-[400px] overflow-auto">
+        <div className="flex-1 min-h-0 max-h-[400px] overflow-auto">
           {items.length === 0 ? renderEmpty() : (
             <ul className="py-1">
               {items.map((item, idx) => {
@@ -216,6 +224,7 @@ export default function CommandPalette({
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

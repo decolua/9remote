@@ -57,10 +57,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
   // stacking context (transform, z-index), a fixed z-50 dialog sinks under
   // sibling layers no matter its own z-index.
   return createPortal(
-    <div
-      className="fixed inset-0 z-[100] flex items-center justify-center px-4"
-      style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
-    >
+    <div className="modal-overlay z-[100]">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
@@ -71,7 +68,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
       <div
         role="dialog"
         aria-modal="true"
-        className="relative card-elev max-w-md w-full my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto animate-in zoom-in-95 duration-200"
+        className="relative card-elev max-w-md w-full my-auto overflow-y-auto animate-in zoom-in-95 duration-200"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >

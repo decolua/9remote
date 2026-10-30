@@ -112,8 +112,7 @@ export default function AddHostModal({ onClose }) {
   return createPortal(
     <>
     <div
-      className="fixed inset-0 z-[70] flex items-center justify-center px-4 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
-      style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+      className="modal-overlay z-[70] bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
       onClick={onClose}
     >
       <form
@@ -124,7 +123,7 @@ export default function AddHostModal({ onClose }) {
         className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="px-4 pt-4 pb-3 flex items-center gap-2.5 border-b border-border-subtle">
+        <div className="px-4 pt-4 pb-3 flex items-center gap-2.5 border-b border-border-subtle flex-shrink-0">
           <div className="p-1.5 bg-brand-500/10 dark:bg-white/10 rounded-brand flex-shrink-0">
             <KeyRound className="text-brand-500 dark:text-white w-4 h-4" />
           </div>
@@ -139,7 +138,7 @@ export default function AddHostModal({ onClose }) {
           </button>
         </div>
 
-        <div className="px-4 py-4 space-y-3">
+        <div className="px-4 py-4 space-y-3 flex-1 min-h-0 overflow-y-auto modal-scrollable">
           <div className="relative">
             <input
               ref={inputRef}
@@ -173,7 +172,7 @@ export default function AddHostModal({ onClose }) {
           {error && <p className="text-xs text-red-400 px-0.5">{error}</p>}
         </div>
 
-        <div className="px-4 pb-4 flex gap-2">
+        <div className="px-4 pb-4 pt-3 flex gap-2 flex-shrink-0">
           <button
             type="button"
             onClick={onClose}

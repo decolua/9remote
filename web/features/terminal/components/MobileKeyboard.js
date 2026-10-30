@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useCallback, useRef, useMemo } from "react";
+import { createPortal } from "react-dom";
 import {
   TERMINAL_KEY_POOL,
   TERMINAL_DEFAULT_BASIC,
@@ -34,7 +35,7 @@ import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/u
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 import { isMac } from "@/features/terminal/constants/shortcuts";
 
-const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null, isDesktop = false }) => {
+const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null, isDesktop = false }) => {
   const { t, locale } = useI18n();
   const [isExpanded, setIsExpanded] = useState(false);
   // True only when the OS soft keyboard actually covers the screen (viewport shrinks) —
@@ -393,9 +394,11 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
 
   return (
     <div className="flex flex-col w-full">
-      {/* Paste Input Fallback */}
-      {showPasteInput && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-[60]" onClick={() => setShowPasteInput(false)}>
+      {/* Paste Input Fallback — portaled: this strip lives under transformed pane
+          wrappers, and the overlay has to follow the visual viewport while the
+          keyboard is open, since the target input is what the user types into. */}
+      {showPasteInput && createPortal(
+        <div className="modal-overlay z-[60] bg-black/60 backdrop-blur-[2px]" onClick={() => setShowPasteInput(false)}>
           <input
             ref={pasteInputRef}
             placeholder={t("mobileKeyboard.pasteHere")}
@@ -403,7 +406,8 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRefocus, onRegisterT
             onClick={(e) => e.stopPropagation()}
             className="px-6 py-3 bg-surface-2 text-text rounded-brand focus:ring-2 focus:ring-brand-500/40 font-medium transition-all duration-150 ease-out outline-none text-center w-64"
           />
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Expanded keyboard panel — 3 scrollable rows */}

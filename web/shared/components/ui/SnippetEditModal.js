@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { X, Check } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -28,13 +29,17 @@ export default function SnippetEditModal({ snippet, onSave, onClose }) {
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-[70] flex items-center justify-center p-4">
+  if (typeof document === "undefined") return null;
+
+  // Portaled: the command history list sits under transformed pane wrappers, and this
+  // modal is all typing — the overlay must track the visual viewport as the keyboard opens.
+  return createPortal(
+    <div className="modal-overlay z-[70]">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-md w-full flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-md w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text">{t("history.editSnippet")}</h3>
           <button
@@ -91,6 +96,7 @@ export default function SnippetEditModal({ snippet, onSave, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { GitBranch, GitFork, Plus, Trash2, Terminal, Search, Loader2, X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { vibrate } from "@/shared/utils/vibration";
@@ -193,9 +194,9 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
       </div>
 
       {/* Add worktree */}
-      {addTarget && (
-        <div className="fixed inset-0 z-[80] flex items-center justify-center p-4 bg-black/60 backdrop-blur-[2px]" onClick={() => setAddTarget(null)}>
-          <div className="card-elev p-5 w-96" onClick={(e) => e.stopPropagation()}>
+      {addTarget && createPortal(
+        <div className="modal-overlay z-[80] bg-black/60 backdrop-blur-[2px]" onClick={() => setAddTarget(null)}>
+          <div className="card-elev p-5 w-96 max-w-full my-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-text mb-1">{t("workspaces.addWorktree")}</h3>
             <p className="text-[11px] text-text-muted mb-3 truncate" title={addTarget.branch}>{addTarget.branch}</p>
             <label className="block text-[11px] text-text-muted mb-1">{t("workspaces.worktreePath")}</label>
@@ -222,7 +223,8 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
 
       {/* Remove worktree — names the terminals that would lose their directory */}

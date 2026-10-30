@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { Folder, FolderOpen, Search, X, Pin, PinOff, Pencil } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
@@ -127,11 +128,15 @@ export default function WorkspaceSwitcher({ currentWorkspace, onSelect, onOpenBr
     );
   };
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  // Portaled to the body so the overlay escapes the shell's transformed panes; its
+  // height follows --app-height so the soft keyboard shrinks the list area too.
+  return createPortal(
     <>
-      <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
+      <div className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
         <div
-          className="card-elev w-[480px] max-w-[90vw] absolute top-20 left-1/2 -translate-x-1/2 flex flex-col"
+          className="card-elev w-[480px] max-w-[90vw] absolute top-20 left-1/2 -translate-x-1/2 max-h-[calc(var(--app-height,100dvh)-6rem)] flex flex-col overflow-hidden"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header / Search */}
@@ -206,6 +211,7 @@ export default function WorkspaceSwitcher({ currentWorkspace, onSelect, onOpenBr
         title="Remove workspace"
         message={`Remove "${confirmRemove.name}" from recent workspaces?`}
       />
-    </>
+    </>,
+    document.body
   );
 }

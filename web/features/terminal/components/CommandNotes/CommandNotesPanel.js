@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useRef, useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Pencil, Trash2, Copy, Check, FileText, Send } from "@/shared/components/ui/Icon";
 import { useCommandNotes } from "@/features/terminal/hooks/useCommandNotes";
 import { vibrate } from "@/shared/utils/vibration";
@@ -90,9 +91,11 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
     }
   }, [handleSave]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
+  // Portaled: the drawer's slide-in animation leaves a transform on its ancestor, which
+  // would make this fixed panel size against that ancestor instead of the viewport.
+  return createPortal(
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
       <div
@@ -103,7 +106,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
       {/* Panel */}
       <div
         className="absolute top-0 right-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right"
-        style={{ height: viewportHeight ? `${viewportHeight}px` : "100%" }}
+        style={{ height: `${viewportHeight ?? window.visualViewport?.height ?? window.innerHeight}px` }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
@@ -201,6 +204,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

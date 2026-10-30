@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import { X, History, Trash2, Search, GitFork } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -168,13 +169,17 @@ export default function AgentHistoryModal({
     setDeletingSession(null);
   };
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+  if (typeof document === "undefined") return null;
+
+  // Portaled and height-capped to --app-height: the search box is typed into, so the
+  // overlay must follow the visual viewport instead of the layout viewport.
+  return createPortal(
+    <div className="modal-overlay z-[60]">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200 touch-none"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-xl w-full max-h-[85vh] flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
+      <div className="relative card-elev max-w-xl w-full my-auto flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-border-subtle flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">
@@ -252,9 +257,9 @@ export default function AgentHistoryModal({
           )}
         </div>
 
-        {/* Sessions list — fixed height so result count never resizes the modal
-            while typing; results swap inside the scroll area instead. */}
-        <div className="h-[55vh] min-h-0 overflow-y-auto modal-scrollable p-2 space-y-1">
+        {/* Sessions list — sized in the card's leftover space so the result count never
+            resizes the modal while typing; results swap inside the scroll area instead. */}
+        <div className="flex-1 basis-[45vh] min-h-0 overflow-y-auto modal-scrollable p-2 space-y-1">
           {filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-14 text-text-muted text-sm gap-2">
               <History size={32} className="opacity-40" />
@@ -359,6 +364,7 @@ export default function AgentHistoryModal({
           message={t("agentHistory.deleteMessage", { title: deletingSession.title || t("agentHistory.untitled") })}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -348,15 +348,14 @@ export default function NewTerminalModal({
   return createPortal(
     <>
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center px-4 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
-      style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
+      className="modal-overlay z-[60] bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-labelledby="newTerminalTitle"
-        className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] animate-in zoom-in-95 duration-150"
+        className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto animate-in zoom-in-95 duration-150"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Title, then where the terminal will start — context before choices */}

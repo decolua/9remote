@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { X, Check } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -24,13 +25,17 @@ export default function LanguageModal({ isOpen, onClose }) {
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+  if (!isOpen || typeof document === "undefined") return null;
+
+  // Portaled: opened from the drawer panel, whose slide-in animation leaves a
+  // transform behind — a fixed overlay would be jailed inside that panel.
+  return createPortal(
+    <div className="modal-overlay z-[70]">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-lg w-full max-h-[90dvh] flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-lg w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text">{t("menu.language")}</h3>
           <button
@@ -41,7 +46,7 @@ export default function LanguageModal({ isOpen, onClose }) {
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto modal-scrollable p-3">
+        <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable p-3">
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {SUPPORTED_LOCALES.map((l) => {
               const active = l.code === locale;
@@ -67,6 +72,7 @@ export default function LanguageModal({ isOpen, onClose }) {
           </div>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

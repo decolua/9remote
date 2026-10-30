@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
+import { createPortal } from "react-dom";
 import Button from "@/shared/components/ui/Button";
 import Spinner from "@/shared/components/ui/Spinner";
 import { X, Search, AlertCircle, Plus } from "@/shared/components/ui/Icon";
@@ -66,11 +67,11 @@ export default function CreateCodespaceModal({ isOpen, onClose, onCreated }) {
     }
   };
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-[2px] p-4" onClick={onClose}>
-      <div className="card-elev p-6 max-w-md w-full max-h-[80dvh] flex flex-col border border-border" onClick={(e) => e.stopPropagation()}>
+  return createPortal(
+    <div className="modal-overlay z-50 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
+      <div className="card-elev p-6 max-w-md w-full my-auto flex flex-col border border-border" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-text">Select repository</h3>
           <button onClick={onClose} className="p-1 text-text-muted hover:text-text">
@@ -96,7 +97,7 @@ export default function CreateCodespaceModal({ isOpen, onClose, onCreated }) {
           </div>
         )}
 
-        <div className="flex-1 overflow-auto space-y-1">
+        <div className="flex-1 min-h-0 overflow-auto space-y-1">
           {loading ? (
             <Spinner text="Loading repos..." />
           ) : filtered.length === 0 ? (
@@ -129,6 +130,7 @@ export default function CreateCodespaceModal({ isOpen, onClose, onCreated }) {
           )}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

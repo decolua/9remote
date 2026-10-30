@@ -490,14 +490,14 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="fixed inset-0 z-[80] flex items-center justify-center p-3 sm:p-4 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
+    <div className="modal-overlay z-[80] bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={t("workspaces.newWorkspace")}
         onKeyDown={onDialogKeyDown}
-        className="card-elev w-full sm:w-[560px] sm:max-w-full h-[min(85%,calc(var(--app-height,85vh)-2rem))] sm:h-[70vh] sm:max-h-[560px] my-auto flex flex-col overflow-hidden"
+        className="card-elev w-full sm:w-[560px] sm:max-w-full h-[min(85%,calc(var(--app-height,85vh)-2rem))] sm:h-[70vh] sm:max-h-[560px] flex flex-col overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {/* Inset from the viewport edges, so no notch/home-bar padding is needed. */}

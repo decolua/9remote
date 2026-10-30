@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import Icon, { X, ExternalLink } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { COMMUNITY_LINKS } from "@/features/terminal/constants/communityLinks";
@@ -19,15 +20,17 @@ export default function CommunityModal({ isOpen, onClose }) {
     return () => document.removeEventListener("keydown", handleEscape);
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
   const handleOpen = (url) => {
     vibrate();
     window.open(url, "_blank", "noopener,noreferrer");
   };
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+  // Portaled: opened from the drawer panel, whose slide-in animation leaves a
+  // transform behind — a fixed overlay would be jailed inside that panel.
+  return createPortal(
+    <div className="modal-overlay z-[60]">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] fade-in"
         onClick={onClose}
@@ -79,6 +82,7 @@ export default function CommunityModal({ isOpen, onClose }) {
           })}
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

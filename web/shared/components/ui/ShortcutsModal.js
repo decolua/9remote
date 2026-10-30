@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef } from "react";
+import { createPortal } from "react-dom";
 import { X } from "@/shared/components/ui/Icon";
 import { useI18n } from "@/shared/i18n";
 import { SHORTCUT_ROWS, shortcutKeys, SHORTCUT_KEY_CLS } from "@/features/terminal/constants/shortcuts";
@@ -33,10 +34,12 @@ export default function ShortcutsModal({ isOpen, onClose }) {
     };
   }, [isOpen, onClose]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+  // Portaled: opened from the drawer panel, whose slide-in animation leaves a
+  // transform behind — a fixed overlay would be jailed inside that panel.
+  return createPortal(
+    <div className="modal-overlay z-[60]">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
         onClick={onClose}
@@ -45,7 +48,7 @@ export default function ShortcutsModal({ isOpen, onClose }) {
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
-        className="relative card-elev max-w-md w-full max-h-[90dvh] flex flex-col animate-in zoom-in-95 duration-200 outline-none"
+        className="relative card-elev max-w-md w-full my-auto flex flex-col animate-in zoom-in-95 duration-200 outline-none"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
@@ -60,7 +63,7 @@ export default function ShortcutsModal({ isOpen, onClose }) {
             <X size={20} />
           </button>
         </div>
-        <div className="flex-1 overflow-y-auto modal-scrollable px-5 pb-5">
+        <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable px-5 pb-5">
           <ul className="flex flex-col divide-y divide-border-subtle/40">
             {SHORTCUT_ROWS.map((entry) => (
               <li key={entry.id} className="flex items-center justify-between gap-4 py-2 first:pt-1">
@@ -75,6 +78,7 @@ export default function ShortcutsModal({ isOpen, onClose }) {
           </ul>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }

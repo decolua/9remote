@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, History, Trash2, Pin, Pencil } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
@@ -29,7 +30,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
     return () => window.removeEventListener("keydown", handleEscape);
   }, [isOpen, onClose, editing]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
   const handleSelect = (cmd) => {
     vibrate();
@@ -37,13 +38,15 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
     onClose();
   };
 
-  return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+  // Portaled: opened from the mobile keyboard/controls, which live under transformed
+  // pane wrappers where a fixed overlay would be jailed.
+  return createPortal(
+    <div className="modal-overlay z-[60]">
       <div
         className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200 touch-none"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-lg w-full max-h-[90dvh] flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-lg w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text">{t("history.title")}</h3>
           <div className="flex items-center gap-1">
@@ -66,7 +69,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
             </button>
           </div>
         </div>
-        <div className="flex-1 overflow-y-auto modal-scrollable p-3">
+        <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable p-3">
           {pinned.length === 0 && history.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
               <History size={32} className="opacity-50" />
@@ -159,6 +162,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
           onClose={() => setEditing(null)}
         />
       )}
-    </div>
+    </div>,
+    document.body
   );
 }

@@ -62,6 +62,12 @@ const expoRedirectScript = `(function(){try{if(location.hostname==="dev.9remote.
 // are unaffected). Bottom inset is owned by bottom bars (.safe-area-bottom).
 const safeAreaScript = `window.handleSafeAreaInset=function(top,left,right){try{var d=document.documentElement.style;d.setProperty("--pl-top",Math.max(top||0,0)+"px");d.setProperty("--pl-left",Math.max(left||0,0)+"px");d.setProperty("--pl-right",Math.max(right||0,0)+"px");}catch(e){}};`;
 
+// --app-height lives here, not in the workspace shell: modal overlays read it on every
+// route (login included), and the soft keyboard only shrinks visualViewport — never the
+// layout viewport that `inset-0` measures. The workspace hook overrides it with the same
+// value once that page mounts.
+const appHeightScript = `(function(){var r=document.documentElement;function u(){var v=window.visualViewport;r.style.setProperty("--app-height",((v&&v.height)||window.innerHeight)+"px");}u();if(window.visualViewport){window.visualViewport.addEventListener("resize",u);window.visualViewport.addEventListener("scroll",u);}window.addEventListener("resize",u);window.addEventListener("orientationchange",u);})();`;
+
 // Clipboard-read blocker — neutralizes navigator.clipboard.readText/.read at the
 // browser API level so no library (xterm core OSC52, CodeMirror, addon) can trigger
 // a clipboard-read permission prompt. No web feature reads the clipboard today
@@ -85,6 +91,7 @@ export default function RootLayout({ children }) {
         <ScriptOnce id="expo-redirect" html={expoRedirectScript} />
         <ScriptOnce id="theme-init" html={themeInitScript} />
         <ScriptOnce id="safe-area-bridge" html={safeAreaScript} />
+        <ScriptOnce id="app-height" html={appHeightScript} />
         <ScriptOnce
           id="sw-register"
           html={`if('serviceWorker' in navigator){window.addEventListener('load',function(){navigator.serviceWorker.register('/sw.js').catch(function(e){console.log('SW registration failed:',e);});});}`}

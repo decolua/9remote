@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import Icon from "@/shared/components/ui/Icon";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
@@ -684,10 +685,10 @@ export default function ExplorerPanel({
         </div>
       )}
 
-      {newItemModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      {newItemModal && createPortal(
+        <div className="modal-overlay z-50">
           <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
-          <div className="relative card-elev p-4 w-full max-w-sm animate-in zoom-in-95 duration-150">
+          <div className="relative card-elev p-4 w-full max-w-sm my-auto animate-in zoom-in-95 duration-150">
             <h3 className="text-sm font-semibold text-text mb-2">
               {newItemModal.type === "folder" ? "New Folder" : "New File"}
             </h3>
@@ -736,7 +737,8 @@ export default function ExplorerPanel({
           </div>
           <input ref={pickFilesRef} type="file" multiple className="hidden" onChange={handlePickedFiles} />
           <input ref={pickFolderRef} type="file" webkitdirectory="" className="hidden" onChange={handlePickedFiles} />
-        </div>
+        </div>,
+        document.body
       )}
 
       {upload && (

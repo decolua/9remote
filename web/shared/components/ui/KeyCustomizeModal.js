@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 import { X, Trash2, Plus } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 
@@ -60,7 +61,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
   // Reset selection when switching tabs
   useEffect(() => { setSelected(null); }, [activeTab]);
 
-  if (!isOpen) return null;
+  if (!isOpen || typeof document === "undefined") return null;
 
   const tab = tabs.find(t => t.id === activeTab) || tabs[0];
   const { rows: rawRows, available: rawAvailable, replaceAt, swap, removeAt, reset } = tab.hook;
@@ -121,11 +122,15 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
 
   const hasRemovable = selected && rows[selected.row] && selected.col < rows[selected.row].length;
 
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+  if (typeof document === "undefined") return null;
+
+  // Portaled: opened from the mobile keyboard strip, which sits under transformed
+  // pane wrappers — a fixed overlay would be jailed and sized to the wrong viewport.
+  return createPortal(
+    <div className="modal-overlay z-50">
       <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
 
-      <div className="relative card-elev w-full max-w-2xl max-h-[85dvh] flex flex-col">
+      <div className="relative card-elev w-full max-w-2xl my-auto flex flex-col">
         {/* Header */}
         <div className="px-5 py-3 flex items-center justify-between">
           <h3 className="text-base font-semibold text-text">{title}</h3>
@@ -150,7 +155,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
         )}
 
         {/* Body */}
-        <div className="flex-1 overflow-y-auto p-5 space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto p-5 space-y-4">
           {/* Current */}
           <div>
             <div className="flex items-center justify-between mb-2">
@@ -222,6 +227,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
           </button>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
