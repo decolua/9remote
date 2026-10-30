@@ -75,6 +75,12 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     logger.info("Start skipped — remote is disabled");
     return;
   }
+  const onUrlUpdate = async (newUrl) => {
+    await updateTunnelUrl(apiKey, newUrl);
+    await pushUiState({ tunnelUrl: newUrl });
+    updateTunnelHealthUrl(newUrl);
+    updateTrayTooltip({ tunnelUrl: newUrl, running: true });
+  };
   const existing = getActiveTunnel();
   if (existing) {
     if (existing.killed || existing.exitCode != null) {
@@ -82,6 +88,8 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     } else {
       const cur = await apiGet("/api/ui/state");
       await setStep(STEP.READY, { tunnelUrl: cur?.tunnelUrl || "" });
+      // Retry while alive must still re-arm the watchdog + re-sync the URL to the Worker
+      if (cur?.tunnelUrl) await onUrlUpdate(cur.tunnelUrl);
       return "alreadyRunning";
     }
   }
@@ -108,12 +116,6 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
     // Spawn tunnel after a successful session. Fail/health-timeout is non-fatal:
     // show QR (RTC-only) and let the background reconnect loop retry.
     await setStep(STEP.TUNNELING);
-    const onUrlUpdate = async (newUrl) => {
-      await updateTunnelUrl(apiKey, newUrl);
-      await pushUiState({ tunnelUrl: newUrl });
-      updateTunnelHealthUrl(newUrl);
-      updateTrayTooltip({ tunnelUrl: newUrl, running: true });
-    };
     const onRetry = ({ attempt, delay }) => {
       pushUiState({ tunnelRetry: { attempt, delay, at: Date.now() } });
     };
@@ -140,6 +142,9 @@ async function handleStart(getActiveTunnel, setActiveTunnel, apiKey) {
         tunnelUrl = "";
         setActiveTunnel(null);
         result = null;
+      } else {
+        // Foreground first URL never fires spawnQuickTunnel's onUrlUpdate — sync + watchdog here
+        await onUrlUpdate(tunnelUrl);
       }
     }
     await showConnectionInfo(apiKey, tunnelUrl);
