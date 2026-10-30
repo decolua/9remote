@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo, useRef } from "react";
-import { STORAGE_KEYS, GIT_REFRESH_EVENT } from "../constants/fileExplorer.js";
+import { STORAGE_KEYS, GIT_REFRESH_EVENT, GIT_STATUS_DEBOUNCE_MS } from "../constants/fileExplorer.js";
 import { useDirWatch, usePageVisible } from "./useDirWatch";
 import { buildWorkspaceGitStatus } from "@/features/fileExplorer/lib/gitStatusMap";
 import { vibrate } from "@/shared/utils/vibration";
@@ -9,9 +9,6 @@ import { vibrate } from "@/shared/utils/vibration";
 // Lazy directory cache for the desktop tree: which dirs are loaded, which are
 // expanded (persisted), which are still loading or truncated, plus git badges.
 // Extracted verbatim from ExplorerPanel.
-
-// Coalesce bursts of file-change events into one git status build.
-const GIT_STATUS_DEBOUNCE_MS = 300;
 
 // Initial root load retries with backoff up to this delay (~31s total) — the
 // panel mounts before the bus exists on a cold load, and without a retry the
@@ -229,10 +226,13 @@ export function useFileTreeState({ workspace, fileBus }) {
     () => [...tree.keys()].filter((d) => d === workspace || expanded.has(d)),
     [tree, expanded, workspace]
   );
+  // The tree reloads its dirs here, but git state is broadcast: one event and every
+  // surface (tree badges, SCM list, terminal badge) refetches through its own debounced
+  // listener — watcher-driven changes used to update only the tree.
   const reloadDirs = useCallback((dirs) => {
     Promise.all(dirs.map((d) => loadDir(d))).catch(() => {});
-    loadGitStatus();
-  }, [loadDir, loadGitStatus]);
+    window.dispatchEvent(new Event(GIT_REFRESH_EVENT));
+  }, [loadDir]);
 
   useDirWatch({ dirs: watchedDirs, fileBus, onDirsChanged: reloadDirs, enabled: visible });
 

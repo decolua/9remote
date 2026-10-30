@@ -238,6 +238,10 @@ export const FILE_WATCH = {
 
 export const GIT_REFRESH_EVENT = "fileExplorer:gitRefresh";
 
+// Shared debounce for every GIT_REFRESH_EVENT listener — one burst of disk events
+// costs one git spawn per surface, not one per event.
+export const GIT_STATUS_DEBOUNCE_MS = 300;
+
 // Window events that mean git state may have moved — the SCM list and open diff tabs listen.
 export const GIT_AUTO_REFRESH_EVENTS = [
   "fileExplorer:fileSaved",

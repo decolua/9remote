@@ -8,7 +8,7 @@ import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_HEIGHT } from "@/shared/constants/layout";
 import { EDITOR_PANEL_WIDTH } from "../constants/terminalConfig";
 import { resolveFileIcon } from "@/features/fileExplorer/constants/fileIcons";
-import { isDiffPath, parseRepoDiffPath, makeDiffPath, resolveDiffFilePath, GIT_STATUS_COLORS, getTextPreviewKind, FILE_WATCH, STORAGE_KEYS, EDITOR_FONT_DEFAULT, EDITOR_FONT_MIN, EDITOR_FONT_MAX } from "@/features/fileExplorer/constants/fileExplorer";
+import { isDiffPath, parseRepoDiffPath, makeDiffPath, resolveDiffFilePath, GIT_STATUS_COLORS, GIT_REFRESH_EVENT, getTextPreviewKind, FILE_WATCH, STORAGE_KEYS, EDITOR_FONT_DEFAULT, EDITOR_FONT_MIN, EDITOR_FONT_MAX } from "@/features/fileExplorer/constants/fileExplorer";
 import { usePersistedState } from "@/shared/hooks/usePersistedState";
 import { isPreviewable } from "@/features/fileExplorer/components/FilePreview";
 import { useFileDocument } from "@/features/fileExplorer/hooks/useFileDocument";
@@ -113,6 +113,8 @@ export default function TerminalEditorPanel({
   const onDiskChanged = useCallback(() => {
     setSaveSeq((seq) => seq + 1);
     docRef.current?.onChangedOnDisk();
+    // An AI rewrite on disk moved git state too — broadcast so the badges/SCM refresh.
+    window.dispatchEvent(new Event(GIT_REFRESH_EVENT));
   }, []);
   useDirWatch({
     dirs: watchDirs,

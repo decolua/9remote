@@ -7,7 +7,7 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
 import { useI18n } from "@/shared/i18n";
 import useIsTouch from "@/shared/hooks/useIsTouch.js";
-import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, GIT_AUTO_REFRESH_EVENTS, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, GIT_AUTO_REFRESH_EVENTS, GIT_STATUS_DEBOUNCE_MS, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import { commitSummary, pushSummary, pullSummary } from "../lib/gitOutput.js";
 import { addToGitignore } from "../lib/gitignore.js";
@@ -119,12 +119,20 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     reload();
   }, [reload]);
 
-  // Auto-refresh when files saved/created/deleted/renamed elsewhere
+  // Auto-refresh when files saved/created/deleted/renamed elsewhere — debounced so a
+  // burst of watcher events costs one status spawn, not one per event.
   useEffect(() => {
     if (typeof window === "undefined") return;
-    const handler = () => reload();
+    let timer = null;
+    const handler = () => {
+      clearTimeout(timer);
+      timer = setTimeout(reload, GIT_STATUS_DEBOUNCE_MS);
+    };
     GIT_AUTO_REFRESH_EVENTS.forEach(ev => window.addEventListener(ev, handler));
-    return () => GIT_AUTO_REFRESH_EVENTS.forEach(ev => window.removeEventListener(ev, handler));
+    return () => {
+      clearTimeout(timer);
+      GIT_AUTO_REFRESH_EVENTS.forEach(ev => window.removeEventListener(ev, handler));
+    };
   }, [reload]);
 
   const { changes, untracked } = useMemo(() => {
