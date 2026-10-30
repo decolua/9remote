@@ -10,9 +10,9 @@ import { pickAdapter } from "./lib/controlRouting";
 import { nextRestartStep, restartTimerAction, restartRtcAction, peerDeadline } from "./lib/rtcRecoveryPolicy";
 import { attachWatchers, kickWsZombie } from "./lib/pmWatchers";
 import { handleWsStateChange, handleRtcStateChange } from "./lib/adapterStateHandlers";
-import { buildConfig, initialState } from "./lib/pmConfig";
+import { buildConfig, initialState, createIntakeFor } from "./lib/pmConfig";
 import { initSignalingClient, handleApprovalSignal, onSignalingReady, sendSignaling, flushSigBuffer, refreshTunnelUrl } from "./lib/pmSignaling";
-import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout } from "./lib/pmMessaging";
+import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout, sendStreamEvent } from "./lib/pmMessaging";
 import { handleDeviceAuthEvent, maybeSendTailProof, DEVICE_AUTH_EVENTS } from "./lib/deviceTrust";
 
 registerProtocol(WsProtocol);
@@ -27,6 +27,8 @@ export class ProtocolManager {
     this._rtcCallbacks = rtcCallbacks;
     this._peerId = peerId;
     Object.assign(this, initialState());
+    // Inbound sequencer needs this PM's deliver(); build after state exists.
+    this._intakeSeq = createIntakeFor(this);
 
     // Outlives carriers so app listeners persist across carrier switches.
     this._bus = createClientBus(this);
@@ -255,7 +257,9 @@ export class ProtocolManager {
     }
     this._adapters.clear();
     this._bus.clear();
-    this._buffer = [];
+    this._intakeSeq?.reset();
+    this._outLog?.clear();
+    this._peerSeqCtl = false;
     this._connected = false;
     this._rawSocket = null;
     this._disarmRestart();
@@ -265,6 +269,14 @@ export class ProtocolManager {
     this._rtcGivenUp = false;
     this._giveUpIp = null;
     this._lastStunProbeAt = 0;
+    // The PM itself is going away — now (and only now) pending acks are a real
+    // failure: no carrier will ever deliver the reply.
+    for (const [ackId, cb] of this._pendingAcks) {
+      try { cb({ error: "disconnected" }); } catch {}
+      const t = this._ackTimers.get(ackId);
+      if (t) clearTimeout(t);
+    }
+    this._pendingAcks.clear();
     for (const t of this._ackTimers.values()) clearTimeout(t);
     this._ackTimers.clear();
   }
@@ -318,7 +330,11 @@ export class ProtocolManager {
         this._wsCallbacks.onDisconnect?.(`${adapterId}-${state}`);
       }
     }
-    this._flushBuffer();
+    // Full replay only on a lane actually (re)opening or dying — a transient
+    // "degraded" (ICE blip) must not re-send the unconfirmed window every time.
+    if (state === ADAPTER_STATE.open || state === ADAPTER_STATE.closed) this._flushBuffer();
+    // No carrier = freeze gap deadlines; they re-arm (and re-ask) on reconnect.
+    this._intakeSeq?.setPaused(!ready);
   }
 
   // Debounce rejoin on carrier reconnect to allow pending RTC connection to settle first.
@@ -369,6 +385,15 @@ export class ProtocolManager {
     return pickAdapter(this._adapters, this._profile, channel);
   }
 
+  /** True once the host speaks the sequenced stream (caps.seqCtl). */
+  _seqActive() {
+    return this._peerSeqCtl === true;
+  }
+
+  _sendStreamEvent(event, arg, ackId = null) {
+    sendStreamEvent(this, event, arg, ackId);
+  }
+
   _sendControl(event, args) {
     sendControl(this, event, args);
   }
@@ -385,8 +410,8 @@ export class ProtocolManager {
     onBinary(this, msg);
   }
 
-  _scheduleAckTimeout(ackId) {
-    scheduleAckTimeout(this, ackId);
+  _scheduleAckTimeout(ackId, ctx) {
+    scheduleAckTimeout(this, ackId, ctx);
   }
 
   // Two-phase RTC recovery: fast initial backoff followed by periodic background probe.

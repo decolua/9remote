@@ -15,6 +15,7 @@
 import assert from "node:assert/strict";
 import { createClientBus } from "../shared/transport/lib/clientBus.js";
 import { dispatch } from "../shared/transport/lib/pmMessaging.js";
+import { initialState, createIntakeFor } from "../shared/transport/lib/pmConfig.js";
 
 let pass = 0, fail = 0;
 const test = (name, fn) => {
@@ -38,6 +39,10 @@ function makePm() {
     _sendControl(event, args) { this.sent.push([event, args]); },
     sent: []
   };
+  Object.assign(pm, initialState());
+  pm._intakeSeq = createIntakeFor(pm);
+  pm._sendStreamEvent = () => {};
+  pm._seqActive = () => pm._peerSeqCtl === true;
   pm._bus = createClientBus(pm);
   pm.busRef = { current: pm._bus };
   return pm;

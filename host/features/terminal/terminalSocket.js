@@ -538,7 +538,7 @@ export async function setupTerminalHandlers(socket, io, apiKey) {
   onConnectCheck?.();
   // What THIS agent understands. The client mirrors it with its own "caps" — both
   // sides need the announcement before either may switch off the legacy wire form.
-  socket.emit("srvCaps", { env2: 1 });
+  socket.emit("srvCaps", { env2: 1, seqCtl: 1 });
   socket.emit("serverInfo", setupTerminalSocket._buildServerInfo?.());
 
   setupSessionHandlers(socket, io, sessions, workspaces, sessionWorkspaces, sessionOrder);

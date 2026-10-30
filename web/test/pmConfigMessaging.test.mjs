@@ -5,7 +5,9 @@
 import assert from "node:assert/strict";
 import { TRANSPORT_PROFILES, CHANNELS, CONTROL_RTC_MAX_BYTES, ADAPTER_STATE } from "../shared/constants/transport.js";
 import { buildConfig, initialState } from "../shared/transport/lib/pmConfig.js";
-import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout } from "../shared/transport/lib/pmMessaging.js";
+import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout, sendStreamEvent } from "../shared/transport/lib/pmMessaging.js";
+import { createIntakeFor } from "../shared/transport/lib/pmConfig.js";
+import { STREAM_EVENTS } from "../shared/transport/seqStream.js";
 
 let pass = 0, fail = 0;
 const tests = [];
@@ -60,9 +62,9 @@ test("config: callbacks are mapped, rtc callbacks default to empty", () => {
 test("state: fresh instances never share mutable containers", () => {
   const a = initialState(), b = initialState();
   a._adapters.set("ws", 1);
-  a._buffer.push("x");
+  a._outLog.append({ event: "x", args: [] });
   assert.equal(b._adapters.size, 0);
-  assert.equal(b._buffer.length, 0);
+  assert.equal(b._outLog.nextSeq, 1, "rings must not be shared between instances");
   assert.equal(a._connected, false);
   assert.equal(a._type, "ws");
   assert.equal(a._connectionMode, "tunnel");
@@ -96,26 +98,28 @@ function makePm({ pick = null, adapters = {} } = {}) {
     _scheduleAckTimeout(id) { trace.push(["ackTimeout", id]); },
     _scheduleRtcRestart() { trace.push(["scheduleRtcRestart"]); },
     _sendControl(ev, args) { sendControl(pm, ev, args); },
+    _sendStreamEvent(ev, arg, ackId) { sendStreamEvent(pm, ev, arg, ackId); },
+    _seqActive: () => pm._peerSeqCtl === true,
     _canSignal: () => true,
-    _restartRtc() { trace.push(["restartRtc"]); }
+    _restartRtc() { trace.push(["restartRtc"]); },
+    _termLog() {}
   };
+  pm._intakeSeq = createIntakeFor(pm);
   return pm;
 }
 
-test("control: no adapter → buffered with its callback, flushed on the next adapter", () => {
+test("control: no adapter → the envelope stays in the ring, replay on open", () => {
   const pm = makePm();
   const cb = () => {};
   sendControl(pm, "resize", [{ cols: 80 }, cb]);
-  assert.equal(pm._buffer.length, 1);
-  assert.deepEqual(pm._buffer[0].args, [{ cols: 80 }]);
-  assert.equal(pm._buffer[0].cb, cb, "the ack must survive the buffering");
+  assert.equal(pm._outLog.nextSeq, 2, "logged even with no carrier");
+  assert.equal(pm._pendingAcks.size, 1, "the ack lives on the peer, not the carrier");
 
   const ws = adapter("ws");
   pm._pickAdapter = () => ws;
   flushBuffer(pm);
-  assert.equal(pm._buffer.length, 0);
+  assert.equal(ws.sent.length, 1);
   assert.deepEqual(ws.sent[0][1].args, [{ cols: 80 }]);
-  assert.equal(ws.sent[0][1].cb, cb);
 });
 
 test("control: an oversize payload still rides RTC — slicing is the adapter's job", () => {
@@ -128,13 +132,17 @@ test("control: an oversize payload still rides RTC — slicing is the adapter's 
   assert.equal(ws.sent.length, 0);
 });
 
-test("control: an RTC refusal is retried once, then dropped — never re-routed by hand", () => {
+test("control: a carrier refusal is NOT hand-routed — the ring replays on the next carrier", () => {
   const rtc = adapter("rtc", { sendOk: false });
   const ws = adapter("ws");
   const pm = makePm({ pick: rtc, adapters: { rtc, ws } });
   sendControl(pm, "input", ["hi"]);
-  assert.equal(ws.sent.length, 0, "a refusal must not silently move the message to the other carrier");
-  assert.equal(pm._buffer.length, 1, "undeliverable → buffered for the next ready window");
+  assert.equal(ws.sent.length, 0, "never silently move one message to the other carrier");
+
+  pm._pickAdapter = () => ws; // RTC died; the next open replays the unsent tail
+  flushBuffer(pm);
+  assert.equal(ws.sent.length, 1);
+  assert.equal(ws.sent[0][1].args[0], "hi");
 });
 
 test("control: undersize payload stays on RTC and registers an ack timeout", () => {
@@ -148,29 +156,6 @@ test("control: undersize payload stays on RTC and registers an ack timeout", () 
   assert.match(ackId, /^c_\d+$/);
   assert.equal(pm._pendingAcks.size, 1);
   assert.deepEqual(pm.trace, [["ackTimeout", ackId]]);
-});
-
-test("control: an RTC refusal is buffered, not re-routed — the flush uses the live carrier", () => {
-  const rtc = adapter("rtc", { sendOk: false });
-  const ws = adapter("ws");
-  const pm = makePm({ pick: rtc, adapters: { rtc, ws } });
-  const cb = () => {};
-  sendControl(pm, "input", ["hi", cb]);
-  assert.equal(ws.sent.length, 0, "a refusal must not silently move one message to the other carrier");
-  assert.equal(pm._buffer.length, 1);
-
-  pm._pickAdapter = () => ws; // the adapter state caught up: RTC is closed
-  flushBuffer(pm);
-  assert.equal(ws.sent.length, 1);
-  assert.equal(ws.sent[0][1].cb, cb, "the ack survives the buffering");
-});
-
-test("flush: a message the carrier refuses goes back to the buffer, and the flush ends", () => {
-  const rtc = adapter("rtc", { sendOk: false });
-  const pm = makePm({ pick: rtc, adapters: { rtc } });
-  pm._buffer.push({ event: "input", args: ["hi"], cb: null });
-  flushBuffer(pm); // must terminate: a re-read loop would spin on the refused message
-  assert.equal(pm._buffer.length, 1, "still undelivered — kept for the next ready window");
 });
 
 test("dispatch: __ack resolves the pending callback and clears its timer", () => {
@@ -208,6 +193,16 @@ test("dispatch: an app listener fires exactly once per event, on either carrier"
   assert.equal(app, 1, "WS delivery reaches the bus exactly once");
   dispatch(pm, "output", { args: ["y"] }, "rtc");
   assert.equal(app, 2, "RTC delivery reaches the same listener");
+});
+
+test("dispatch: a WS __env wrapper unwraps to the inner envelope (payload IS the wire)", () => {
+  const pm = makePm();
+  const seen = [];
+  pm._sockListeners.set("output", [(...a) => seen.push(a)]);
+  const wire = { event: "output", args: [{ id: 7 }], ackId: null, sq: 3, ep: "E", rs: 1 };
+  dispatch(pm, "__env", wire, "ws");
+  assert.deepEqual(seen, [[{ id: 7 }]], "the wrapper must never swallow the envelope");
+  assert.equal(pm._outLog.applied, 1, "peer rs watermark recorded");
 });
 
 test("dispatch: device:approved clears the flag and renegotiates when rtc is dead", () => {

@@ -134,7 +134,7 @@ export function useAgentBus() {
   }, [emitSessions, emitWorkspaces]);
 
   // Client capability announcement required by agent for binary/fragmented transport.
-  const CAPS = { fragOut: true, binOut: true, hb: 1, env2: 1, fragCtl: 1 };
+  const CAPS = { fragOut: true, binOut: true, hb: 1, env2: 1, fragCtl: 1, seqCtl: 1 };
   const announceCaps = (bus) => {
     termLog("switch", `caps → ${JSON.stringify(CAPS)} announced`);
     bus.emit("caps", CAPS);

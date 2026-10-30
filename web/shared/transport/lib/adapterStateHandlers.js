@@ -100,14 +100,11 @@ export function handleRtcStateChange(pm, state) {
     // retries via DO. If RTC comes back, _pickAdapter prefers it again.
     pm._startWsFallback();
     clearTimeout(pm._wsFallbackTimer);
-    // Reject acks of requests sent over the now-dead RTC DC so callers fail
-    // fast instead of hanging until the 30s cleanup silently drops them.
-    for (const cb of pm._pendingAcks.values()) {
-      try { cb({ error: "rtc-closed" }); } catch {}
-    }
-    pm._pendingAcks.clear();
-    for (const t of pm._ackTimers.values()) clearTimeout(t);
-    pm._ackTimers.clear();
+    // Pending acks are NOT rejected here anymore: with the sequenced stream the
+    // request re-sends on the live carrier and the host answers once — rejecting
+    // on carrier death turned successful requests into false "lost" errors (the
+    // resend then duplicated the turn). Acks die only with the PM itself
+    // (disconnect resolves them) or their own timeout when no stream is active.
     // RTC died → retry RTC via DO signaling (STUN again). Only after maxAttempts
     // of repeated failure does the tunnel (ws) own the session permanently.
     pm._scheduleRtcRestart("rtc-closed");

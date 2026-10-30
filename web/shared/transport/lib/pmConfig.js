@@ -1,5 +1,9 @@
 import { TRANSPORT_PROFILES, RTC_RESTART } from "@/shared/constants/transport";
 import { randomTag } from "./controlRouting";
+import { createOutboundLog, createIntake, newEpoch, STREAM_EVENTS } from "../seqStream";
+import { SEQ_CTL } from "@/shared/constants/transport";
+import { termLog } from "@/shared/utils/termLog";
+import { deliver } from "./pmMessaging";
 
 // Legacy wsConfig/rtcConfig → the unified shape the manager runs on.
 // Pure: no timers, no listeners, no adapters.
@@ -49,8 +53,7 @@ export function buildConfig(wsConfig, rtcConfig) {
 export function initialState() {
   return {
     _adapters: new Map(),   // id → adapter instance
-    _buffer: [],            // pending control sends when no adapter ready
-    _pendingAcks: new Map(), // ackId → callback (RTC ack)
+    _pendingAcks: new Map(), // ackId → callback (carrier-agnostic)
     _ackTimers: new Map(),  // ackId → timeout (zombie detection)
     _ackSeq: 0,
 
@@ -99,6 +102,25 @@ export function initialState() {
     // its offer before the tunnel WS or DO relay finished connecting). Flushed
     // the moment either carrier opens.
     _sigBuffer: [],
-    _wsFallbackTimer: null
+    _wsFallbackTimer: null,
+
+    // Sequenced control stream — outbound replay ring + one-door inbound
+    // sequencer. See seqStream.js; armed once the host announces caps.seqCtl.
+    _peerSeqCtl: false,
+    _seqEpoch: newEpoch(),
+    _outLog: createOutboundLog({ maxBytes: SEQ_CTL.ringMaxBytes, maxEntries: SEQ_CTL.maxEntries }),
+    _intakeSeq: null // built by the PM constructor (needs `deliver`, which needs the PM)
   };
+}
+
+/** Sequencer factory — separated so the PM can bind its own deliver(). */
+export function createIntakeFor(pm) {
+  return createIntake({
+    holdMax: SEQ_CTL.holdMax,
+    gapDeadlineMs: SEQ_CTL.gapDeadlineMs,
+    deliver: (env) => deliver(pm, env),
+    requestGap: (from, to) => pm._sendStreamEvent(STREAM_EVENTS.GAP, { from, to }),
+    onLoss: (from, to) => { pm._seqLosses = (pm._seqLosses || 0) + 1; termLog("switch", `seq skipped ${from}..${to} (ring evicted)`); },
+    onDupe: () => { pm._seqDupes = (pm._seqDupes || 0) + 1; }
+  });
 }

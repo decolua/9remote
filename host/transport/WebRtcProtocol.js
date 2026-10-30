@@ -154,7 +154,15 @@ export class WebRtcProtocol extends BaseProtocol {
   send(channel, payload) {
     if (channel === CHANNELS.control) {
       if (!this._dcControl) return false;
-      const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
+      // sq/ep/rs pass straight through — the sequenced stream lives above the adapter.
+      const env = {
+        event: payload.event,
+        args: payload.args || [],
+        ackId: payload.ackId || null,
+        sq: payload.sq ?? null,
+        ep: payload.ep ?? null,
+        rs: payload.rs ?? null
+      };
       // Send v2 binary frames if peer supports env2, otherwise fallback to v1 text.
       if (this._peerEnv2) {
         if (!this._sendFramed(env)) return false;

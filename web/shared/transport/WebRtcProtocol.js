@@ -386,7 +386,15 @@ export class WebRtcProtocol extends BaseProtocol {
   send(channel, payload) {
     if (channel === CHANNELS.control) {
       if (this._dcControl?.readyState !== "open") return false;
-      const env = { event: payload.event, args: payload.args || [], ackId: payload.ackId || null };
+      // sq/ep/rs pass straight through — the sequenced stream lives above the adapter.
+      const env = {
+        event: payload.event,
+        args: payload.args || [],
+        ackId: payload.ackId || null,
+        sq: payload.sq ?? null,
+        ep: payload.ep ?? null,
+        rs: payload.rs ?? null
+      };
       const sent = this._sendControlStallChecked(this._dcControl, env);
       if (sent && this._peerEnv2 && !this._v2Announced) {
         this._v2Announced = true;

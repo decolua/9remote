@@ -1,7 +1,9 @@
 import { WsProtocol } from "./WsProtocol.js";
 import { WebRtcProtocol } from "./WebRtcProtocol.js";
 import { registerProtocol, getProtocol } from "./registry.js";
-import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, RTC_DEAD_GRACE_MS, SIGNALING_ERRORS } from "../lib/transportConstants.js";
+import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, RTC_DEAD_GRACE_MS, SIGNALING_ERRORS, SEQ_CTL } from "../lib/transportConstants.js";
+import { createOutboundLog, createIntake, newEpoch, STREAM_EVENTS } from "./seqStream.js";
+import { AUTH_EVENTS } from "../lib/connectionConstants.js";
 import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
 import { isDeviceRejected } from "../lib/deviceApproval.js";
 import { onSignalingMessage, onSignalingReady, sendSignaling as sendGlobalSignaling, isSignalingReady } from "../lib/signalingGlobal.js";
@@ -41,7 +43,6 @@ export class ProtocolManager {
     this._sigBuffer = [];
 
     this._adapters = new Map();
-    this._buffer = [];
     this._binOut = false;
     this._stats = { binChunks: 0, b64Chunks: 0, sentRtc: 0, sentWs: 0, binAnnounced: false, env2Announced: false };
     this._statsTimer = setInterval(() => this._reportStats(), 60_000);
@@ -49,6 +50,23 @@ export class ProtocolManager {
     this._rtcSignalingHandler = null;
     this._wsPendingSince = new Map();
     this._rtcPendingSince = new Map();
+
+    // Sequenced control stream: outbound replay ring + one-door inbound sequencer.
+    this._peerSeqCtl = false;
+    this._seqEpoch = newEpoch();
+    this._outLog = createOutboundLog({ maxBytes: SEQ_CTL.ringMaxBytes, maxEntries: SEQ_CTL.maxEntries });
+    this._seqStats = { dupes: 0, replayed: 0, gaps: 0 };
+    this._intakeSeq = createIntake({
+      holdMax: SEQ_CTL.holdMax,
+      gapDeadlineMs: SEQ_CTL.gapDeadlineMs,
+      deliver: (env) => this._deliver(env),
+      requestGap: (from, to) => this._sendStreamEvent(STREAM_EVENTS.GAP, { from, to }),
+      onLoss: (from, to) => {
+        this._seqStats.gaps++;
+        logger.warn(`[seq] skip lost ${from}..${to} peer=${this._deviceId?.slice(0, 12) || "?"}`);
+      },
+      onDupe: () => { this._seqStats.dupes++; }
+    });
   }
 
   get type() {
@@ -146,15 +164,14 @@ export class ProtocolManager {
     this._sendControl(event, args);
   }
 
-  /** Broadcast event across all ready carriers. */
+  /** Broadcast event across all ready carriers. The sequenced stream already
+   *  guarantees delivery (ring replay + peer dedupe), so this is now a plain
+   *  send through the one door — the old every-carrier fan-out is exactly what
+   *  duplicated output before, and dedupe made it redundant. Returns true: the
+   *  stream owns the message even when no carrier is up this instant. */
   emitEverywhere(event, ...args) {
-    let sent = 0;
-    for (const a of this._adapters.values()) {
-      if (!a.ready) continue;
-      try { if (a.send(CHANNELS.control, { event, args })) sent++; } catch {}
-    }
-    logger.debug(`[diag] emitEverywhere ${event} → sent on ${sent} carrier(s)`);
-    return sent > 0;
+    this._sendControl(event, args);
+    return true;
   }
 
   /** Recreate RTC adapter and signaling handler. */
@@ -210,7 +227,8 @@ export class ProtocolManager {
       try { inst.disconnect(); } catch {}
     }
     this._adapters.clear();
-    this._buffer = [];
+    this._outLog.clear();
+    this._intakeSeq.reset();
   }
 
   /** Route socket.emit through ProtocolManager control channel. */
@@ -320,12 +338,17 @@ export class ProtocolManager {
     if (this._closed) return;
     logger.debug(`${adapterId}→${state} (carriers: ${[...this._adapters.entries()].map(([id, a]) => `${id}=${a.ready ? "ready" : a.state}`).join(" ")})`);
     pushTransportState();
+    // No carrier = freeze gap deadlines; they re-arm (and re-ask) on reconnect.
+    this._intakeSeq.setPaused(!this.hasReadyAdapter());
     if (state === ADAPTER_STATE.open) {
       clearTimeout(this._deadTimer);
       this._deadTimer = null;
       this._flushBuffer();
       return;
     }
+    // A lane died — replay the unconfirmed window on whatever is left (lane
+    // switch). "degraded" (transient ICE blip) must not trigger a full re-send.
+    if (state === ADAPTER_STATE.closed) this._flushBuffer();
     if (state === ADAPTER_STATE.closed && adapterId === "rtc"
       && this._host?.defersWsAdapter && !this._adapters.get("ws")?.ready) {
       clearTimeout(this._deadTimer);
@@ -371,35 +394,74 @@ export class ProtocolManager {
     return Boolean(this._pickAdapter(CHANNELS.control) || this._pickAdapter(CHANNELS.binary));
   }
 
+  /** Application-facing send: log in the replay ring, then ship the unsent tail. */
   _sendControl(event, args, ackId) {
-    const adapter = this._pickAdapter(CHANNELS.control);
-    if (!adapter) {
-      this._buffer.push({ event, args, ackId });
-      if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
+    // Stream control is logged too, so an ack or a gap request survives a carrier swap.
+    if (event === STREAM_EVENTS.ACK || event === STREAM_EVENTS.GAP || event === STREAM_EVENTS.GAP_MISS) {
+      this._sendStreamEvent(event, args?.[0], ackId);
       return;
     }
     this._legacyB64Down(event, args);
-    if (event === "output") {
-      const st = this._stats;
-      if (args[0]?.enc === "bin") {
-        st.binChunks++;
-        if (!st.binAnnounced) {
-          st.binAnnounced = true;
-          logger.info(`[binout] FIRST binary output chunk sent → ${args[0].sessionId}`);
-        }
-      } else st.b64Chunks++;
+    this._countOutput(event, args);
+    this._outLog.append({ event, args, ackId });
+    this._ship();
+  }
+
+  /**
+   * One door for every send: drain the ring's unsent tail on the best carrier.
+   * A refusal stops the drain and the next carrier event resumes it.
+   */
+  _ship() {
+    const adapter = this._pickAdapter(CHANNELS.control);
+    if (!adapter) return;
+    for (const queued of this._outLog.unsentList()) {
+      if (!this._sendOn(adapter, queued)) return;
+      this._outLog.markSent(queued.sq);
     }
-    if (adapter.constructor.id === "rtc") {
+  }
+
+  _countOutput(event, args) {
+    if (event !== "output") return;
+    const st = this._stats;
+    if (args[0]?.enc === "bin") {
+      st.binChunks++;
+      if (!st.binAnnounced) {
+        st.binAnnounced = true;
+        logger.info(`[binout] FIRST binary output chunk sent → ${args[0].sessionId}`);
+      }
+    } else st.b64Chunks++;
+  }
+
+  /** One envelope on the best carrier, stamped with seq/epoch/watermark. */
+  _sendOn(adapter, env) {
+    const wire = {
+      event: env.event,
+      args: env.args || [],
+      ackId: env.ackId ?? null,
+      sq: env.sq ?? null,
+      ep: this._seqEpoch,
+      rs: this._intakeSeq.applied
+    };
+    try {
+      if (adapter.constructor.id === "ws") {
+        // socket.io carries no envelope fields — wrap it, and only for a peer that
+        // announced seq control (an old client would treat it as a stray event).
+        this._stats.sentWs++;
+        if (!this._peerSeqCtl) return adapter.send(CHANNELS.control, { event: env.event, args: env.args });
+        return adapter.send(CHANNELS.control, { event: STREAM_EVENTS.ENV, args: [wire] });
+      }
       this._stats.sentRtc++;
-      if (adapter.send(CHANNELS.control, { event, args, ackId })) return;
-      const retry = this._pickAdapter(CHANNELS.control);
-      if (retry && retry !== adapter && retry.send(CHANNELS.control, { event, args, ackId })) return;
-    } else {
-      this._stats.sentWs++;
-      if (adapter.send(CHANNELS.control, { event, args })) return;
+      return adapter.send(CHANNELS.control, wire);
+    } catch (err) {
+      logger.warn(`send ${env.event} failed: ${err.message}`);
+      return false;
     }
-    this._buffer.push({ event, args, ackId });
-    if (this._buffer.length > this._maxControlBuffer) this._buffer.shift();
+  }
+
+  /** Stream-owned event (ack, gap request/notice) — logged, so it survives a swap. */
+  _sendStreamEvent(event, arg, ackId) {
+    this._outLog.append({ event, args: arg === undefined ? [] : [arg], ackId: ackId ?? null });
+    this._ship();
   }
 
   /** Downgrade binary output to base64 for peers without caps.binOut. */
@@ -423,39 +485,113 @@ export class ProtocolManager {
     st.binChunks = 0; st.b64Chunks = 0; st.sentRtc = 0; st.sentWs = 0;
   }
 
+  /** A carrier event — replay the unconfirmed window (lane switch loses nothing),
+   *  then resume gap repair. The peer's sequencer dedupes what it already had. */
   _flushBuffer() {
-    if (!this._buffer.length) return;
     const adapter = this._pickAdapter(CHANNELS.control);
     if (!adapter) return;
-    const queued = this._buffer.splice(0);
-    for (const { event, args, ackId } of queued) this._sendControl(event, args, ackId);
+    this._intakeSeq.setPaused(false);
+    for (const queued of this._outLog.replayList()) {
+      if (!this._sendOn(adapter, queued)) return;
+      this._outLog.markSent(queued.sq);
+    }
   }
 
-  /** Dispatch incoming message from RTC or WS. */
+  /** Dispatch incoming message from RTC or WS. Every envelope goes through the
+   *  sequencer — including stream events, so seq continuity is never skipped
+   *  (a hole only stream events could have filled would NACK forever). */
   _dispatch(event, payload, source, wsArgs) {
-    if (event === "caps") {
-      const caps = source === "rtc" ? payload?.args?.[0] : (wsArgs?.[0] ?? payload);
-      if (caps?.binOut) this._binOut = true;
-      this._peerCaps = caps || {};
-      this._adapters.get("rtc")?.setPeerCaps?.(this._peerCaps);
+    // WS carries the envelope wrapper; RTC carries the same fields inline.
+    const wrapped = source !== "rtc" && event === STREAM_EVENTS.ENV;
+    const env = source === "rtc"
+      ? payload
+      : (wrapped ? wsArgs?.[0] : { event, args: wsArgs, ackId: null });
+    if (!env?.event) return;
+    // Who already dispatched this to socket.io handlers: RTC and the __env
+    // wrapper bypass socket.io's pipeline; a plain WS event on a REAL socket
+    // went through it (and socket.use) — invoking handlers again would double-fire.
+    env._manual = source === "rtc" || wrapped;
+    if (Number.isInteger(env.rs)) this._outLog.setApplied(env.rs);
+    // A peer that speaks the stream is armed from its first stamped envelope, so
+    // the transition to caps never produces a false gap.
+    if (Number.isInteger(env.sq) && !this._intakeSeq.armed && this._peerSeqCtl) this._intakeSeq.arm();
+    this._intakeSeq.push(env);
+  }
+
+  _onCaps(caps) {
+    if (caps?.binOut) this._binOut = true;
+    if (caps?.seqCtl && !this._peerSeqCtl) {
+      this._peerSeqCtl = true;
+      logger.info(`[seq] peer=${this._deviceId?.slice(0, 12) || "?"} announced seqCtl → stream armed`);
     }
-    if (source === "rtc") {
-      const args = Array.isArray(payload?.args) ? [...payload.args] : [];
-      const ackId = payload?.ackId;
-      if (ackId) {
-        args.push((...resp) => this._sendAck(ackId, resp));
+    this._peerCaps = caps || {};
+    this._adapters.get("rtc")?.setPeerCaps?.(this._peerCaps);
+  }
+
+  /** Deliver one envelope to its handlers exactly once (sequencer output). */
+  _deliver(env) {
+    switch (env.event) {
+      case STREAM_EVENTS.ACK:
+        this._dispatchAck(env);
+        return;
+      case STREAM_EVENTS.GAP:
+        this._serveGap(env.args?.[0]);
+        return;
+      case STREAM_EVENTS.GAP_MISS:
+        this._intakeSeq.gapMissed(env.args?.[0]?.from);
+        return;
+      case "caps":
+        // Metadata first, then fall through — SessionHandler listens for "caps"
+        // (fragOut negotiation) exactly like any application event.
+        this._onCaps(env.args?.[0] ?? env);
+        break;
+      default:
+        break;
+    }
+    const args = Array.isArray(env.args) ? [...env.args] : [];
+    if (env.ackId) args.push((...resp) => this._sendAck(env.ackId, resp));
+    // HostBus (virtual) is always manual; a real socket.io socket dispatched
+    // plain WS events itself — only RTC/__env-carried ones need the handoff.
+    if (env._manual || this._host?.dispatchAny) {
+      // Manual invocation bypasses socket.io's pipeline, and onAny fires BEFORE
+      // socket.use — so the admission rule must be applied HERE, not left to
+      // socket.io. HostBus.listeners() already filters itself.
+      if (!this._host?.dispatchAny && !this._host?.data?.localUi) {
+        const conn = this._host?.data?.conn;
+        const allowed = conn ? conn.allows(env.event) : AUTH_EVENTS.has(env.event);
+        if (!allowed) {
+          logger.warn(`[seq] drop unapproved event=${env.event} peer=${this._deviceId?.slice(0, 12) || "?"}`);
+          return;
+        }
       }
-      const fns = this._host?.listeners?.(event) || [];
+      const fns = this._host?.listeners?.(env.event) || [];
       for (const fn of fns) fn(...args);
-      this._host?.dispatchAny?.(event, args[0]);
+      this._host?.dispatchAny?.(env.event, args[0]);
+    }
+  }
+
+  _dispatchAck(env) {
+    const target = this._pendingAcks?.get(env.ackId);
+    if (!target) return;
+    this._pendingAcks.delete(env.ackId);
+    target(...(env.args || []));
+  }
+
+  /** Peer asked for [from..to] from our replay ring. */
+  _serveGap({ from, to } = {}) {
+    const range = this._outLog.range(from, to);
+    if (!range) {
+      this._sendStreamEvent(STREAM_EVENTS.GAP_MISS, { from });
       return;
     }
-    if (this._host?.dispatchAny) {
-      const fns = this._host.listeners?.(event) || [];
-      const args = wsArgs || [payload];
-      for (const fn of fns) fn(...args);
-      this._host.dispatchAny(event, payload);
+    const adapter = this._pickAdapter(CHANNELS.control);
+    if (!adapter) return;
+    let n = 0;
+    for (const env of range) {
+      if (!this._sendOn(adapter, env)) break;
+      n++;
     }
+    this._seqStats.replayed += n;
   }
 
   /** Route incoming binary frame to "file-bin" listeners. */
@@ -465,11 +601,12 @@ export class ProtocolManager {
     for (const fn of fns) fn(msg.buffer);
   }
 
+  /** Ack for an inbound request. Sequenced like everything else, so a carrier
+   *  dying mid-answer re-sends it instead of leaving the peer to time out. */
   _sendAck(ackId, resp) {
-    const adapter = this._adapters.get("rtc");
-    if (adapter?.ready && adapter.send(CHANNELS.control, { event: "__ack", args: resp, ackId })) return;
-    const ws = this._adapters.get("ws");
-    if (ws?.ready) ws.send(CHANNELS.control, { event: "__ack", args: resp, ackId });
+    // args = resp spread, matching the old __ack wire shape (cb(...resp)).
+    this._outLog.append({ event: STREAM_EVENTS.ACK, args: Array.isArray(resp) ? resp : [resp], ackId });
+    this._ship();
   }
 
   _sendSignaling(msg) {
