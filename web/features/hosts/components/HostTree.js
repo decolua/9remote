@@ -229,6 +229,7 @@ export default function HostTree({
                   isActive={isActiveWs}
                   connected={actionable}
                   fileBus={fileBus}
+                  statusMap={host.statusMap}
                   collapsed={isCollapsed(wsKey)}
                   onToggleCollapse={() => toggleNode(wsKey)}
                   onSelect={actions.selectWorkspace ? () => { vibrate(); actions.selectWorkspace(rawId); } : null}

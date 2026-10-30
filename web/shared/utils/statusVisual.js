@@ -18,3 +18,17 @@ export const dotClassName = (state) => {
   const v = statusVisual(state);
   return `term-dot ${v.cls}${v.pulse ? ` pulse-${v.pulse}` : ""}`;
 };
+
+// Attention order for a collapsed container's aggregate dot: a blocked child
+// outranks a working one, which outranks a finished one.
+export const STATUS_PRIORITY = ["blocked", "working", "done"];
+
+// One dot per PRESENT state for a group of children, attention order first.
+// Empty when every child is idle/sleeping.
+export const statusCounts = (states = []) =>
+  STATUS_PRIORITY
+    .map((state) => {
+      const count = states.filter((s) => s === state).length;
+      return count ? { state, count } : null;
+    })
+    .filter(Boolean);
