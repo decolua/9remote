@@ -230,7 +230,7 @@ export const AiPaneView = memo(function AiPaneView({
   // A control inside the pane handles its own pointer; only empty space activates.
   const panePointer = makePanePointerHandlers({
     isFocused,
-    onActivate: () => onActivate?.()
+    onActivate: () => onActivate?.(sessionId)
   });
 
   // Everything below reads this rather than a document-wide lookup: panes stay mounted
@@ -240,11 +240,12 @@ export const AiPaneView = memo(function AiPaneView({
   // background pane never sees a tap on a question card's button. Deliberately touching a
   // card in another chat is choosing that chat, which is what activation means.
   //
-  // Behind a ref so the scope object keeps its identity: the caller passes an inline arrow,
+  // Behind a ref so the scope object keeps its identity: the caller passes one shared
+  // handler for every pane (activation means "select the session that owns this chat"),
   // and a scope rebuilt every workspace render would re-render every card in every pane.
   const onActivateRef = useRef(onActivate);
   useEffect(() => { onActivateRef.current = onActivate; });
-  const activate = useCallback(() => onActivateRef.current?.(), []);
+  const activate = useCallback(() => onActivateRef.current?.(sessionId), [sessionId]);
   const paneScope = useMemo(() => ({ sessionId, isFocused, activate }), [sessionId, isFocused, activate]);
 
   return (
@@ -418,9 +419,8 @@ export const AiPaneView = memo(function AiPaneView({
         onModeChange={handleModeChange}
         onOpenModal={setActiveModal}
         onOptionChange={handleOptionChange}
-        onActivate={onActivate}
+        onActivate={activate}
         isFocused={isFocused}
-        fileBus={fileBus}
         workspacePath={workspacePath}
         modalOpen={activeModal !== null}
       />

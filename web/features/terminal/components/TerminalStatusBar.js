@@ -103,7 +103,7 @@ export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fi
       node: (
         <button
           type="button"
-          onClick={onReveal ? () => onReveal(cwd) : undefined}
+          onClick={onReveal ? () => onReveal(sessionId, cwd) : undefined}
           title={cwd}
           className={`flex items-center gap-1 min-w-0 font-mono ${onReveal ? "hover:text-text" : ""}`}
         >

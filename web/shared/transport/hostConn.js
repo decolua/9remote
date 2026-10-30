@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import { useShallow } from "zustand/react/shallow";
 
 // HostConn — the one door every consumer reads a host through. Every host owns
 // its own bus in the registry, so nothing here branches on which host it is
@@ -137,14 +138,18 @@ export function useSessionStatus(sessionId) {
   return state || "idle";
 }
 
+const EMPTY_STATUS_MAP = {};
+
 // Flat status map across every host, keyed by raw session id — the shape the
-// bell, badge and sidebar lists read. Memoized on the hosts object (each patch
-// makes a new one) so identity is stable between unrelated store changes.
+// bell, badge and sidebar lists read. Keyed on each host's statusMap identity,
+// not on the hosts object: a row patch (label, update, session list) makes a new
+// hosts object while every statusMap stays put, and that used to re-render all
+// ten consumers and hand them a fresh map for nothing.
 export function useAllSessionStatus() {
-  const hosts = useFleetStore((s) => s.hosts);
+  const maps = useFleetStore(useShallow((s) => Object.values(s.hosts).map((h) => h.statusMap)));
   return useMemo(() => {
     const out = {};
-    for (const h of Object.values(hosts)) Object.assign(out, h.statusMap || {});
+    for (const m of maps) Object.assign(out, m || EMPTY_STATUS_MAP);
     return out;
-  }, [hosts]);
+  }, [maps]);
 }

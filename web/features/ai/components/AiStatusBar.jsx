@@ -143,7 +143,7 @@ export const AiStatusBar = memo(function AiStatusBar({
 
         <button
           type="button"
-          onClick={() => { vibrate(); onNewChat?.(); }}
+          onClick={() => { vibrate(); onNewChat?.(sessionId); }}
           className="hover:text-text flex items-center transition-colors p-0.5 rounded hover:bg-surface-2"
           title="New chat"
         >

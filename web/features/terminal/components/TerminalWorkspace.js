@@ -30,8 +30,12 @@ import AiPaneView from "@/features/ai/components/AiPaneView";
 import { AI_UI_OPTIONS } from "@/features/ai/constants";
 import ErrorBoundary from "@/shared/components/ui/ErrorBoundary";
 import useClampedMenu from "@/shared/hooks/useClampedMenu";
+import { useStableCallback } from "@/shared/hooks/useStableCallback";
 import { vibrate } from "@/shared/utils/vibration";
 import { PanelLeft } from "@/shared/components/ui/Icon";
+
+// One shared no-op: an inline arrow here handed the memoized keyboard a new prop per render.
+const noop = () => {};
 
 // Per-pane wrapper positioning terminal directly above the bottom input bar
 const PaneContentWrapper = memo(function PaneContentWrapper({ children }) {
@@ -130,7 +134,7 @@ function TerminalWorkspace({
 
   const {
     panesContainerRef, registerPaneApi, registerPaneElement, registerKeyboardTextApi,
-    handlePasteFallback, handleInputFocusChange, focusPane, focusKeyboardInput, scrollPaneIntoView
+    handlePasteFallback, handleInputFocusChange, focusKeyboardInput, scrollPaneIntoView
   } = paneRegistry;
 
   // The pinned mirror renders into this column via a portal, so the node is
@@ -205,16 +209,27 @@ function TerminalWorkspace({
   // The bottom status bar describes the FOCUSED pane's host — it resolves carrier,
   // platform, version, bus and file API itself through hostConn.
   // The chat pane's "+" opens a fresh chat of the same engine and closes the one it
-  // replaced — the tab strip must not grow an entry per chat.
-  const handleNewChat = useCallback((aiUi, sessionId) => {
+  // replaced — the tab strip must not grow an entry per chat. Reads the engine off the
+  // session (the caller has only an id) and stays one reference for every pane.
+  const handleNewChat = useStableCallback((sessionId) => {
+    const aiUi = AI_UI_OPTIONS.find((u) => u.id === agentBySession[sessionId]);
+    if (!aiUi) return;
     // The replaced terminal is still in the list, and it is leaving — counting it would
     // step the number up on every press.
     const index = sessions.filter((s) =>
       s.id !== sessionId && sessionWorkspaceId(s) === (activeWorkspaceId ?? null)
     ).length + 1;
     nav.handleReplaceSession(sessionId, `${aiUi.short || aiUi.label} ${index}`, aiUi, true);
-  }, [nav, sessions, activeWorkspaceId]);
+  });
   const filesRoot = rightPanelRoots[baseRoot] || baseRoot;
+  // Mobile status strip: reveal a pane's cwd in the files tab. Stable across renders —
+  // the strip is memoized and re-reading its own identity per render re-themed it.
+  const handleRevealCwd = useStableCallback((sessionId, cwd) => {
+    const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
+    setRightPanelRoot(wsPath, cwd || wsPath);
+    // Mobile-only strip: open on the workspace's saved tab, not forced to files
+    openRightPanel();
+  });
   // The right panel is memoized — these four would hand it a fresh closure per render.
   const handleRightPanelTabChange = useCallback(
     (tab) => rightPanel?.onTabChange(tab, baseRoot ?? ""),
@@ -465,8 +480,8 @@ function TerminalWorkspace({
             isFocused={isFocused}
             isDesktop={isDesktop}
             bgIndex={bgIndex}
-            onActivate={() => nav.handleSelectSession(sessionId)}
-            onNewChat={() => handleNewChat(aiUi, sessionId)}
+            onActivate={nav.handleSelectSession}
+            onNewChat={handleNewChat}
             onOpenRemote={onOpenRemote}
             onOpenMobile={onOpenMobile}
             onOpenArtifact={onOpenArtifact}
@@ -503,8 +518,7 @@ function TerminalWorkspace({
     <MobileKeyboard
       bus={busFor(sessionId)}
       sessionId={sessionId}
-      onExpandChange={() => {}}
-      onRefocus={() => focusPane(sessionId)}
+      onExpandChange={noop}
       onRegisterTextApi={registerKeyboardTextApi}
       onInputFocusChange={handleInputFocusChange}
       platform={platform}
@@ -518,12 +532,7 @@ function TerminalWorkspace({
         <MobileStatusStrip
           sessionId={sessionId}
           busRef={activeBusRef}
-          onReveal={(cwd) => {
-            const wsPath = sessions.find((s) => s.id === sessionId)?.workspacePath;
-            setRightPanelRoot(wsPath, cwd || wsPath);
-            // Mobile-only strip: open on the workspace's saved tab, not forced to files
-            openRightPanel();
-          }}
+          onReveal={handleRevealCwd}
         />
       )}
     />
