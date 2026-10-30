@@ -56,9 +56,20 @@ export function useBrowserTabs(busRef, enabled, profile = "default", windowId = 
       // Target.getTargets guarantees no ordering.
       const prev = st.tabsByWorkspace[wsId] || [];
       const byId = new Map(tabs.map((t) => [t.id, t]));
+      const fresh = tabs.filter((t) => !prev.some((p2) => p2.id === t.id));
+      // A host push can beat the "open" invoke home — the real tab replaces its
+      // boot placeholder instead of doubling it in the strip.
+      const dropBoots = new Set();
+      let boots = Math.min(fresh.length, prev.filter((p) => String(p.id).startsWith("boot_")).length);
+      for (const p of prev) {
+        if (boots > 0 && String(p.id).startsWith("boot_")) {
+          dropBoots.add(p.id);
+          boots -= 1;
+        }
+      }
       const ordered = [
-        ...prev.filter((t) => byId.has(t.id)).map((t) => byId.get(t.id)),
-        ...tabs.filter((t) => !prev.some((p2) => p2.id === t.id))
+        ...prev.filter((t) => byId.has(t.id) && !dropBoots.has(t.id)).map((t) => byId.get(t.id)),
+        ...fresh
       ];
       st.setTabs(wsId, ordered);
       const activeId = st.activeByWorkspace[wsId];
