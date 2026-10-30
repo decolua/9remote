@@ -86,6 +86,9 @@ export function createEmitters(ctx, st) {
     },
     emitKeyPress: (key, modifiers = []) => push({ t: "key", key, modifiers }),
     emitTypeText: (text) => push({ t: "text", text }),
+    // Raw touch forwarding (natural mobile): points are page CSS px; moves
+    // coalesce on the trailing edge like mouse moves do.
+    emitTouch: (type, points) => push({ t: "touch", type, points: Array.isArray(points) ? points.slice(0, 5) : [] }, { lazy: type === "move" }),
     emitScroll: (direction, amount = 20, horizontal = false) => {
       const px = amount * BROWSER_INPUT.wheelScale;
       const sign = direction === "down" || direction === "right" ? 1 : -1;
