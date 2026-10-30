@@ -16,6 +16,11 @@ export function useBrowserFrame({ busRef, connected, targetId, onPainted, canvas
   const [frame, setFrame] = useState(null);
   const ownFrameRef = useRef(null);
   const frameRef = extFrameRef || ownFrameRef;
+  // Tiles carry no target id on the wire — frameTargetRef names the tab the
+  // canvas state belongs to; dimsForRef gates tile batches to the tab whose
+  // dims (always sent first by a fresh stream) have arrived.
+  const frameTargetRef = useRef(null);
+  const dimsForRef = useRef(null);
   const onPaintedRef = useRef(onPainted);
   useEffect(() => { onPaintedRef.current = onPainted; }, [onPainted]);
 
@@ -37,21 +42,36 @@ export function useBrowserFrame({ busRef, connected, targetId, onPainted, canvas
     renderedTilesRef
   } = tiles;
 
+  // eslint-disable-next-line react-hooks/immutability -- frameRef is an injected ref (shared with the remote surface); nulling it on a tab switch mirrors the mutation onDimensions already does
   useEffect(() => {
     const bus = busRef?.current;
     if (!connected || !bus?.on || !targetId) return;
 
     cleanupTiles();
     let stopped = false;
+    // New tab: the canvas still shows the OLD tab's pixels — blank it, drop the
+    // frame state (the pane's loading overlay returns) and ignore tile batches
+    // until this tab's dims arrive: late tiles from the stopped stream (unordered
+    // lane, no target id on the wire) must not paint over the new tab.
+    if (frameTargetRef.current !== targetId) {
+      frameTargetRef.current = targetId;
+      dimsForRef.current = null;
+      frameRef.current = null;
+      setFrame(null);
+      const el = canvasRef.current;
+      if (el?.width) el.getContext("2d").clearRect(0, 0, el.width, el.height);
+    }
 
     const onTilesData = (data) => {
       if (stopped) return;
+      if (dimsForRef.current !== targetId) return;
       handleTilesData(data);
       onPaintedRef.current?.({}, data.bytes);
     };
 
     const onTilesBin = (buffer) => {
       if (stopped) return;
+      if (dimsForRef.current !== targetId) return;
       handleTilesBinaryV2(buffer);
       onPaintedRef.current?.({}, buffer?.byteLength || 0);
     };
@@ -60,6 +80,7 @@ export function useBrowserFrame({ busRef, connected, targetId, onPainted, canvas
     // viewport (input mapping reads meta.deviceWidth/Height). Tiles carry neither.
     const onDimensions = (dims) => {
       if (stopped || dims?.targetId !== targetId || !dims.frameW || !dims.frameH) return;
+      dimsForRef.current = targetId;
       const prev = frameRef.current;
       const resized = !prev || prev.w !== dims.frameW || prev.h !== dims.frameH;
       // A remounted canvas (pane reconnect) comes back at its default size.
