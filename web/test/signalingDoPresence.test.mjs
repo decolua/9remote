@@ -147,7 +147,9 @@ const MIN = 60_000;
   const db = fakeDb(undefined);
   // A live room — the no-agent gate only admits client joins when an agent is
   // present, and a storm against a live room is the scenario worth testing.
-  const do_ = new SignalingDO(fakeCtx([fakeWs("agent", "a1")], db), { DB: db });
+  const agent = fakeWs("agent", "a1");
+  agent._pongAt = Date.now(); // a live agent pings — the reaper must spare it
+  const do_ = new SignalingDO(fakeCtx([agent], db), { DB: db });
   for (let i = 0; i < 10; i++) {
     assert.equal(await joinStatus(do_, "https://do/ws?role=client&from=c" + i), 101, "join " + (i + 1) + " within budget");
   }
@@ -177,7 +179,9 @@ const MIN = 60_000;
     try { return (await do_.fetch({ url })).status; } catch { return 101; }
   };
   const db = fakeDb(undefined);
-  const do_ = new SignalingDO(fakeCtx([fakeWs("agent", "a1")], db), { DB: db });
+  const agent10 = fakeWs("agent", "a1");
+  agent10._pongAt = Date.now(); // live agent — spared by the reaper
+  const do_ = new SignalingDO(fakeCtx([agent10], db), { DB: db });
   const realNow = Date.now;
   const t0 = realNow();
   try {
@@ -194,6 +198,55 @@ const MIN = 60_000;
     Date.now = realNow;
   }
   console.log("  ✓ storm window prunes and refusals do not extend it");
+}
+
+// 11. Corpse reaper: an agent socket stale on all three layers is closed on
+//     the next client join — the room empties and the no-agent gate refuses.
+{
+  const stale = new Date(Date.now() - 10 * MIN).toISOString().slice(0, 19).replace("T", " ");
+  const db = fakeDb(stale);
+  const corpse = fakeWs("agent", "a1"); // no _pongAt, no aliveAt, stale D1
+  corpse.close = (code) => { corpse.closedCode = code; };
+  const do_ = new SignalingDO(fakeCtx([corpse], db), { DB: db });
+  const res = await do_.fetch({ url: "https://do/ws?role=client&from=c1" }).catch(() => null);
+  assert.equal(corpse.closedCode, 1000, "corpse reaped on client join");
+  assert.equal(res?.status, 409, "room is empty after the reap — join refused");
+}
+
+// 12. The reaper never touches the living: a fresh ping stamp alone spares the
+//     socket, and so does a fresh D1 heartbeat behind a silent socket.
+{
+  const staleD1 = new Date(Date.now() - 10 * MIN).toISOString().slice(0, 19).replace("T", " ");
+  const db = fakeDb(staleD1);
+  const live = fakeWs("agent", "a1");
+  live._pongAt = Date.now() - 10_000; // pinged 10s ago
+  live.close = (code) => { live.closedCode = code; };
+  await new SignalingDO(fakeCtx([live], db), { DB: db }).fetch({ url: "https://do/ws?role=client&from=c1" }).catch(() => null);
+  assert.equal(live.closedCode, undefined, "fresh ping stamp spares the agent");
+
+  const freshD1 = new Date(Date.now() - 30_000).toISOString().slice(0, 19).replace("T", " ");
+  const db2 = fakeDb(freshD1);
+  const silent = fakeWs("agent", "a1"); // no stamp, no aliveAt — restarting host
+  silent.close = (code) => { silent.closedCode = code; };
+  await new SignalingDO(fakeCtx([silent], db2), { DB: db2 }).fetch({ url: "https://do/ws?role=client&from=c1" }).catch(() => null);
+  assert.equal(silent.closedCode, undefined, "fresh D1 heartbeat spares a silent socket");
+}
+
+// 13. Proxy migration: with the proxy on ("all" — every room), an hb reaching
+//     the DO proves a pre-proxy socket (the proxy absorbs hb) — it is closed
+//     once so the host reconnects through the proxy. Flag off → silent consume.
+{
+  const agent = fakeWs("agent", "a1");
+  agent.close = (code) => { agent.closedCode = code; };
+  const do_ = new SignalingDO(fakeCtx([agent], fakeDb(undefined)), { SIGNALING_PROXY: "all" });
+  await do_.webSocketMessage(agent, JSON.stringify({ to: "agent", from: "a1", type: "hb" }));
+  assert.equal(agent.closedCode, 1000, "old-path socket closed for migration");
+
+  const agent2 = fakeWs("agent", "a1");
+  agent2.close = (code) => { agent2.closedCode = code; };
+  const do2 = new SignalingDO(fakeCtx([agent2], fakeDb(undefined)), {});
+  await do2.webSocketMessage(agent2, JSON.stringify({ to: "agent", from: "a1", type: "hb" }));
+  assert.equal(agent2.closedCode, undefined, "no flag → hb consumed silently, no loop");
 }
 
 console.log("signalingDoPresence: all green");

@@ -65,6 +65,19 @@ async function sessionExists(apiKey, env) {
   return true;
 }
 
+// Cost cap at the worker, BEFORE the DO wakes: joins and presence probes are
+// requests, so a per-key rate limit stops flooding keys outright. Fail-open —
+// a missing binding or an experimental-limiter error must never break signaling.
+async function signalingRateLimited(env, apiKey) {
+  if (!env.SIGNALING_RATE_LIMITER) return false;
+  try {
+    const { success } = await env.SIGNALING_RATE_LIMITER.limit({ key: apiKey });
+    return !success;
+  } catch {
+    return false;
+  }
+}
+
 // Worker-level route handler — gates WS upgrade on apiKey, fans out to room DO.
 // Auth mirrors /api/connect: a live session row for this apiKey must exist.
 export async function handleSignaling(request, env) {
@@ -79,6 +92,7 @@ export async function handleSignaling(request, env) {
   if (presence) {
     const roomId = decodeURIComponent(presence[1]).replace(/^(sk-[a-z0-9]{8}-[a-np-z1-9]{8})-[a-np-z1-9]{8}$/, "$1");
     if (!(await sessionExists(roomId, env))) return new Response("Unauthorized", { status: 401 });
+    if (await signalingRateLimited(env, roomId)) return new Response("Too many signaling requests", { status: 429 });
     return env.SIGNALING_DO.get(env.SIGNALING_DO.idFromName(roomId)).fetch(new Request(new URL("/presence", url)));
   }
 
@@ -102,6 +116,7 @@ export async function handleSignaling(request, env) {
   // Local regex (this file is inlined into worker.js and cannot import utils).
   apiKey = apiKey.replace(/^(sk-[a-z0-9]{8}-[a-np-z1-9]{8})-[a-np-z1-9]{8}$/, "$1");
   if (gateRateLimited(apiKey)) return new Response("Too many signaling attempts", { status: 429 });
+  if (await signalingRateLimited(env, apiKey)) return new Response("Too many signaling requests", { status: 429 });
   if (!(await sessionExists(apiKey, env))) return new Response("Unauthorized", { status: 401 });
 
   // The room IS the key — without this, any valid session could join someone
@@ -109,8 +124,104 @@ export async function handleSignaling(request, env) {
   const roomId = decodeURIComponent(match[1]).replace(/^(sk-[a-z0-9]{8}-[a-np-z1-9]{8})-[a-np-z1-9]{8}$/, "$1");
   if (roomId !== apiKey) return new Response("Room does not match apiKey", { status: 403 });
 
+  // Agents hop through the Worker proxy when enabled ("1" = canary slice,
+  // "all" = everyone) — absorbs hb/ping, 85% of DO wakes; clients always
+  // connect directly to the room's DO.
+  if (role === "agent" && signalingProxyEnabled(env, apiKey)) {
+    return proxyAgentUpgrade(request, env, roomId, apiKey);
+  }
   const id = env.SIGNALING_DO.idFromName(roomId);
   return env.SIGNALING_DO.get(id).fetch(request);
+}
+
+// ── Signaling proxy (runs in the outer Worker, not the DO) ──────────────────
+// Agent connections hop through the Worker before the DO: hosts hb every 60s
+// and ping every 10s, and every frame wakes the DO (wall-time billed — hb is
+// 85% of all wakes). The Worker bills by request + CPU only, so a resident
+// proxy connection absorbs that chatter for ~free and forwards real signaling
+// verbatim. Enable with the SIGNALING_PROXY worker var ("1" = 10% canary,
+// "all" = everyone); clients connect directly to the room's DO, as before.
+
+// Decide for one host→DO frame: null = absorb at the proxy, string = forward.
+export function filterHostMessage(data) {
+  if (data === "ping") return null; // keepalive — answered locally, never wakes the DO
+  let msg;
+  try { msg = JSON.parse(data); } catch { return null; } // garbage the DO would drop anyway
+  if (msg?.type === "hb") return null; // legacy liveness beat — the 85%
+  return data; // real signaling, verbatim — no re-serialization, no drift
+}
+
+// Rollout control: "all" routes every agent through the proxy; "1" a 10%
+// canary slice (stable hash of the room) so a bad deploy can only touch a
+// tenth of the fleet before the flag comes off.
+export function signalingProxyEnabled(env, apiKey) {
+  if (env.SIGNALING_PROXY === "all") return true;
+  if (env.SIGNALING_PROXY !== "1") return false;
+  let h = 0;
+  for (const ch of String(apiKey)) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return h % 10 === 0;
+}
+
+export class SignalingProxy {
+  // No keepalive timer on purpose: timers set during the upgrade request are
+  // cancelled once the response returns (Workers semantics), and the DO-side
+  // socket hibernates fine with zero traffic — presence falls to the D1
+  // agentSeenAt layer, which is exactly what it exists for.
+  constructor({ hostWs, doWs }) {
+    this._hostWs = hostWs;
+    this._do = doWs;
+    this._closed = false;
+    hostWs.addEventListener("message", (e) => {
+      if (this._closed) return;
+      const out = filterHostMessage(e.data);
+      if (out === null) {
+        if (e.data === "ping") { try { hostWs.send("pong"); } catch {} }
+        return;
+      }
+      try { doWs.send(out); } catch { this.close(); }
+    });
+    doWs.addEventListener("message", (e) => {
+      if (this._closed || e.data === "pong") return; // pong = our own keepalive echo
+      try { hostWs.send(e.data); } catch { this.close(); }
+    });
+    // One wire, one fate — a half-open proxy blackholes both peers.
+    hostWs.addEventListener("close", () => this.close());
+    doWs.addEventListener("close", () => this.close());
+    hostWs.addEventListener("error", () => this.close());
+    doWs.addEventListener("error", () => this.close());
+  }
+
+  close() {
+    if (this._closed) return;
+    this._closed = true;
+    try { this._hostWs?.close(1000, "proxy closed"); } catch {}
+    try { this._do.close(1000, "proxy closed"); } catch {}
+  }
+}
+
+// Wire one agent upgrade through the proxy: open the DO-side socket first,
+// then accept the host here and pipe both ways. A DO-side failure refuses the
+// upgrade — the host's own reconnect ladder takes it from there.
+async function proxyAgentUpgrade(request, env, roomId, apiKey) {
+  const doUrl = `https://do/signaling/ws/${encodeURIComponent(roomId)}?role=agent&apiKey=${encodeURIComponent(apiKey)}`;
+  let doWs;
+  try {
+    // The upgrade header is what makes this a WebSocket subrequest — without
+    // it the DO runs (the join happens) but the socket never comes back, and
+    // the host retries forever against a 502.
+    const doRes = await env.SIGNALING_DO.get(env.SIGNALING_DO.idFromName(roomId))
+      .fetch(new Request(doUrl, { headers: { Upgrade: "websocket" } }));
+    doWs = doRes.webSocket;
+  } catch {}
+  if (!doWs) return new Response("Signaling upstream unavailable", { status: 502 });
+  // The client half of a fetched WebSocket only starts delivering events (and
+  // survives past the fetch context) after accept() — without it the socket
+  // dies when the runtime reaps the context (~10-15s, the Oct 30 incident).
+  doWs.accept();
+  const [client, server] = Object.values(new WebSocketPair());
+  server.accept();
+  new SignalingProxy({ hostWs: server, doWs });
+  return new Response(null, { status: 101, webSocket: client });
 }
 
 // An agent that last spoke longer ago than this is a sleep/crash corpse — presence must not vouch for it.
@@ -130,6 +241,13 @@ const STORM_WINDOW_MS = 30000;
 // Upper bound on candidates per ice-batch (clients coalesce at the same cap) —
 // a room member cannot turn one wake into an unbounded fan-out.
 const ICE_BATCH_MAX = 64;
+// Per-socket message budget: a WS frame is opaque to every layer before the
+// DO, so this is the only place a flooding peer can be stopped — every frame
+// is a billed wake, and dropping frames still pays the wake. 120/min sits far
+// above legit (~30 frames of session setup) and turns an unbounded flood into
+// ~120 wakes plus the socket's reconnect ladder.
+const MSG_MAX = 120;
+const MSG_WINDOW_MS = 60000;
 // TEMP DIAGNOSTIC (remove after the Oct 2026 wake-type survey): one compact
 // line per wake. Bucketing was tried first but hibernation wipes this.* within
 // seconds of idle, so buckets never filled — per-wake lines are the only shape
@@ -147,11 +265,12 @@ export class SignalingDO extends DurableObject {
     // looping client can never 429 the room's agent, and a looping agent only
     // locks itself out until it slows to a legit cadence.
     this._joins = {};
+    this._msgHits = new Map();
   }
 
   // TEMP DIAGNOSTIC — see DIAG_PREFIX. j=join rf=429 na=no-agent refusal
-  // hb=heartbeat fwd=relay delivered drop=wasted wake (no target/malformed)
-  // probe=/presence cl=close.
+  // reap=corpse closed hb=heartbeat fwd=relay delivered
+  // drop=wasted wake (no target/malformed) probe=/presence cl=close.
   _diagTick(kind) {
     console.log(`${DIAG_PREFIX} ${kind} room=${this.ctx.id?.name?.slice(0, 12)}`);
   }
@@ -160,23 +279,15 @@ export class SignalingDO extends DurableObject {
     const url = new URL(request.url);
     if (url.pathname === "/presence") {
       this._diagTick("probe");
-      const now = Date.now();
       const agent = this.ctx.getWebSockets().find((p) => p.deserializeAttachment()?.role === "agent");
-      const att = agent?.deserializeAttachment();
-      if (!att) return Response.json({ agentPresent: false });
-      // Free liveness first: the runtime auto-answers "ping" without waking this
-      // DO and stamps the reply time. A live host pings every 10s, so a stamp
-      // older than AGENT_FRESH_MS means the process is dead even if its socket
-      // lingers half-open. Covers post-hb hosts without a D1 read.
-      const lastPong = this.ctx.getWebSocketAutoResponseTimestamp?.(agent);
-      if (lastPong && now - lastPong.getTime() < AGENT_FRESH_MS) return Response.json({ agentPresent: true });
-      // WS hb (old hosts) is the next fast path; the D1 HTTP heartbeat is the durable one.
-      if (att.aliveAt && now - att.aliveAt < AGENT_FRESH_MS) return Response.json({ agentPresent: true });
-      const apiKey = this.ctx.id?.name;
-      if (!apiKey || !this.env?.DB) return Response.json({ agentPresent: false });
-      const row = await this.env.DB.prepare("SELECT agentSeenAt FROM sessions WHERE apiKey = ?").bind(apiKey).first();
-      const seen = row?.agentSeenAt ? new Date(`${String(row.agentSeenAt).replace(" ", "T")}Z`).getTime() : NaN;
-      return Response.json({ agentPresent: !Number.isNaN(seen) && now - seen < AGENT_SEEN_FRESH_MS });
+      if (!agent?.deserializeAttachment()) return Response.json({ agentPresent: false });
+      // Free liveness first: the runtime auto-answers "ping" without waking
+      // this DO and stamps the reply time (live hosts ping every 10s); the
+      // legacy hb attachment is the second fast path. Covers live hosts
+      // without a D1 read — the D1 HTTP heartbeat is the durable fallback.
+      if (this._agentSocketFresh(agent)) return Response.json({ agentPresent: true });
+      if (await this._agentSeenFreshD1()) return Response.json({ agentPresent: true });
+      return Response.json({ agentPresent: false });
     }
     const role = url.searchParams.get("role");
     // Storm breaker — see STORM_MAX_JOINS. Refused attempts are not counted, so
@@ -188,11 +299,16 @@ export class SignalingDO extends DurableObject {
       this._diagTick("rf");
       return new Response("Reconnect storm — retry later", { status: 429 });
     }
+    // Corpse agents make an empty room look occupied — reap before the gate,
+    // so a reaped corpse immediately becomes the 409 path below (a closing
+    // socket can linger in getWebSockets through the close handshake, so the
+    // gate also excludes what this request just reaped).
+    const reaped = role === "client" ? await this._reapStaleAgents() : null;
     // A room without its agent can do nothing for a client — the offer would be
     // dropped by the no-target path below anyway. Refusing the upgrade turns a
     // dead host's client join churn into the client's built-in pre-open failure
     // ladder, and is free: no flow works without an agent in the room.
-    if (role === "client" && !this.ctx.getWebSockets().some((p) => p.deserializeAttachment()?.role === "agent")) {
+    if (role === "client" && !this.ctx.getWebSockets().some((p) => p.deserializeAttachment()?.role === "agent" && !reaped?.has(p))) {
       this._diagTick("na");
       return new Response("No agent in room — host offline", { status: 409 });
     }
@@ -219,16 +335,84 @@ export class SignalingDO extends DurableObject {
     return new Response(null, { status: 101, webSocket: client });
   }
 
+  // Layers 1–2 of the presence verdict: the runtime's auto-response stamp (a
+  // live host pings every 10s, auto-answered without waking this DO) and the
+  // legacy hb attachment stamp (old hosts, 60s). A stamp older than
+  // AGENT_FRESH_MS means the process is dead even if its socket lingers
+  // half-open.
+  _agentSocketFresh(ws) {
+    const now = Date.now();
+    const stamp = this.ctx.getWebSocketAutoResponseTimestamp?.(ws);
+    if (stamp && now - stamp.getTime() < AGENT_FRESH_MS) return true;
+    const aliveAt = ws.deserializeAttachment()?.aliveAt;
+    return Boolean(aliveAt && now - aliveAt < AGENT_FRESH_MS);
+  }
+
+  // Layer 3 — the durable verdict: /api/session/heartbeat beats every 120s.
+  async _agentSeenFreshD1() {
+    const apiKey = this.ctx.id?.name;
+    if (!apiKey || !this.env?.DB) return false;
+    const row = await this.env.DB.prepare("SELECT agentSeenAt FROM sessions WHERE apiKey = ?").bind(apiKey).first();
+    const seen = row?.agentSeenAt ? new Date(`${String(row.agentSeenAt).replace(" ", "T")}Z`).getTime() : NaN;
+    return !Number.isNaN(seen) && Date.now() - seen < AGENT_SEEN_FRESH_MS;
+  }
+
+  // Lazy corpse reaper — runs on client-join wakes. An agent socket dead on
+  // all three presence layers belongs to a host that died without a clean TCP
+  // close; while it lingers the room looks occupied, so client join churn
+  // never ends (measured Oct 2026: 4 such rooms, ~25 joins/min each). One
+  // close empties the room and the no-agent gate takes over. A live or
+  // restarting host never trips it — its stamps stay fresh for minutes.
+  async _reapStaleAgents() {
+    const reaped = new Set();
+    const agents = this.ctx.getWebSockets().filter((p) => p.deserializeAttachment()?.role === "agent");
+    if (!agents.length) return reaped;
+    let d1Fresh;
+    for (const agent of agents) {
+      if (this._agentSocketFresh(agent)) continue;
+      if (d1Fresh === undefined) {
+        try { d1Fresh = await this._agentSeenFreshD1(); }
+        catch { d1Fresh = true; } // a D1 hiccup must never reap a socket
+      }
+      if (d1Fresh) continue;
+      this._diagTick("reap");
+      reaped.add(agent);
+      try { agent.close(1000, "reaped: stale agent corpse"); } catch {}
+    }
+    return reaped;
+  }
+
   // Route by peerId when addressed to a specific client, by role otherwise
   // ("agent" — exactly one per room).
   async webSocketMessage(ws, message) {
+    // Budget first, no exceptions — an exempted type is a bypass path.
+    let hits = this._msgHits.get(ws);
+    if (!hits) { hits = []; this._msgHits.set(ws, hits); }
+    const now = Date.now();
+    while (hits.length && now - hits[0] >= MSG_WINDOW_MS) hits.shift();
+    if (hits.length >= MSG_MAX) {
+      this._diagTick("mb");
+      try { ws.close(1008, "message budget exceeded"); } catch {}
+      return;
+    }
+    hits.push(now);
     let msg;
     try { msg = JSON.parse(message); } catch { return; }
     const { to, from, type, payload } = msg;
     // Every agent message re-stamps liveness; "ping" never reaches here (runtime auto-replies it).
     const att = ws.deserializeAttachment();
     if (att?.role === "agent") ws.serializeAttachment({ ...att, aliveAt: Date.now() });
-    if (type === "hb") { this._diagTick("hb"); return; } // agent liveness beat — consumed here, never forwarded
+    if (type === "hb") {
+      this._diagTick("hb");
+      // With the proxy enabled for this room, hb can only arrive on a
+      // pre-proxy socket (the proxy absorbs it) — pass-through upgrades
+      // survive deploys, so close it once and the host's reconnect lands on
+      // the proxy. Gated on the same rollout flag: off must not loop.
+      if (signalingProxyEnabled(this.env || {}, this.ctx.id?.name)) {
+        try { ws.close(1000, "migrate: signaling proxy"); } catch {}
+      }
+      return; // agent liveness beat — consumed here, never forwarded
+    }
     if (!to || !type) { this._diagTick("drop"); return; }
     const target = this.ctx.getWebSockets().find((peer) => {
       if (peer === ws) return false;
@@ -252,5 +436,5 @@ export class SignalingDO extends DurableObject {
     try { target.send(JSON.stringify({ type, payload, from })); } catch {}
   }
 
-  async webSocketClose() { this._diagTick("cl"); }
+  async webSocketClose(ws) { this._msgHits.delete(ws); this._diagTick("cl"); }
 }

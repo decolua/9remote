@@ -26,7 +26,9 @@ function fakeCtx() {
     sockets,
     getWebSockets: () => sockets,
     acceptWebSocket: () => {},
-    setWebSocketAutoResponse: () => {}
+    setWebSocketAutoResponse: () => {},
+    // Runtime stamps this on every auto-answered "ping"; fake ws sets _pongAt.
+    getWebSocketAutoResponseTimestamp: (ws) => (ws._pongAt ? new Date(ws._pongAt) : null)
   };
 }
 
@@ -85,6 +87,7 @@ const send = (ws, obj) => ws.send(JSON.stringify(obj));
 // 3. A client joining does NOT evict the agent.
 {
   const agent = fakeWs("agent", "a1");
+  agent._pongAt = Date.now(); // a live agent pings — the reaper must spare it
   const ctx = fakeCtx();
   ctx.sockets.push(agent);
   ctx.acceptWebSocket = (s) => ctx.sockets.push(s);
@@ -209,4 +212,35 @@ const send = (ws, obj) => ws.send(JSON.stringify(obj));
   console.log("  ✓ no-agent refusal gates clients only");
 }
 
-console.log("\n9 passed");
+// 10. Per-socket message budget: every WS frame is a billed wake and frames are
+//     opaque before the DO, so closing the flooding socket is the only stop.
+{
+  const ctx = fakeCtx();
+  const do_ = new FakeDO(ctx);
+  const agent = fakeWs("agent", "a1");
+  const client = fakeWs("client", "c1");
+  ctx.sockets.push(agent, client);
+  client.close = (code, reason) => { client.closed = { code, reason }; };
+  const frame = JSON.stringify({ to: "agent", from: "c1", type: "ice", payload: { c: 1 } });
+  for (let i = 0; i < 150; i++) await do_.webSocketMessage(client, frame);
+  assert.equal(client.closed?.code, 1008, "flooding socket closed at the budget");
+  assert.ok(agent.sent.length <= 120, "at most MSG_MAX frames were relayed");
+  console.log("  ✓ per-socket message budget closes a flood");
+}
+
+// 11. The budget never clips legit traffic — a normal burst flows untouched.
+{
+  const ctx = fakeCtx();
+  const do_ = new FakeDO(ctx);
+  const agent = fakeWs("agent", "a1");
+  const client = fakeWs("client", "c1");
+  ctx.sockets.push(agent, client);
+  for (let i = 0; i < 30; i++) {
+    await do_.webSocketMessage(client, JSON.stringify({ to: "agent", from: "c1", type: "ice", payload: { c: i } }));
+  }
+  assert.equal(client.closed, null, "legit burst stays open");
+  assert.equal(agent.sent.length, 30, "all legit frames relayed");
+  console.log("  ✓ legit bursts unaffected");
+}
+
+console.log("\n11 passed");
