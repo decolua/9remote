@@ -33,6 +33,10 @@ function sentBy(SignalingClient, role, msg) {
     sc._ws = { readyState: 1, send: (d) => sent.push(d) };
     const ok = sc.send(msg);
     if (!ok) throw new Error(`send() refused a ${msg.type}`);
+    // Web coalesces candidates into an ice-batch on a 200ms window — drain it
+    // so the captured frame is the one the relay will actually see. The agent
+    // client has no batching, hence the optional call.
+    sc._flushIceBatch?.();
   } finally {
     globalThis.WebSocket = prev;
   }
@@ -57,25 +61,27 @@ test("answer carries the host signature — dropping it makes the client refuse 
 
 test("ice keeps candidate + mid, and survives a missing mid", () => {
   const w = sentBy(web, "client", { type: "ice", candidate: "C", mid: "0" });
-  assert.deepEqual(w.payload, { candidate: "C", mid: "0" });
+  // Web sends candidates as ice-batch items; the DO fans each item back out as
+  // a plain ice message — the item fields are what the host receives.
+  assert.equal(w.type, "ice-batch");
+  assert.deepEqual(w.payload, [{ candidate: "C", mid: "0" }]);
   const noMid = sentBy(web, "client", { type: "ice", candidate: "C" });
-  assert.equal(noMid.payload.candidate, "C");
-  assert.equal(noMid.payload.mid, undefined);
+  assert.equal(noMid.payload[0].candidate, "C");
+  assert.equal(noMid.payload[0].mid, undefined);
 });
 
 test("web and agent agree field-for-field on every message type", () => {
-  // The relay is verbatim, so any asymmetry here is a message one side cannot read.
+  // The relay is verbatim (an ice-batch fans back out per candidate), so any
+  // asymmetry here is a message one side cannot read.
   for (const msg of [
     { type: "offer", sdp: "S" },
     { type: "answer", sdp: "S", pub: "P", xpub: "X", sig: "G" },
     { type: "ice", candidate: "C", mid: "1" },
     { type: "error", message: "nope" }
   ]) {
-    assert.deepEqual(
-      sentBy(web, "client", msg).payload,
-      sentBy(agent, "agent", msg).payload,
-      `${msg.type} shape differs between web and agent`
-    );
+    const w = sentBy(web, "client", msg).payload;
+    const a = sentBy(agent, "agent", msg).payload;
+    assert.deepEqual(Array.isArray(w) ? w[0] : w, a, `${msg.type} shape differs between web and agent`);
   }
 });
 

@@ -145,7 +145,9 @@ const MIN = 60_000;
     try { return (await do_.fetch({ url })).status; } catch { return 101; }
   };
   const db = fakeDb(undefined);
-  const do_ = new SignalingDO(fakeCtx([], db), { DB: db });
+  // A live room — the no-agent gate only admits client joins when an agent is
+  // present, and a storm against a live room is the scenario worth testing.
+  const do_ = new SignalingDO(fakeCtx([fakeWs("agent", "a1")], db), { DB: db });
   for (let i = 0; i < 10; i++) {
     assert.equal(await joinStatus(do_, "https://do/ws?role=client&from=c" + i), 101, "join " + (i + 1) + " within budget");
   }
@@ -175,7 +177,7 @@ const MIN = 60_000;
     try { return (await do_.fetch({ url })).status; } catch { return 101; }
   };
   const db = fakeDb(undefined);
-  const do_ = new SignalingDO(fakeCtx([], db), { DB: db });
+  const do_ = new SignalingDO(fakeCtx([fakeWs("agent", "a1")], db), { DB: db });
   const realNow = Date.now;
   const t0 = realNow();
   try {

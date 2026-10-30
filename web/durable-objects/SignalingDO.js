@@ -127,6 +127,14 @@ const AGENT_SEEN_FRESH_MS = 300000;
 // counter survives exactly when it matters.
 const STORM_MAX_JOINS = 10;
 const STORM_WINDOW_MS = 30000;
+// Upper bound on candidates per ice-batch (clients coalesce at the same cap) —
+// a room member cannot turn one wake into an unbounded fan-out.
+const ICE_BATCH_MAX = 64;
+// TEMP DIAGNOSTIC (remove after the Oct 2026 wake-type survey): one compact
+// line per wake. Bucketing was tried first but hibernation wipes this.* within
+// seconds of idle, so buckets never filled — per-wake lines are the only shape
+// that survives, and observability's 10% head sampling preserves the ratios.
+const DIAG_PREFIX = "TEMP DIAGNOSTIC sigdo";
 
 // Forward-only relay. DO stays dumb about SDP/ICE semantics. One room = one deviceId,
 // two roles (agent + client). WebSocket Hibernation: ping/pong auto-replied by runtime,
@@ -141,9 +149,17 @@ export class SignalingDO extends DurableObject {
     this._joins = {};
   }
 
+  // TEMP DIAGNOSTIC — see DIAG_PREFIX. j=join rf=429 na=no-agent refusal
+  // hb=heartbeat fwd=relay delivered drop=wasted wake (no target/malformed)
+  // probe=/presence cl=close.
+  _diagTick(kind) {
+    console.log(`${DIAG_PREFIX} ${kind} room=${this.ctx.id?.name?.slice(0, 12)}`);
+  }
+
   async fetch(request) {
     const url = new URL(request.url);
     if (url.pathname === "/presence") {
+      this._diagTick("probe");
       const now = Date.now();
       const agent = this.ctx.getWebSockets().find((p) => p.deserializeAttachment()?.role === "agent");
       const att = agent?.deserializeAttachment();
@@ -168,7 +184,19 @@ export class SignalingDO extends DurableObject {
     const now = Date.now();
     const joins = (this._joins[role] ||= []);
     while (joins.length && now - joins[0] >= STORM_WINDOW_MS) joins.shift();
-    if (joins.length >= STORM_MAX_JOINS) return new Response("Reconnect storm — retry later", { status: 429 });
+    if (joins.length >= STORM_MAX_JOINS) {
+      this._diagTick("rf");
+      return new Response("Reconnect storm — retry later", { status: 429 });
+    }
+    // A room without its agent can do nothing for a client — the offer would be
+    // dropped by the no-target path below anyway. Refusing the upgrade turns a
+    // dead host's client join churn into the client's built-in pre-open failure
+    // ladder, and is free: no flow works without an agent in the room.
+    if (role === "client" && !this.ctx.getWebSockets().some((p) => p.deserializeAttachment()?.role === "agent")) {
+      this._diagTick("na");
+      return new Response("No agent in room — host offline", { status: 409 });
+    }
+    this._diagTick("j");
     joins.push(now);
     // peerId identifies a specific client (deviceId:tab). Multiple clients share
     // a room (room = apiKey), so role alone can't address them.
@@ -200,17 +228,29 @@ export class SignalingDO extends DurableObject {
     // Every agent message re-stamps liveness; "ping" never reaches here (runtime auto-replies it).
     const att = ws.deserializeAttachment();
     if (att?.role === "agent") ws.serializeAttachment({ ...att, aliveAt: Date.now() });
-    if (type === "hb") return; // agent liveness beat — consumed here, never forwarded
-    if (!to || !type) return;
+    if (type === "hb") { this._diagTick("hb"); return; } // agent liveness beat — consumed here, never forwarded
+    if (!to || !type) { this._diagTick("drop"); return; }
     const target = this.ctx.getWebSockets().find((peer) => {
       if (peer === ws) return false;
       const att = peer.deserializeAttachment();
       return to === "agent" ? att?.role === "agent" : att?.peerId === to;
     });
-    if (!target) return;
+    if (!target) { this._diagTick("drop"); return; }
+    this._diagTick("fwd");
+    // Coalesced trickle ICE (one wake instead of N) — fanned back out as plain
+    // per-candidate messages so hosts and old clients see the wire format they
+    // always had. A non-array payload falls through to the generic relay.
+    if (type === "ice-batch" && Array.isArray(payload)) {
+      try {
+        for (const candidate of payload.slice(0, ICE_BATCH_MAX)) {
+          target.send(JSON.stringify({ type: "ice", payload: candidate, from }));
+        }
+      } catch {} // a dead target must not take the DO down with it
+      return;
+    }
     // A dead target must not take the DO down with it.
     try { target.send(JSON.stringify({ type, payload, from })); } catch {}
   }
 
-  async webSocketClose() {}
+  async webSocketClose() { this._diagTick("cl"); }
 }

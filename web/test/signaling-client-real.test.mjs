@@ -151,5 +151,39 @@ test("ping keepalive sent only after open", () => {
   assert.equal(sc._pingTimer, null, "ping timer cleared on disconnect");
 });
 
+test("ice coalesces into ice-batch; any other message flushes it first (order kept)", () => {
+  const sc = newClient();
+  sc.connect();
+  lastMock._open();
+  assert.ok(sc.send({ type: "ice", candidate: "A", mid: "0" }));
+  assert.ok(sc.send({ type: "ice", candidate: "B", mid: "1" }));
+  assert.equal(lastMock.sent.length, 0, "candidates held inside the batch window");
+  assert.ok(sc._iceBatchTimer !== null, "batch timer armed");
+  sc.send({ type: "offer", sdp: "S" });
+  const frames = lastMock.sent.map((d) => JSON.parse(d));
+  assert.equal(frames.length, 2, "flushed batch, then the offer");
+  assert.equal(frames[0].type, "ice-batch");
+  assert.deepEqual(frames[0].payload, [{ candidate: "A", mid: "0" }, { candidate: "B", mid: "1" }]);
+  assert.equal(frames[1].type, "offer", "offer follows its candidates — never the reverse");
+  sc.disconnect();
+});
+
+test("ice-batch flushes on its own once the window closes; disconnect kills a pending one", () => {
+  const sc = newClient();
+  sc.connect();
+  lastMock._open();
+  sc.send({ type: "ice", candidate: "A", mid: "0" });
+  sc._flushIceBatch(); // drive the armed timer's callback synchronously
+  const frames = lastMock.sent.map((d) => JSON.parse(d));
+  assert.equal(frames.length, 1);
+  assert.equal(frames[0].type, "ice-batch");
+  assert.equal(frames[0].payload[0].candidate, "A");
+  // A pending batch at disconnect dies with the bus — never carried into the next one.
+  sc.send({ type: "ice", candidate: "Z", mid: "0" });
+  sc.disconnect();
+  assert.equal(sc._iceBatch, null, "disconnect drops a pending batch");
+  assert.equal(lastMock.sent.length, 1, "nothing leaves after disconnect");
+});
+
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

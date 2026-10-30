@@ -160,4 +160,53 @@ const send = (ws, obj) => ws.send(JSON.stringify(obj));
   console.log("  ✓ presence freshness + hb beat");
 }
 
-console.log("\n7 passed");
+// 8. ice-batch — clients coalesce trickle candidates into one message (one DO
+// wake); the relay fans it back out as plain per-candidate messages.
+{
+  const ctx = fakeCtx();
+  const do_ = new FakeDO(ctx);
+  const agent = fakeWs("agent", "a1");
+  const client = fakeWs("client", "c1");
+  ctx.sockets.push(agent, client);
+  await new FakeDO(ctx).webSocketMessage(client, JSON.stringify({
+    to: "agent", from: "c1", type: "ice-batch",
+    payload: [{ candidate: "cand-a", mid: "0" }, { candidate: "cand-b", mid: "1" }]
+  }));
+  assert.equal(agent.sent.length, 2, "one candidate per fanned-out message");
+  assert.equal(agent.sent[0].type, "ice", "fanned out as plain ice");
+  assert.deepEqual(agent.sent[0].payload, { candidate: "cand-a", mid: "0" }, "payload carried verbatim");
+  assert.equal(agent.sent[0].from, "c1", "sender preserved on every item");
+  assert.equal(agent.sent[1].from, "c1");
+
+  // A malformed batch (non-array payload) takes the generic forward once — the
+  // host ignores an unknown type like any other unaddressable message.
+  const ctx2 = fakeCtx();
+  const agent2 = fakeWs("agent", "a2");
+  const client2 = fakeWs("client", "c2");
+  ctx2.sockets.push(agent2, client2);
+  await new FakeDO(ctx2).webSocketMessage(client2, JSON.stringify({ to: "agent", from: "c2", type: "ice-batch", payload: "junk" }));
+  assert.equal(agent2.sent.length, 1, "non-array payload forwards once, untouched");
+  assert.equal(agent2.sent[0].type, "ice-batch", "generic relay keeps the type");
+  console.log("  ✓ ice-batch fan-out");
+}
+
+// 9. No-agent refusal — a client joining a room without its agent gets 409:
+//    nothing in an empty room can answer an offer, so the socket would only
+//    churn (measured Oct 2026: dead-host rooms looping join→close ~25/min).
+{
+  const ctx = fakeCtx();
+  ctx.acceptWebSocket = (s) => ctx.sockets.push(s);
+  const do_ = new FakeDO(ctx);
+  const res = await do_.fetch({ url: "https://x/signaling/ws/ROOM?role=client&from=c9" }).catch(() => null);
+  assert.equal(res?.status, 409, "client join refused when no agent");
+  assert.equal(ctx.sockets.length, 0, "no socket accepted");
+
+  // The agent join into an empty room is the normal host startup — never refused.
+  const ctx2 = fakeCtx();
+  ctx2.acceptWebSocket = (s) => ctx2.sockets.push(s);
+  const res2 = await new FakeDO(ctx2).fetch({ url: "https://x/signaling/ws/ROOM?role=agent&from=a1" }).catch(() => null);
+  assert.notEqual(res2?.status, 409, "agent join into empty room is never refused");
+  console.log("  ✓ no-agent refusal gates clients only");
+}
+
+console.log("\n9 passed");

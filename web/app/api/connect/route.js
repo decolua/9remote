@@ -10,6 +10,16 @@ const LAST_ACCESS_THROTTLE_SEC = 60;
 const SCOPE = "connect";
 // Timeout for probing DO signaling relay presence
 const RELAY_PROBE_TIMEOUT_MS = 3000;
+// Probe verdict cache — each probe wakes the room's DO, and reconnect bursts
+// (retry ladder, multiple tabs) ask it identical questions. Positive verdicts
+// hold longer: they only skip the not-ready path. A negative verdict flips to
+// true the moment a host comes online, so its TTL stays short enough that the
+// worst case is one extra client retry (~2s), never a new failure mode.
+const RELAY_PROBE_POS_TTL_MS = 10000;
+const RELAY_PROBE_NEG_TTL_MS = 3000;
+const RELAY_PROBE_PRUNE_SIZE = 5000;
+const relayProbeCache = new Map();    // apiKey → { verdict, expires }
+const relayProbeInflight = new Map(); // apiKey → Promise<boolean> — a burst shares one probe
 
 // Attach host public keys for client-side tail sealing verification
 const hostKeysOf = (row) => ({
@@ -18,15 +28,33 @@ const hostKeysOf = (row) => ({
 
 // Check whether an agent is currently joined to the signaling DO room
 async function agentOnRelay(apiKey, env) {
-  try {
-    const res = await env.SIGNALING_DO.get(env.SIGNALING_DO.idFromName(apiKey))
-      .fetch(new Request("https://do/presence", { signal: AbortSignal.timeout(RELAY_PROBE_TIMEOUT_MS) }));
-    const { agentPresent } = await res.json();
-    return agentPresent === true;
-  } catch (e) {
-    console.warn(`[connect] relay probe failed: ${e?.message || e}`);
-    return false;
-  }
+  const hit = relayProbeCache.get(apiKey);
+  if (hit && hit.expires > Date.now()) return hit.verdict;
+  const inflight = relayProbeInflight.get(apiKey);
+  if (inflight) return inflight;
+  const probe = (async () => {
+    try {
+      const res = await env.SIGNALING_DO.get(env.SIGNALING_DO.idFromName(apiKey))
+        .fetch(new Request("https://do/presence", { signal: AbortSignal.timeout(RELAY_PROBE_TIMEOUT_MS) }));
+      const { agentPresent } = await res.json();
+      const verdict = agentPresent === true;
+      if (relayProbeCache.size > RELAY_PROBE_PRUNE_SIZE) {
+        const now = Date.now();
+        for (const [key, entry] of relayProbeCache) {
+          if (entry.expires <= now) relayProbeCache.delete(key);
+        }
+      }
+      relayProbeCache.set(apiKey, { verdict, expires: Date.now() + (verdict ? RELAY_PROBE_POS_TTL_MS : RELAY_PROBE_NEG_TTL_MS) });
+      return verdict;
+    } catch (e) {
+      console.warn(`[connect] relay probe failed: ${e?.message || e}`);
+      return false; // deliberately NOT cached — a transient blip must not stretch to a TTL
+    } finally {
+      relayProbeInflight.delete(apiKey);
+    }
+  })();
+  relayProbeInflight.set(apiKey, probe);
+  return probe;
 }
 
 export function OPTIONS() {

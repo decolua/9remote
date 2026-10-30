@@ -19,6 +19,12 @@ const RETRY_NOW_THROTTLE_MS = 3000;
 // A bus that has been handshaking longer than this is presumed wedged, so
 // replacing it is worth another upgrade. Below it, let the handshake finish.
 const HANDSHAKE_STALL_MS = 5000;
+// Trickle ICE arrives as one message per gathered candidate, and every message
+// wakes the relay DO. Candidates gathered within this window coalesce into a
+// single "ice-batch" — the DO fans it back out as plain candidates, so hosts
+// and old clients never see the batch form.
+const ICE_BATCH_MS = 200;
+const ICE_BATCH_MAX = 64;
 
 function sigData(msg) {
   // Mirror of the agent client: answers carry pub/sig (host-key signature)
@@ -48,6 +54,8 @@ export class SignalingClient {
     this._ws = null;
     this._handler = null;
     this._pingTimer = null;
+    this._iceBatch = null;
+    this._iceBatchTimer = null;
     this._reconnectTimer = null;
     this._attempt = 0;
     this._preOpenFails = 0;
@@ -69,14 +77,41 @@ export class SignalingClient {
   send(msg) {
     debugLog("transport", `[sig] send ${msg.type} ready=${this.ready}`);
     if (!this.ready) return false;
+    // msg.to addresses a specific peer (agent → one of many clients); the
+    // opposite role is the default (client → the room's single agent).
+    const to = msg.to || OTHER_ROLE[this._role];
+    // Candidates wait out ICE_BATCH_MS; any other message flushes them first
+    // so cross-type ordering (offer before its candidates) is never inverted.
+    if (msg.type === "ice") {
+      if (this._iceBatch && this._iceBatch.to !== to) this._flushIceBatch();
+      (this._iceBatch ||= { to, items: [] }).items.push(sigData(msg));
+      if (this._iceBatch.items.length >= ICE_BATCH_MAX) this._flushIceBatch();
+      else if (!this._iceBatchTimer) this._iceBatchTimer = setTimeout(() => this._flushIceBatch(), ICE_BATCH_MS);
+      return true;
+    }
+    this._flushIceBatch();
     try {
-      // msg.to addresses a specific peer (agent → one of many clients); the
-      // opposite role is the default (client → the room's single agent).
-      this._ws.send(JSON.stringify({ to: msg.to || OTHER_ROLE[this._role], from: this._from, type: msg.type, payload: sigData(msg) }));
+      this._ws.send(JSON.stringify({ to, from: this._from, type: msg.type, payload: sigData(msg) }));
       return true;
     } catch {
       return false; // bus closing between the ready check and send
     }
+  }
+
+  _flushIceBatch() {
+    const batch = this._iceBatch;
+    this._discardIceBatch();
+    // A closed bus means a stale negotiation — the reconnect re-gathers, so the
+    // queued candidates are dropped, not carried into the new bus.
+    if (!batch || !this.ready) return;
+    try {
+      this._ws.send(JSON.stringify({ to: batch.to, from: this._from, type: "ice-batch", payload: batch.items }));
+    } catch {} // bus closing between the ready check and send — batch dies with it
+  }
+
+  _discardIceBatch() {
+    if (this._iceBatchTimer) { clearTimeout(this._iceBatchTimer); this._iceBatchTimer = null; }
+    this._iceBatch = null;
   }
 
   on(handler) { this._handler = handler; }
@@ -139,6 +174,7 @@ export class SignalingClient {
   disconnect() {
     this._closed = true;
     this._stopPing();
+    this._discardIceBatch();
     clearTimeout(this._retryNowTimer);
     this._retryNowTimer = null;
     clearTimeout(this._reconnectTimer);
@@ -176,6 +212,7 @@ export class SignalingClient {
 
   _onClose() {
     this._stopPing();
+    this._discardIceBatch(); // stale — the reconnect re-gathers candidates
     this._ws = null;
     this._setState(ADAPTER_STATE.closed);
     if (this._closed) return;
