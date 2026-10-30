@@ -248,7 +248,8 @@ export const TOUCH_SELECT = {
 
 export const PATH_SUGGEST = {
   verbs: ["cd", "ls", "ll", "cat", "less", "more", "head", "tail", "vim", "nvim", "nano", "bat", "code", "code-insiders", "rm", "cp", "mv", "mkdir", "touch", "chmod", "open", "grep"],
-  ttlMs: 5 * 60 * 1000,
+  // Short: a file created a minute ago must still show up in the next completion.
+  ttlMs: 10 * 1000,
   debounceMs: 120,
   maxDirs: 20,
   maxResults: 8

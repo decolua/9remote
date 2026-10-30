@@ -5,7 +5,8 @@ import { Folder, FileText } from "lucide-react";
 import { vibrate } from "@/shared/utils/vibration";
 
 // Path suggestion dropdown: mirrors CommandSuggestions styling. Items carry a
-// ready-to-insert full command string ("verb path/"). Click → onSelect(full).
+// ready-to-insert full command string ("verb path/") and the matched offsets to
+// bold. Click → onSelect(full).
 export default function PathSuggestion({ items, onSelect, activeIndex = -1 }) {
   const listRef = useRef(null);
   useEffect(() => {
@@ -31,10 +32,25 @@ export default function PathSuggestion({ items, onSelect, activeIndex = -1 }) {
                 ? <Folder size={13} className="text-brand-500" fill="currentColor" />
                 : <FileText size={13} className="text-text-muted" />}
             </span>
-            <span className="min-w-0 text-xs text-text font-mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl", unicodeBidi: "plaintext" }} title={it.full}>{it.label}</span>
+            <span className="min-w-0 text-xs text-text font-mono" style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", direction: "rtl", unicodeBidi: "plaintext" }} title={it.full}>
+              <Highlighted text={it.label} positions={it.positions} />
+            </span>
           </button>
         ))}
       </div>
     </div>
+  );
+}
+
+// Bold the characters the query matched; the rest stays muted so the shape reads.
+function Highlighted({ text, positions }) {
+  if (!positions?.length) return text;
+  const hit = new Set(positions);
+  return (
+    <>
+      {[...text].map((ch, i) => (hit.has(i)
+        ? <span key={i} className="text-accent font-semibold">{ch}</span>
+        : <span key={i}>{ch}</span>))}
+    </>
   );
 }

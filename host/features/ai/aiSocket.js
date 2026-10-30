@@ -4,7 +4,7 @@ import { broadcast } from "../../transport/broadcast.js";
 import { createLogger } from "../../lib/logger.js";
 import { listSkills } from "./skills.js";
 import { listMcpServers } from "./mcp.js";
-import { searchRepoFiles } from "./files.js";
+import { listPathIndex, searchPathCandidates } from "./files.js";
 import { listModelOptionsFor, listOpencodeModelOptions, listOpencodeModelOptionsFromServer, listAllOpencodeModelOptions, resolveDefaultModel, resolveDefaultEffort } from "./models.js";
 import { runEngineDoctor, CARRIED_CLI_SUBTYPES } from "./aiSession.js";
 import { EVENT_TO_STATE, restatesOverGate } from "./aiStatus.js";
@@ -553,12 +553,17 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
     }
   });
 
-  socket.on(AI_SOCKET_EVENTS.FILES, ({ workspace, query, limit = 25 }, cb) => {
+  // `@` mentions: the whole index once, or one host-side search when the client's
+  // trimmed copy could not see the file it needs (`query` present).
+  socket.on(AI_SOCKET_EVENTS.FILES, ({ workspace, query }, cb) => {
     try {
-      const files = searchRepoFiles(workspace, query, limit);
-      cb?.({ ok: true, files });
+      const ws = workspace || process.cwd();
+      if (typeof query === "string" && query.trim()) {
+        return cb?.({ ok: true, ...searchPathCandidates(ws, query) });
+      }
+      cb?.({ ok: true, ...listPathIndex(ws) });
     } catch (err) {
-      cb?.({ ok: false, error: err.message, files: [] });
+      cb?.({ ok: false, error: err.message, files: [], dirs: [] });
     }
   });
 

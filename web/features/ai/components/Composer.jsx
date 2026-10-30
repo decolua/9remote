@@ -1,11 +1,14 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Square, Terminal, FileCode, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History, Search } from "@/shared/components/ui/Icon";
+import { Send, Square, Terminal, FileCode, Folder, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History, Search } from "@/shared/components/ui/Icon";
 import { ENGINE_INFO, SKIP_BEHAVIOR, SKIP_MESSAGE } from "../constants";
 import { getEngineConfig } from "../registry";
 import { buildSlashItems } from "../lib/slashMenu";
 import { buildModelSections } from "../lib/modelSections";
+import { getPathIndex, searchPathIndex } from "../lib/pathIndex";
+import { rankPaths, tokenAtCaret, formatMention, pathBase, FUZZY_PATH } from "@/shared/utils/fuzzyPath";
+import { MentionRow } from "./MentionRow";
 import { vibrate } from "@/shared/utils/vibration";
 import { useAiStore } from "@/shared/stores/aiStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
@@ -23,6 +26,10 @@ import VoicePill from "@/shared/components/ui/VoicePill";
 const EMPTY_ARRAY = [];
 // Only long lists (omp catalogs hundreds of models) get the inline search box.
 const MODEL_MENU_SEARCH_MIN = 20;
+// Rows in the `@` file picker before it scrolls.
+const MENU_MAX_ITEMS = FUZZY_PATH.maxResults;
+// Below this, a host search matches nearly every path and the reply is noise.
+const HOST_SEARCH_MIN_QUERY = 2;
 
 export const Composer = memo(function Composer({
   sessionId = "",
@@ -41,7 +48,6 @@ export const Composer = memo(function Composer({
   onOpenModal,
   onOptionChange,
   onActivate,
-  fileBus = null,
   workspacePath = "",
   model: propModel = "",
   modalOpen = false
@@ -75,11 +81,12 @@ export const Composer = memo(function Composer({
   const draftRef = useRef("");
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuType, setMenuType] = useState(null); // "/" or "@"
-  const [menuFilter, setMenuFilter] = useState("");
   const [menuItems, setMenuItems] = useState([]);
   const [selectedIdx, setSelectedIdx] = useState(0);
   const [submenuCmd, setSubmenuCmd] = useState(null);
   const [suggestActive, setSuggestActive] = useState(-1);
+  // Caret drives the `@`/`/` token, so moving it with arrows must re-rank too.
+  const [caret, setCaret] = useState(0);
 
   const addCommand = useAiHistoryStore((s) => s.addCommand);
   const resolveAlias = useAiHistoryStore((s) => s.resolveAlias);
@@ -237,27 +244,24 @@ export const Composer = memo(function Composer({
   }, [text, sessionId]);
 
   useEffect(() => {
-    // Keep submenu open while text ends in the triggering command.
+    // Keep submenu open while the text still ends in the triggering command.
     if (submenuCmd) {
       const escaped = submenuCmd.name.replace(/[/@]/g, "\\$&");
       if (new RegExp(`(?:^|\\s)${escaped}\\s*$`).test(text)) return;
       setSubmenuCmd(null);
     }
 
-    const lastWordMatch = /(?:^|\s)([/@][\w\d_.-]*)$/.exec(text);
-    if (!lastWordMatch) {
+    // Token under the caret, not at the end of the prompt: a coder edits mid-sentence.
+    const tokenHit = tokenAtCaret(text, caret);
+    if (!tokenHit) {
       setMenuOpen(false);
       setMenuType(null);
-      setMenuFilter("");
       return;
     }
 
-    const token = lastWordMatch[1];
-    const trigger = token[0];
-    const filter = token.slice(1).toLowerCase();
-
+    const { trigger, query } = tokenHit;
+    const filter = query.toLowerCase();
     setMenuType(trigger);
-    setMenuFilter(filter);
     setSelectedIdx(0);
 
     if (trigger === "/") {
@@ -270,33 +274,57 @@ export const Composer = memo(function Composer({
       });
       setMenuItems(filtered);
       setMenuOpen(filtered.length > 0);
-    } else if (trigger === "@") {
-      const b = bus;
-      if (b?.emit) {
-        b.emit("ai:files", { workspace: workspacePath, query: filter }, (res) => {
-          if (res?.ok && Array.isArray(res.files)) {
-            setMenuItems(
-              res.files.map((f) => ({
-                name: f.path || f,
-                description: f.isModified ? `${f.dir ? f.dir + " · " : ""}modified` : (f.dir || "")
-              }))
-            );
-            setMenuOpen(res.files.length > 0);
-          }
-        });
-      } else if (fileBus?.searchFiles && workspacePath) {
-        fileBus.searchFiles(workspacePath, filter).then((res) => {
-          if (res?.success && Array.isArray(res.files)) {
-            setMenuItems(res.files.slice(0, 10).map((f) => ({ name: f.path || f, description: f.relPath || f })));
-            setMenuOpen(res.files.length > 0);
-          }
-        });
-      } else {
+      return;
+    }
+
+    // `@`: rank locally against the cached index so a keystroke never waits on a round-trip.
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      if (!workspacePath) {
         setMenuItems([]);
         setMenuOpen(false);
+        return;
       }
-    }
-  }, [text, fileBus, workspacePath, storeSkills, storeCommands, SLASH_COMMANDS, submenuCmd]);
+      let index = await getPathIndex(bus, workspacePath);
+      if (cancelled) return;
+      if (!index) {
+        setMenuItems([]);
+        setMenuOpen(false);
+        return;
+      }
+      let ranked = rankPaths(index, query, MENU_MAX_ITEMS);
+      // A trimmed index cannot see paths it never shipped, so a weak local answer may
+      // be missing the right file. "Strong" means the top row's basename literally
+      // starts with the query — that is the case a missing file could not beat.
+      const top = ranked[0];
+      const confident = top && !top.isDir
+        && pathBase(top.path).toLowerCase().startsWith(query.toLowerCase());
+      if (index.truncated && query.length >= HOST_SEARCH_MIN_QUERY && !confident) {
+        const hostHits = await searchPathIndex(bus, workspacePath, query);
+        if (cancelled) return;
+        if (hostHits) {
+          const merged = rankPaths(hostHits, query, MENU_MAX_ITEMS);
+          const seen = new Set(ranked.map((r) => r.path));
+          ranked = [...ranked, ...merged.filter((m) => !seen.has(m.path))]
+            .sort((a, b) => b.score - a.score || a.path.length - b.path.length)
+            .slice(0, MENU_MAX_ITEMS);
+        }
+      }
+      setMenuItems(ranked.map((hit) => ({
+        name: hit.path,
+        label: hit.path,
+        isDir: hit.isDir,
+        isModified: hit.isModified,
+        positions: hit.positions
+      })));
+      setMenuOpen(ranked.length > 0);
+    }, FUZZY_PATH.debounceMs);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [text, caret, bus, workspacePath, storeSkills, storeCommands, SLASH_COMMANDS, submenuCmd]);
 
   const executeSend = useCallback((overrideText) => {
     const raw = typeof overrideText === "string" ? overrideText : (textareaRef.current ? textareaRef.current.value : text);
@@ -380,14 +408,34 @@ export const Composer = memo(function Composer({
 
   const selectMenuItem = useCallback((item) => {
     vibrate();
-    const lastWordMatch = /(?:^|\s)([/@][\w\d_.-]*)$/.exec(text);
-    if (!lastWordMatch) return;
+    const tokenHit = tokenAtCaret(text, caret);
+    if (!tokenHit) return;
 
-    const token = lastWordMatch[1];
-    const prefix = text.slice(0, text.length - token.length);
+    const prefix = text.slice(0, tokenHit.start);
+    const suffix = text.slice(tokenHit.end);
     const opensModal = menuType === "/" && item.action?.startsWith("modal:");
-    const replacement = menuType === "@" ? `@${item.name} ` : `${item.name} `;
-    setText(opensModal ? prefix : `${prefix}${replacement}`);
+    let replacement;
+    if (menuType === "@") {
+      // A folder completes to `@dir/` and keeps the picker open for the next segment.
+      if (item.isDir) {
+        replacement = `@${formatMention(item.name)}/`;
+      } else {
+        replacement = `@${formatMention(item.name)} `;
+      }
+    } else {
+      replacement = `${item.name} `;
+    }
+    const next = opensModal ? prefix + suffix : `${prefix}${replacement}${suffix}`;
+    setText(next);
+    if (!opensModal) {
+      const caretAfter = prefix.length + replacement.length;
+      setCaret(caretAfter);
+      requestAnimationFrame(() => {
+        const el = textareaRef.current;
+        if (!el) return;
+        el.setSelectionRange(caretAfter, caretAfter);
+      });
+    }
     setMenuOpen(false);
 
     if (menuType !== "/") {
@@ -405,7 +453,7 @@ export const Composer = memo(function Composer({
       return;
     }
     runSlashAction(item);
-  }, [text, menuType, runSlashAction, isTurnRunning]);
+  }, [text, caret, menuType, runSlashAction, isTurnRunning]);
 
   const selectSubOption = useCallback((option) => {
     vibrate();
@@ -721,15 +769,21 @@ export const Composer = memo(function Composer({
                 }`}
                 title={isBlocked ? "Cannot change while turn is running" : undefined}
               >
-                <div className="flex items-center gap-2 truncate">
+                <div className="flex items-center gap-2 truncate min-w-0">
                   {item.isSkill ? (
                     <Zap size={12} className="text-warning shrink-0" />
                   ) : menuType === "/" ? (
                     <Terminal size={12} className="text-accent shrink-0" />
+                  ) : item.isDir ? (
+                    <Folder size={12} className="text-brand-500 shrink-0" />
                   ) : (
                     <FileCode size={12} className="text-accent shrink-0" />
                   )}
-                  <span className="font-mono text-xs text-text">{item.name}</span>
+                  {menuType === "@" && !item.isSkill ? (
+                    <MentionRow item={item} />
+                  ) : (
+                    <span className="font-mono text-xs text-text">{item.name}</span>
+                  )}
                   {item.isSkill && (
                     <span className="text-[9px] px-1 rounded bg-warning/15 text-warning font-mono">
                       skill
@@ -739,9 +793,19 @@ export const Composer = memo(function Composer({
                     <ChevronUp size={11} className="text-text-muted shrink-0 rotate-90" />
                   )}
                 </div>
-                {item.description && (
+                {item.description && menuType !== "@" && (
                   <span className="text-[10px] text-text-muted truncate ml-2 max-w-[50%]">
                     {item.description}
+                  </span>
+                )}
+                {menuType === "@" && !item.isSkill && (
+                  <span className="flex items-center gap-1.5 shrink-0 ml-2">
+                    {item.isModified && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-warning" title="modified" />
+                    )}
+                    {item.isDir && (
+                      <span className="text-[10px] text-text-muted font-mono">/</span>
+                    )}
                   </span>
                 )}
               </div>
@@ -850,9 +914,17 @@ export const Composer = memo(function Composer({
                 return;
               }
               setText(e.target.value);
+              setCaret(e.target.selectionStart ?? e.target.value.length);
               setSuggestActive(-1);
             }}
             onFocus={() => onActivate?.()}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart)}
+            onKeyUp={(e) => {
+              // Arrow/Home/End move the caret without changing the text.
+              if (e.key.startsWith("Arrow") || e.key === "Home" || e.key === "End") {
+                setCaret(e.currentTarget.selectionStart);
+              }
+            }}
             onKeyDown={handleKeyDown}
             onCompositionStart={() => { isComposingRef.current = true; }}
             onCompositionEnd={() => {
