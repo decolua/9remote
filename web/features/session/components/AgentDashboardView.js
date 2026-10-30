@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import PromptDialog from "@/shared/components/ui/PromptDialog";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
+import { openExternal } from "@/shared/utils/openExternal";
 import { HOMEPAGE_URL } from "@/shared/constants/API";
 import { usePendingDeviceStore } from "@/features/session/stores/pendingDeviceStore";
 import { APP_STORE_URL, PLAY_STORE_URL } from "@/features/landing/constants/landingConfig";
@@ -529,15 +530,6 @@ function DashboardQrCard({ qrUrl, oneTimeKey, oneTimeKeyExpiresAt, permanentKey,
 
 // One connect card = tile + title/sub + arrow, the whole card is the link.
 // hero-card supplies the glass + mirror sheen. icon: Material Symbols name or ReactNode.
-// In Tauri, target=_blank opens another webview window (looks like the app
-// again) — hand external links to the system browser via the opener plugin.
-function openExternal(e, href) {
-  const opener = window.__TAURI__?.opener;
-  if (!opener?.openUrl) return; // plain browser: let the <a> do its job
-  e.preventDefault();
-  opener.openUrl(href).catch(() => {});
-}
-
 function ConnectCard({ icon, iconClass, title, sub, href }) {
   return (
     <a href={href} target="_blank" rel="noopener noreferrer" onClick={(e) => openExternal(e, href)} className="hero-card ad-connect-card">

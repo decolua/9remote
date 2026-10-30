@@ -4,6 +4,7 @@ import { memo, useRef, useState } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Check, Copy } from "@/shared/components/ui/Icon";
+import { openExternal } from "@/shared/utils/openExternal";
 import { vibrate } from "@/shared/utils/vibration";
 
 // One markdown style set for every surface (AI chat, file viewer). The project has no
@@ -43,13 +44,14 @@ export const MARKDOWN_COMPONENTS = {
     // eslint-disable-next-line @next/next/no-img-element
     <img className="max-w-full h-auto rounded my-2" alt={alt} {...props} />
   ),
-  a: ({ children, className, node: _node, ...props }) => (
+  a: ({ children, className, href, node: _node, ...props }) => (
     <a
       // wrap-anywhere, not break-words: only `anywhere` shrinks min-content, so a long
       // URL no longer widens the whole column (break-word still lets it overflow).
       className={`text-brand-500 hover:underline wrap-anywhere${className ? ` ${className}` : ""}`}
       target="_blank"
       rel="noopener noreferrer"
+      onClick={(e) => openExternal(e, href)}
       {...props}
     >
       {children}
