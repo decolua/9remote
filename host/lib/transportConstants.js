@@ -99,6 +99,19 @@ export const FILE_TRANSFER = {
 // half-open link — gate on real buffered bytes instead, like RTC's threshold.
 export const WS_BINARY_BACKPRESSURE_BYTES = 1 * 1024 * 1024;
 
+// Sequenced control stream — every control envelope carries {sq, ep, rs}; each
+// PM keeps a byte-capped replay ring (outbound) and a one-door sequencer
+// (inbound: dedupe, order, NACK gap repair). Kills the cross-carrier
+// reorder/duplicate/loss races and the ack false-negative on RTC death.
+// Mirrored in web/shared/constants/transport.js.
+export const SEQ_CTL = {
+  ringMaxBytes: 4 * 1024 * 1024,
+  maxEntries: 2000,
+  holdMax: 256,
+  gapDeadlineMs: 3000,
+  ackMaxLives: 3
+};
+
 export const TRANSPORT_PROFILES = {
   clientApp: {
     enabled: ["ws", "rtc"],

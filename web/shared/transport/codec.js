@@ -74,13 +74,18 @@ function drop(value, parts) {
 }
 
 /** Serialize an envelope to the v2 binary frame. Returns a Uint8Array.
- *  `frag` = {id, part, parts} marks this frame as one slice of a larger envelope. */
+ *  `frag` = {id, part, parts} marks this frame as one slice of a larger envelope.
+ *  sq/ep/rs are the sequenced-stream fields — extra header keys are ignored by
+ *  older peers, so they ride unconditionally. */
 export function encodeFrame(envelope, frag = null) {
   const parts = [];
   const header = {
     event: envelope.event,
     args: lift(envelope.args || [], parts),
     ackId: envelope.ackId ?? null,
+    sq: envelope.sq ?? null,
+    ep: envelope.ep ?? null,
+    rs: envelope.rs ?? null,
     // Part byte lengths, so the reader can slice without a per-part header.
     lens: parts.map((p) => p.length)
   };
@@ -118,7 +123,7 @@ export function decodeFrame(wire) {
     parts.push(buf.subarray(off, off + n));
     off += n;
   }
-  return { event: header.event, args: drop(header.args || [], parts), ackId: header.ackId ?? null, frag: header.frag, part: header.part, parts: header.parts };
+  return { event: header.event, args: drop(header.args || [], parts), ackId: header.ackId ?? null, sq: header.sq ?? null, ep: header.ep ?? null, rs: header.rs ?? null, frag: header.frag, part: header.part, parts: header.parts };
 }
 
 // Ceiling on how many slices one envelope may be cut into — a peer announcing a

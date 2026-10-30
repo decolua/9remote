@@ -194,6 +194,19 @@ export const WS_ZOMBIE_MS = 30000;
 // progressing upload keeps draining, so it never trips).
 export const WS_OUTBOUND_STALL_MS = 15000;
 
+// Sequenced control stream — every control envelope carries {sq, ep, rs}; each
+// PM keeps a byte-capped replay ring (outbound) and a one-door sequencer
+// (inbound: dedupe, order, NACK gap repair). Kills the cross-carrier
+// reorder/duplicate/loss races and the ack false-negative on RTC death.
+// Mirrored in host/lib/transportConstants.js.
+export const SEQ_CTL = {
+  ringMaxBytes: 4 * 1024 * 1024,
+  maxEntries: 2000,
+  holdMax: 256,
+  gapDeadlineMs: 3000,
+  ackMaxLives: 3
+};
+
 // File-transfer tunables (DC "file", separate from tiles' dcBinary).
 // chunkSize + 8-byte frame header must fit dcMaxMessageSize (SCTP hard limit).
 // dcBufferThreshold is generous (8MB) — file transfer is throughput, not real-time.
