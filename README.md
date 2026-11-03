@@ -43,6 +43,12 @@ Scan the QR code from a phone (or open the URL) and you're on your machine's she
 
 ---
 
+## 🎥 Video Tutorials
+
+[![9Remote setup and phone-to-PC control in Urdu/Hindi](https://img.youtube.com/vi/2vFNfqCVXsM/hqdefault.jpg)](https://www.youtube.com/watch?v=2vFNfqCVXsM)
+
+**9Remote setup and phone-to-PC control (Urdu/Hindi):** Covers npm install, QR pairing, PC approval, mobile desktop control, and running Claude Code and Codex from the terminal.
+
 ## 📱 Supported Platforms
 
 | Platform | Host (Your Machine) | Client (Anywhere) | Download / Access |
