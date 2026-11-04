@@ -1,0 +1,29 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=1920, height=1080">
+<link rel="stylesheet" href="shared.css">
+</head>
+<body>
+<main class="stage">
+  <div class="brand"><span class="brand-mark"></span> OOPPSS KIDS</div>
+  <div class="card"></div>
+  <h1 class="title-copy">LET'S FIND COLORS!<span>Can you find all six?</span></h1>
+  <div class="title-shapes">
+    <span class="title-shape"></span><span class="title-shape"></span><span class="title-shape"></span>
+    <span class="title-shape"></span><span class="title-shape"></span><span class="title-shape"></span>
+  </div>
+</main>
+<script>
+window.film = {
+  duration: 30,
+  width: 1920,
+  height: 1080,
+  frame(t) {
+    document.querySelector(".title-shapes").style.transform = `translateX(-50%) translateY(${Math.sin(Number(t) * 0.8) * 8}px)`;
+  }
+};
+</script>
+</body>
+</html>
