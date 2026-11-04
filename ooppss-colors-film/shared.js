@@ -1,4 +1,4 @@
-window.createColorScene = function (sceneNumber, showRecap = false) {
+window.createColorScene = function (sceneNumber, duration = 20, showRecapAt = null) {
   const stage = document.querySelector(".stage");
   const visual = document.querySelector(".visual");
   const recap = document.querySelector(".recap");
@@ -9,11 +9,11 @@ window.createColorScene = function (sceneNumber, showRecap = false) {
   });
 
   return {
-    duration: 30,
+    duration,
     width: 1920,
     height: 1080,
     frame(t) {
-      const time = Math.max(0, Math.min(30, Number(t) || 0));
+      const time = Math.max(0, Math.min(duration, Number(t) || 0));
       const gentleLift = Math.sin(time * 0.9) * 8;
       const gentleTurn = Math.sin(time * 0.45) * 2.5;
       const pulse = 1 + Math.sin(time * 1.2) * 0.018;
@@ -21,8 +21,8 @@ window.createColorScene = function (sceneNumber, showRecap = false) {
       visual.style.setProperty("--turn", `${gentleTurn}deg`);
       visual.style.setProperty("--pulse", pulse);
 
-      if (showRecap) {
-        const visible = time >= 7;
+      if (showRecapAt !== null) {
+        const visible = time >= showRecapAt;
         recap.style.opacity = visible ? "1" : "0";
         recap.style.transform = visible ? "translateY(0)" : "translateY(18px)";
       }
