@@ -605,7 +605,7 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
     capsLogger.debug(`[caps] client announced: ${JSON.stringify(caps)}`);
     if (caps?.fragOut) socket.data.fragOut = true;
     if (caps?.fragCtl) socket.data.fragCtl = true;
-    socket.emit("srvCaps", { env2: 1, fragCtl: 1, seqCtl: 1 });
+    socket.emit("srvCaps", { env2: 1, fragCtl: 1, seqCtl: 1, inputAck: 1, promptDedupe: 1 });
   });
 
   // Scroll-up history fetch: emit older prefix only to the requesting socket.

@@ -9,7 +9,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import { ImageAddon } from "@xterm/addon-image";
 import { THEMES, resolveTerminalTheme } from "@/features/terminal/constants/themes";
 import { termLog } from "@/shared/utils/termLog";
-import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, isTerminalReport, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, HISTORY_FETCH, applyTerminalBackground, effectiveFontSize } from "@/features/terminal/constants/terminalConfig";
+import { TERMINAL_OPTIONS, RENDERER, ADDONS, isUserTyping, isTerminalReport, MIN_COLS, MIN_ROWS, SETTLE_DEBOUNCE_MS, ORIENTATION_SETTLE_MS, RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS, QUIET_PROBE_AFTER_MS, QUIET_PROBE_POLL_MS, HISTORY_FETCH, applyTerminalBackground, effectiveFontSize } from "@/features/terminal/constants/terminalConfig";
 import { resetReconnectState, recoveryBusy } from "@/features/terminal/lib/reconnectState";
 import { createWriteBatcher } from "@/features/terminal/lib/termWriteBatcher";
 import { createGapFetch } from "@/features/terminal/lib/gapFetch";
@@ -560,6 +560,17 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
     };
     requestRecoverRef.current = requestRecover;
 
+    // Quiet-tail probe: a burst's last chunks can be lost with no later chunk to trip
+    // the seq law — one peek per burst once output goes silent patches the tail before
+    // the reader ever notices a hole.
+    let probedForAt = 0;
+    const quietTimer = setInterval(() => {
+      const lastAt = lastOutputAtRef.current;
+      if (!lastAt || probedForAt === lastAt || Date.now() - lastAt < QUIET_PROBE_AFTER_MS) return;
+      probedForAt = lastAt;
+      requestRecover("quiet");
+    }, QUIET_PROBE_POLL_MS);
+
     function drainPending() {
       const reason = pendingRecoverRef.current;
       if (!reason) return;
@@ -659,6 +670,7 @@ export function useXTerm({ bus: propBus, sessionId, theme, terminalTheme, isVisi
       if (joinTimer) clearTimeout(joinTimer);
       if (peekTimer) clearTimeout(peekTimer);
       if (peekDeadline) clearTimeout(peekDeadline);
+      clearInterval(quietTimer);
       if (webglAddonRef.current) webglAddonRef.current.dispose();
       if (writeBatcherRef.current) writeBatcherRef.current.dispose();
       cleanupImeFix();

@@ -218,6 +218,10 @@ export const ORIENTATION_SETTLE_MS = 600;
 export const RECOVER_DEBOUNCE_MS = 150;
 export const PEEK_TIMEOUT_MS = 4000;
 export const GAP_FETCH_TIMEOUT_MS = 3000;
+// Quiet-tail probe: after a burst's output goes silent this long, one peekSeq checks
+// for a lost tail (no later chunk exists to trip the seq law).
+export const QUIET_PROBE_AFTER_MS = 5000;
+export const QUIET_PROBE_POLL_MS = 2000;
 export const JOIN_ACK_TIMEOUT_MS = 8000;
 export const AGENT_CLIS_TTL_MS = 60000;
 export const AGENT_HISTORY_TTL_MS = 30000;

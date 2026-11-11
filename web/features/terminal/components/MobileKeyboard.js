@@ -28,12 +28,16 @@ import { useI18n } from "@/shared/i18n";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useFileBus } from "@/features/fileExplorer/hooks/useFileBus";
 import { useAttachments } from "@/features/terminal/hooks/useAttachments";
+import { emitPromptAck } from "@/features/ai/lib/promptAck";
 import { generateCombination as generateCombo } from "@/features/terminal/lib/keyCombination";
 import PathSuggestion from "@/shared/components/ui/PathSuggestion";
 import VoicePill from "@/shared/components/ui/VoicePill";
 import { makeDirCache, parsePathInput, pickMatches } from "@/features/terminal/utils/pathSuggest";
 import { PATH_SUGGEST } from "@/features/terminal/constants/terminalConfig";
 import { isMac } from "@/features/terminal/constants/shortcuts";
+
+// A PTY write answers in well under a second; past this it fell into a dead carrier.
+const INPUT_ACK_TIMEOUT_MS = 4000;
 
 const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, platform, onInput, onSwitchSession, onSwitchToIndex, onInputFocusChange, statusStrip = null, isDesktop = false }) => {
   const { t, locale } = useI18n();
@@ -67,6 +71,8 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, pla
   const textInputRef = useRef(null);
   const pasteInputRef = useRef(null);
   const isSendingRef = useRef(false);
+  // Set when a composed send never landed; the box keeps the text for a retry.
+  const [sendFailed, setSendFailed] = useState(false);
   // Physical ArrowUp/Down navigate command history; -1 = editing live draft.
   const historyIndexRef = useRef(-1);
   const draftRef = useRef("");
@@ -272,8 +278,25 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, pla
     const text = e.clipboardData?.getData("text");
     if (text && bus) {
       onInput?.(sessionId);
-      bus.emit("input", { sessionId, data: text });
       vibrate();
+      if (busRef.current?.hostCaps?.inputAck) {
+        // A paste that never landed keeps the box open with the text — no retyping
+        // from memory (the clipboard may already have moved on).
+        emitPromptAck(
+          (payload, done) => bus.emit("input", payload, done),
+          { sessionId, data: text },
+          INPUT_ACK_TIMEOUT_MS,
+          () => {
+            setShowPasteInput(true);
+            requestAnimationFrame(() => {
+              const el = pasteInputRef.current;
+              if (el) { el.value = text; el.focus(); }
+            });
+          }
+        );
+      } else {
+        bus.emit("input", { sessionId, data: text });
+      }
     }
     setShowPasteInput(false);
   };
@@ -322,6 +345,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, pla
     // Clear DOM and state immediately to prevent duplicate sends from rapid keydowns/blurs
     if (textInputRef.current) textInputRef.current.value = "";
     setTextInput("");
+    setSendFailed(false);
     historyIndexRef.current = -1;
 
     // Expand a bare snippet alias (e.g. "nrd" -> "npm run dev") before sending.
@@ -331,17 +355,45 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, pla
     // Attachments first (serially), then text — mirrors paste-image-then-type on the host.
     const pending = attachments;
     if (pending.length) setAttachments([]);
+    const failedAtts = [];
     for (const att of pending) {
-      await sendOneAttachment(att);
+      if (!await sendOneAttachment(att)) failedAtts.push(att);
       await new Promise((r) => setTimeout(r, CLIPBOARD_ATTACH_GAP));
     }
+    if (failedAtts.length) {
+      setAttachments((prev) => [...failedAtts, ...prev]);
+      setSendFailed(true);
+    }
 
+    // Restore only into an empty box: overwriting words the user already started
+    // typing would trade a lost command for lost keystrokes (history still has it).
+    const failSend = () => {
+      const el = textInputRef.current;
+      if (el && !el.value && text) { el.value = text; setTextInput(text); }
+      setSendFailed(true);
+    };
     if (text === "") {
       if (!pending.length) bus.emit("input", { sessionId, data: "\r" });
     } else {
-      // Send text first, then Enter after a short delay so PTY reliably
-      // receives both (mobile/IME may otherwise drop the Enter).
-      bus.emit("input", { sessionId, data: text });
+      // Enter rides right behind the text (in order on the sequenced stream, so an
+      // Enter that lands means the text before it landed). Only a host that
+      // announced inputAck may be asked for proof — an older one is fire-and-forget.
+      if (busRef.current?.hostCaps?.inputAck) {
+        emitPromptAck(
+          (payload, done) => bus.emit("input", payload, done),
+          { sessionId, data: text },
+          INPUT_ACK_TIMEOUT_MS,
+          failSend,
+          setTimeout, clearTimeout,
+          () => {
+            setSendFailed(false);
+            const el = textInputRef.current;
+            if (el && text && el.value === text) { el.value = ""; setTextInput(""); }
+          }
+        );
+      } else {
+        bus.emit("input", { sessionId, data: text });
+      }
       setTimeout(() => bus.emit("input", { sessionId, data: "\r" }), INPUT_ENTER_DELAY);
       addCommand(text);
     }
@@ -456,6 +508,9 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, pla
           <div className={`relative flex-1 bg-surface-2 transition-all duration-150 ease-out input-focus-glow border-border-subtle ${
             isDesktop ? "rounded-none border-0 border-r" : "rounded-xl border"
           }`}>
+            {sendFailed && (
+              <div className="px-2 pt-1 text-[10px] text-danger truncate">{t("common.inputNotSent")}</div>
+            )}
             <PathSuggestion
               items={pathItems}
               activeIndex={pathActiveClamped}

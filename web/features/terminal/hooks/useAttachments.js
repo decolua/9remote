@@ -40,13 +40,15 @@ export function useAttachments({ bus, sessionId }) {
 
   // Push one attachment into the host OS clipboard + Ctrl+V, waiting for ack so
   // the CLI reads it before the next overwrites the clipboard.
+  // Resolves true only when the host says it wrote the file — a lost or refused
+  // attachment must go back to the tray, not vanish with the cleared batch.
   const sendOneAttachment = useCallback((att) => new Promise((resolve) => {
     let done = false;
-    const finish = () => { if (!done) { done = true; resolve(); } };
-    // No bus (foreign pane still connecting) — drop the attachment rather than
-    // throwing; the timeout resolves the batch either way.
-    bus?.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content }, finish);
-    setTimeout(finish, CLIPBOARD_ATTACH_TIMEOUT);
+    const finish = (landed) => { if (!done) { done = true; resolve(Boolean(landed)); } };
+    if (!bus) return finish(false); // no bus (foreign pane still connecting) — keep it staged
+    bus.emit("clipboard-attach", { sessionId, filename: att.name, type: att.type, content: att.content },
+      (res) => finish(res?.success !== false));
+    setTimeout(() => finish(false), CLIPBOARD_ATTACH_TIMEOUT);
   }), [bus, sessionId]);
 
   const handleFileUpload = useCallback(async (event) => {

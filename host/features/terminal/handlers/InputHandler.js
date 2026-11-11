@@ -85,13 +85,27 @@ function applyResize(sessions, sessionId, cols, rows) {
 }
 
 export function setupInputHandlers(socket, sessions) {
-  socket.on("input", ({ sessionId, data }) => {
-    if (!sessionId) return;
+  // cb is optional: per-keystroke passthrough never passes one; composed sends from the
+  // mobile input box do, so a dead carrier can surface as "not sent" instead of a swallow.
+  socket.on("input", ({ sessionId, data }, cb) => {
+    if (!sessionId) return cb?.({ ok: false, error: "no-session-id" });
     const session = sessions.get(sessionId);
-    if (!session) return;
+    if (!session) return cb?.({ ok: false, error: "no-session" });
     trackLaunchLine(sessionId, data);
-    if (session.daemon && daemonClient.isConnected()) return daemonClient.sendInput(sessionId, data);
-    if (session.pty) session.pty.write(Buffer.isBuffer(data) ? data.toString("utf-8") : data);
+    if (session.daemon && daemonClient.isConnected()) {
+      // sendInput is fire-and-forget over the unix socket: a truthy return means the
+      // write was accepted — the strongest landed-signal this path can give.
+      const written = daemonClient.sendInput(sessionId, data);
+      return cb?.(written ? { ok: true } : { ok: false, error: "daemon-write-failed" });
+    }
+    if (session.pty) {
+      try {
+        session.pty.write(Buffer.isBuffer(data) ? data.toString("utf-8") : data);
+        cb?.({ ok: true });
+      } catch (e) {
+        return cb?.({ ok: false, error: e?.message || "write-failed" });
+      }
+    }
   });
 
   socket.on("resize", ({ sessionId, cols, rows }) => {
