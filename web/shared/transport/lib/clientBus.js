@@ -33,6 +33,9 @@ export function createClientBus(pm) {
     _listeners: listeners,
 
     get connected() { return pm._anyAdapterReady(); },
+    // Host capabilities (srvCaps) — new-client behaviors gate on these so a version
+    // gap degrades to the old wire contract instead of misreading silence.
+    get hostCaps() { return pm._srvCaps || {}; },
     // Only a WS session has a socket id; an RTC-only session legitimately has none.
     get id() { return pm._rawSocket?.id || null; },
 

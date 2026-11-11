@@ -105,6 +105,8 @@ export const WS_BINARY_BACKPRESSURE_BYTES = 1 * 1024 * 1024;
 // reorder/duplicate/loss races and the ack false-negative on RTC death.
 // Mirrored in web/shared/constants/transport.js.
 export const SEQ_CTL = {
+  // Min gap between "conn:notAdmitted" notices to one peer.
+  notAdmittedNoticeMs: 3000,
   ringMaxBytes: 4 * 1024 * 1024,
   maxEntries: 2000,
   holdMax: 256,

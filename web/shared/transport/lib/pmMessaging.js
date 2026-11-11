@@ -1,4 +1,4 @@
-import { CHANNELS, ADAPTER_STATE, RTC_HEARTBEAT_LEGACY_TIMEOUT_MS } from "@/shared/constants/transport";
+import { CHANNELS, ADAPTER_STATE, RTC_HEARTBEAT_LEGACY_TIMEOUT_MS, NOT_ADMITTED, SEQ_CTL } from "@/shared/constants/transport";
 import { STREAM_EVENTS } from "../seqStream";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
@@ -25,6 +25,7 @@ export function sendControl(pm, event, args) {
 function registerAck(pm, event, args, cb) {
   const ackId = `c_${++pm._ackSeq}`;
   pm._pendingAcks.set(ackId, cb);
+  pm._ackReqs?.set(ackId, { event, args, tries: 0 });
   pm._scheduleAckTimeout(ackId, { event, args, ackId });
   return ackId;
 }
@@ -67,6 +68,18 @@ function sendOn(pm, adapter, env) {
 function resolveAck(pm, ackId, resp) {
   const cb = pm._pendingAcks.get(ackId);
   if (!cb) return;
+  // Refused by a stale admission, not by the feature: hold it, repair the
+  // connection, re-send after device:approved. Bounded — past the cap the
+  // caller gets the refusal and shows its own "not sent".
+  const req = pm._ackReqs?.get(ackId);
+  if (resp?.[0]?.error === NOT_ADMITTED && req && req.tries < SEQ_CTL.admitRetryMax) {
+    req.tries++;
+    if (!pm._admitQueue.includes(ackId)) pm._admitQueue.push(ackId);
+    termLog("switch", `not-admitted ${req.event} → hold for re-admission (try ${req.tries})`);
+    recoverAdmission(pm, "ack");
+    return;
+  }
+  pm._ackReqs?.delete(ackId);
   pm._pendingAcks.delete(ackId);
   const t = pm._ackTimers.get(ackId);
   if (t) { clearTimeout(t); pm._ackTimers.delete(ackId); }
@@ -122,15 +135,45 @@ function serveGap(pm, { from, to } = {}) {
 // Dispatch incoming message from RTC or WS carrier.
 export function dispatch(pm, event, payload, source) {
   // WS carries the envelope wrapper (payload IS the wire — adapters hand us the
-  // event's first arg); RTC carries the same fields inline.
+  // event's first arg); RTC carries two shapes: a control envelope (args array)
+  // or bare lane data (tiles) that must arrive as the single first arg.
   let env;
   if (event === STREAM_EVENTS.ENV) env = payload;
-  else if (source === "rtc") env = payload?.event ? payload : { ...payload, event, args: payload?.args };
+  else if (source === "rtc") {
+    env = Array.isArray(payload?.args)
+      ? { ...payload, event }
+      : { event, args: [payload], ackId: null, sq: null, ep: null };
+  }
   else env = { event, args: [payload], ackId: null };
   if (!env?.event) return;
   if (Number.isInteger(env.rs)) pm._outLog.setApplied(env.rs);
   if (Number.isInteger(env.sq) && !pm._intakeSeq.armed && pm._peerSeqCtl) pm._intakeSeq.arm();
   pm._intakeSeq.push(env);
+}
+
+/** The host's admission for this PM went stale (its connection closed under a live
+ *  carrier). Re-dial one carrier so the host admits a fresh connection; the held
+ *  requests ride again on the device:approved that follows. */
+export function recoverAdmission(pm, reason) {
+  const now = Date.now();
+  if (now - pm._admitKickAt < SEQ_CTL.admitKickMinMs) return;
+  pm._admitKickAt = now;
+  const ws = pm._adapters.get("ws");
+  termLog("switch", `admission stale (${reason}) → re-dial ${ws ? "ws" : "rtc"}`);
+  if (ws?.forceReconnect) { try { ws.forceReconnect(); } catch {} return; }
+  pm._forceRestartRtc?.("not-admitted");
+}
+
+function resendAdmitQueue(pm) {
+  const queue = pm._admitQueue.splice(0);
+  if (!queue.length) return;
+  termLog("switch", `re-admitted → re-send ${queue.length} held request(s)`);
+  for (const ackId of queue) {
+    const req = pm._ackReqs.get(ackId);
+    if (!req || !pm._pendingAcks.has(ackId)) continue;
+    pm._outLog.append({ event: req.event, args: req.args, ackId });
+  }
+  ship(pm);
 }
 
 /** Application-level events that must run before/sidestep the sequencer. */
@@ -148,8 +191,13 @@ export function handleControlEvent(pm, env) {
     pm._adapters.get("rtc")?.setPeerCaps?.(pm._srvCaps);
     return;
   }
+  if (event === "conn:notAdmitted") {
+    recoverAdmission(pm, "notice");
+    return;
+  }
   if (event === "device:approved") {
     pm._awaitingApproval = false;
+    resendAdmitQueue(pm);
     const rtc = pm._adapters.get("rtc");
     if (pm._canSignal() && (!rtc || rtc.state === ADAPTER_STATE.closed)) pm._restartRtc("device-approved");
   }
@@ -211,6 +259,8 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
     const cb = pm._pendingAcks.get(ackId);
     const rtc = pm._adapters.get("rtc");
     const ws = pm._adapters.get("ws");
+    // Held for re-admission: the carrier is fine, the host just has not re-admitted yet.
+    if (pm._admitQueue?.includes(ackId)) return;
 
     // Stream active: the request re-sends itself on whichever carrier is up and
     // the host answers once, so a missing ack is not a zombie signal — leave it

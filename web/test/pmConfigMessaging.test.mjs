@@ -205,6 +205,15 @@ test("dispatch: a WS __env wrapper unwraps to the inner envelope (payload IS the
   assert.equal(pm._outLog.applied, 1, "peer rs watermark recorded");
 });
 
+test("dispatch: RTC bare lane data (tiles) arrives as the single first arg", () => {
+  const pm = makePm();
+  const seen = [];
+  pm._sockListeners.set("tiles-data", [(...a) => seen.push(a)]);
+  const tiles = { tiles: [1, 2], timestamp: 5, transport: "dc-stun" };
+  dispatch(pm, "tiles-data", tiles, "rtc");
+  assert.deepEqual(seen, [[tiles]], "tiles must reach the listener, not be flattened to []");
+});
+
 test("dispatch: device:approved clears the flag and renegotiates when rtc is dead", () => {
   const pm = makePm();
   pm._awaitingApproval = true;
@@ -275,6 +284,66 @@ test("dispatch: tunnel:updated sets tunnelUrl and retries ws", () => {
   assert.equal(pm._auth.localIp, "192.168.1.10:2208");
   assert.equal(retried, true);
   assert.deepEqual(urlUpdate, { tunnelUrl: "https://new-tunnel.test", localIp: "192.168.1.10:2208" });
+});
+
+
+// ── a stale admission (host closed the connection under a live carrier) ──
+// The host answers a gated request with not-admitted. The request must not surface
+// as a failure: the PM re-dials once and re-sends it after device:approved.
+const fakeWs = () => {
+  const ws = { kicks: 0, forceReconnect() { ws.kicks++; } };
+  return ws;
+};
+const deliverAck = (pm, ackId, payload) =>
+  dispatch(pm, STREAM_EVENTS.ACK, { event: STREAM_EVENTS.ACK, args: [payload], ackId }, "rtc");
+
+test("not-admitted: the request is held, the carrier re-dialed, the caller not told", () => {
+  const ws = fakeWs();
+  const pm = makePm({ adapters: { ws } });
+  const answers = [];
+  sendControl(pm, "createSession", [{ name: "t" }, (res) => answers.push(res)]);
+  const [ackId] = [...pm._pendingAcks.keys()];
+  deliverAck(pm, ackId, { ok: false, success: false, error: "not-admitted" });
+  assert.deepEqual(answers, [], "a refusal the PM can repair is not the caller's failure");
+  assert.equal(ws.kicks, 1, "one re-dial to get a fresh admission");
+  assert.deepEqual(pm._admitQueue, [ackId]);
+});
+
+test("device:approved re-sends the held request, and its real answer reaches the caller", () => {
+  const ws = fakeWs();
+  const pm = makePm({ adapters: { ws } });
+  const answers = [];
+  sendControl(pm, "createSession", [{ name: "t" }, (res) => answers.push(res)]);
+  const [ackId] = [...pm._pendingAcks.keys()];
+  deliverAck(pm, ackId, { error: "not-admitted" });
+  const before = pm._outLog.nextSeq;
+  dispatch(pm, "device:approved", { event: "device:approved", args: [{}] }, "rtc");
+  assert.equal(pm._outLog.nextSeq, before + 1, "the held request is back in the ring");
+  deliverAck(pm, ackId, { success: true, sessionId: "s1" });
+  assert.deepEqual(answers, [{ success: true, sessionId: "s1" }]);
+  assert.equal(pm._ackReqs.has(ackId), false, "settled requests leave no copy behind");
+});
+
+test("not-admitted past the retry cap reaches the caller — never an endless loop", () => {
+  const pm = makePm({ adapters: { ws: fakeWs() } });
+  const answers = [];
+  sendControl(pm, "ai:prompt", [{ message: "hi" }, (res) => answers.push(res)]);
+  const [ackId] = [...pm._pendingAcks.keys()];
+  for (let i = 0; i < 3; i++) {
+    pm._admitKickAt = 0;
+    deliverAck(pm, ackId, { error: "not-admitted" });
+  }
+  assert.deepEqual(answers, [{ error: "not-admitted" }], "the UI's own lost-prompt path takes over");
+});
+
+test("a burst of refusals re-dials once, not per request", () => {
+  const ws = fakeWs();
+  const pm = makePm({ adapters: { ws } });
+  for (let i = 0; i < 5; i++) sendControl(pm, "getSessions", [() => {}]);
+  for (const id of [...pm._pendingAcks.keys()]) deliverAck(pm, id, { error: "not-admitted" });
+  dispatch(pm, "conn:notAdmitted", { event: "conn:notAdmitted", args: [{}] }, "rtc");
+  assert.equal(ws.kicks, 1, "one repair per episode");
+  assert.equal(pm._admitQueue.length, 5);
 });
 
 await Promise.all(tests);

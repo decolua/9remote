@@ -332,3 +332,27 @@ test("a carrier that is attached but not ready does not count as connected", () 
   s.attach("ws", fakeCarrier(false));
   assert.equal(s.connected, false);
 });
+
+// A WS socket that joined an RTC session BORROWS that session's connection.
+// Mobile backgrounding drops both carriers at once; WS disconnect then saw
+// "nothing connected" and closed the borrowed connection while RTC was mid
+// renegotiation — the session's PM survived and gated every event (prompts,
+// createSession) against a closed connection: silent drops until a reload.
+test("a WS that borrowed an RTC session's connection never closes it on its own disconnect", async () => {
+  const { readFileSync } = await import("fs");
+  const SERVER = readFileSync(new URL("../transport/server.js", import.meta.url), "utf8");
+  assert.match(SERVER, /if \(!conn\.connected && !socket\.data\?\.rtcHost\) conn\.close\("carrier-gone"\);/,
+    "the borrowed connection belongs to the RTC session's own lifecycle");
+  const PM = readFileSync(new URL("../transport/ProtocolManager.js", import.meta.url), "utf8");
+  assert.match(PM, /state === ADAPTER_STATE\.closed && this\._host\?\.defersWsAdapter && !this\.hasReadyAdapter\(\)/,
+    "the session's dead-timer arms on the LAST carrier, whichever it is");
+});
+
+test("an RTC session with a closed connection is treated as stale on both doors", async () => {
+  const { readFileSync } = await import("fs");
+  const SERVER = readFileSync(new URL("../transport/server.js", import.meta.url), "utf8");
+  assert.match(SERVER, /if \(!existing\.data\.protocol\?\._closed && !existing\.data\.conn\?\.closed\) return;/,
+    "a renegotiating RTC offer must not land in a PM whose connection closed");
+  assert.match(SERVER, /if \(rtcSession\?\.data\.conn\?\.closed\) \{[\s\S]*?killRtcSession\(peerId\);/,
+    "a reconnecting WS must not borrow a closed connection");
+});

@@ -208,7 +208,7 @@ function syncClientSession(socket) {
   issueKeyToPairedDevice(socket);
   const info = setupTerminalSocket._buildServerInfo?.();
   if (info) socket.emit("serverInfo", info);
-  socket.emit("srvCaps", { env2: 1, fragCtl: 1, seqCtl: 1 });
+  socket.emit("srvCaps", { env2: 1, fragCtl: 1, seqCtl: 1, inputAck: 1, promptDedupe: 1 });
   socket.emit("tunnel:updated", getTunnelPayload());
 }
 
@@ -351,8 +351,8 @@ function handleRtcOffer(peerId) {
 
   const existing = rtcSessions.get(peerId);
   if (existing) {
-    // Still-building sessions own the offer too; only a closed PM is stale.
-    if (!existing.data.protocol?._closed) return;
+    // Still-building sessions own the offer too; a closed PM or a closed connection is stale.
+    if (!existing.data.protocol?._closed && !existing.data.conn?.closed) return;
     pushUiLogDebug(`Stale RTC session ${deviceId.slice(0, 8)} — rebuilding`);
     killRtcSession(peerId);
   }
@@ -858,7 +858,10 @@ export async function startTransportServer(server) {
       const conn = socket.data?.conn;
       if (conn) {
         conn.detach("ws");
-        if (!conn.connected) conn.close("carrier-gone");
+        // A borrowed connection (WS joined an RTC session) is not ours to close: the RTC
+        // peer is often mid-renegotiation right now (app backgrounded), and closing here
+        // left the live PM gating every event against a dead connection.
+        if (!conn.connected && !socket.data?.rtcHost) conn.close("carrier-gone");
       }
       const pm = socket.data?.protocol;
       pushUiLogDebug(`Client disconnected: ${ip} (${reason}) pm=${pm?._deviceId?.slice(0, 12) || "none"} remoteAttached=${!!socket.data?.remoteAttached}`);
@@ -922,7 +925,13 @@ export async function startTransportServer(server) {
       };
 
       // A buffered RTC offer will build a session shortly — grace-wait instead of a duplicate PM.
-      const rtcSession = peerId ? rtcSessions.get(peerId) : null;
+      let rtcSession = peerId ? rtcSessions.get(peerId) : null;
+      // Never join a session whose connection is gone: its gate would drop every event.
+      if (rtcSession?.data.conn?.closed) {
+        logger.warn(`route: stale RTC session (conn closed) peer=${peerId.slice(0, 12)} → rebuild`);
+        killRtcSession(peerId);
+        rtcSession = null;
+      }
       if (!rtcSession && peerId && !socket.data._rtcWaited && hasPendingOffer(peerId)) {
         socket.data._rtcWaited = true;
         pushUiLogDebug(`WS first, RTC offer pending → grace 500ms (device ${deviceId.slice(0, 8)})`);

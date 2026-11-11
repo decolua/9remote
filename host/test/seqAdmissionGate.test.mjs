@@ -92,6 +92,30 @@ test("HostBus (virtual) sessions keep their own listener-side gate", async () =>
   assert.equal(bus.listeners("getSessions").length, 1);
 });
 
+
+// A gated REQUEST used to vanish: the sender waited out its own timeout with no
+// way to tell "lost" from "refused". The gate now answers it, and tells a peer
+// whose connection closed (once per episode) to re-admit.
+test("a gated request is answered not-admitted, never left to time out", () => {
+  const socket = realSocket();
+  const { pm } = makePm(socket, "authenticating");
+  const sent = [];
+  pm._sendAck = (ackId, resp) => sent.push([ackId, resp]);
+  pm._dispatch("getSessions", { event: "getSessions", args: [{}], ackId: "c_9", sq: null, ep: null }, "rtc");
+  assert.deepEqual(sent, [["c_9", [{ ok: false, success: false, error: "not-admitted" }]]]);
+});
+
+test("a closed connection tells the peer to re-admit — once per burst", () => {
+  const socket = realSocket();
+  const { pm } = makePm(socket, "closed");
+  socket.data.conn.closed = true;
+  const notices = [];
+  pm._sendAck = () => {};
+  pm._sendControl = (ev) => notices.push(ev);
+  for (let i = 0; i < 4; i++) pm._dispatch("getSessions", { event: "getSessions", args: [{}], ackId: `c_${i}` }, "rtc");
+  assert.deepEqual(notices, ["conn:notAdmitted"]);
+});
+
 await Promise.all(tests);
 console.log(`\n${pass} passed, ${fail} failed`);
 process.exit(fail ? 1 : 0);

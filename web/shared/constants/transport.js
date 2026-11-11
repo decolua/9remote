@@ -199,7 +199,14 @@ export const WS_OUTBOUND_STALL_MS = 15000;
 // (inbound: dedupe, order, NACK gap repair). Kills the cross-carrier
 // reorder/duplicate/loss races and the ack false-negative on RTC death.
 // Mirrored in host/lib/transportConstants.js.
+// Host's answer to a request its admission gate refused (mirror of host connectionConstants).
+export const NOT_ADMITTED = "not-admitted";
+
 export const SEQ_CTL = {
+  // A request refused as not-admitted is held and re-sent after re-admission, this many times.
+  admitRetryMax: 2,
+  // Min gap between two admission repairs (carrier re-dial) for one PM.
+  admitKickMinMs: 3000,
   ringMaxBytes: 4 * 1024 * 1024,
   maxEntries: 2000,
   holdMax: 256,

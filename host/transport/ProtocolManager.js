@@ -3,7 +3,7 @@ import { WebRtcProtocol } from "./WebRtcProtocol.js";
 import { registerProtocol, getProtocol } from "./registry.js";
 import { TRANSPORT_PROFILES, CHANNELS, ADAPTER_STATE, RTC_DEAD_GRACE_MS, SIGNALING_ERRORS, SEQ_CTL } from "../lib/transportConstants.js";
 import { createOutboundLog, createIntake, newEpoch, STREAM_EVENTS } from "./seqStream.js";
-import { AUTH_EVENTS } from "../lib/connectionConstants.js";
+import { AUTH_EVENTS, NOT_ADMITTED } from "../lib/connectionConstants.js";
 import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
 import { isDeviceRejected } from "../lib/deviceApproval.js";
 import { onSignalingMessage, onSignalingReady, sendSignaling as sendGlobalSignaling, isSignalingReady } from "../lib/signalingGlobal.js";
@@ -349,14 +349,13 @@ export class ProtocolManager {
     // A lane died — replay the unconfirmed window on whatever is left (lane
     // switch). "degraded" (transient ICE blip) must not trigger a full re-send.
     if (state === ADAPTER_STATE.closed) this._flushBuffer();
-    if (state === ADAPTER_STATE.closed && adapterId === "rtc"
-      && this._host?.defersWsAdapter && !this._adapters.get("ws")?.ready) {
+    if (state === ADAPTER_STATE.closed && this._host?.defersWsAdapter && !this.hasReadyAdapter()) {
       clearTimeout(this._deadTimer);
-      logger.debug(`rtc closed, no ws on a HostBus session → ${RTC_DEAD_GRACE_MS}ms grace before declaring dead`);
+      logger.debug(`${adapterId} closed, no carrier left on a HostBus session → ${RTC_DEAD_GRACE_MS}ms grace before declaring dead`);
       this._deadTimer = setTimeout(() => {
         this._deadTimer = null;
-        if (this._closed || this._adapters.get("rtc")?.ready) {
-          logger.debug("rtc came back inside grace — session kept");
+        if (this._closed || this.hasReadyAdapter()) {
+          logger.debug("a carrier came back inside grace — session kept");
           return;
         }
         logger.info("rtc never returned → session dead");
@@ -560,7 +559,11 @@ export class ProtocolManager {
         const conn = this._host?.data?.conn;
         const allowed = conn ? conn.allows(env.event) : AUTH_EVENTS.has(env.event);
         if (!allowed) {
-          logger.warn(`[seq] drop unapproved event=${env.event} peer=${this._deviceId?.slice(0, 12) || "?"}`);
+          logger.warn(`[seq] drop unapproved event=${env.event} peer=${this._deviceId?.slice(0, 12) || "?"} conn=${conn?.state || "none"}`);
+          // A request waits on its ack — say why instead of leaving it to time out,
+          // and tell the peer once so it re-admits instead of sending into a closed gate.
+          if (env.ackId) this._sendAck(env.ackId, [{ ok: false, success: false, error: NOT_ADMITTED }]);
+          if (conn?.closed) this._noteNotAdmitted();
           return;
         }
       }
@@ -568,6 +571,14 @@ export class ProtocolManager {
       for (const fn of fns) fn(...args);
       this._host?.dispatchAny?.(env.event, args[0]);
     }
+  }
+
+  // One notice per gate episode: a burst of gated events must not become a burst of notices.
+  _noteNotAdmitted() {
+    const now = Date.now();
+    if (now - (this._notAdmittedAt || 0) < SEQ_CTL.notAdmittedNoticeMs) return;
+    this._notAdmittedAt = now;
+    this._sendControl("conn:notAdmitted", [{}]);
   }
 
   _dispatchAck(env) {

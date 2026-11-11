@@ -107,6 +107,10 @@ export function initialState() {
     // Sequenced control stream — outbound replay ring + one-door inbound
     // sequencer. See seqStream.js; armed once the host announces caps.seqCtl.
     _peerSeqCtl: false,
+    // Requests the host refused as not-admitted: re-sent once it says device:approved.
+    _ackReqs: new Map(),   // ackId → {event, args, tries}
+    _admitQueue: [],       // ackIds waiting for re-admission
+    _admitKickAt: 0,
     _seqEpoch: newEpoch(),
     _outLog: createOutboundLog({ maxBytes: SEQ_CTL.ringMaxBytes, maxEntries: SEQ_CTL.maxEntries }),
     _intakeSeq: null // built by the PM constructor (needs `deliver`, which needs the PM)

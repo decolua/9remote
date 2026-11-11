@@ -277,6 +277,8 @@ export class ProtocolManager {
       if (t) clearTimeout(t);
     }
     this._pendingAcks.clear();
+    this._ackReqs?.clear();
+    this._admitQueue = [];
     for (const t of this._ackTimers.values()) clearTimeout(t);
     this._ackTimers.clear();
   }

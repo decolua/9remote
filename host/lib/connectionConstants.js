@@ -19,6 +19,10 @@ export const CONNECTION_STATE = {
 
 // The only events a connection carries before it is active. They are how a device
 // stops being unauthenticated, so blocking them would deadlock the handshake.
+// Error code answered to a gated request, so the sender can tell "lost" from "refused
+// until the connection is re-admitted" and recover instead of waiting out a timeout.
+export const NOT_ADMITTED = "not-admitted";
+
 export const AUTH_EVENTS = new Set([
   "device:tailProof",
   "device:clientReady",
