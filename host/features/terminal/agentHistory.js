@@ -593,13 +593,12 @@ function hermesDbRows(cwd) {
   try {
     db = new sqlite.DatabaseSync(dbPath, { readOnly: true });
     const cols = db.prepare("PRAGMA table_info(sessions)").all();
-    // Pre-0.11 state.db has no cwd column and nothing else carries it — the
-    // honest list is the RECENT sessions (every project), not an empty one.
+    // Pre-0.11 state.db has no cwd column — cannot scope by project, return no rows.
+    if (!cols.some((c) => c.name === "cwd")) return [];
     // Rows with no title are background/worker sessions, not conversations.
-    const [stmt, args] = cols.some((c) => c.name === "cwd")
-      ? [db.prepare("SELECT id, title, started_at FROM sessions WHERE cwd = ? AND title != '' ORDER BY started_at DESC LIMIT ?"), [cwd, HISTORY.PER_AGENT_LIMIT]]
-      : [db.prepare("SELECT id, title, started_at FROM sessions WHERE title != '' ORDER BY started_at DESC LIMIT ?"), [HISTORY.PER_AGENT_LIMIT]];
-    return stmt.all(...args).map((r) => ({
+    return db.prepare("SELECT id, title, started_at FROM sessions WHERE cwd = ? AND title != '' ORDER BY started_at DESC LIMIT ?")
+      .all(cwd, HISTORY.PER_AGENT_LIMIT)
+      .map((r) => ({
       sessionId: r.id,
       title: cleanTitle(r.title),
       cwd,

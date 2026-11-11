@@ -69,7 +69,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
             </button>
           </div>
         </div>
-        <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable p-3">
+        <div className="flex-1 min-h-0 max-h-[70vh] overflow-y-auto modal-scrollable p-3">
           {pinned.length === 0 && history.length === 0 ? (
             <div className="flex flex-col items-center justify-center gap-2 py-12 text-text-muted">
               <History size={32} className="opacity-50" />
