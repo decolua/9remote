@@ -19,6 +19,7 @@ import { termLog } from "@/shared/utils/termLog";
 import { RECOVER_DEBOUNCE_MS, PEEK_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
 import { RESOLVE_ACK_TIMEOUT_MS, PROMPT_ACK_TIMEOUT_MS } from "../constants";
 import { emitPromptAck } from "../lib/promptAck";
+import { addPending, removePending, removePendingByText, takeOrphans } from "../lib/pendingPrompts";
 
 // CLI reports skills as bare id strings, the agent scan as objects; normalize to one shape.
 const normalizeSkills = (skills) =>
@@ -39,6 +40,12 @@ const SILENCE_PEEK_MAX_MS = 120_000;
 const GAP_CONFIRM_MS = 1500;
 // Events held while a hole is fetched; past this the pane resyncs whole instead.
 const MAX_GAP_HELD = 200;
+// A pane asking again this soon after an answered hydrate has nothing new to learn.
+const HYDRATE_FRESH_MS = 1500;
+// Automatic resends after a reconnect — past this the manual bar is the only road.
+const PROMPT_AUTO_RETRY_MAX = 2;
+// This page life — a pending prompt stamped with it is in flight here, not an orphan.
+const PAGE_ID = Math.random().toString(36).slice(2, 10);
 
 // The CLI reports some failures twice (streamed prose + `result`); only the last message is checked to stay cheap.
 function alreadySaid(messages, text) {
@@ -392,6 +399,25 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   };
 }
 
+// A reload between send and ack: offer back what the replayed log does not show as delivered.
+function surfaceOrphanPrompts(sid, events) {
+  const deliveredTexts = (events || []).filter((e) => e.event === "user_message").map((e) => e.data?.text);
+  const orphans = takeOrphans(sid, { deliveredTexts, page: PAGE_ID, minAgeMs: PROMPT_ACK_TIMEOUT_MS });
+  for (const p of orphans) useAiStore.getState().setPromptError(sid, p.text, "reload", null, p.id);
+}
+
+// The host echoed a prompt the composer reported lost — drop that part, keep any other.
+function clearEchoedPromptError(sid, echoed) {
+  const lost = useAiStore.getState().bySession[sid]?.promptError;
+  if (!lost || !echoed) return;
+  if (lost.text === echoed) { useAiStore.getState().clearPromptError(sid); return; }
+  const sep = "\n\n";
+  let rest = null;
+  if (lost.text.startsWith(echoed + sep)) rest = lost.text.slice(echoed.length + sep.length);
+  else if (lost.text.endsWith(sep + echoed)) rest = lost.text.slice(0, -(echoed.length + sep.length));
+  if (rest != null) useAiStore.getState().setPromptErrorText(sid, rest);
+}
+
 export function useAiSession({
   sessionId,
   engine = "claude",
@@ -442,10 +468,12 @@ export function useAiSession({
       case "user_message":
         // `replay` marks a re-sent log: the prompt already happened, so it opens no turn.
         addUserMessage(sid, data.text, data.attachments || null, Boolean(data?.replay));
-        // Echo of a prompt the composer reported lost — the host did get it.
-        if (useAiStore.getState().bySession[sid]?.promptError?.text === data.text) {
-          useAiStore.getState().clearPromptError(sid);
+        if (!data?.replay) {
+          removePendingByText(sid, data.text);
+          useAiStore.getState().clearPromptSending(sid, data.text);
         }
+        // Echo of a prompt the composer reported lost — the host did get it.
+        clearEchoedPromptError(sid, data.text);
         break;
       case "init": {
         // Keep persisted descriptions when the CLI's bare ids arrive second.
@@ -635,9 +663,15 @@ export function useAiSession({
   if (ladderRef.current == null) ladderRef.current = createRetryLadder();
   const retryTimerRef = useRef(null);
   const hydrateDebounceRef = useRef(null);
+  const lastHydrateOkAtRef = useRef(0);
   const releaseTimerRef = useRef(null);
   // The ladder's timer fires outside render — it reaches the door through this ref.
   const doorRef = useRef({});
+  // The same-log range patch (scheduleGapFetch), reached from the resume peek below.
+  const gapFetchRef = useRef(null);
+  // Auto-resend reaches back into sendPrompt, which is defined below the effects.
+  // Auto-resend reaches back into sendPrompt, which is defined below the effects.
+  const autoResendRef = useRef(null);
   // Session that last owned the gate; a late workspacePath re-run must not reopen it.
   const gateSessionRef = useRef(null);
 
@@ -902,17 +936,23 @@ export function useAiSession({
         // the carrier reports a dead RTC) means the host was never reached, so the rung
         // armed while this round was in flight keeps its timer — and one that was never
         // armed is armed now, or that dropped frame costs the pane its history for good.
-        if (res?.ok) { setSynced(true); setHydrateFailed(false); clearHydrateRetry(); }
+        if (res?.ok) {
+          setSynced(true); setHydrateFailed(false); clearHydrateRetry();
+          lastHydrateOkAtRef.current = Date.now();
+          surfaceOrphanPrompts(sessionId, res.session?.events);
+        }
         else scheduleHydrateRetry();
       }
     });
   }, [sessionId, engine, workspacePath, bus, setTurnRunning, scheduleHydrateRetry, clearHydrateRetry]);
 
-  const requestHydrate = useCallback(() => {
+  // `force`: a repair (epoch/gap) must pull even right after a hydrate; triggers need not.
+  const requestHydrate = useCallback((force = false) => {
     // Offline, the send would sit in the carrier's buffer to be answered by a host that
     // has moved on — the bus "connect" trigger asks again once there is someone to ask.
     if (!useConnectionStore.getState().connected) return;
     if (hydrateDebounceRef.current) return; // burst already pending
+    if (!force && Date.now() - lastHydrateOkAtRef.current < HYDRATE_FRESH_MS) return;
     hydrateDebounceRef.current = setTimeout(() => {
       hydrateDebounceRef.current = null;
       hydrateNow();
@@ -960,8 +1000,21 @@ export function useAiSession({
           termLog("ai-hydrate", "peekSeq: nothing missed", { seq: lastSeq });
           return;
         }
+        // Watermark known to be the same log: nothing structural changed. Behind on it
+        // (a mobile sleep that lost the streaming tail) → patch the missing range in
+        // place. The destructive replay here is what wiped the older pages the reader
+        // had scrolled up to load and snapped the view to the tail on every resume.
+        const sameLog = res.epoch != null && res.epoch === logEpochRef.current;
+        if (res.seq > lastSeq && sameLog && gapFetchRef.current?.()) return;
+        // Flag-only drift with the watermark in sync: no events were lost — patch the
+        // flag, keep the view exactly where it is.
+        if (res.seq === lastSeq && sameLog && hostQueueLen === currentQueueLen) {
+          termLog("ai-hydrate", "peekSeq: turn-flag drift patched in place", { seq: lastSeq, turn: res.isTurnRunning });
+          useAiStore.getState().setTurnRunning(sessionId, Boolean(res.isTurnRunning));
+          return;
+        }
         termLog("ai-hydrate", "peekSeq: state changed", { fromSeq: lastSeq, toSeq: res.seq, turn: res.isTurnRunning });
-        requestHydrate();
+        requestHydrate(true);
       });
     }, RECOVER_DEBOUNCE_MS);
   }, [bus, sessionId, requestHydrate]);
@@ -981,7 +1034,7 @@ export function useAiSession({
   // the newest callback through a ref rather than through a captured closure. Nothing
   // clears this: the only caller is the ladder's timer, and the effect below stops it.
   useEffect(() => {
-    doorRef.current = { request: requestHydrate };
+    doorRef.current = { request: () => requestHydrate(true) };
   }, [requestHydrate]);
 
   // Leaving the session stops every timer that could emit for it, and drops the gate. Both
@@ -1058,6 +1111,7 @@ export function useAiSession({
       if (!document.hidden) peekSeqCheck();
     };
     const onConnect = () => {
+      autoResendRef.current?.(); // offline-lost prompts go out the moment a carrier is back
       if (!isVisibleRef.current) {
         pendingRecoverRef.current = "reconnect";
         return;
@@ -1092,6 +1146,7 @@ export function useAiSession({
     const was = wasConnectedRef.current;
     wasConnectedRef.current = connected;
     if (connected && !was) {
+      autoResendRef.current?.();
       if (!isVisibleRef.current) {
         pendingRecoverRef.current = "reconnect";
         return;
@@ -1263,11 +1318,13 @@ export function useAiSession({
     // Fetch the missing range and splice it in. Anything the fetch cannot make safe —
     // an older host (timeout), another generation, a gap past the byte cap, or a
     // compacted stream record overlapping applied text — resyncs whole instead.
+    // Returns true when a heal is already in flight or this call started one — the
+    // resume peek treats that as handled instead of falling back to a full hydrate.
     const scheduleGapFetch = () => {
-      if (gapBusyRef.current || hydratingRef.current) return;
-      if (!useConnectionStore.getState().connected) return;
+      if (gapBusyRef.current || hydratingRef.current) return true;
+      if (!useConnectionStore.getState().connected) return false;
       const b = busRef.current;
-      if (!b) return;
+      if (!b) return false;
       gapBusyRef.current = true;
       const after = appliedSeqRef.current;
       const epoch = logEpochRef.current;
@@ -1293,7 +1350,9 @@ export function useAiSession({
       };
       const timer = setTimeout(() => finish(null), GAP_FETCH_TIMEOUT_MS);
       b.emit("aiSince", { sessionId, after, epoch }, finish);
+      return true;
     };
+    gapFetchRef.current = scheduleGapFetch;
 
     // Silence probe: a turn quiet for 10s may have lost its tail — the carrier drops
     // events nobody re-sends. Ask the host where it is; behind twice in a row (an
@@ -1339,6 +1398,7 @@ export function useAiSession({
     return () => {
       bus.off("ai:event", handleAiEvent);
       clearInterval(silenceTimer);
+      gapFetchRef.current = null;
       // A pane closing mid-frame must not swallow the last tokens it received.
       flushStreamed();
     };
@@ -1346,8 +1406,10 @@ export function useAiSession({
 
   // 3. User actions
   const sendPrompt = useCallback(
-    (text, { attachments = null } = {}) => {
+    (text, { attachments = null, promptId = null, retries = 0 } = {}) => {
       if (!text && !attachments?.length) return;
+      // One id per typed prompt; a Resend reuses it so the host can drop a repeat.
+      const id = promptId || `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       // Arm the silence probe's prompt window: a lost user_message echo leaves no
       // running flag for it to key on.
       promptSentAtRef.current = Date.now();
@@ -1365,38 +1427,94 @@ export function useAiSession({
       // the text they typed, not a path list.
       // #48: a dead-but-not-closed carrier swallows the emit silently — the ack wraps
       // it so the loss surfaces as a resendable error instead of vanishing.
-      if (b) {
-        emitPromptAck(
-          (payload, done) => b.emit("ai:prompt", payload, done),
-          {
-            sessionId,
-            message: text,
-            cwd: workspacePath,
-            ...(attachments?.length ? { attachments } : {})
-          },
-          PROMPT_ACK_TIMEOUT_MS,
-          (reason) => useAiStore.getState().setPromptError(sessionId, text, reason)
-        );
-      }
+      const onLost = (reason) => {
+        useAiStore.getState().clearPromptSending(sessionId, text);
+        useAiStore.getState().setPromptError(sessionId, text, reason, attachments, id, retries);
+      };
+      // Survives a reload until the host confirms it.
+      if (text) addPending(sessionId, { id, text, page: PAGE_ID });
+      // No bus yet (host still connecting): say so instead of dropping the prompt.
+      if (!b) { onLost("offline"); return; }
+      if (text) useAiStore.getState().setPromptSending(sessionId, text);
+      emitPromptAck(
+        (payload, done) => b.emit("ai:prompt", payload, (res) => {
+          if (res?.ok) {
+            removePending(sessionId, id);
+            useAiStore.getState().clearPromptSending(sessionId, text);
+          }
+          done(res);
+        }),
+        {
+          sessionId,
+          message: text,
+          cwd: workspacePath,
+          promptId: id,
+          ...(attachments?.length ? { attachments } : {})
+        },
+        PROMPT_ACK_TIMEOUT_MS,
+        onLost,
+        setTimeout, clearTimeout,
+        // The stream re-sent it after all — the host has it; resend would duplicate the turn.
+        () => clearEchoedPromptError(sessionId, text)
+      );
     },
     [sessionId, workspacePath]
   );
 
+  // A reconnect is the one moment a "lost" prompt is known to be retryable for free:
+  // the carrier is fresh, and the host's promptId dedupe makes a duplicate harmless.
+  const autoResendLost = useCallback(() => {
+    const lost = useAiStore.getState().bySession[sessionId]?.promptError;
+    if (!lost?.text) return;
+    // An older host cannot drop a repeated promptId — a silent resend could run the turn twice.
+    if (!busRef.current?.hostCaps?.promptDedupe) return;
+    const retries = (lost.retries || 0) + 1;
+    if (retries > PROMPT_AUTO_RETRY_MAX) return;
+    termLog("ai-prompt", "auto-resend after reconnect", { sessionId, attempt: retries });
+    useAiStore.getState().clearPromptError(sessionId);
+    sendPrompt(lost.text, { attachments: lost.attachments || null, promptId: lost.promptId || null, retries });
+  }, [sessionId, sendPrompt]);
+  useEffect(() => {
+    autoResendRef.current = autoResendLost;
+  }, [autoResendLost]);
+
   const removeQueueItem = useCallback(
     (id) => {
+      const b = busRef.current; // no bus → the host still holds it; removing locally would lie
+      if (!b) return;
       const curr = useAiStore.getState().bySession[sessionId]?.queue || [];
-      useAiStore.getState().setQueue(sessionId, curr.filter((item) => item.id !== id));
-      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
-      b?.emit("ai:queueRemove", { sessionId, id });
+      const idx = curr.findIndex((item) => item.id === id);
+      if (idx === -1) return;
+      const item = curr[idx];
+      useAiStore.getState().setQueue(sessionId, curr.filter((x) => x.id !== id));
+      // A remove that never landed would let a deleted prompt RUN when the turn ends —
+      // put it back until the host's own queue_update says otherwise.
+      emitPromptAck(
+        (payload, done) => b.emit("ai:queueRemove", payload, done),
+        { sessionId, id },
+        RESOLVE_ACK_TIMEOUT_MS,
+        () => {
+          const q = [...(useAiStore.getState().bySession[sessionId]?.queue || [])];
+          q.splice(Math.min(idx, q.length), 0, item);
+          useAiStore.getState().setQueue(sessionId, q);
+        }
+      );
     },
     [sessionId]
   );
 
   const clearQueue = useCallback(
     () => {
+      const b = busRef.current;
+      const curr = useAiStore.getState().bySession[sessionId]?.queue || [];
+      if (!b || !curr.length) return;
       useAiStore.getState().setQueue(sessionId, []);
-      const b = busRef.current; // no store fallback — null (foreign bus not up) must wait, not hit the main machine
-      b?.emit("ai:queueClear", { sessionId });
+      emitPromptAck(
+        (payload, done) => b.emit("ai:queueClear", payload, done),
+        { sessionId },
+        RESOLVE_ACK_TIMEOUT_MS,
+        () => useAiStore.getState().setQueue(sessionId, curr) // same law as remove: undone until the host agrees
+      );
     },
     [sessionId]
   );

@@ -392,13 +392,21 @@ export const AiMessagesList = memo(function AiMessagesList({
   // Poll rewind capability on prompt count change until engine writes transcript.
   const [rewind, setRewind] = useState(null);
   const rewindAsksRef = useRef(0);
+  // Fresh poll state per session — a carried-over answer or counter hid the edit button for good.
+  useEffect(() => { setRewind(null); rewindAsksRef.current = 0; }, [sessionId]);
   const promptCount = useMemo(() => messages.filter((m) => m.role === "user").length, [messages]);
   useEffect(() => {
     if (rewind?.ok || rewind?.supported === false) return;
     if (rewindAsksRef.current >= REWIND_ASKS_MAX) return;
-    rewindAsksRef.current += 1;
     let live = true;
-    onListRewindPoints?.().then((r) => { if (live) setRewind(r); }).catch(() => {});
+    onListRewindPoints?.()
+      .then((r) => {
+        if (!live) return;
+        // Count answered asks only — canceled or timed-out asks must not burn the budget.
+        rewindAsksRef.current += 1;
+        setRewind(r);
+      })
+      .catch(() => {});
     return () => { live = false; };
   }, [onListRewindPoints, engine, sessionId, promptCount, rewind?.ok, rewind?.supported]);
 

@@ -93,6 +93,61 @@ test("late ack after the timeout does not double-fire", () => {
   assert.deepEqual(lost, ["timeout"], "already settled — the late ack changes nothing");
 });
 
+test("a late ok after the timeout withdraws the error (stream delivered it)", () => {
+  const clock = fakeClock();
+  const lost = [];
+  let late = 0;
+  let ack = null;
+  emitPromptAck(
+    (payload, done) => { ack = done; },
+    { message: "hi" },
+    TIMEOUT,
+    (reason) => lost.push(reason),
+    clock.schedule, clock.clear,
+    () => late++
+  );
+  clock.advance(TIMEOUT);
+  ack({ ok: true });
+  ack({ ok: true });
+  assert.deepEqual(lost, ["timeout"]);
+  assert.equal(late, 1, "withdrawn once");
+});
+
+test("an ok after a refusal withdraws once — the stream redelivered it and it landed", () => {
+  const clock = fakeClock();
+  let late = 0;
+  let ack = null;
+  emitPromptAck(
+    (payload, done) => { ack = done; },
+    { message: "hi" },
+    TIMEOUT,
+    () => {},
+    clock.schedule, clock.clear,
+    () => late++
+  );
+  ack({ ok: false, error: "nope" });
+  ack({ ok: true });
+  ack({ ok: true });
+  assert.equal(late, 1, "first ok fires the hook, later ones do not");
+});
+
+test("an EARLY ok fires the follow-up hook — the send must complete on the happy path", () => {
+  const clock = fakeClock();
+  let ok = 0;
+  let ack = null;
+  emitPromptAck(
+    (payload, done) => { ack = done; },
+    { message: "hi" },
+    TIMEOUT,
+    () => { throw new Error("happy path must not report a loss"); },
+    clock.schedule, clock.clear,
+    () => ok++
+  );
+  ack({ ok: true });
+  clock.advance(TIMEOUT * 2);
+  assert.equal(ok, 1, "Enter-chaining hooks fire once, immediately");
+});
+
 test("queued prompt is delivered, not lost", () => {
   const clock = fakeClock();
   const lost = [];

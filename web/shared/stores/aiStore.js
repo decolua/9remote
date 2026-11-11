@@ -579,15 +579,44 @@ export const useAiStore = create(
 
       // The prompt never reached the host (dead carrier) — kept so the composer can
       // offer Resend. Cleared by the user_message echo of the same text.
-      setPromptError: (sessionId, text, reason) => {
+      setPromptError: (sessionId, text, reason, attachments = null, promptId = null, retries = 0) => {
         set((state) => {
           const curr = sessionOf(state, sessionId);
+          // A second loss must not overwrite the first — both stay recoverable.
+          const prev = curr.promptError;
+          const files = [...(prev?.attachments || []), ...(attachments || [])];
+          const merged = prev && prev.text !== text ? `${prev.text}\n\n${text}` : text;
           return {
             bySession: {
               ...state.bySession,
-              [sessionId]: { ...curr, promptError: { text, reason } }
+              // A merged text is a new prompt: only a single loss keeps its id for dedupe.
+              // retries counts automatic attempts for THIS loss; a merge starts a new one.
+              [sessionId]: { ...curr, promptError: { text: merged, reason, attachments: files.length ? files : null, promptId: prev ? null : promptId, retries: prev ? 0 : retries } }
             }
           };
+        });
+      },
+      // Prompt in flight (no ack yet) — the composer shows "Sending…" only if it lingers.
+      setPromptSending: (sessionId, text) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          return { bySession: { ...state.bySession, [sessionId]: { ...curr, promptSending: { text, at: Date.now() } } } };
+        });
+      },
+      // Cleared by the ack, the echo, or the loss — whichever names this text first.
+      clearPromptSending: (sessionId, text) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          if (!curr.promptSending || (text != null && curr.promptSending.text !== text)) return state;
+          const { promptSending, ...rest } = curr;
+          return { bySession: { ...state.bySession, [sessionId]: rest } };
+        });
+      },
+      setPromptErrorText: (sessionId, text) => {
+        set((state) => {
+          const curr = sessionOf(state, sessionId);
+          if (!curr.promptError) return state;
+          return { bySession: { ...state.bySession, [sessionId]: { ...curr, promptError: { ...curr.promptError, text } } } };
         });
       },
       clearPromptError: (sessionId) => {

@@ -24,10 +24,10 @@ export class AiManager {
   // `seq` is the position this event has in the session's replay log. It has to reach the
   // client: without it the client's "already applied" gate never fires, so a replayed turn
   // and the live copy of it both land — the same prompt drawn twice.
-  broadcastEvent(sessionId, event, data, seq) {
+  broadcastEvent(sessionId, event, data, seq, epoch) {
     for (const listener of this.eventListeners) {
       try {
-        listener(sessionId, event, data, seq);
+        listener(sessionId, event, data, seq, epoch);
       } catch {}
     }
   }
@@ -52,7 +52,7 @@ export class AiManager {
       engine,
       cwd,
       options,
-      onEvent: (sId, event, data, seq) => this.broadcastEvent(sId, event, data, seq)
+      onEvent: (sId, event, data, seq, epoch) => this.broadcastEvent(sId, event, data, seq, epoch)
     });
 
     this.sessions.set(sessionId, session);

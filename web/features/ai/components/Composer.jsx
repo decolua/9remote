@@ -7,6 +7,7 @@ import { getEngineConfig } from "../registry";
 import { buildSlashItems } from "../lib/slashMenu";
 import { buildModelSections } from "../lib/modelSections";
 import { getPathIndex, searchPathIndex } from "../lib/pathIndex";
+import { removePendingWithin } from "../lib/pendingPrompts";
 import { rankPaths, tokenAtCaret, formatMention, pathBase, FUZZY_PATH } from "@/shared/utils/fuzzyPath";
 import { MentionRow } from "./MentionRow";
 import { vibrate } from "@/shared/utils/vibration";
@@ -30,6 +31,10 @@ const MODEL_MENU_SEARCH_MIN = 20;
 const MENU_MAX_ITEMS = FUZZY_PATH.maxResults;
 // Below this, a host search matches nearly every path and the reply is noise.
 const HOST_SEARCH_MIN_QUERY = 2;
+// Window after a send in which an IME re-commit of the sent text is dropped.
+const SENT_ECHO_MS = 200;
+// A healthy send echoes well under this; only a slow one earns the "Sending…" line.
+const SENDING_HINT_DELAY_MS = 1500;
 
 export const Composer = memo(function Composer({
   sessionId = "",
@@ -77,6 +82,14 @@ export const Composer = memo(function Composer({
   const queue = useAiStore((s) => s.bySession[sessionId]?.queue) || EMPTY_ARRAY;
   // #48: prompt lost to a dead carrier — the bar offers Resend.
   const promptError = useAiStore((s) => s.bySession[sessionId]?.promptError) || null;
+  const promptSending = useAiStore((s) => s.bySession[sessionId]?.promptSending) || null;
+  const [showSending, setShowSending] = useState(false);
+  useEffect(() => {
+    setShowSending(false);
+    if (!promptSending) return;
+    const timer = setTimeout(() => setShowSending(true), SENDING_HINT_DELAY_MS);
+    return () => clearTimeout(timer);
+  }, [promptSending]);
   const [historyIdx, setHistoryIdx] = useState(-1);
   const draftRef = useRef("");
   const [menuOpen, setMenuOpen] = useState(false);
@@ -158,6 +171,8 @@ export const Composer = memo(function Composer({
   const lastCompositionEndRef = useRef(0);
   const lastSendTimeRef = useRef(0);
   const justSentRef = useRef(0);
+  // What was just sent — the IME echo guard drops only this, never fresh typing.
+  const sentTextRef = useRef("");
   const engineMeta = ENGINE_INFO[engine] || ENGINE_INFO.claude;
 
   // Auto-focus input on desktop when pane becomes active.
@@ -335,6 +350,7 @@ export const Composer = memo(function Composer({
     if (now - lastSendTimeRef.current < 250) return;
     lastSendTimeRef.current = now;
     justSentRef.current = now;
+    sentTextRef.current = (raw || text).trim();
 
     vibrate();
     if (trimmed) {
@@ -348,8 +364,9 @@ export const Composer = memo(function Composer({
     }
     try { localStorage.removeItem(`9remote_draft_${sessionId}`); } catch {}
 
+    // Attachments stay staged for the next prompt; the command still runs.
     if (trimmed.startsWith("!")) {
-      if (!pending.length) onRunShell?.(trimmed.slice(1).trim());
+      onRunShell?.(trimmed.slice(1).trim());
       return;
     }
 
@@ -363,6 +380,10 @@ export const Composer = memo(function Composer({
     });
   }, [text, sessionId, onSend, onRunShell, onResolvePermission, setAttachments, addCommand, resolveAlias]);
 
+  // A mobile IME may re-commit the text it held right after the clear.
+  const isSentEcho = (value) => Date.now() - justSentRef.current < SENT_ECHO_MS
+    && Boolean(value?.trim()) && value.trim() === sentTextRef.current;
+
   const handleStopClick = useCallback(() => {
     vibrate();
     onStop?.();
@@ -373,9 +394,22 @@ export const Composer = memo(function Composer({
     if (!lost) return;
     vibrate();
     useAiStore.getState().clearPromptError(sessionId);
-    onSend?.(lost.text);
+    // The resend records itself again; older entries folded into this text must go.
+    removePendingWithin(sessionId, lost.text);
+    onSend?.(lost.text, { attachments: lost.attachments || null, promptId: lost.promptId || null });
   }, [sessionId, onSend]);
+  // Put the lost prompt back in the box so it can be edited, not retyped.
+  const editLostPrompt = useCallback(() => {
+    const lost = useAiStore.getState().bySession[sessionId]?.promptError;
+    if (!lost) return;
+    useAiStore.getState().clearPromptError(sessionId);
+    removePendingWithin(sessionId, lost.text);
+    setText((prev) => (prev.trim() ? `${lost.text}\n${prev}` : lost.text));
+    requestAnimationFrame(() => textareaRef.current?.focus());
+  }, [sessionId]);
   const dismissPromptError = useCallback(() => {
+    const lost = useAiStore.getState().bySession[sessionId]?.promptError;
+    if (lost) removePendingWithin(sessionId, lost.text);
     useAiStore.getState().clearPromptError(sessionId);
   }, [sessionId]);
 
@@ -693,14 +727,25 @@ export const Composer = memo(function Composer({
   }, [tierSpec, matchedModel]);
 
   return (    <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">
+      {showSending && promptSending && !promptError && (
+        <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted">
+          <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse shrink-0" />
+          <span className="truncate min-w-0">{t("common.sending")} — {promptSending.text}</span>
+        </div>
+      )}
       {/* Prompt lost to a dead carrier (#48) — say so, offer the text back */}
       {promptError && (
         <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted bg-surface border border-border-subtle rounded-brand">
-          <span className="truncate">
-            {t("common.promptNotSent")}{promptError.reason && promptError.reason !== "timeout" ? `: ${promptError.reason}` : ""}
+          <span className="truncate min-w-0" title={promptError.text}>
+            {promptError.reason === "reload" ? t("common.promptRecovered")
+              : `${t("common.promptNotSent")}${promptError.reason && promptError.reason !== "timeout" ? `: ${promptError.reason}` : ""}`}
+            {promptError.text ? <span className="text-text"> — {promptError.text}</span> : null}
           </span>
           <button type="button" onClick={resendLostPrompt} className="shrink-0 text-text-muted hover:text-text underline underline-offset-2">
             {t("common.resend")}
+          </button>
+          <button type="button" onClick={editLostPrompt} className="shrink-0 text-text-muted hover:text-text underline underline-offset-2">
+            {t("common.edit")}
           </button>
           <button type="button" onClick={dismissPromptError} className="shrink-0 text-text-muted hover:text-text">
             <X size={11} />
@@ -909,7 +954,7 @@ export const Composer = memo(function Composer({
             value={text}
             onPaste={handleAttachPaste}
             onChange={(e) => {
-              if (Date.now() - justSentRef.current < 200) {
+              if (isSentEcho(e.target.value)) {
                 if (textareaRef.current) textareaRef.current.value = "";
                 return;
               }
@@ -930,7 +975,7 @@ export const Composer = memo(function Composer({
             onCompositionEnd={() => {
               isComposingRef.current = false;
               lastCompositionEndRef.current = Date.now();
-              if (Date.now() - justSentRef.current < 200) {
+              if (isSentEcho(textareaRef.current?.value)) {
                 if (textareaRef.current) textareaRef.current.value = "";
                 setText("");
               }

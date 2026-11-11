@@ -167,7 +167,8 @@ test("the live door lands exactly what the replay door does", () => {
   }
   const live = useAiStore.getState().bySession["parity"].harnessTasks;
   const replay = reduceSessionEvents(asLog(RECORDS), "claude").harnessTasks;
-  const withoutClock = (tasks) => tasks.map(({ startedAt, ...rest }) => rest);
+  // endedAt is the same Date.now() stamp — a 1ms tick between the two doors is not drift.
+  const withoutClock = (tasks) => tasks.map(({ startedAt, endedAt, ...rest }) => rest);
   assert.deepEqual(withoutClock(live), withoutClock(replay), "two doors, one reader — they must not drift");
 });
 

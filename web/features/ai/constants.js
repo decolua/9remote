@@ -43,6 +43,6 @@ export const SKIP_MESSAGE = "User skipped this request";
 export const RESOLVE_ACK_TIMEOUT_MS = 5000;
 
 // A prompt that neither acked nor errored within this window fell into a dead
-// carrier — surface it as a resendable error instead of silent loss (#48). Longer
-// than the gate's 5s: the host may auto-create the session before answering.
-export const PROMPT_ACK_TIMEOUT_MS = 8000;
+// carrier — surface it as a resendable error instead of silent loss (#48). A false
+// "lost" is cheap now: a late ack withdraws the bar and the host dedupes a resend.
+export const PROMPT_ACK_TIMEOUT_MS = 5000;

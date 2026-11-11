@@ -58,6 +58,10 @@ export const AI_REPLAY_WIDEN_BYTES = 48 * 1024;
 export const AI_SINCE_MAX_BYTES = 64 * 1024;
 
 export const AI_MAX_EVENTS = 5000;
+// Recent client prompt ids kept per session so a Resend of a delivered prompt is not run twice.
+export const AI_PROMPT_DEDUPE_MAX = 64;
+// A burst of pane mounts rebuilds the log once; each rebuild renumbers it and resets every client.
+export const AI_DOOR_REFRESH_COALESCE_MS = 2000;
 // Cap on single tool result output to prevent overflowing replay budget.
 export const AI_MAX_TOOL_OUTPUT = 16 * 1024;
 

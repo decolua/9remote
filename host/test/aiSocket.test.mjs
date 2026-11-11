@@ -191,6 +191,37 @@ await test("a recorded event carries its log seq to the client", () => {
   assert.equal(session.history.at(-1).seq, seqs.at(-1));
 });
 
+// Without the epoch a renumbered log's echo reads as "already applied" on the client and
+// the prompt the user just sent vanishes; it must survive the AiManager hop.
+await test("a live event carries its log epoch through the manager", () => {
+  const socket = new MockSocket();
+  const bus = new MockBus();
+  const manager = new AiManager();
+  setupAiHandlers(socket, bus, manager);
+  const session = manager.createSession("epoch-s1", AI_ENGINES.CLAUDE, "/tmp", { mock: true });
+
+  session.emitNormalized("delta", { text: "one" });
+  assert.equal(socket.emitted.at(-1).data.epoch, session.logEpoch);
+  assert.ok(session.logEpoch != null);
+});
+
+// A Resend after a lost ack carries the same promptId; the host already ran it once.
+await test("a repeated promptId is acked but not run twice", async () => {
+  const socket = new MockSocket();
+  const bus = new MockBus();
+  const manager = new AiManager();
+  setupAiHandlers(socket, bus, manager);
+  manager.createSession("dedupe-s1", AI_ENGINES.CLAUDE, "/tmp", { mock: true });
+
+  const first = await socket.trigger("ai:prompt", { sessionId: "dedupe-s1", message: "hi", promptId: "p-1" });
+  const again = await socket.trigger("ai:prompt", { sessionId: "dedupe-s1", message: "hi", promptId: "p-1" });
+  const echoes = socket.emitted.filter((e) => e.data?.event === "user_message");
+  assert.equal(first?.ok, true);
+  assert.equal(again?.ok, true);
+  assert.equal(again?.repeat, true);
+  assert.equal(echoes.length, 1, "the turn ran once");
+});
+
 // An unrecorded event is not in the log the client's watermark is compared against —
 // stamping it would leave the watermark past the snapshot, and the next hydrate would
 // swallow every event up to that number.
