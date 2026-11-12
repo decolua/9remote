@@ -291,6 +291,18 @@ html.light .term-tab-active,
   .ai-sheen-text { animation: none; -webkit-text-fill-color: var(--color-brand-500); }
 }
 
+/* Bar tint — alpha only, NEVER backdrop-filter here. These bars host `position:
+   fixed` popovers (header menus), and backdrop-filter would make the bar their
+   containing block: the menus would anchor to the 36px strip (wrong coordinates)
+   and paint inside its stacking context, under later siblings. A translucent
+   background alone reveals the animated backdrop with none of that. */
+.terminal-header-glass {
+  background-color: color-mix(in srgb, var(--bg) 84%, transparent);
+}
+.statusbar-glass {
+  background-color: color-mix(in srgb, var(--surface) 84%, transparent);
+}
+
 /* Terminal workspace panels — frosted over the animated backdrop. The dot pattern
    rides on top of the glass rather than replacing it: an opaque surface-3 ground
    erased the backdrop the rest of the shell now shows through. The tint is denser

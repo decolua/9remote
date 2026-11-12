@@ -11,7 +11,7 @@ export default function StatusBar({ left, right, className = "flex" }) {
   return (
     <div
       style={{ height: STATUS_BAR_HEIGHT }}
-      className={`items-center gap-3 px-3 flex-shrink-0 bg-surface border-t border-border-subtle text-[11px] text-text-muted select-none ${className}`}
+      className={`statusbar-glass items-center gap-3 px-3 flex-shrink-0 border-t border-border-subtle text-[11px] text-text-muted select-none ${className}`}
     >
       <div className="flex items-center gap-3 min-w-0 flex-1">{left}</div>
       <div className="flex items-center gap-3 flex-shrink-0">{right}</div>
