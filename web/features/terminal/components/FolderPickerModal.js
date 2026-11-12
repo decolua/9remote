@@ -490,7 +490,7 @@ export default function FolderPickerModal({ fileBus, initialPath, scope = "", on
   if (typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="modal-overlay z-[80] bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
+    <div className="modal-overlay z-[80] scrim" onClick={onClose}>
       <div
         ref={dialogRef}
         role="dialog"

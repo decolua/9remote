@@ -32,7 +32,7 @@ export default function CommunityModal({ isOpen, onClose }) {
   return createPortal(
     <div className="modal-overlay z-[60]">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] fade-in"
+        className="absolute inset-0 scrim fade-in"
         onClick={onClose}
       />
 

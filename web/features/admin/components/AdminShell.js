@@ -133,7 +133,7 @@ export default function AdminShell({ children }) {
       {/* Mobile drawer */}
       {drawerOpen && (
         <>
-          <div className="md:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-[2px] fade-in" onClick={() => setDrawerOpen(false)} />
+          <div className="md:hidden fixed inset-0 z-40 scrim fade-in" onClick={() => setDrawerOpen(false)} />
           <aside className="md:hidden fixed inset-y-0 left-0 z-50 w-72 max-w-[85%] glass-drawer border-r border-border-subtle flex flex-col slide-in-right" style={{ animation: "slideInFromLeft 0.22s cubic-bezier(0.22, 1, 0.36, 1) forwards" }}>
             {sidebarContent}
           </aside>

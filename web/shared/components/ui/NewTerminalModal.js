@@ -348,7 +348,7 @@ export default function NewTerminalModal({
   return createPortal(
     <>
     <div
-      className="modal-overlay z-[60] bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
+      className="modal-overlay z-[60] scrim animate-in fade-in duration-150"
       onClick={onClose}
     >
       <div

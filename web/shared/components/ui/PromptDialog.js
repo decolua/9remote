@@ -29,7 +29,7 @@ export default function PromptDialog({ title, value, onChange, onSubmit, onClose
     <div className="modal-overlay z-[100]">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
+        className="absolute inset-0 scrim animate-in fade-in duration-150"
         onClick={onClose}
       />
 

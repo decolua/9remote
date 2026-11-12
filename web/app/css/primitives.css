@@ -42,6 +42,14 @@
   max-height: 100%;
 }
 
+/* Dimming layer behind a modal. Color and blur only — NEVER position or inset:
+   this rule is unlayered, so any `position` here would beat the `fixed`/`absolute`
+   utility the call site relies on. */
+.scrim {
+  background: rgba(0, 0, 0, 0.6);
+  backdrop-filter: blur(2px);
+}
+
 /* Pickable row inside a modal list (MCP servers, models, skills, sessions…). A hairline
    border on every row turned a list into a stack of boxes; the row stays flat until the
    pointer is on it, and the row's own actions fade in with the same hover. */

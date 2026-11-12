@@ -41,7 +41,7 @@ export default function ShortcutsModal({ isOpen, onClose }) {
   return createPortal(
     <div className="modal-overlay z-[60]">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
+        className="absolute inset-0 scrim animate-in fade-in duration-200"
         onClick={onClose}
       />
       <div

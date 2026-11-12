@@ -371,7 +371,7 @@ export default function NotePanel({ bus, sessionId, appendOnOpen, onClose, varia
 
   return createPortal(
     <div
-      className="modal-overlay z-[60] bg-black/60 backdrop-blur-[2px]"
+      className="modal-overlay z-[60] scrim"
       onMouseDown={(e) => { e.preventDefault(); onClose(); }}
     >
       <div

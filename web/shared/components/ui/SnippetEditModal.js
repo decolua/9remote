@@ -36,7 +36,7 @@ export default function SnippetEditModal({ snippet, onSave, onClose }) {
   return createPortal(
     <div className="modal-overlay z-[70]">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
+        className="absolute inset-0 scrim animate-in fade-in duration-200"
         onClick={onClose}
       />
       <div className="relative card-elev max-w-md w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">

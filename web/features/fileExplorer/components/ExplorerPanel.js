@@ -692,7 +692,7 @@ export default function ExplorerPanel({
 
       {newItemModal && createPortal(
         <div className="modal-overlay z-50">
-          <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
+          <div className="absolute inset-0 scrim animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
           <div className="relative card-elev p-4 w-full max-w-sm my-auto animate-in zoom-in-95 duration-150">
             <h3 className="text-sm font-semibold text-text mb-2">
               {newItemModal.type === "folder" ? "New Folder" : "New File"}

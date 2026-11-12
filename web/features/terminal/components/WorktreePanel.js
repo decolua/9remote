@@ -195,7 +195,7 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
 
       {/* Add worktree */}
       {addTarget && createPortal(
-        <div className="modal-overlay z-[80] bg-black/60 backdrop-blur-[2px]" onClick={() => setAddTarget(null)}>
+        <div className="modal-overlay z-[80] scrim" onClick={() => setAddTarget(null)}>
           <div className="card-elev p-5 w-96 max-w-full my-auto" onClick={(e) => e.stopPropagation()}>
             <h3 className="text-sm font-semibold text-text mb-1">{t("workspaces.addWorktree")}</h3>
             <p className="text-[11px] text-text-muted mb-3 truncate" title={addTarget.branch}>{addTarget.branch}</p>

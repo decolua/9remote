@@ -43,7 +43,7 @@ export default function CommandHistoryModal({ isOpen, onSelect, onClose, store =
   return createPortal(
     <div className="modal-overlay z-[60]">
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200 touch-none"
+        className="absolute inset-0 scrim animate-in fade-in duration-200 touch-none"
         onClick={onClose}
       />
       <div className="relative card-elev max-w-lg w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">

@@ -33,7 +33,7 @@ export default function ClipboardModal({ text, onClose }) {
 
   return (
     <div
-      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 bg-black/60 backdrop-blur-[2px] flex items-center justify-center p-4"
+      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 scrim flex items-center justify-center p-4"
       onClick={onClose}
     >
       <div

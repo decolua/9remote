@@ -105,7 +105,7 @@ export default function SessionBackgroundModal({ sessionId, title, onClose, busR
 
   return createPortal(
     <div className="modal-overlay z-[70]">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={onClose} />
+      <div className="absolute inset-0 scrim animate-in fade-in duration-200" onClick={onClose} />
 
       <div className="relative w-full max-w-lg card-elev my-auto flex flex-col overflow-hidden animate-in zoom-in-95 duration-200">
         <div className="px-5 py-3 flex items-center justify-between flex-shrink-0 border-b border-border-subtle">

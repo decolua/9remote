@@ -112,7 +112,7 @@ export default function AddHostModal({ onClose }) {
   return createPortal(
     <>
     <div
-      className="modal-overlay z-[70] bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150"
+      className="modal-overlay z-[70] scrim animate-in fade-in duration-150"
       onClick={onClose}
     >
       <form

@@ -70,7 +70,7 @@ export default function CreateCodespaceModal({ isOpen, onClose, onCreated }) {
   if (!isOpen || typeof document === "undefined") return null;
 
   return createPortal(
-    <div className="modal-overlay z-50 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
+    <div className="modal-overlay z-50 scrim" onClick={onClose}>
       <div className="card-elev p-6 max-w-md w-full my-auto flex flex-col border border-border" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-lg font-bold text-text">Select repository</h3>

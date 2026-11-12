@@ -65,7 +65,7 @@ export default function GitActionsModal({ workspace, fileBus, branch, changedCou
   // commit message box is typed into — the overlay has to follow the visual viewport.
   return createPortal(
     <div className="modal-overlay z-[70]">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200" onClick={() => !busy && onClose()} />
+      <div className="absolute inset-0 scrim animate-in fade-in duration-200" onClick={() => !busy && onClose()} />
       <div className="relative card-elev max-w-md w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text flex items-center gap-2">

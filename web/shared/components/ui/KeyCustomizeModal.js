@@ -128,7 +128,7 @@ export default function KeyCustomizeModal({ isOpen, onClose, title = "Customize 
   // pane wrappers — a fixed overlay would be jailed and sized to the wrong viewport.
   return createPortal(
     <div className="modal-overlay z-50">
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 scrim" onClick={onClose} />
 
       <div className="relative card-elev w-full max-w-2xl my-auto flex flex-col">
         {/* Header */}

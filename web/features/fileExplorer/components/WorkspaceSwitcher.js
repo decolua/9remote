@@ -134,7 +134,7 @@ export default function WorkspaceSwitcher({ currentWorkspace, onSelect, onOpenBr
   // height follows --app-height so the soft keyboard shrinks the list area too.
   return createPortal(
     <>
-      <div className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 bg-black/60 backdrop-blur-[2px]" onClick={onClose}>
+      <div className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 scrim" onClick={onClose}>
         <div
           className="card-elev w-[480px] max-w-[90vw] absolute top-20 left-1/2 -translate-x-1/2 max-h-[calc(var(--app-height,100dvh)-6rem)] flex flex-col overflow-hidden"
           onClick={(e) => e.stopPropagation()}

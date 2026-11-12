@@ -450,7 +450,7 @@ const MobileKeyboard = ({ bus, sessionId, onExpandChange, onRegisterTextApi, pla
           wrappers, and the overlay has to follow the visual viewport while the
           keyboard is open, since the target input is what the user types into. */}
       {showPasteInput && createPortal(
-        <div className="modal-overlay z-[60] bg-black/60 backdrop-blur-[2px]" onClick={() => setShowPasteInput(false)}>
+        <div className="modal-overlay z-[60] scrim" onClick={() => setShowPasteInput(false)}>
           <input
             ref={pasteInputRef}
             placeholder={t("mobileKeyboard.pasteHere")}

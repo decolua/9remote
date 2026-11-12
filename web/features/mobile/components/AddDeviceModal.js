@@ -69,7 +69,7 @@ export default function AddDeviceModal({ isOpen, onClose, presets, sdkJob, onPro
   // the modal under sibling layers. Closing mid-download is always allowed:
   // the job runs on the host, and the picker's banner leads back to it.
   return createPortal(
-    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-[2px] fade-in" onClick={close}>
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 scrim fade-in" onClick={close}>
       <div
         className="card-elev w-full max-w-sm max-h-[80vh] flex flex-col"
         onClick={(e) => e.stopPropagation()}

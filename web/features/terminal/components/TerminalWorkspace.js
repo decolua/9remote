@@ -860,7 +860,7 @@ function TerminalWorkspace({
             backdrop — otherwise there is no way to dismiss it by tapping away. */}
         {rightPanel?.open && !isDesktop && (
           <div
-            className="absolute inset-0 z-20 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-200"
+            className="absolute inset-0 z-20 scrim animate-in fade-in duration-200"
             onClick={rightPanel.onToggle}
           />
         )}

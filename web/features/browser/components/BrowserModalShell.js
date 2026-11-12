@@ -25,7 +25,7 @@ export default function BrowserModalShell({ title, icon = null, onClose, childre
   // Portaled: the pane it opens from sits under transformed siblings, and the overlay
   // tracks --app-height so the soft keyboard (the note box) never covers the card.
   return createPortal(
-    <div className="modal-overlay z-50 bg-black/60 backdrop-blur-[2px] animate-in fade-in duration-150" onClick={onClose}>
+    <div className="modal-overlay z-50 scrim animate-in fade-in duration-150" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"

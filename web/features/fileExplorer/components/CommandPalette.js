@@ -154,7 +154,7 @@ export default function CommandPalette({
   // and its search field is typed into — the overlay tracks the visual viewport.
   return createPortal(
     <div
-      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 flex justify-center pt-[12%] bg-black/60 backdrop-blur-[2px]"
+      className="fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-50 flex justify-center pt-[12%] scrim"
       onMouseDown={onClose}
     >
       <div

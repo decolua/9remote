@@ -99,7 +99,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] fade-in"
+        className="absolute inset-0 scrim fade-in"
         onClick={onClose}
       />
 

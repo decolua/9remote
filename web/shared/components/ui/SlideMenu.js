@@ -205,7 +205,7 @@ export default function SlideMenu() {
     <div className="fixed inset-0 z-50 flex">
       {/* Backdrop - more transparent to see behind */}
       <div
-        className="absolute inset-0 bg-black/60 backdrop-blur-[2px] fade-in"
+        className="absolute inset-0 scrim fade-in"
         onClick={close}
       />
 

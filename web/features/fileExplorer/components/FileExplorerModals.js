@@ -101,7 +101,7 @@ export function NewItemModal({ type, name, onTypeChange, onNameChange, onSubmit,
 
   return createPortal(
     <div className={MODAL_WRAP}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 scrim" onClick={onClose} />
       <div className="relative card-elev w-full max-w-sm my-auto overflow-y-auto">
         <div className="px-4 py-3">
           <h3 className="text-text font-semibold">{t("files.createNew")}</h3>
@@ -191,7 +191,7 @@ export function RenameModal({ value, onChange, onSubmit, onClose }) {
 
   return createPortal(
     <div className={MODAL_WRAP}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={onClose} />
+      <div className="absolute inset-0 scrim" onClick={onClose} />
       <div className="relative card-elev w-full max-w-sm my-auto max-h-[min(85%,calc(var(--app-height,85vh)-2rem))] overflow-y-auto">
         <div className="px-4 py-3">
           <h3 className="text-text font-semibold">{t("files.rename")}</h3>
@@ -252,7 +252,7 @@ export function ConflictModal({ name, onResolve }) {
   );
   return createPortal(
     <div className={MODAL_WRAP}>
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-[2px]" onClick={() => onResolve?.("skip")} />
+      <div className="absolute inset-0 scrim" onClick={() => onResolve?.("skip")} />
       <div className="relative card-elev w-full max-w-sm">
         <div className="px-4 py-3">
           <h3 className="text-text font-semibold">{t("menu.conflictTitle")}</h3>

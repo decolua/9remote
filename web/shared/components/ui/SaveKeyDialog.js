@@ -24,7 +24,7 @@ export default function SaveKeyDialog({ isOpen, onClose }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 bg-black/60 backdrop-blur-[2px] flex items-center justify-center z-50 p-4">
+    <div className="fixed inset-0 scrim flex items-center justify-center z-50 p-4">
       <div className="card-elev max-w-md w-full p-6">
         <h2 className="text-xl font-bold text-text mb-3">
           Save API Key?
