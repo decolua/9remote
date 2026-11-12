@@ -43,7 +43,7 @@ export default function SelectionActionButton({
       }}
     >
       <div 
-        className="card-elev overflow-hidden min-w-[200px]"
+        className="menu-popover overflow-hidden min-w-[200px]"
         onMouseDown={(e) => {
           // Prevent focus loss when clicking modal content
           e.stopPropagation();

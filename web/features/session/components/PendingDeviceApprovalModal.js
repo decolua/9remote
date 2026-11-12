@@ -74,7 +74,7 @@ export default function PendingDeviceApprovalModal() {
   if (!pendingDevice) return null;
 
   return (
-    <div className="agent-dashboard fixed inset-0 z-[70] flex items-center justify-center" style={{ background: "rgba(0,0,0,0.6)" }}>
+    <div className="agent-dashboard fixed inset-0 z-[70] flex items-center justify-center bg-black/60 backdrop-blur-[2px]">
       <div className="card-elev p-5 flex flex-col gap-4 w-80">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined" style={{ color: "var(--brand-500)", fontSize: 24 }}>devices</span>

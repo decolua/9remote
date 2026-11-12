@@ -110,11 +110,22 @@
   transition: background-color 0.12s ease, color 0.12s ease;
 }
 
+/* Side drawer / bottom sheet. Same frosted material, denser than a menu's: these
+   panels hold lists and forms the user reads for a while, so too much of the page
+   showing through costs legibility. Radius and border stay on the component — a
+   drawer is square-edged, a sheet is rounded on top, and both already carry the
+   edge they need. */
+.glass-drawer {
+  background: var(--lg-sheen), var(--lg-tint-drawer);
+  backdrop-filter: blur(var(--lg-blur-drawer)) saturate(var(--lg-sat));
+}
+
 /* Accessibility: without transparency the material must still separate from the
    page, so it falls back to the solid surface rather than a washed-out tint. */
 @media (prefers-reduced-transparency: reduce) {
   .card-elev,
-  .menu-popover {
+  .menu-popover,
+  .glass-drawer {
     background: var(--surface);
     backdrop-filter: none;
   }
@@ -122,9 +133,13 @@
 
 @media (prefers-contrast: more) {
   .card-elev,
-  .menu-popover {
+  .menu-popover,
+  .glass-drawer {
     background: var(--surface);
     backdrop-filter: none;
+  }
+  .card-elev,
+  .menu-popover {
     border-color: var(--text-muted);
     box-shadow: 0 0 0 1px var(--text-muted), var(--lg-lift-dialog);
   }

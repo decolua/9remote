@@ -806,7 +806,7 @@ export default function BrowserPane({ busRef, connected = false, visible = true,
         {vpMenu && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setVpMenu(false)} />
-            <div className={`absolute z-20 flex flex-col p-1 rounded-xl card-elev animate-in fade-in duration-100 min-w-[170px] ${float ? "bottom-12 left-0" : "top-10 right-0"}`}>
+            <div className={`absolute z-20 flex flex-col p-1 menu-popover animate-in fade-in duration-100 min-w-[170px] ${float ? "bottom-12 left-0" : "top-10 right-0"}`}>
               {VIEWPORT_PRESETS.map((opt) => (
                 <button
                   key={opt.label}

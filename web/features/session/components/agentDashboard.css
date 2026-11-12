@@ -84,21 +84,30 @@
     0 24px 60px -18px rgba(3, 6, 16, 0.9);
 }
 
+/* The dashboard keeps its own radius scale, but the surface must match the app's
+   liquid glass — an opaque --glass-bg here read as a flat plate next to every
+   dialog. Material comes from the shared --lg-* tokens (globals.css). */
 .agent-dashboard .card-elev {
-  background: var(--glass-bg);
-  box-shadow: var(--shadow-elev);
-  border: 1px solid var(--glass-border);
+  background: var(--lg-sheen), var(--lg-tint-dialog);
+  border: 1px solid var(--lg-edge);
   border-radius: var(--radius-brand-lg);
-  backdrop-filter: blur(20px) saturate(140%);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  box-shadow:
+    inset 0 1px 0 var(--lg-rim),
+    inset 0 -1px 0 var(--lg-shade),
+    var(--lg-lift-dialog);
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
 .agent-dashboard .glass-card {
-  background: var(--glass-bg);
-  border: 1px solid var(--border);
+  background: var(--lg-sheen), var(--lg-tint-dialog);
+  border: 1px solid var(--lg-edge);
   border-radius: 14px;
-  backdrop-filter: blur(24px) saturate(190%);
-  box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.55), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  box-shadow:
+    inset 0 1px 0 var(--lg-rim),
+    inset 0 -1px 0 var(--lg-shade),
+    var(--lg-lift-dialog);
   transition: all 0.2s ease;
 }
 

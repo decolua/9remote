@@ -105,7 +105,7 @@ export default function CommandNotesPanel({ isOpen, onClose }) {
 
       {/* Panel */}
       <div
-        className="absolute top-0 right-0 w-[85vw] sm:w-96 max-w-md bg-surface border-l border-border shadow-2xl flex flex-col slide-in-right"
+        className="absolute top-0 right-0 w-[85vw] sm:w-96 max-w-md glass-drawer border-l border-border shadow-2xl flex flex-col slide-in-right"
         style={{ height: `${viewportHeight ?? window.visualViewport?.height ?? window.innerHeight}px` }}
         onClick={(e) => e.stopPropagation()}
       >
