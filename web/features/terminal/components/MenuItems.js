@@ -177,7 +177,7 @@ export default function MenuItems({
       {!isApp && !isInstalled && onInstallApp && (
         <button
           onClick={() => { vibrate(); onInstallApp(); }}
-          className="w-full px-3 py-1.5 mb-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 mb-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Download className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm flex-1 min-w-0 truncate">{t("menu.installApp")}</span>
@@ -194,7 +194,7 @@ export default function MenuItems({
         <button
           onClick={push.toggle}
           disabled={push.loading}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 disabled:opacity-50 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 hover:bg-surface-2 disabled:opacity-50 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <div className="flex items-center gap-2.5">
             <Bell className="text-brand-500" size={16} />
@@ -215,7 +215,7 @@ export default function MenuItems({
 
       {/* Terminal settings — collapsible dropdown (font + theme + GPU render + quick buttons) */}
       {!hideActions.includes('terminalSettings') && (
-        <div ref={terminalMenuRef} className="bg-surface rounded-brand-lg overflow-hidden">
+        <div ref={terminalMenuRef} className="rounded-brand-lg overflow-hidden">
           <button
             onClick={() => { vibrate(); setTerminalMenuOpen((v) => !v); }}
             className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
@@ -276,7 +276,7 @@ export default function MenuItems({
       )}
 
       {/* Remote — doors to the host's screen, Chrome and Android devices */}
-      <div className="bg-surface rounded-brand-lg overflow-hidden">
+      <div className="rounded-brand-lg overflow-hidden">
         <button
           onClick={() => { vibrate(); setRemoteMenuOpen((v) => !v); }}
           className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
@@ -290,7 +290,7 @@ export default function MenuItems({
 
       {/* Plugins — AI extras + voice endpoint. Its own section rather than a terminal
           setting: it changes what the AI can do, not how a terminal looks. */}
-      <div className="bg-surface rounded-brand-lg overflow-hidden">
+      <div className="rounded-brand-lg overflow-hidden">
         <button
           onClick={() => { vibrate(); setMcpMenuOpen((v) => !v); }}
           className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
@@ -325,7 +325,7 @@ export default function MenuItems({
       {appMode === "dark" && (
         <button
           onClick={() => { vibrate(); onOpenBackgroundPicker?.(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Wallpaper className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm flex-1 min-w-0">{t("menu.terminalBackground")}</span>
@@ -346,7 +346,7 @@ export default function MenuItems({
       {/* Screen orientation — Android app only; iOS hidden until a build with the
           SET/GET handler ships (menu arrives via web deploy, handler needs OTA/build) */}
       {isAndroidApp && (
-        <div className="bg-surface rounded-brand-lg overflow-hidden">
+        <div className="rounded-brand-lg overflow-hidden">
           <button
             onClick={() => { vibrate(); setOrientationOpen((v) => !v); }}
             className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
@@ -381,7 +381,7 @@ export default function MenuItems({
       {jarvisEnabled && (
       <button
         onClick={() => { vibrate(); closeMenu(); useJarvisStore.getState().toggle(); }}
-        className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+        className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out hover:bg-surface-2 text-text active:scale-[0.99]"
       >
         <Bot className="text-brand-500" size={16} />
         <span className="text-sm">Jarvis</span>
@@ -392,7 +392,7 @@ export default function MenuItems({
       {onCommandNotes && (
         <button
           onClick={() => { vibrate(); onCommandNotes(); }}
-          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out hover:bg-surface-2 text-text active:scale-[0.99]"
         >
           <FileText className="text-brand-500" size={16} />
           <span className="text-sm">{t("menu.commandNotes")}</span>
@@ -403,7 +403,7 @@ export default function MenuItems({
       {inputMode === "mouse" && (
         <button
           onClick={() => { vibrate(); closeMenu(); openShortcuts(); }}
-          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out bg-surface hover:bg-surface-2 text-text active:scale-[0.99]"
+          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out hover:bg-surface-2 text-text active:scale-[0.99]"
         >
           <Keyboard className="text-brand-500" size={16} />
           <span className="text-sm">{t("shortcuts.menuLabel")}</span>
@@ -414,7 +414,7 @@ export default function MenuItems({
       {onCommunity && (
         <button
           onClick={() => { vibrate(); onCommunity(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Users className="text-brand-500" size={16} />
           <span className="text-sm">{t("menu.community")}</span>
@@ -425,7 +425,7 @@ export default function MenuItems({
       {isExpo && window.DEVICE_INFO?.platform !== "ios" && (
         <button
           onClick={handleRateApp}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <Star className="text-brand-500 flex-shrink-0" size={16} />
           <span className="text-sm">{t("menu.rateApp")}</span>
@@ -437,7 +437,7 @@ export default function MenuItems({
       <button
         onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
         disabled={reloading}
-        className="w-full px-3 py-1.5 bg-surface hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99] disabled:opacity-70"
+        className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99] disabled:opacity-70"
       >
         <RefreshCw size={16} className={`text-brand-500 ${reloading ? "animate-spin" : ""}`} />
         <span className="text-sm">{t("menu.reload")}</span>
@@ -447,7 +447,7 @@ export default function MenuItems({
       {onLogout && (
         <button
           onClick={() => { vibrate(); onLogout(); }}
-          className="w-full px-3 py-1.5 bg-surface hover:bg-red-500/15 text-text hover:text-red-400 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
+          className="w-full px-3 py-1.5 hover:bg-red-500/15 text-text hover:text-red-400 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
         >
           <LogOut className="text-red-400" size={16} />
           <span className="text-sm">{t("menu.logout")}</span>
