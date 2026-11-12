@@ -291,14 +291,24 @@ html.light .term-tab-active,
   .ai-sheen-text { animation: none; -webkit-text-fill-color: var(--color-brand-500); }
 }
 
-/* Terminal workspace panels & header background — surface-3 ground with subtle dot pattern */
+/* Terminal workspace panels — frosted over the animated backdrop. The dot pattern
+   rides on top of the glass rather than replacing it: an opaque surface-3 ground
+   erased the backdrop the rest of the shell now shows through. The tint is denser
+   than a drawer's because these panels sit beside a terminal, where text contrast
+   matters more than depth. */
 .terminal-sidebar-bg {
-  background-color: var(--surface-3);
-  background-image: radial-gradient(rgba(255, 255, 255, 0.038) 1px, transparent 1px);
-  background-size: 16px 16px;
+  background-color: var(--lg-tint-panel);
+  background-image:
+    var(--lg-sheen),
+    radial-gradient(rgba(255, 255, 255, 0.038) 1px, transparent 1px);
+  background-size: auto, 16px 16px;
+  backdrop-filter: blur(var(--lg-blur-drawer)) saturate(var(--lg-sat));
 }
 :root.light .terminal-sidebar-bg {
-  background-image: radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  background-image:
+    var(--lg-sheen),
+    radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+  background-size: auto, 16px 16px;
 }
 
 

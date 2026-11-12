@@ -40,6 +40,7 @@
   --lg-tint-dialog: rgba(38,38,42,0.72);
   --lg-tint-menu: rgba(34,34,38,0.78);
   --lg-tint-drawer: rgba(30,30,34,0.84);
+  --lg-tint-panel: rgba(28,28,31,0.88);
   --lg-rim: rgba(255,255,255,0.14);
   --lg-edge: rgba(255,255,255,0.10);
   --lg-shade: rgba(0,0,0,0.4);
@@ -110,6 +111,7 @@
   --lg-tint-dialog: rgba(255,255,255,0.70);
   --lg-tint-menu: rgba(255,255,255,0.76);
   --lg-tint-drawer: rgba(255,255,255,0.86);
+  --lg-tint-panel: rgba(255,255,255,0.90);
   --lg-rim: rgba(255,255,255,0.95);
   --lg-edge: rgba(20,20,24,0.08);
   --lg-shade: rgba(0,0,0,0.05);
