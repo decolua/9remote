@@ -1,0 +1,152 @@
+/* Reusable elevated card: no border, soft shadow + surface contrast */
+.card-soft {
+  background-color: var(--color-surface);
+  box-shadow: var(--shadow-soft);
+  border-radius: var(--radius-brand-lg);
+}
+/* Dialog/modal/sheet surface — liquid glass. Tint stays translucent so the page
+   reads through it; volume comes from the specular rim (top hairline) + contact
+   shadow. No `position` here: these classes ride on Tailwind's fixed/absolute
+   utilities, and an unlayered rule would beat the layered utility. */
+.card-elev {
+  background: var(--lg-sheen), var(--lg-tint-dialog);
+  /* Standard property only — the build adds -webkit- from browserslist. Writing both
+     by hand makes the minifier treat them as one logical property and keep the
+     PREFIXED one alone, which Chrome does not support: the blur silently vanishes. */
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  border: 1px solid var(--lg-edge);
+  box-shadow:
+    inset 0 1px 0 var(--lg-rim),
+    inset 0 -1px 0 var(--lg-shade),
+    var(--lg-lift-dialog);
+  border-radius: 14px;
+}
+
+/* Centered modal overlay. Height follows --app-height (the visual viewport) so the
+   soft keyboard shrinks it: `inset-0` keeps measuring the layout viewport, which the
+   keyboard never resizes, leaving the lower half of the card under the keyboard. */
+.modal-overlay {
+  position: fixed;
+  inset-inline: 0;
+  top: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: var(--app-height, 100dvh);
+  padding: max(1rem, env(safe-area-inset-top)) max(1rem, env(safe-area-inset-right))
+    max(1rem, env(safe-area-inset-bottom)) max(1rem, env(safe-area-inset-left));
+}
+/* Caps the card to the measured viewport minus the overlay padding, so it scrolls
+   inside instead of running past the soft keyboard. */
+.modal-overlay > .card-elev {
+  max-height: 100%;
+}
+
+/* Pickable row inside a modal list (MCP servers, models, skills, sessions…). A hairline
+   border on every row turned a list into a stack of boxes; the row stays flat until the
+   pointer is on it, and the row's own actions fade in with the same hover. */
+.modal-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: var(--radius-brand);
+  border: 1px solid transparent;
+  background-color: transparent;
+  cursor: pointer;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+.modal-row:hover {
+  background-color: var(--surface-2);
+  border-color: var(--border-subtle);
+}
+/* A row that is a choice already made (the picked rewind point) rather than one the
+   pointer happens to be over — so it keeps its mark without hover, and its action
+   stays visible instead of fading out the moment the pointer leaves. */
+.modal-row-active {
+  background-color: color-mix(in srgb, var(--color-brand-500) 12%, transparent);
+  border-color: color-mix(in srgb, var(--color-brand-500) 40%, transparent);
+}
+.modal-row-active .modal-row-acts { opacity: 1; }
+.modal-row .modal-row-acts {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+.modal-row:hover .modal-row-acts,
+.modal-row:focus-within .modal-row-acts {
+  opacity: 1;
+}
+/* Touch has no hover, so the actions would be unreachable — keep them on. */
+@media (hover: none) {
+  .modal-row .modal-row-acts { opacity: 1; }
+}
+/* Selected row keeps the hover surface plus the brand edge, so the choice survives
+   the pointer leaving it. */
+.modal-row[data-selected="true"] {
+  background-color: color-mix(in srgb, var(--color-brand-500) 10%, transparent);
+  border-color: var(--color-brand-500);
+}
+
+/* Context menu & dropdown popover — the same material as a dialog, one step
+   denser: menus carry small text over arbitrary content and must stay legible. */
+.menu-popover {
+  background: var(--lg-sheen), var(--lg-tint-menu);
+  backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+  border: 1px solid var(--lg-edge);
+  border-radius: 10px;
+  box-shadow:
+    inset 0 1px 0 var(--lg-rim),
+    inset 0 -1px 0 var(--lg-shade),
+    var(--lg-lift-menu);
+}
+
+.menu-popover button,
+.menu-popover a {
+  border-radius: 6px;
+  transition: background-color 0.12s ease, color 0.12s ease;
+}
+
+/* Accessibility: without transparency the material must still separate from the
+   page, so it falls back to the solid surface rather than a washed-out tint. */
+@media (prefers-reduced-transparency: reduce) {
+  .card-elev,
+  .menu-popover {
+    background: var(--surface);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  .card-elev,
+  .menu-popover {
+    background: var(--surface);
+    backdrop-filter: none;
+    border-color: var(--text-muted);
+    box-shadow: 0 0 0 1px var(--text-muted), var(--lg-lift-dialog);
+  }
+}
+
+/* Terminal-glass card: translucent surface + top-edge shine, meant to float on the
+   cinematic (cine-bg) background. Layered elev shadow like the login card, plus a
+   colored halo when --status-glow is set. */
+.card-glass {
+  background: var(--card-glass-bg);
+  backdrop-filter: blur(16px);
+  border: 1px solid var(--card-glass-border);
+  box-shadow: var(--card-shine), var(--shadow-elev), 0 0 28px -6px var(--status-glow, transparent);
+}
+
+/* Frosted chip for recent-workspace pills on the empty session stage */
+.welcome-chip {
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+:root.light .welcome-chip {
+  background: rgba(255, 255, 255, 0.65);
+  border-color: rgba(0, 0, 0, 0.06);
+}
+

@@ -1,0 +1,434 @@
+/* WezTerm-style blurred background image layer behind terminal */
+.terminal-bg-image {
+  position: absolute;
+  inset: -20px;
+  background-image: url("https://screamageddon.com/wp-content/uploads/2018/07/demons-revenge-slider-background-image.jpg");
+  background-size: cover;
+  background-position: center;
+  filter: blur(14px) brightness(0.55) saturate(1.1);
+  transform: scale(1.15);
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* Mobile background image: clear xterm's opaque viewport layer so the pane's
+   background shows through the transparent canvas. The IME composition view keeps
+   its opaque default — transparent made the in-progress text invisible (only the
+   caret showed) on WebKit IMEs like the macOS Vietnamese one. */
+.terminal-has-bg .xterm .xterm-viewport {
+  background-color: transparent !important;
+}
+
+/* Soft-KB document pan (WebKit #191204): the keyboard makes the document itself
+   scrollable, so a drag that no inner scroller consumes pans the whole page. Same
+   guard the terminal wrapper uses. touch-action only intersects up to the nearest
+   scroll container, so the chat list needs its own — .terminal-container never saw it. */
+.ai-pane { touch-action: none; }
+/* Y axis only: `contain` on both axes also trapped horizontal wheel gestures, so a
+   trackpad swipe over a chat never reached the panes row behind it. */
+/* The chat list corrects its own scroll when a page of older turns is prepended (see
+   AiMessagesList.handleLoadMore). Scroll anchoring is the browser doing the same job, and
+   in Chrome/Android it would do it FIRST, on the frame the DOM changes — then the layout
+   effect corrects again on top of it, applying the shift twice. One owner: ours, because
+   it also runs on iOS Safari, where anchoring has never shipped. Same call SessionList
+   already makes for the same reason. */
+.ai-conversation { touch-action: pan-y; overscroll-behavior-y: contain; overflow-anchor: none; }
+
+/* AI pane tracks the terminal's font size. Only the conversation layer is sized —
+   buttons, badges and modals keep their compact chrome sizing. Tailwind's `text-*`
+   utilities pair a px size with a px line-height, so both are set here. */
+.ai-pane .ai-conversation p,
+.ai-pane .ai-conversation li,
+.ai-pane .ai-conversation th,
+.ai-pane .ai-conversation td,
+.ai-pane .ai-conversation .text-sm,
+.ai-pane .ai-conversation .text-xs {
+  font-size: var(--ai-fs, 12px);
+  line-height: 1.6;
+}
+
+/* A fenced block is reference text, not the reply itself — one step below chat text,
+   the ratio tool rows already use. Inline code keeps its em-relative size. The block
+   is a neutral translucent sheet rather than a solid surface, so it reads as quoted
+   code over whatever pane background is behind it. Neutral, not brand: a user bubble
+   is already brand-tinted, and the two must not read as the same thing. Mixing the
+   text colour keeps it correct in both themes. */
+.ai-pane .ai-conversation pre {
+  font-size: calc(var(--ai-fs, 12px) - 2px);
+  line-height: 1.5;
+  background: color-mix(in srgb, var(--color-text) 5%, transparent);
+  border-color: color-mix(in srgb, var(--color-text) 14%, transparent);
+}
+.ai-pane .ai-conversation pre code { font-size: calc(var(--ai-fs, 12px) - 2px); }
+
+/* Tool output, thinking and detail rows sit a step below chat text — keep that
+   ratio, but follow the setting instead of a fixed px. `pre` is here because a Bash
+   card's output is a <pre>, and without it the block ran at chat size while every row
+   around it was already a step down. */
+.ai-pane .ai-conversation .text-\[11px\],
+.ai-pane .ai-conversation .text-\[11px\] pre,
+.ai-pane .ai-conversation .text-\[11px\] code { font-size: calc(var(--ai-fs, 12px) - 2px); }
+.ai-pane .ai-conversation .text-\[10px\] { font-size: calc(var(--ai-fs, 12px) - 3px); }
+
+/* The composer reads a step above chat text — it is the thing being typed, and the
+   only body-sized text on a phone that is not scrollable. Scoped to .ai-pane, not
+   .ai-conversation: the composer is a SIBLING of the message list, not a descendant,
+   so the nested selector never matched and it fell back to its own text-xs. */
+.ai-pane .ai-composer-input {
+  font-size: calc(var(--ai-fs, 12px) + 1px);
+  line-height: 1.4;
+}
+
+/* Only the prompt, not what is typed: the placeholder is a hint, so it sits a step
+   below the composer's own size rather than matching it. */
+.ai-pane .ai-composer-input::placeholder {
+  font-size: var(--ai-fs, 12px);
+}
+
+/* PC gets a step below the phone: the pane already has room for the tab-switch hint
+   in the placeholder, so nothing needs the extra size there. */
+@media (min-width: 760px) and (pointer: fine) {
+  .ai-pane .ai-composer-input,
+  .ai-pane .ai-composer-input::placeholder {
+    font-size: calc(var(--ai-fs, 12px) - 1px);
+  }
+}
+
+/* Terminal wrapper — default clip; .is-scrollable unlocks pan when soft-KB shrinks viewport */
+.terminal-wrapper {
+  position: relative;
+  z-index: 1;
+  overflow: hidden !important;
+}
+.terminal-wrapper.is-scrollable {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  touch-action: pan-y !important;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain !important;
+  scrollbar-width: none !important;
+  -ms-overflow-style: none !important;
+}
+.terminal-wrapper.is-scrollable::-webkit-scrollbar {
+  width: 0 !important;
+  height: 0 !important;
+  display: none !important;
+  background: transparent !important;
+}
+/* Prefer outer wrapper pan when soft-KB; stop xterm inner viewport + its scrollbar */
+.terminal-wrapper.is-scrollable .xterm-viewport {
+  overflow: hidden !important;
+  scrollbar-width: none !important;
+}
+.terminal-wrapper.is-scrollable .xterm-viewport::-webkit-scrollbar {
+  display: none !important;
+  width: 0 !important;
+}
+.terminal-wrapper.is-scrollable .xterm .scrollbar {
+  display: none !important;
+}
+
+/* Thin continuous amber glow ring around focused pane */
+.terminal-focus-glow::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 2px solid #22c55e;
+  box-shadow: 0 0 8px rgba(34, 197, 94, 0.7);
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* PC terminal-input focus glow — brand border */
+.input-focus-glow:focus-within::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--color-brand-500);
+  box-shadow: 0 0 8px rgba(var(--brand-rgb), 0.7);
+  border-radius: inherit;
+  pointer-events: none;
+  z-index: 2;
+}
+
+/* Finished-terminal highlight — animated gradient bottom border (cleared on focus) */
+/* Finished-terminal badge styles — KEEP IN SYNC with agent/ui/src/index.css (separate build) */
+.terminal-done-border::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(90deg, #f59e0b, #ef4444, #8b5cf6, #3b82f6, #10b981, #f59e0b);
+  background-size: 200% 100%;
+  animation: borderFlow 3s linear infinite;
+  pointer-events: none;
+  z-index: 3;
+}
+@keyframes borderFlow {
+  from { background-position: 0% 0; }
+  to { background-position: 200% 0; }
+}
+/* Tab finished dot pulse (parity with agent term-tab-done-dot) */
+.term-tab-done-dot { animation: tabDonePulse 1.2s ease-in-out infinite; }
+@keyframes tabDonePulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Terminal tabs — style matching IDE tabs (dark surface, subtle divider, bottom highlight) */
+.term-tab {
+  border-radius: 0;
+  color: var(--text-muted);
+  border-right: 1px solid var(--border-subtle);
+  transition: background 0.15s ease-out, color 0.15s ease-out;
+}
+.term-tab:hover:not(.term-tab-active) {
+  color: var(--text);
+  background: color-mix(in srgb, var(--surface-2) 40%, transparent);
+}
+.term-tab-active {
+  color: var(--text);
+  font-weight: 600;
+  background: var(--surface-3);
+  box-shadow: inset 0 -2px 0 0 #ffffff;
+}
+:root.light .term-tab-active,
+html.light .term-tab-active,
+:root[data-theme="light"] .term-tab-active {
+  background: #ffffff;
+  box-shadow: inset 0 -2px 0 0 var(--text);
+}
+
+/* AI agent status dots — idle/working/blocked/done (see shared/utils/statusVisual.js) */
+/* KEEP IN SYNC with agent/ui/src/index.css (separate build) */
+/* Working = spinning ring (border-top + border-right visible, others transparent). */
+.term-dot.pulse-soft {
+  background: transparent !important;
+  width: 0.6rem !important;
+  height: 0.6rem !important;
+  border: 2px solid rgba(59,130,246,0.25);
+  border-top-color: #3b82f6;
+  border-right-color: #3b82f6;
+  animation: statusSpin 0.7s linear infinite;
+}
+@keyframes statusSpin { to { transform: rotate(360deg); } }
+.term-dot.pulse-strong { animation: statusPulseStrong 0.9s ease-in-out infinite; }
+@keyframes statusPulseStrong {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(239,68,68,0.6); }
+  50% { transform: scale(1.3); box-shadow: 0 0 0 4px rgba(239,68,68,0); }
+}
+/* Status outline — dashed + state color. Drawn via outline so it never affects
+   layout: every pane keeps the same box, idle just shows no outline. */
+.status-border-working { outline: 1px dashed #3b82f6; outline-offset: -1px; }
+.status-border-blocked { outline: 1px dashed #ef4444; outline-offset: -1px; }
+.status-border-done { outline: 1px dashed #f59e0b; outline-offset: -1px; }
+
+/* Terminal pane bottom status beam animation (constant speed via CSS vars) */
+@keyframes paneLightSweep {
+  0% {
+    transform: translateX(calc(-1 * var(--beam-w, 140px)));
+    opacity: 0;
+  }
+  8% {
+    opacity: 1;
+  }
+  92% {
+    opacity: 1;
+  }
+  100% {
+    transform: translateX(var(--pane-w, 1000px));
+    opacity: 0;
+  }
+}
+.pane-light-beam {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: var(--beam-w, 140px);
+  opacity: 0;
+  background: linear-gradient(90deg, transparent 0%, rgba(59,130,246,0.3) 25%, #3b82f6 50%, #93c5fd 75%, #ffffff 85%, #60a5fa 95%, transparent 100%);
+  box-shadow: 0 0 6px rgba(59,130,246,0.8), 0 0 1px rgba(255,255,255,0.9);
+  animation: paneLightSweep var(--beam-dur, 3s) linear infinite;
+  animation-fill-mode: both;
+}
+.pane-light-beam-2 {
+  animation-delay: var(--beam-delay, 1.5s);
+}
+/* CLI-style working glyph: steady mark that fades in and out, no rotation */
+@keyframes cliGlyphPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.animate-cli-glyph { display: inline-block; animation: cliGlyphPulse 1.4s ease-in-out infinite; }
+
+/* Live turn text: brand-coloured, with a white band sweeping across it so the glyphs
+   read as lit from behind. Stops come from the brand token, so the sweep keeps its
+   contrast on every theme. */
+@keyframes aiSheenSweep {
+  0% { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
+.ai-sheen-text {
+  background-image: linear-gradient(
+    100deg,
+    var(--color-brand-500) 40%,
+    color-mix(in srgb, var(--color-brand-500) 45%, #fff) 50%,
+    var(--color-brand-500) 60%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: aiSheenSweep 2.6s linear infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .pane-light-beam { animation: none; transform: none; width: 100%; opacity: 0.8; }
+  .pane-light-beam-2 { display: none; }
+  .animate-cli-glyph { animation: none; }
+  .ai-sheen-text { animation: none; -webkit-text-fill-color: var(--color-brand-500); }
+}
+
+/* Terminal workspace panels & header background — surface-3 ground with subtle dot pattern */
+.terminal-sidebar-bg {
+  background-color: var(--surface-3);
+  background-image: radial-gradient(rgba(255, 255, 255, 0.038) 1px, transparent 1px);
+  background-size: 16px 16px;
+}
+:root.light .terminal-sidebar-bg {
+  background-image: radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
+}
+
+
+/* XTerm - lock native pan so JS handler fully controls gesture (no container drag) */
+.terminal-wrapper .xterm-screen {
+  touch-action: none !important;
+}
+
+/* XTerm scrollbar - auto-hide: only visible while scrolling or hovered. KEEP IN SYNC with agent/ui/src/index.css */
+.terminal-wrapper .xterm-viewport {
+  overflow-y: auto !important;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+}
+/* Native webkit thumb: transparent until viewport hovered (auto-hide) */
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar { width: 6px; }
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar-track { background: transparent; }
+.terminal-wrapper .xterm-viewport::-webkit-scrollbar-thumb {
+  background: transparent;
+  border-radius: 3px;
+}
+.terminal-wrapper:hover .xterm-viewport::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.4);
+}
+.terminal-wrapper:hover .xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: rgba(128, 128, 128, 0.8);
+}
+/* XTerm overlay scrollbar (JS-rendered div) — auto-hide: only .visible while scrolling/hovering. */
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar {
+  width: 5px !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+  transition: opacity 0.18s ease !important;
+}
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider {
+  width: 5px !important;
+  border-radius: 3px !important;
+  background: rgba(128, 128, 128, 0.5) !important;
+}
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar .slider:hover {
+  background: rgba(128, 128, 128, 0.8) !important;
+}
+
+/* Show overlay scrollbar only while xterm marks it .visible (scrolling / hovering track). */
+.terminal-wrapper .xterm .xterm-scrollable-element > .scrollbar.visible {
+  opacity: 1 !important;
+  pointer-events: auto !important;
+}
+.terminal-wrapper .xterm-scrollable-element > .scrollbar.vertical,
+.terminal-wrapper .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  width: 6px !important;
+}
+.terminal-wrapper .xterm-scrollable-element > .scrollbar.vertical > .slider {
+  background: rgba(128, 128, 128, 0.45) !important;
+  border-radius: 3px;
+}
+
+/* Ensure all interactive buttons, tabs, and menu items react immediately to taps without delay or ghost drag */
+button,
+[role="button"],
+[role="tab"],
+[role="menuitem"],
+[role="option"] {
+  -webkit-user-select: none;
+  user-select: none;
+  touch-action: manipulation;
+  -webkit-user-drag: none;
+}
+
+/* Prevent iOS Safari image preview / callout and drag on tabs, buttons and interactive rows */
+button svg,
+button img,
+[role="button"] svg,
+[role="button"] img,
+[role="tab"] svg,
+[role="tab"] img,
+.term-tab img,
+img.pointer-events-none {
+  pointer-events: none;
+  -webkit-touch-callout: none;
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+/* The workspace shell is an app, not a document — a light trackpad drag over
+   chrome (headers, sidebar, status bars) must not paint a native selection,
+   which in the macOS WKWebView shell happens constantly. Copyable surfaces
+   re-enable it below. */
+.terminal-container {
+  -webkit-user-select: none;
+  user-select: none;
+}
+.terminal-container input,
+.terminal-container textarea,
+.terminal-container [contenteditable="true"],
+.terminal-container pre,
+.terminal-container code,
+.terminal-container .cm-content,
+.terminal-container .xterm .xterm-accessibility-tree {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Pointer cursor for interactive elements (browser default is "default") */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]),
+[role="tab"],
+[role="menuitem"],
+[role="option"],
+summary,
+label[for] {
+  cursor: pointer;
+}
+
+/* Safe-area helpers — same vars as .terminal-container (--safe-top/bottom in :root) */
+.safe-area-top {
+  padding-top: var(--safe-top);
+}
+
+.safe-area-bottom {
+  padding-bottom: max(30px, var(--safe-bottom));
+}
+
+/* Same inset as .safe-area-bottom, for bottom bars that set their own padding-x */
+.pb-safe {
+  padding-bottom: max(30px, var(--safe-bottom));
+}
+
+body.keyboard-open .safe-area-bottom {
+  /* padding-bottom: 10px; */
+  padding-bottom: 6px;
+}
+

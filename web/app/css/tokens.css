@@ -1,0 +1,139 @@
+/* Default = dark theme tokens (neutral zinc) */
+:root {
+  --bg: #0a0a0a;
+  --surface: #191919;
+  --surface-2: #222222;
+  --surface-3: #2a2a2a;
+  --border: rgba(255, 255, 255, 0.16);
+  --border-subtle: rgba(255, 255, 255, 0.12);
+  --text: #fafafa;
+  --text-muted: #a1a1a1;
+  --text-subtle: #737373;
+  --danger: #ff6568;
+  --success: #22c55e;
+  --warning: #fbbf24;
+  --success-rgb: 34, 197, 94;
+  --danger-rgb: 255, 101, 104;
+  --warning-rgb: 251, 191, 36;
+  --git-added: #81b88b;
+  --git-modified: #e2c08d;
+  --git-deleted: #c74e39;
+  --git-untracked: #73c991;
+  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.4);
+  --shadow-elev:
+    inset 0 1px 0 0 rgba(255,255,255,0.04),
+    0 1px 2px rgba(0,0,0,0.5),
+    0 16px 48px -8px rgba(0,0,0,0.65);
+  --shadow-focus: 0 0 0 3px rgba(229,106,74,0.18);
+  /* Glass card (terminal-glass) — sits well above the near-black canvas, or it reads
+     as a smudge under the cine-bg grain */
+  --card-glass-bg: rgba(25,25,25,0.92);
+  --card-glass-border: rgba(255,255,255,0.14);
+  --card-shine: inset 0 1px 0 rgba(255,255,255,0.16);
+  color-scheme: dark;
+
+  /* Liquid glass (dialog/popover layer). Tint is a LOW-alpha lift, not a solid
+     surface: the material has to read through to whatever sits behind it. */
+  --lg-blur: 20px;
+  --lg-sat: 1.6;
+  --lg-tint-dialog: rgba(38,38,42,0.72);
+  --lg-tint-menu: rgba(34,34,38,0.78);
+  --lg-rim: rgba(255,255,255,0.14);
+  --lg-edge: rgba(255,255,255,0.10);
+  --lg-shade: rgba(0,0,0,0.4);
+  --lg-sheen: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 55%);
+  --lg-lift-dialog: 0 20px 50px -10px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4);
+  --lg-lift-menu: 0 16px 36px -4px rgba(0,0,0,0.55);
+
+  /* Dark mode brand — terracotta #E56A4A */
+  --brand-rgb: 229, 106, 74;
+  --color-brand-50: #2a1612;
+  --color-brand-100: #3d201a;
+  --color-brand-200: #5c2f1d;
+  --color-brand-300: #7a2f1d;
+  --color-brand-400: #cc5236;
+  --color-brand-500: #E56A4A;
+  --color-brand-600: #ea7855;
+  --color-brand-700: #ee8d6a;
+  --color-brand-800: #f4b59c;
+  --color-brand-900: #fadccf;
+
+  /* SessionList terminal card preview (dark) */
+  --card-term-bg: linear-gradient(155deg,#1c1d1f 0%,#151617 55%,#0f1011 100%);
+  --card-term-bg-off: linear-gradient(155deg,#161719,#0e0f10);
+  --card-border: rgba(255,255,255,0.08);
+  --card-ring: rgba(255,255,255,0.05);
+  --card-shadow: 0 8px 28px -6px rgba(0,0,0,0.7);
+  --card-titlebar-bg: rgba(44,44,46,0.9);
+  --card-titlebar-border: rgba(0,0,0,0.3);
+  --card-name-fg: rgba(255,255,255,0.55);
+  --card-body-fg: rgba(255,255,255,0.45);
+  --card-body-dim: rgba(255,255,255,0.35);
+  --card-btn-disabled: rgba(255,255,255,0.2);
+  --card-input-bg: rgba(0,0,0,0.4);
+  --card-input-fg: #ffffff;
+  --card-accent-green: #34d399;
+  --card-accent-cyan: #22d3ee;
+  --card-accent-amber: #fbbf24;
+  --card-accent-red: #f87171;
+}
+
+/* Light theme override - GitBook style */
+:root.light {
+  --bg: #FCFBF9;
+  --surface: #ffffff;
+  --surface-2: #f4f4f5;
+  --surface-3: #e7e7e9;
+  --border: #e5e7eb;
+  --border-subtle: #e9e9ec;
+  --text: #0a0a0a;
+  --text-muted: #6B7280;
+  --text-subtle: #9CA3AF;
+  --danger: #cf222e;
+  --success: #10B981;
+  --warning: #B45309;
+  --success-rgb: 16, 185, 129;
+  --danger-rgb: 207, 34, 46;
+  --warning-rgb: 180, 83, 9;
+  /* Glass card: near-opaque on light — blur has nothing to frost onto there */
+  --card-glass-bg: rgba(255,255,255,0.92);
+  --card-glass-border: #e5e7eb;
+  --card-shine: inset 0 1px 0 rgba(255,255,255,0.9);
+
+  /* Liquid glass — light needs a HIGHER white alpha: there is no dark backdrop
+     to lift away from, so the frosted plate itself carries the separation. */
+  --lg-blur: 20px;
+  --lg-sat: 1.8;
+  --lg-tint-dialog: rgba(255,255,255,0.70);
+  --lg-tint-menu: rgba(255,255,255,0.76);
+  --lg-rim: rgba(255,255,255,0.95);
+  --lg-edge: rgba(20,20,24,0.08);
+  --lg-shade: rgba(0,0,0,0.05);
+  --lg-sheen: linear-gradient(180deg, rgba(255,255,255,0.36), rgba(255,255,255,0) 55%);
+  --lg-lift-dialog: 0 20px 50px -12px rgba(15,23,42,0.22), 0 2px 8px rgba(15,23,42,0.08);
+  --lg-lift-menu: 0 16px 36px -6px rgba(15,23,42,0.18);
+  --git-added: #587c0c;
+  --git-modified: #895503;
+  --git-deleted: #ad0707;
+  --git-untracked: #007100;
+  --shadow-soft: 0 1px 2px 0 rgba(0,0,0,0.04);
+  --shadow-elev: 
+    inset 0 1px 0 0 rgba(255,255,255,0.8),
+    0 1px 2px rgba(15,23,42,0.04),
+    0 12px 36px -8px rgba(15,23,42,0.10);
+  --shadow-focus: 0 0 0 3px rgba(230,138,110,0.18);
+  color-scheme: light;
+  --brand-rgb: 230, 138, 110;
+
+  /* GitBook-style softer brand (terracotta) for light mode */
+  --color-brand-50: #fdf3ed;
+  --color-brand-100: #fbe2d4;
+  --color-brand-200: #f5c4a8;
+  --color-brand-300: #efa685;
+  --color-brand-400: #ea9577;
+  --color-brand-500: #E68A6E;
+  --color-brand-600: #d77459;
+  --color-brand-700: #b85d44;
+  --color-brand-800: #8a4332;
+  --color-brand-900: #5c2c21;
+}

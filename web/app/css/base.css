@@ -1,0 +1,96 @@
+/* Mac-like scrollbar — thin, floating, subtle. Specific component rules below override. */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background-color: rgba(128, 128, 128, 0.35);
+  border-radius: 8px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+*::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(128, 128, 128, 0.6);
+  background-clip: content-box;
+}
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(128, 128, 128, 0.35) transparent;
+}
+
+/* Custom scrollbar for terminal tabs */
+.scrollbar-thin::-webkit-scrollbar {
+  height: 4px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: rgba(128, 128, 128, 0.4);
+  border-radius: 2px;
+}
+
+.scrollbar-thin::-webkit-scrollbar-thumb:hover {
+  background: var(--color-brand-500);
+}
+
+.scrollbar-none {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-text);
+  font-family: 'Inter', system-ui, -apple-system, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* iOS keyboard toolbar accent color */
+input, textarea {
+  accent-color: #FF570A;
+}
+
+/* Prevent iOS Safari bounce/scroll when keyboard opens */
+html.terminal-page,
+html.terminal-page body {
+  position: fixed !important;
+  overflow: hidden !important;
+  width: 100% !important;
+  height: 100% !important;
+  overscroll-behavior: none !important;
+}
+
+/* Safe-area insets — single source of truth. The expo bridge sets --pl-top
+   from the real native status-bar inset; env() covers PWA + Safari iPhone.
+   max() picks whichever is real; both are 0 on desktop browsers.
+   Ownership: TOP is inset here once (.terminal-container); BOTTOM is owned by
+   each bottom bar (.safe-area-bottom / .pb-safe) — never both, or it stacks. */
+:root {
+  --safe-top: max(env(safe-area-inset-top, 0px), var(--pl-top, 0px));
+  --safe-bottom: max(env(safe-area-inset-bottom, 0px), var(--pl-bottom, 0px));
+  --safe-left: max(env(safe-area-inset-left, 0px), var(--pl-left, 0px));
+  --safe-right: max(env(safe-area-inset-right, 0px), var(--pl-right, 0px));
+}
+
+/* Native shell (expo): push content below the status bar and clear of the
+   landscape notch; background stays full-screen. Every view renders inside
+   this container, so components inherit the insets instead of computing
+   their own. */
+.terminal-container {
+  top: var(--safe-top);
+  height: calc(var(--app-height, 100vh) - var(--safe-top));
+  padding-left: var(--safe-left);
+  padding-right: var(--safe-right);
+}
+
+/* Terminal container */
+.terminal-container {
+  overscroll-behavior: none;
+  touch-action: none;
+}
+

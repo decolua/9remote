@@ -90,7 +90,6 @@
   border: 1px solid var(--glass-border);
   border-radius: var(--radius-brand-lg);
   backdrop-filter: blur(20px) saturate(140%);
-  -webkit-backdrop-filter: blur(20px) saturate(140%);
   transition: box-shadow 0.2s ease, border-color 0.2s ease;
 }
 
@@ -99,7 +98,6 @@
   border: 1px solid var(--border);
   border-radius: 14px;
   backdrop-filter: blur(24px) saturate(190%);
-  -webkit-backdrop-filter: blur(24px) saturate(190%);
   box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.55), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
   transition: all 0.2s ease;
 }

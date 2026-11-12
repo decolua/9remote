@@ -1,0 +1,53 @@
+/* Theme is class-based on <html> (see ThemeProvider); Tailwind's default dark: variant follows the OS instead */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Brand Colors (light mode — saturated orange) */
+  --color-brand-50: #fff2ec;
+  --color-brand-100: #ffe0cc;
+  --color-brand-200: #ffbf99;
+  --color-brand-300: #ff9566;
+  --color-brand-400: #ff6e33;
+  --color-brand-500: #FF570A;
+  --color-brand-600: #e04400;
+  --color-brand-700: #b33500;
+  --color-brand-800: #7a2400;
+  --color-brand-900: #3d1200;
+
+  /* Legacy dark scale - keep for backward compat, prefer semantic tokens below */
+  --color-dark-50: #e0e0e0;
+  --color-dark-100: #a0a0a0;
+  --color-dark-200: #808080;
+  --color-dark-300: #606060;
+  --color-dark-400: #404040;
+  --color-dark-500: #252525;
+  --color-dark-600: #1a1a1a;
+  --color-dark-700: #121212;
+  --color-dark-800: #0d0d0d;
+  --color-dark-900: #080808;
+
+  /* Semantic theme tokens - resolved at runtime via :root / .light overrides below */
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-surface-3: var(--surface-3);
+  --color-border: var(--border);
+  --color-border-subtle: var(--border-subtle);
+  --color-text: var(--text);
+  --color-text-muted: var(--text-muted);
+  --color-text-subtle: var(--text-subtle);
+  --color-accent: var(--color-brand-500);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  --color-warning: var(--warning);
+  /* Git status palette (VS Code decoration colors, per-theme) */
+  --color-git-added: var(--git-added);
+  --color-git-modified: var(--git-modified);
+  --color-git-deleted: var(--git-deleted);
+  --color-git-untracked: var(--git-untracked);
+
+  /* Border Radius */
+  --radius-brand: 8px;
+  --radius-brand-lg: 12px;
+}
+
