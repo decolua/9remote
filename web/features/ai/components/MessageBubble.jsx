@@ -168,7 +168,7 @@ export const MessageBubble = memo(function MessageBubble({
     return (
       <>
         <div className="group/msg flex flex-col items-end my-3">
-          <div className="max-w-[92%] md:max-w-[768px] flex flex-col items-end gap-1.5">
+          <div className="max-w-[92%] @2xl:max-w-[768px] flex flex-col items-end gap-1.5">
             {/* Files the prompt carried — names only: the bytes stay on the host. The
                 icon is what says an image was sent, since there is no thumbnail. */}
             {attachments.length > 0 && (
