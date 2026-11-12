@@ -34,6 +34,7 @@ export default function ImageViewer({ filePath, fileBus }) {
   // Gesture refs (avoid re-renders mid-gesture)
   const pinchRef = useRef(null);
   const panRef = useRef(null);
+  const dragRef = useRef(null);
   const lastTapRef = useRef(0);
 
   useEffect(() => {
@@ -214,6 +215,25 @@ export default function ImageViewer({ filePath, fileBus }) {
     if (e.touches.length === 0) panRef.current = null;
   }, []);
 
+  // --- Mouse drag pan (desktop) ---
+  // Touch panning lives in the touch handlers below; a pointerType check keeps the
+  // two from both acting on a phone, where touch events already cover it.
+  // No pointer capture: WebKit can swallow the pointerup that would end the drag, and
+  // the button state in the move event is enough to know the press is still down.
+  const onPointerDown = useCallback((e) => {
+    if (e.pointerType !== "mouse" || e.button !== 0 || scale <= 1.01) return;
+    dragRef.current = { x: e.clientX, y: e.clientY, pos };
+  }, [scale, pos]);
+
+  const onPointerMove = useCallback((e) => {
+    const drag = dragRef.current;
+    if (!drag) return;
+    if (!(e.buttons & 1)) { dragRef.current = null; return; }
+    setPos(clampPos(drag.pos.x + (e.clientX - drag.x), drag.pos.y + (e.clientY - drag.y), scale));
+  }, [scale, clampPos]);
+
+  const onPointerUp = useCallback(() => { dragRef.current = null; }, []);
+
   // --- Wheel zoom (desktop) ---
   const onWheel = useCallback((e) => {
     e.preventDefault();
@@ -261,10 +281,14 @@ export default function ImageViewer({ filePath, fileBus }) {
       </div>
       <div
         ref={containerRef}
-        className="flex-1 min-h-0 overflow-hidden flex items-center justify-center bg-[repeating-conic-gradient(#0001_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] touch-none"
+        className={`flex-1 min-h-0 overflow-hidden flex items-center justify-center bg-[repeating-conic-gradient(#0001_0%_25%,transparent_0%_50%)] bg-[length:20px_20px] touch-none ${scale > 1.01 ? "cursor-grab active:cursor-grabbing" : ""}`}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onPointerDown={onPointerDown}
+        onPointerMove={onPointerMove}
+        onPointerUp={onPointerUp}
+        onPointerCancel={onPointerUp}
         onWheel={onWheel}
       >
         <img
