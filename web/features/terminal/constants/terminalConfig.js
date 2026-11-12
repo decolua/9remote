@@ -63,7 +63,11 @@ export const MOBILE_FLOAT = {
 export const ARTIFACT_STACK_MAX = 20;
 export const WORKSPACE_GIT_POLL_MS = 10000;
 // Nested-repo scan depth; shallow by default to avoid drowning active repo.
-export const REPO_SCAN = { maxDepth: 1, deepMaxDepth: 3, cacheTtlMs: 30000 };
+// retry*: the panel mounts before the bus is up on a cold load, so a first scan that
+// answered "Not connected" is retried with backoff instead of sticking on empty.
+export const REPO_SCAN = { maxDepth: 1, deepMaxDepth: 3, cacheTtlMs: 30000, retryBaseMs: 1000, retryMaxMs: 16000 };
+// Which repo the Git tab opens by default, in order of preference.
+export const DEFAULT_REPO_BRANCHES = ["main", "master"];
 
 export const HISTORY_FETCH = {
   topThresholdLines: 5,

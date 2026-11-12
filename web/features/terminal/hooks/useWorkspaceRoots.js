@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { requestWithBusRetry } from "../lib/busRetry";
 import { useFileBusStore } from "@/shared/stores/fileBusStore";
 
 // Roots the file tree shows: the workspace plus each of its worktrees. They are separate
@@ -9,9 +10,17 @@ export function useWorkspaceRoots(workspacePath, propFileBus) {
   const [roots, setRoots] = useState([]);
   const fileBus = propFileBus || useFileBusStore.getState();
 
+  // Sequence-stamped so a slow retry from a previous workspace cannot overwrite the current roots.
+  const seqRef = useRef(0);
+
   const load = useCallback(async () => {
     if (!workspacePath || !fileBus?.gitWorktreeList) return setRoots([]);
-    const res = await fileBus.gitWorktreeList(workspacePath);
+    const seq = ++seqRef.current;
+    const res = await requestWithBusRetry(
+      () => fileBus.gitWorktreeList(workspacePath),
+      () => seqRef.current === seq
+    );
+    if (seqRef.current !== seq) return;
     if (!res?.success || !res.worktrees?.length) {
       // Not a repo, or git unavailable — the workspace folder is still a valid root.
       return setRoots([{ path: workspacePath, branch: null, name: basename(workspacePath) }]);
@@ -26,7 +35,9 @@ export function useWorkspaceRoots(workspacePath, propFileBus) {
 
   useEffect(() => {
     const id = setTimeout(() => void load(), 0);
-    return () => clearTimeout(id);
+    // Abandons an in-flight retry loop so it cannot land on a later mount or workspace.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- the live value is the point
+    return () => { clearTimeout(id); seqRef.current++; };
   }, [load]);
 
   return { roots, refresh: load };
