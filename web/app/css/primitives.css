@@ -128,6 +128,43 @@
   backdrop-filter: blur(var(--lg-blur-drawer)) saturate(var(--lg-sat));
 }
 
+/* ---- Lightbox (image viewer over the chat) ----------------------------------
+   The scrim stays in the modal family: dark enough to put the panel forward, light
+   enough that the page behind is still recognisable — blacking it out entirely read
+   as a full-screen view rather than a dialog opened on top of the chat. */
+
+.scrim-lightbox {
+  background: rgba(0, 0, 0, 0.62);
+  backdrop-filter: blur(6px) saturate(1.15);
+}
+:root.light .scrim-lightbox {
+  background: rgba(20, 18, 16, 0.5);
+}
+
+/* The panel is the dialog surface: a dark plate with a hairline, so the picture has
+   something to sit ON rather than floating in the scrim. */
+.lightbox-panel {
+  background: rgba(20, 19, 18, 0.88);
+  backdrop-filter: blur(28px) saturate(1.4);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.10),
+    0 32px 80px -16px rgba(0, 0, 0, 0.85);
+}
+
+.lightbox-arrow {
+  background: rgba(30, 28, 26, 0.55);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(255, 255, 255, 0.10);
+}
+
+/* The frame is what separates the picture from the scrim — a shadow, never a border,
+   so a screenshot's own edges stay clean. */
+.lightbox-image {
+  border-radius: 6px;
+}
+
 /* Accessibility: without transparency the material must still separate from the
    page, so it falls back to the solid surface rather than a washed-out tint. */
 @media (prefers-reduced-transparency: reduce) {

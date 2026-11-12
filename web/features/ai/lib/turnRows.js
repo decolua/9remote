@@ -74,6 +74,33 @@ export function buildTurnRows(messages = [], engine = "claude") {
   return rows;
 }
 
+// Every picture a turn looked at or produced, in call order, with the file it came from.
+// A tool call names the file it touched (`file_path`, `path`, `file`, `notebook_path` —
+// the spellings differ per engine); the client reads it back from the host on demand,
+// so nothing image-sized ever rides the event stream. Collected off the whole row list
+// rather than the step window: a screenshot the agent read is the answer to the prompt,
+// so collapsing the run must not hide it.
+const IMAGE_EXT = /\.(png|jpe?g|gif|webp|avif|bmp|svg)$/i;
+const PATH_KEYS = ["file_path", "notebook_path", "path", "file"];
+
+export function turnImages(rows = []) {
+  const out = [];
+  const seen = new Set();
+  const walk = (tool) => {
+    const input = tool?.input;
+    const raw = typeof input === "string"
+      ? ""
+      : PATH_KEYS.map((k) => input?.[k]).find((v) => typeof v === "string" && v);
+    if (raw && IMAGE_EXT.test(raw) && !seen.has(raw)) {
+      seen.add(raw);
+      out.push({ path: raw, name: String(raw).split(/[/\\]/).pop() || raw, toolName: tool?.name });
+    }
+    for (const child of tool?.children || []) walk(child);
+  };
+  for (const row of rows) if (row.kind === "tool") walk(row.tool);
+  return out;
+}
+
 const isStep = (r) => r.kind === "thought" || r.kind === "tool" || r.kind === "diff";
 
 export function hiddenCount(total, windowSize, revealed = 0) {

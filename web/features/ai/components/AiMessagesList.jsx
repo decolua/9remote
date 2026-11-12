@@ -607,7 +607,7 @@ export const AiMessagesList = memo(function AiMessagesList({
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="ai-conversation flex-1 min-h-0 overflow-y-auto px-4 sm:px-6 py-4 space-y-4 custom-scrollbar relative"
+        className="ai-conversation @container flex-1 min-h-0 overflow-y-auto px-3 @2xl:px-6 py-4 space-y-4 custom-scrollbar relative"
       >
         {(hiddenCount > 0 || hasOlder) && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
@@ -648,6 +648,7 @@ export const AiMessagesList = memo(function AiMessagesList({
                       workspacePath={workspacePath}
                       onResolvePermission={onResolvePermission}
                       isLive={isLiveTurn(turn)}
+                      fileBus={fileBus}
                     />
                   </div>
                 );
@@ -671,6 +672,7 @@ export const AiMessagesList = memo(function AiMessagesList({
                     workspacePath={workspacePath}
                     onResolvePermission={onResolvePermission}
                     isLive={isLiveTurn(turn)}
+                    fileBus={fileBus}
                   />
                 </div>
               );

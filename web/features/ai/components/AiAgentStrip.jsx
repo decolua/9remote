@@ -80,7 +80,7 @@ export const AiAgentStrip = memo(function AiAgentStrip({ sessionId = "", engine 
   const shells = running.filter((r) => r.kind === "shell");
 
   return (
-    <div className="px-4 sm:px-6 py-1 border-b border-border-subtle/40 bg-brand-500/[0.06] shrink-0 text-xs select-none">
+    <div className="px-3 @2xl:px-6 py-1 border-b border-border-subtle/40 bg-brand-500/[0.06] shrink-0 text-xs select-none">
       {agents.length > 0 && (
         <Row icon={<Loader2 size={13} className="text-brand-500 shrink-0 animate-spin" />} tag="AGENTS"
           items={agents} messages={messages} engine={engine} now={now} onOpen={setOpen} />

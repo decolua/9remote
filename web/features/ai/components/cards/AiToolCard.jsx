@@ -1,14 +1,44 @@
 "use client";
 
-import { memo, useState } from "react";
+import { memo, useEffect, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, Loader2, CheckCircle2, AlertCircle, ExternalLink, Eye } from "@/shared/components/ui/Icon";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { vibrate } from "@/shared/utils/vibration";
 import { shortenPath } from "../../lib/shortenPath";
 import { getToolCategory } from "../../registry";
+import { IMAGE_EXT } from "../TurnImages";
+import { ImageLightbox } from "../ImageLightbox";
 
 // Read-shaped built-ins wear an eye once done; every other tool keeps the check.
 const DONE_ICONS = { file: Eye };
+
+// The picture behind a Read, read from the host when the row mounts. Drawn small and
+// at the end of the row: the row says what the call did, this is the one thing it
+// returned that a line of text cannot show. A press opens the full-size viewer.
+function ImageThumb({ path, fileBus, onOpen }) {
+  const [src, setSrc] = useState(null);
+  useEffect(() => {
+    if (!path || !fileBus?.readMedia) return;
+    let live = true;
+    fileBus.readMedia(path).then((res) => {
+      if (live && res?.success && res.dataUrl) setSrc(res.dataUrl);
+    }).catch(() => {});
+    return () => { live = false; };
+  }, [path, fileBus]);
+
+  if (!src) return null;
+  return (
+    <button
+      type="button"
+      onClick={(e) => { e.stopPropagation(); vibrate(); onOpen(); }}
+      className="shrink-0 overflow-hidden rounded border border-border-subtle/60 hover:border-border-subtle transition-colors"
+      title="View full size"
+    >
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img src={src} alt="" className="h-7 w-10 object-cover" draggable={false} />
+    </button>
+  );
+}
 
 export const AiToolCard = memo(function AiToolCard({
   id = "",
@@ -20,7 +50,8 @@ export const AiToolCard = memo(function AiToolCard({
   status = "done",
   children = [],
   engine = "claude",
-  workspacePath = ""
+  workspacePath = "",
+  fileBus = null
 }) {
   const isRunning = status === "running";
   const isError = Boolean(error || status === "error");
@@ -45,6 +76,12 @@ export const AiToolCard = memo(function AiToolCard({
   // Full input goes in the expanded body only — the header stays a 2-line hint.
   const inputText = typeof input === "string" ? input : input && Object.keys(input).length ? JSON.stringify(input, null, 2) : "";
   const filePath = input?.file_path || input?.path || input?.file || "";
+  // A Read of a picture is a row whose output the reader wants to SEE — it opens the
+  // viewer, not the text editor. The bytes come from the host on demand (same door the
+  // file explorer uses), so the path is all this row needs — which is why every engine
+  // that reports its input gets pictures without a word of engine-specific code.
+  const isImagePath = IMAGE_EXT.test(filePath);
+  const [lightbox, setLightbox] = useState(false);
   const DoneIcon = DONE_ICONS[getToolCategory(engine, name)] || CheckCircle2;
 
   const handleCopy = (e) => {
@@ -60,7 +97,11 @@ export const AiToolCard = memo(function AiToolCard({
   const handleOpenFile = (e) => {
     e.stopPropagation();
     vibrate();
-    if (filePath) openEditorFile(filePath);
+    if (!filePath) return;
+    // A picture opens at full size in the viewer — the editor would show a binary sheet,
+    // and looking at the screenshot is the whole point of the row.
+    if (isImagePath) { setLightbox(true); return; }
+    openEditorFile(filePath);
   };
 
   return (
@@ -108,14 +149,22 @@ export const AiToolCard = memo(function AiToolCard({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2">
+        {/* A picture's controls never hide: on a phone there is no hover, and this row is
+            the only way to look at what the call returned. Text files keep the original
+            hover-only affordance. */}
+        <div className={`flex items-center gap-1 shrink-0 ml-2 ${isImagePath ? "" : "opacity-0 group-hover/tool:opacity-100"}`}>
+          {/* The picture sits at the end of the row, small — a card-sized image here
+              would drown a one-line run. Full size is one press away. */}
+          {isImagePath && !isRunning && !isError && fileBus && (
+            <ImageThumb path={filePath} fileBus={fileBus} onOpen={() => setLightbox(true)} />
+          )}
           {/* Open stays visible — hover would hide the one affordance users look for. */}
           {filePath && (
             <button
               type="button"
               onClick={handleOpenFile}
               className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors flex items-center gap-1"
-              title="Open file in editor"
+              title={isImagePath ? "View image" : "Open file in editor"}
             >
               <ExternalLink size={11} />
             </button>
@@ -155,9 +204,18 @@ export const AiToolCard = memo(function AiToolCard({
       {expanded && children.length > 0 && (
         <div className="ml-3.5 pl-3 border-l-2 border-border-subtle/80">
           {children.map((c) => (
-            <AiToolCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} />
+            <AiToolCard key={c.id} {...c} engine={engine} workspacePath={workspacePath} fileBus={fileBus} />
           ))}
         </div>
+      )}
+
+      {lightbox && (
+        <ImageLightbox
+          images={[{ path: filePath, name: filePath.split(/[/\\]/).pop() || filePath }]}
+          index={0}
+          fileBus={fileBus}
+          onClose={() => setLightbox(false)}
+        />
       )}
     </div>
   );

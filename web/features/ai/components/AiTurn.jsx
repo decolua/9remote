@@ -7,7 +7,8 @@ import { AiDiffCard } from "./cards/AiDiffCard";
 import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiThinkingBlock } from "./cards/AiThinkingBlock";
 import { renderToolCard } from "./cards/toolCards";
-import { buildTurnRows, splitTurnBlocks } from "../lib/turnRows";
+import { buildTurnRows, splitTurnBlocks, turnImages } from "../lib/turnRows";
+import { TurnImageThumb } from "./TurnImages";
 import MarkdownBody from "@/shared/components/ui/MarkdownBody";
 import { Loader2 } from "@/shared/components/ui/Icon";
 
@@ -134,7 +135,7 @@ function CompactingClock() {
   return <span className="text-text-muted/70 tabular-nums">{formatSeconds(now - startedAt)}</span>;
 }
 
-function ProseRow({ content, isLive }) {
+function ProseRow({ content, isLive, images = [], fileBus = null }) {
   const text = useStreamedText(content, isLive);
   return (
     // The reply is its own bubble, the way a chat bubble is: it sits left and never
@@ -144,9 +145,19 @@ function ProseRow({ content, isLive }) {
     // min-content, so a path with no space to break on wraps instead of widening
     // the column into a scrollbar.
     <div className="flex justify-start mb-3 mt-1">
-      <div className="max-w-[94%] md:max-w-[768px] min-w-0 px-3.5 py-2 rounded-[16px] rounded-tl-[4px] bg-[var(--chat-bubble-theirs)] shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-sm leading-relaxed text-[var(--chat-bubble-theirs-text)] wrap-anywhere">
+      <div className="max-w-[94%] @2xl:max-w-[768px] min-w-0 px-3.5 py-2 rounded-[16px] rounded-tl-[4px] bg-[var(--chat-bubble-theirs)] shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-sm leading-relaxed text-[var(--chat-bubble-theirs-text)] wrap-anywhere">
         <MarkdownBody content={text} />
         {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
+        {/* Pictures belong inside the bubble: they are part of what the answer points
+            at. A press hands the file to the editor's image viewer, which is where a
+            picture is actually inspected — no second overlay in the app. */}
+        {images.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            {images.map((img, i) => (
+              <TurnImageThumb key={`${img.path}-${i}`} img={img} fileBus={fileBus} images={images} index={i} />
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -157,13 +168,20 @@ export const AiTurn = memo(function AiTurn({
   engine = "claude",
   workspacePath = "",
   onResolvePermission,
-  isLive = true
+  isLive = true,
+  fileBus = null
 }) {
   const rows = useMemo(() => buildTurnRows(messages, engine), [messages, engine]);
   const blocks = useMemo(
     () => splitTurnBlocks(rows, WINDOW_STEPS, { deferred: !isLive }),
     [rows, isLive]
   );
+  // Read off the whole row list, not the window: see turnImages.
+  const images = useMemo(() => turnImages(rows), [rows]);
+  const lastProseId = useMemo(() => {
+    for (let i = rows.length - 1; i >= 0; i--) if (rows[i].kind === "prose") return rows[i].id;
+    return null;
+  }, [rows]);
   return (
     <div className="my-1">
       {blocks.map((b) => {
@@ -171,7 +189,18 @@ export const AiTurn = memo(function AiTurn({
           // Prose sits outside the rail: it is the agent talking to the reader, not a
           // step it took, and indenting it would read as one more thing it did.
           if (b.row.kind === "prose") {
-            return <ProseRow key={b.key} content={b.row.content} isLive={b.row.isLive} />;
+            // The turn's pictures ride the LAST prose block: that is the answer they
+            // belong to, and an earlier paragraph would place them mid-thought.
+            const isLastProse = b.row.id === lastProseId;
+            return (
+              <ProseRow
+                key={b.key}
+                content={b.row.content}
+                isLive={b.row.isLive}
+                images={isLastProse ? images : []}
+                fileBus={isLastProse ? fileBus : null}
+              />
+            );
           }
           if (b.row.kind === "notice") {
             return <NoticeRow key={b.key} notice={b.row.notice} />;
