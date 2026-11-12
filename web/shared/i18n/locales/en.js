@@ -598,7 +598,8 @@ export default {
     discardConfirmTitle: "Discard Changes",
     discardConfirmDelete: "Are you sure you want to delete \"{name}\"? This cannot be undone.",
     discardConfirmDiscard: "Are you sure you want to discard changes in \"{name}\"? This cannot be undone.",
-    addToGitignore: "Add to .gitignore"
+    addToGitignore: "Add to .gitignore",
+    showMore: "Show {count} more"
   },
   fileExplorer: {
     explorer: "Explorer",

@@ -93,7 +93,7 @@ test("the published watermark is the newest seq, not the log's length", () => {
 
 test("a rebuilt log is delivered like a hydrate: a tail plus where the window starts", () => {
   const SESSION = fs.readFileSync(path.join(root, "host/features/ai/aiSession.js"), "utf8");
-  assert.match(SESSION, /_adoptLog\(events\) \{/);
+  assert.match(SESSION, /_adoptLog\(events, \{ carryUnreleased = false \} = \{\}\) \{/);
   assert.match(SESSION, /const \{ events: replay, hasMore, fromSeq \} = replayWindow\(log, AI_REPLAY_BYTES\)/);
   // The reset also states the generation — a client's watermark is only valid inside it.
   assert.match(SESSION, /"conversation_reset", \{\s*hasMore, fromSeq, epoch: this\.logEpoch,\s*lastTurnMs: this\.lastTurnMs,\s*taskRecords: this\.taskRecords\(\),\s*queue: this\.getQueue\(\),\s*\.\.\.this\.turnState\(\)\s*\}\)/);

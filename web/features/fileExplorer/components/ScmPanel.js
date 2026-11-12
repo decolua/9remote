@@ -7,7 +7,7 @@ import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import FileContextMenu from "@/shared/components/ui/FileContextMenu";
 import { useI18n } from "@/shared/i18n";
 import useIsTouch from "@/shared/hooks/useIsTouch.js";
-import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, GIT_AUTO_REFRESH_EVENTS, GIT_STATUS_DEBOUNCE_MS, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
+import { GIT_STATUS_COLORS, GIT_REFRESH_EVENT, GIT_AUTO_REFRESH_EVENTS, GIT_STATUS_DEBOUNCE_MS, SCM_RENDER_CHUNK, SCM_RENDER_STEP, makeDiffPath, makeRepoDiffPath } from "../constants/fileExplorer.js";
 import { resolveFileIcon } from "../constants/fileIcons.js";
 import { commitSummary, pushSummary, pullSummary } from "../lib/gitOutput.js";
 import { addToGitignore } from "../lib/gitignore.js";
@@ -35,7 +35,13 @@ function joinPath(base, rel) {
 
 // One changed-file row. Memoized so typing a commit message (panel-level state) does not
 // re-render the whole file list per keystroke — handlers take the row's `file`, so every
-// row shares one stable identity.
+// row shares one stable identity. Custom comparator: a status reload rebuilds every file
+// object, so identity would defeat memo — compare the data a row actually renders.
+const scmRowPropsEqual = (a, b) =>
+  a.file.path === b.file.path && a.file.status === b.file.status
+  && a.workspace === b.workspace && a.isUntracked === b.isUntracked
+  && a.isTouch === b.isTouch && a.t === b.t;
+
 const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, isTouch, openDiff, onCtxMenu, onDiscard, onStage }) {
   const colorClass = GIT_STATUS_COLORS[file.status] || "text-text-muted";
   const absPath = joinPath(workspace, file.path);
@@ -77,7 +83,7 @@ const ScmFileRow = memo(function ScmFileRow({ file, workspace, isUntracked, t, i
       <span className={`flex-shrink-0 w-4 h-4 flex items-center justify-center text-[10px] font-mono rounded bg-surface-2 ${colorClass}`}>{file.status}</span>
     </div>
   );
-});
+}, scmRowPropsEqual);
 
 export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRepo = false }) {
   const { t } = useI18n();
@@ -90,6 +96,8 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null); // { ok, text }
   const [expandedSections, setExpandedSections] = useState(new Set([SECTION_CHANGES, SECTION_UNTRACKED]));
+  // Per-section row budget — huge lists (unignored build dirs) mount one chunk, not 3k rows.
+  const [visibleCounts, setVisibleCounts] = useState({});
   const [confirmAutoStageOpen, setConfirmAutoStageOpen] = useState(false);
   const [confirmDiscardOpen, setConfirmDiscardOpen] = useState(false);
   const [discardTarget, setDiscardTarget] = useState(null);
@@ -294,8 +302,14 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
     />
   );
 
+  const showMore = useCallback((id) => {
+    setVisibleCounts((prev) => ({ ...prev, [id]: (prev[id] ?? SCM_RENDER_CHUNK) + SCM_RENDER_STEP }));
+  }, []);
+
   const renderSection = (id, label, list, isUntracked) => {
     const expanded = expandedSections.has(id);
+    const visible = list.slice(0, visibleCounts[id] ?? SCM_RENDER_CHUNK);
+    const remaining = list.length - visible.length;
     return (
       <div className="border-t border-border">
         <button
@@ -307,7 +321,20 @@ export default function ScmPanel({ workspace, fileBus, onOpenFile, tagDiffWithRe
           <span className="text-[11px] uppercase tracking-wider text-text-muted">{label}</span>
           <span className="text-[10px] px-1.5 ml-auto rounded-brand bg-surface-3 text-text-muted">{list.length}</span>
         </button>
-        {expanded && list.map((f) => renderFileRow(f, isUntracked))}
+        {expanded && (
+          <>
+            {visible.map((f) => renderFileRow(f, isUntracked))}
+            {remaining > 0 && (
+              <button
+                type="button"
+                onClick={() => { vibrate(); showMore(id); }}
+                className="w-full px-2 py-1 text-[11px] text-brand-500 hover:bg-surface-2 text-left"
+              >
+                {t("git.showMore", { count: remaining })}
+              </button>
+            )}
+          </>
+        )}
       </div>
     );
   };

@@ -242,6 +242,10 @@ export const GIT_REFRESH_EVENT = "fileExplorer:gitRefresh";
 // costs one git spawn per surface, not one per event.
 export const GIT_STATUS_DEBOUNCE_MS = 300;
 
+// Huge status lists (e.g. unignored build dirs) render in chunks, not all at once.
+export const SCM_RENDER_CHUNK = 200;
+export const SCM_RENDER_STEP = 500;
+
 // Window events that mean git state may have moved — the SCM list and open diff tabs listen.
 export const GIT_AUTO_REFRESH_EVENTS = [
   "fileExplorer:fileSaved",

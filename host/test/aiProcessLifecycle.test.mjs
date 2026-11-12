@@ -277,5 +277,36 @@ await test("a queued prompt drains and starts a new turn when the running turn c
   }
 });
 
+await test("a hydrate rebuild keeps a prompt the CLI has not flushed yet; rewind still drops it", async () => {
+  const { s } = runningSession("rebuild-unflushed-prompt", { pendingRequests: new Map(), stop: async () => {} });
+  try {
+    s.cliSessionId = "transcript-1";
+    // Turn one is fully flushed: log and transcript agree.
+    s.history.push({ seq: 1, event: "user_message", data: { text: "turn mot" } });
+    s.history.push({ seq: 2, event: "turn_complete", data: {} });
+    // Turn two's prompt was sent while the CLI was still mid-loop: recorded in the log,
+    // held in the CLI's own queue, absent from the transcript file.
+    s.history.push({ seq: 3, event: "user_message", data: { text: "turn hai" } });
+    s.seqCounter = 3;
+
+    const transcript = [
+      { seq: 1, event: "user_message", data: { text: "turn mot" } },
+      { seq: 2, event: "turn_complete", data: {} }
+    ];
+    s._rebuildFromStore = () => ({ events: transcript.map((e) => ({ ...e })), state: null });
+
+    assert.equal(s.refreshFromStore(), true);
+    let texts = s.history.filter((e) => e.event === "user_message").map((e) => e.data.text);
+    assert.deepEqual(texts, ["turn mot", "turn hai"], "the unflushed prompt survives the door rebuild");
+
+    // A rewind is a deliberate cut — the same missing prompt must not resurrect there.
+    assert.equal(s.reloadFromStore("leaf-1"), true);
+    texts = s.history.filter((e) => e.event === "user_message").map((e) => e.data.text);
+    assert.deepEqual(texts, ["turn mot"], "rewind's cut stands");
+  } finally {
+    s.destroy();
+  }
+});
+
 console.log(fail ? `\n${fail} failed, ${pass} passed` : `\nAll ${pass} passed`);
 process.exitCode = fail ? 1 : 0;

@@ -210,6 +210,27 @@ function mergeCarried(carried, events) {
   return carried.length ? insertByIndex(events, carried) : events;
 }
 
+// A prompt the CLI accepted but has not written to its transcript yet (it sits in the CLI's own mid-turn
+// queue): a rebuild from that file must not drop the bubble the user already saw. Only the span after the
+// last turn-end is at risk — everything earlier was on disk before that turn could end.
+function unreleasedPrompts(oldLog, rebuilt) {
+  // Only the rebuilt tail holds the in-flight turn, so a prompt from an OLDER turn with the same
+  // words cannot stand in for the new one (the user re-asking a question must not vanish).
+  const flushed = new Set();
+  for (let i = rebuilt.length - 1; i >= 0; i--) {
+    const ev = rebuilt[i];
+    if (TURN_END_EVENTS.has(ev.event)) break;
+    if (ev.event === "user_message") flushed.add(ev.data?.text);
+  }
+  const carry = [];
+  for (let i = oldLog.length - 1; i >= 0; i--) {
+    const ev = oldLog[i];
+    if (TURN_END_EVENTS.has(ev.event)) break;
+    if (ev.event === "user_message" && !flushed.has(ev.data?.text)) carry.unshift(ev);
+  }
+  return carry;
+}
+
 // Fold consecutive delta/thinking slices into one record; the log is a cache that only loses content.
 function compactEvents(events) {
   if (!Array.isArray(events) || events.length <= 1) return events;
@@ -610,7 +631,8 @@ export class AiSession {
     if (!this.cliSessionId) return false;
     const { events: log } = this._rebuildFromStore(this.cliSessionId);
     if (!log) return false;
-    this._adoptLog(log);
+    // The transcript can lag a prompt the CLI is still holding queued — keep it on the log.
+    this._adoptLog(log, { carryUnreleased: true });
     return true;
   }
 
@@ -624,9 +646,15 @@ export class AiSession {
     return true;
   }
 
-  _adoptLog(events) {
+  _adoptLog(events, { carryUnreleased = false } = {}) {
     // Replace with what the transcript reconstructs, but carry the harness-only records across at their old positions — never re-emit them.
-    const merged = mergeCarried(cliEventsOf(this.history), events);
+    let merged = mergeCarried(cliEventsOf(this.history), events);
+    // The CLI flushes a queued mid-turn prompt only when it releases it — an F5 in that
+    // window must not erase the message. Rewind/resume pass no flag: their cut is deliberate.
+    if (carryUnreleased) {
+      const carry = unreleasedPrompts(this.history, merged);
+      if (carry.length) merged = [...merged, ...carry];
+    }
     // From 1, and the counter restarts — else the next live event carries the dead log's seq and is dropped.
     const log = renumber(capLog(merged));
     this.seqCounter = log.length;

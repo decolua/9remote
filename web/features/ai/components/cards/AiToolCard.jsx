@@ -108,7 +108,8 @@ export const AiToolCard = memo(function AiToolCard({
           </span>
         </div>
 
-        <div className="flex items-center gap-1 shrink-0 ml-2 opacity-0 group-hover/tool:opacity-100 transition-opacity">
+        <div className="flex items-center gap-1 shrink-0 ml-2">
+          {/* Open stays visible — hover would hide the one affordance users look for. */}
           {filePath && (
             <button
               type="button"
@@ -123,7 +124,7 @@ export const AiToolCard = memo(function AiToolCard({
           <button
             type="button"
             onClick={handleCopy}
-            className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors"
+            className="p-0.5 text-text-muted hover:text-text rounded hover:bg-surface-3 transition-colors opacity-0 group-hover/tool:opacity-100"
             title="Copy output"
           >
             {copied ? <Check size={11} className="text-success" /> : <Copy size={11} />}
