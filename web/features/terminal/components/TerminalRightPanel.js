@@ -84,6 +84,12 @@ function TerminalRightPanel({
   const dirtyCount = dirtyRepos.reduce((n, r) => n + countOf(r), 0);
   // Main repo is kept visible even when unchanged so its branch and push actions stay accessible.
   const gitRepos = showCleanRepos ? visibleRepos : visibleRepos.filter((r) => countOf(r) > 0 || isMainRepo(r));
+  // Nested clones are drawn in their own strip pinned to the bottom of the tab, so the
+  // workspace's own repo keeps the top of the panel to itself.
+  const mainRepos = gitRepos.filter(isMainRepo);
+  const subRepos = gitRepos.filter((r) => !isMainRepo(r)).sort((a, b) =>
+    ((countOf(b) > 0) - (countOf(a) > 0)) || (a.relPath || a.path).localeCompare(b.relPath || b.path)
+  );
   const hiddenCleanCount = showCleanRepos ? 0 : visibleRepos.length - gitRepos.length;
   const mutedCount = repos.length - visibleRepos.length;
   // With many repos, open one instead of leaving every section collapsed: a repo on a
@@ -277,7 +283,7 @@ function TerminalRightPanel({
           up (not gated on treeActions) so the header height doesn't jump when the tree
           registers. */}
       {activeTab === "files" && workspacePath && (
-        <div className={`${search.show ? "py-1" : `h-11 ${PANEL_HEADER_H_CLASS}`} px-2 flex items-center gap-1.5 border-b border-border-subtle flex-shrink-0`}>
+        <div className={`${search.show ? "py-1" : `h-11 ${PANEL_HEADER_H_CLASS}`} px-2 flex items-center gap-1.5 flex-shrink-0`}>
           {search.show ? (
             <div className="flex-1 flex flex-col min-w-0 gap-1 py-1">
               <div className="flex items-center gap-1.5 min-w-0">
@@ -350,7 +356,7 @@ function TerminalRightPanel({
 
       {/* Scope banner when searching a specific folder */}
       {activeTab === "files" && workspacePath && search.show && search.searchDir && (
-        <div className="px-3 py-1 bg-surface-3/40 border-b border-border-subtle flex items-center justify-between text-[11px] text-text-muted flex-shrink-0">
+        <div className="px-3 py-1 bg-surface-3/40 flex items-center justify-between text-[11px] text-text-muted flex-shrink-0">
           <div className="flex items-center gap-1.5 min-w-0">
             <Folder size={12} className="text-yellow-500/80 shrink-0" />
             <span className="text-text-subtle shrink-0">Folder:</span>
@@ -431,10 +437,13 @@ function TerminalRightPanel({
             </div>
           )
         ) : activeTab === "git" ? (
+          <div className="flex-1 min-h-0 flex flex-col">
           <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
             {/* A workspace holding many clones would otherwise list every one of them and
-                mount a git-status panel each. Only repos with changes show by default. */}
-            {gitRepos.map((repo) => (
+                mount a git-status panel each. Only repos with changes show by default.
+                The workspace's own repo leads; nested clones are pinned to the bottom
+                strip below, so a clone cannot be mistaken for the workspace. */}
+            {mainRepos.map((repo) => (
               <RepoSection
                 key={repo.path}
                 repo={repo}
@@ -452,26 +461,50 @@ function TerminalRightPanel({
                 {showCleanRepos ? t("workspaces.emptyWorkspace") : t("git.noChanges")}
               </p>
             )}
+          </div>
 
-            {/* Only drawn when it has something to offer — an empty bordered strip under
-                an empty list reads as a broken panel. */}
-            {(hiddenCleanCount > 0 || mutedCount > 0 || !deep) && (
-            <div className="border-t border-border-subtle mt-1">
-              {hiddenCleanCount > 0 && (
-                <FooterAction onClick={() => setShowCleanRepos(true)}>
-                  {t("workspaces.showCleanRepos", { count: hiddenCleanCount })}
-                </FooterAction>
+          {/* Nested clones live at the very bottom of the tab, under a divider and out of
+              the main repo's scroll: the workspace itself always reads as the subject.
+              The scan/link actions sit here too — they are about what the list left out,
+              not about the repo it leads with. */}
+          {(subRepos.length > 0 || hiddenCleanCount > 0 || mutedCount > 0 || !deep) && (
+            <div className="flex-shrink-0 max-h-[45%] overflow-y-auto modal-scrollable border-t border-border-subtle bg-surface/40">
+              {subRepos.length > 0 && (
+                <p className="px-3 py-1 text-[10px] uppercase tracking-wider text-text-subtle">
+                  {t("workspaces.nestedRepos", { count: subRepos.length })}
+                </p>
               )}
-              {mutedCount > 0 && (
-                <FooterAction onClick={() => onHiddenReposChange?.([])}>
-                  {t("workspaces.showHiddenRepos", { count: mutedCount })}
-                </FooterAction>
-              )}
-              {!deep && (
-                <FooterAction onClick={scanDeeper}>{t("workspaces.scanDeeper")}</FooterAction>
+              {subRepos.map((repo) => (
+                <RepoSection
+                  key={repo.path}
+                  repo={repo}
+                  changedCount={countOf(repo)}
+                  isOpen={activeRepo === repo.path}
+                  onToggle={() => setOpenRepo(activeRepo === repo.path ? "" : repo.path)}
+                  onHide={canHideRepo(repo) ? () => hideRepo(repo.path) : null}
+                >
+                  <ScmPanel workspace={repo.path} fileBus={activeFileBus} onOpenFile={onOpenFile} tagDiffWithRepo />
+                </RepoSection>
+              ))}
+              {(hiddenCleanCount > 0 || mutedCount > 0 || !deep) && (
+                <div className={subRepos.length > 0 ? "border-t border-border-subtle" : ""}>
+                  {hiddenCleanCount > 0 && (
+                    <FooterAction onClick={() => setShowCleanRepos(true)}>
+                      {t("workspaces.showCleanRepos", { count: hiddenCleanCount })}
+                    </FooterAction>
+                  )}
+                  {mutedCount > 0 && (
+                    <FooterAction onClick={() => onHiddenReposChange?.([])}>
+                      {t("workspaces.showHiddenRepos", { count: mutedCount })}
+                    </FooterAction>
+                  )}
+                  {!deep && (
+                    <FooterAction onClick={scanDeeper}>{t("workspaces.scanDeeper")}</FooterAction>
+                  )}
+                </div>
               )}
             </div>
-            )}
+          )}
           </div>
         ) : null}
       </div>
@@ -536,7 +569,7 @@ function SearchResults({ results, loading, query, searchDir, workspace, onOpen }
   const totalMatches = results.reduce((n, f) => n + f.matches.length, 0);
   return (
     <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
-      <p className="px-2 py-1 text-[10px] text-text-muted border-b border-border-subtle sticky top-0 bg-surface/80 backdrop-blur-md z-[1]">
+      <p className="px-2 py-1 text-[10px] text-text-muted sticky top-0 bg-surface/80 backdrop-blur-md z-[1]">
         {totalMatches} results in {results.length} files
       </p>
       {results.map((file) => {
@@ -588,7 +621,7 @@ function RootSection({ root, multiple, isOpen, onToggle, onRemove = null, remove
   if (!multiple) return <div className="flex-1 min-h-0 flex flex-col">{children}</div>;
   return (
     <div className={`flex flex-col min-h-0 ${isOpen ? "flex-1" : "flex-shrink-0"}`}>
-      <div className="group px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted bg-surface-2/40 hover:bg-surface-2 border-b border-border-subtle transition-colors">
+      <div className="group px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted bg-surface-2/40 hover:bg-surface-2 transition-colors">
         <button
           onClick={() => { vibrate(); onToggle(); }}
           className="flex-1 min-w-0 flex items-center gap-1.5 hover:text-text transition-colors"
@@ -670,7 +703,7 @@ function RepoSection({ repo, changedCount = 0, isOpen, onToggle, onHide, childre
     <div className="border-b border-border-subtle last:border-0">
       <button
         onClick={() => { vibrate(); onToggle(); }}
-        className="group/repo w-full sticky top-0 z-10 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted hover:text-text bg-surface-3/80 backdrop-blur-md border-b border-border-subtle transition-colors"
+        className="group/repo w-full sticky top-0 z-10 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted hover:text-text bg-surface-3/80 backdrop-blur-md transition-colors"
       >
         <ChevronRight size={11} className={`flex-shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
         <span className="truncate flex-1 text-left" title={repo.relPath || repo.name}>{repo.relPath || repo.name}</span>
