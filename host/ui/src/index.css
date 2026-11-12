@@ -53,6 +53,17 @@
   --shadow-elev:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.9),
     0 24px 50px -20px rgba(60, 70, 120, 0.35);
+  /* Liquid glass — mirrored from web/app/css/tokens.css (web :root.light) */
+  --lg-blur: 20px;
+  --lg-sat: 1.8;
+  --lg-tint-dialog: rgba(255, 255, 255, 0.70);
+  --lg-tint-menu: rgba(255, 255, 255, 0.76);
+  --lg-rim: rgba(255, 255, 255, 0.95);
+  --lg-edge: rgba(20, 20, 24, 0.08);
+  --lg-shade: rgba(0, 0, 0, 0.05);
+  --lg-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0) 55%);
+  --lg-lift-dialog: 0 20px 50px -12px rgba(15, 23, 42, 0.22), 0 2px 8px rgba(15, 23, 42, 0.08);
+  --lg-lift-menu: 0 16px 36px -6px rgba(15, 23, 42, 0.18);
 }
 
 /* Dark theme — web-login zinc (globals.css parity) */
@@ -100,6 +111,17 @@
   --row-hover: rgba(255, 255, 255, 0.03);
   --pane-right-bg: rgba(23, 23, 23, 0.28);
   --qr-plate-shadow: 0 24px 60px -20px rgba(0, 0, 0, 0.7), 0 0 0 1px var(--border-subtle);
+  /* Liquid glass — mirrored from web/app/css/tokens.css (web :root, dark) */
+  --lg-blur: 20px;
+  --lg-sat: 1.6;
+  --lg-tint-dialog: rgba(38, 38, 42, 0.72);
+  --lg-tint-menu: rgba(34, 34, 38, 0.78);
+  --lg-rim: rgba(255, 255, 255, 0.14);
+  --lg-edge: rgba(255, 255, 255, 0.10);
+  --lg-shade: rgba(0, 0, 0, 0.4);
+  --lg-sheen: linear-gradient(180deg, rgba(255, 255, 255, 0.10), rgba(255, 255, 255, 0) 55%);
+  --lg-lift-dialog: 0 20px 50px -10px rgba(0, 0, 0, 0.65), 0 2px 8px rgba(0, 0, 0, 0.4);
+  --lg-lift-menu: 0 16px 36px -4px rgba(0, 0, 0, 0.55);
 }
 
 @layer base {
@@ -264,27 +286,35 @@
     transition: background-color 0.2s ease, box-shadow 0.2s ease;
   }
 
+  /* Dialog surface — liquid glass. Tint stays translucent so the page reads
+     through; volume comes from the specular rim and the contact shadow. */
   .card-elev {
-    background: var(--glass-bg);
-    box-shadow: var(--shadow-elev);
-    border: 1px solid var(--glass-border);
+    background: var(--lg-sheen), var(--lg-tint-dialog);
+    box-shadow:
+      inset 0 1px 0 var(--lg-rim),
+      inset 0 -1px 0 var(--lg-shade),
+      var(--lg-lift-dialog);
+    border: 1px solid var(--lg-edge);
     border-radius: var(--radius-brand-lg);
-    backdrop-filter: blur(20px) saturate(140%);
-    -webkit-backdrop-filter: blur(20px) saturate(140%);
+    backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+    -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
     transition: box-shadow 0.2s ease, border-color 0.2s ease;
   }
   .card-elev:hover {
     border-color: var(--border);
   }
 
-  /* Glass card — macOS frosted glass dialog style */
+  /* Glass card — same material, dialog radius */
   .glass-card {
-    background: var(--glass-bg);
-    border: 1px solid var(--border);
+    background: var(--lg-sheen), var(--lg-tint-dialog);
+    border: 1px solid var(--lg-edge);
     border-radius: 14px;
-    backdrop-filter: blur(24px) saturate(190%);
-    -webkit-backdrop-filter: blur(24px) saturate(190%);
-    box-shadow: 0 20px 50px -10px rgba(0, 0, 0, 0.55), inset 0 1px 0 0 rgba(255, 255, 255, 0.1);
+    backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+    -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+    box-shadow:
+      inset 0 1px 0 var(--lg-rim),
+      inset 0 -1px 0 var(--lg-shade),
+      var(--lg-lift-dialog);
     transition: all 0.2s ease;
   }
 
@@ -353,14 +383,30 @@
     }
   }
 
-  /* macOS frosted glass menu popover */
+  /* Menu popover — one step denser than a dialog: menus carry small text over
+     arbitrary content and must stay legible. */
   .menu-popover {
-    background: var(--glass-bg);
-    backdrop-filter: blur(20px) saturate(190%);
-    -webkit-backdrop-filter: blur(20px) saturate(190%);
-    border: 1px solid var(--border);
+    background: var(--lg-sheen), var(--lg-tint-menu);
+    backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+    -webkit-backdrop-filter: blur(var(--lg-blur)) saturate(var(--lg-sat));
+    border: 1px solid var(--lg-edge);
     border-radius: 10px;
-    box-shadow: 0 16px 36px -4px rgba(0, 0, 0, 0.5), inset 0 0.5px 0 rgba(255, 255, 255, 0.12);
+    box-shadow:
+      inset 0 1px 0 var(--lg-rim),
+      inset 0 -1px 0 var(--lg-shade),
+      var(--lg-lift-menu);
+  }
+
+  /* Accessibility: without transparency the material must still separate from the
+     page, so it falls back to the solid surface rather than a washed-out tint. */
+  @media (prefers-reduced-transparency: reduce) {
+    .card-elev,
+    .glass-card,
+    .menu-popover {
+      background: var(--surface);
+      backdrop-filter: none;
+      -webkit-backdrop-filter: none;
+    }
   }
 
   .glass-btn {
