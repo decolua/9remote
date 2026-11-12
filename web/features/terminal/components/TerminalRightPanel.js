@@ -6,7 +6,7 @@ import { ChevronRight, ChevronsDownUp, Eye, EyeOff, ExternalLink, File, Files, F
 import { useI18n } from "@/shared/i18n";
 import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import { vibrate } from "@/shared/utils/vibration";
-import { RIGHT_PANEL_WIDTH } from "../constants/terminalConfig";
+import { RIGHT_PANEL_WIDTH, DEFAULT_REPO_BRANCHES } from "../constants/terminalConfig";
 import { useWorkspaceRepos } from "../hooks/useWorkspaceRepos";
 import { refreshWorkspaceChangedCount } from "../hooks/useWorkspaceChangedCount";
 import { useWorkspaceRoots } from "../hooks/useWorkspaceRoots";
@@ -69,7 +69,7 @@ function TerminalRightPanel({
   const [gitView, setGitView] = useState({ forWorkspace: workspacePath, showClean: false, openRepo: null });
   const view = gitView.forWorkspace === workspacePath ? gitView : { showClean: false, openRepo: null };
   const showCleanRepos = view.showClean;
-  const openRepo = view.openRepo; // null = auto-open a lone repo, "" = all collapsed
+  const openRepo = view.openRepo; // null = auto-open a default repo, "" = all collapsed
   const setShowCleanRepos = (showClean) => setGitView({ ...view, forWorkspace: workspacePath, showClean });
   const setOpenRepo = (repo) => setGitView({ ...view, forWorkspace: workspacePath, openRepo: repo });
 
@@ -86,8 +86,14 @@ function TerminalRightPanel({
   const gitRepos = showCleanRepos ? visibleRepos : visibleRepos.filter((r) => countOf(r) > 0 || isMainRepo(r));
   const hiddenCleanCount = showCleanRepos ? 0 : visibleRepos.length - gitRepos.length;
   const mutedCount = repos.length - visibleRepos.length;
-  // With a single repo in play there is nothing to choose between, so open it outright.
-  const activeRepo = openRepo ?? (gitRepos.length === 1 ? gitRepos[0].path : null);
+  // With many repos, open one instead of leaving every section collapsed: a repo on a
+  // mainline branch first, then the workspace root, then whatever came first.
+  const byBranch = DEFAULT_REPO_BRANCHES.map((b) => gitRepos.find((r) => r.branch === b)).find(Boolean);
+  const defaultRepoPath = (byBranch || gitRepos.find(isMainRepo) || gitRepos[0])?.path || null;
+  // A remembered repo that is gone (hidden/removed) falls back to the default instead of
+  // leaving the tab with nothing open; "" stays an explicit "all collapsed".
+  const pinnedRepo = gitRepos.some((r) => r.path === openRepo) ? openRepo : undefined;
+  const activeRepo = pinnedRepo ?? (openRepo === "" ? null : defaultRepoPath);
 
   const hideRepo = (repoPath) => onHiddenReposChange?.([...hiddenRepos, repoPath]);
   // Nested repos only: the workspace root has no relPath, and hiding it would leave this
@@ -530,7 +536,7 @@ function SearchResults({ results, loading, query, searchDir, workspace, onOpen }
   const totalMatches = results.reduce((n, f) => n + f.matches.length, 0);
   return (
     <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
-      <p className="px-2 py-1 text-[10px] text-text-muted border-b border-border-subtle sticky top-0 bg-surface z-[1]">
+      <p className="px-2 py-1 text-[10px] text-text-muted border-b border-border-subtle sticky top-0 bg-surface/80 backdrop-blur-md z-[1]">
         {totalMatches} results in {results.length} files
       </p>
       {results.map((file) => {
@@ -664,7 +670,7 @@ function RepoSection({ repo, changedCount = 0, isOpen, onToggle, onHide, childre
     <div className="border-b border-border-subtle last:border-0">
       <button
         onClick={() => { vibrate(); onToggle(); }}
-        className="group/repo w-full sticky top-0 z-10 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted hover:text-text bg-surface-3 border-b border-border-subtle transition-colors"
+        className="group/repo w-full sticky top-0 z-10 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted hover:text-text bg-surface-3/80 backdrop-blur-md border-b border-border-subtle transition-colors"
       >
         <ChevronRight size={11} className={`flex-shrink-0 transition-transform duration-150 ${isOpen ? "rotate-90" : ""}`} />
         <span className="truncate flex-1 text-left" title={repo.relPath || repo.name}>{repo.relPath || repo.name}</span>
