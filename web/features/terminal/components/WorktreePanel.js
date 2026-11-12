@@ -104,7 +104,7 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
 
       <div className="flex-1 min-h-0 overflow-y-auto modal-scrollable">
         {/* Worktrees */}
-        <div className="sticky top-0 z-10 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted bg-surface-3 border-b border-border-subtle">
+        <div className="sticky top-0 z-10 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted bg-surface-3/80 backdrop-blur-md border-b border-border-subtle">
           <GitFork size={11} />
           <span className="flex-1">{t("workspaces.worktrees")}</span>
           {loading ? <Loader2 size={11} className="animate-spin" /> : <span className="normal-case tracking-normal">{worktrees.length}</span>}
@@ -147,7 +147,7 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
         ))}
 
         {/* Branches */}
-        <div className="sticky top-0 z-10 mt-3 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted bg-surface-3 border-y border-border-subtle">
+        <div className="sticky top-0 z-10 mt-3 px-2 py-1 flex items-center gap-1.5 text-[10px] uppercase tracking-wider text-text-muted bg-surface-3/80 backdrop-blur-md border-y border-border-subtle">
           <GitBranch size={11} />
           <span className="flex-1">{t("workspaces.branches")}</span>
           <span className="normal-case tracking-normal">{visible.length}</span>
