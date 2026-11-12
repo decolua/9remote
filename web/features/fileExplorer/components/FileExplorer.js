@@ -361,7 +361,7 @@ export default function FileExplorer({
                     onOpenFile(file.path);
                     closeSearch();
                   }}
-                  className="w-full px-4 py-3 flex items-center gap-3 border-b border-border hover:bg-surface transition-colors text-left"
+                  className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface transition-colors text-left"
                 >
                   <span className="flex-shrink-0">
                     {file.type === "binary" ? <Package size={20} className="text-red-500/70" /> : <File size={20} className="text-text-subtle" />}
@@ -386,7 +386,7 @@ export default function FileExplorer({
           {currentPath !== "/" && !isAtWorkspace && !showSearch && (
             <button
               onClick={() => { vibrate(); handleGoUp(); }}
-              className="w-full px-4 py-3 flex items-center gap-3 border-b border-border hover:bg-surface transition-colors text-left flex-shrink-0"
+              className="w-full px-4 py-3 flex items-center gap-3 hover:bg-surface transition-colors text-left flex-shrink-0"
             >
               <ChevronLeft className="text-green-500" size={28} />
               <span className="text-green-500">{currentPath.split("/").pop() || "/"}</span>

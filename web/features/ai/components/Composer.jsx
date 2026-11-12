@@ -726,7 +726,9 @@ export const Composer = memo(function Composer({
     return own.length > 0 ? own : tierSpec?.subOptions || [];
   }, [tierSpec, matchedModel]);
 
-  return (    <div className="relative px-3 py-1.5 bg-transparent border-t border-border-subtle/40 select-none">
+  // No rule above the composer: the input already draws its own box, so a hairline
+  // here made a second frame line right beside it.
+  return (    <div className="relative px-3 py-1.5 bg-transparent select-none">
       {showSending && promptSending && !promptError && (
         <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted">
           <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse shrink-0" />
@@ -1010,8 +1012,9 @@ export const Composer = memo(function Composer({
           )}
         </div>
 
-        {/* Action strip: Model selector, Mode selector & Send button */}
-        <div className="relative flex items-center justify-between text-xs pt-0.5 border-t border-border-subtle/30">
+        {/* Action strip: Model selector, Mode selector & Send button — separated by
+            space, not a rule; the box border above already frames it. */}
+        <div className="relative flex items-center justify-between text-xs pt-1">
           <div className="flex items-center gap-1.5 flex-1 min-w-0">
             <div ref={modelMenuRef} className="relative min-w-0 flex items-center gap-1">
               <button

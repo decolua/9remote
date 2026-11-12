@@ -150,7 +150,7 @@ export default function SessionList({
       {/* Translucent bar like the old design; safe-area padding for notched phones, where
           env() is 0 everywhere else. */}
       <header
-        className={`relative z-10 bg-surface/80 backdrop-blur-md pl-[28px] pr-4 py-3 ${PANEL_HEADER_H_CLASS} flex items-center justify-between gap-2 flex-shrink-0 border-b border-border-subtle`}
+        className={`relative z-10 bg-surface/80 backdrop-blur-md pl-[28px] pr-4 py-3 ${PANEL_HEADER_H_CLASS} flex items-center justify-between gap-2 flex-shrink-0`}
         style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
       >
         <div className="flex items-center gap-3 min-w-0">

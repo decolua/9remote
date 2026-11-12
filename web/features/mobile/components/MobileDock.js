@@ -63,7 +63,7 @@ export default function MobileDock({ busRef, protocolRef, connected, pinSlot = n
   // bar: a pointerdown on a button would bubble up to it, and setPointerCapture
   // plus preventDefault there both stop the click from reaching the button.
   const chrome = (draggable) => (
-    <div className="flex items-center gap-0.5 px-1.5 py-1 border-b border-border bg-surface flex-shrink-0">
+    <div className="flex items-center gap-0.5 px-1.5 py-1 bg-surface flex-shrink-0">
       <div
         className={`flex items-center gap-1 flex-1 min-w-0 ${draggable ? "cursor-grab active:cursor-grabbing" : ""}`}
         onPointerDown={draggable ? floating.onDragHandlePointerDown : undefined}

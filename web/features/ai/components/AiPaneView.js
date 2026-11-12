@@ -275,7 +275,7 @@ export const AiPaneView = memo(function AiPaneView({
           strip naming the session and carrying Remote/Mobile/Sites, and a phone does not. */}
       <div
         style={{ height: STATUS_BAR_HEIGHT }}
-        className="sm:hidden flex items-center gap-2 px-2 border-b border-border-subtle bg-surface/80 backdrop-blur-md text-[11px] select-none shrink-0 relative z-10"
+        className="sm:hidden flex items-center gap-2 px-2 bg-surface/80 backdrop-blur-md text-[11px] select-none shrink-0 relative z-10"
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
         <span className="flex-1 min-w-0 truncate text-text">{sessionName || ENGINE_INFO[engine]?.label || engine}</span>

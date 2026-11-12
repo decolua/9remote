@@ -120,7 +120,7 @@ export default function EditorPane({
           </div>
         )}
         {(isHtml || (exists && onOpenFile)) && (
-          <div className="px-3 py-1.5 flex items-center justify-end bg-surface border-b border-border-subtle flex-shrink-0">
+          <div className="px-3 py-1.5 flex items-center justify-end bg-surface flex-shrink-0">
             {isHtml && (
               <button
                 onClick={() => { vibrate(); openBrowserPreview(diffAbsPath); }}
@@ -166,7 +166,7 @@ export default function EditorPane({
 
       {/* Preview toggle rides its own slim bar — there is no other chrome here. */}
       {previewKind && (
-        <div className="px-3 py-1.5 flex items-center justify-end bg-surface border-b border-border-subtle flex-shrink-0">
+        <div className="px-3 py-1.5 flex items-center justify-end bg-surface flex-shrink-0">
           {isHtmlPreview ? (
             <button
               onClick={() => { vibrate(); openBrowserPreview(filePath); }}
@@ -189,7 +189,7 @@ export default function EditorPane({
 
       {/* A save bar, not a timer: it appears only when there is something to save. */}
       {doc.dirty && (
-        <div className="px-3 py-1.5 flex items-center gap-2 bg-surface border-b border-border-subtle flex-shrink-0">
+        <div className="px-3 py-1.5 flex items-center gap-2 bg-surface flex-shrink-0">
           <span className="flex-1 text-[11px] text-text-muted">{t("editor.unsaved")}</span>
           <button
             onClick={() => { vibrate(); doc.save(); }}

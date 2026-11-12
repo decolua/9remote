@@ -302,7 +302,7 @@ function TerminalPane({
       {showTitleStrip && (
         <div
           style={{ height: STATUS_BAR_HEIGHT }}
-          className="sm:hidden flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface/80 backdrop-blur-md border-b border-border-subtle text-[11px] select-none relative z-10"
+          className="sm:hidden flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface/80 backdrop-blur-md text-[11px] select-none relative z-10"
         >
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
           <span className="flex-1 min-w-0 truncate text-text">{sessionName || t("terminal.defaultName")}</span>

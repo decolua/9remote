@@ -54,7 +54,7 @@ export default function EditorTabs({ openedFiles, activeFile, dirtyFiles, onActi
             onClick={() => { vibrate(); onActivate(path); }}
             onMouseDown={(e) => handleMouseDown(e, path)}
             onContextMenu={(e) => handleContextMenu(e, path)}
-            className={`group flex items-center gap-2 px-3 py-1.5 border-r border-border cursor-pointer text-sm flex-shrink-0 select-none ${
+            className={`group flex items-center gap-2 px-3 py-1.5 cursor-pointer text-sm flex-shrink-0 select-none ${
               isActive
                 ? "bg-bg text-text border-t-2 border-t-brand-500"
                 : "bg-surface text-text-muted hover:text-text"
