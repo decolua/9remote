@@ -314,13 +314,25 @@ html.light .term-tab-active,
     var(--lg-sheen),
     radial-gradient(rgba(255, 255, 255, 0.038) 1px, transparent 1px);
   background-size: auto, 16px 16px;
-  backdrop-filter: blur(var(--lg-blur-drawer)) saturate(var(--lg-sat));
 }
 :root.light .terminal-sidebar-bg {
   background-image:
     var(--lg-sheen),
     radial-gradient(rgba(0, 0, 0, 0.03) 1px, transparent 1px);
   background-size: auto, 16px 16px;
+}
+
+/* The frost rides a pseudo-element, NOT the panel. These panels host `position:
+   fixed` menus; backdrop-filter on the element would make it their containing
+   block, anchoring those menus to the panel and painting them inside its stacking
+   context (i.e. under the panes). z-index: -1 keeps it behind the panel's content. */
+.terminal-sidebar-bg::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  backdrop-filter: blur(var(--lg-blur-drawer)) saturate(var(--lg-sat));
 }
 
 
