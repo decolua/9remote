@@ -4,6 +4,7 @@ import { memo, useState } from "react";
 import { ChevronDown, ChevronRight, Copy, Check, AlertCircle, Loader2, CheckCircle2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { shellIdFromResult } from "../../lib/shellId";
+import { commandHint } from "../../lib/commandHint";
 import { useAiPaneScope, anchorId } from "../PaneScope";
 
 export const AiBashCard = memo(function AiBashCard({
@@ -77,9 +78,14 @@ export const AiBashCard = memo(function AiBashCard({
               <CheckCircle2 size={13} className="text-success" />
             )}
           </span>
-          <span className="text-text-muted select-none shrink-0 font-mono text-[11px] leading-relaxed">$</span>
-          <span className={`font-mono text-[11px] leading-relaxed text-text min-w-0 wrap-anywhere ${expanded ? "" : "line-clamp-2"}`} title={command}>
-            {command || name}
+          {/* The row shows the description when the agent gave one — a sentence reads
+              at a glance, a shell command does not. The command stays in `title` and in
+              the expanded body. One size (11px), matching every other tool row. */}
+          <span
+            className={`min-w-0 flex-1 text-[11px] leading-relaxed break-words ${description ? "text-text" : "font-mono text-text wrap-anywhere"}`}
+            title={description || command}
+          >
+            {description || commandHint(command) || name}
           </span>
           {isBackground && (
             <span
@@ -110,20 +116,20 @@ export const AiBashCard = memo(function AiBashCard({
         </div>
       </div>
 
-      {/* Description */}
-      {description && !expanded && (
-        <div className="ml-7 text-[10px] text-text-muted/70 italic truncate"># {description}</div>
-      )}
-
-      {/* Expanded output */}
-      {expanded && content && (
+      {/* Expanded output — the full command first (the row only carries its
+          description), then what it printed. */}
+      {expanded && (content || command) && (
         <div className="mt-1 ml-3.5 pl-3 border-l-2 border-border-subtle/80 bg-surface-2/20 rounded-r-brand overflow-x-auto max-h-[260px] overflow-y-auto font-mono text-[11px] select-text relative group/out">
-          {description && (
-            <div className="px-2 pt-1.5 text-[10px] text-text-muted/70 italic"># {description}</div>
+          {command && (
+            <pre className="p-2 pb-1 whitespace-pre-wrap wrap-anywhere leading-relaxed text-text-muted">
+              <span className="select-none opacity-60">$ </span>{command}
+            </pre>
           )}
-          <pre className={`p-2 whitespace-pre-wrap wrap-anywhere leading-relaxed ${isError ? "text-danger" : "text-text"}`}>
-            {content}
-          </pre>
+          {content && (
+            <pre className={`p-2 whitespace-pre-wrap wrap-anywhere leading-relaxed ${isError ? "text-danger" : "text-text"} ${command ? "pt-0" : ""}`}>
+              {content}
+            </pre>
+          )}
           <button
             type="button"
             onClick={handleCopyOut}

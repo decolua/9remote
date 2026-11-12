@@ -735,7 +735,7 @@ export const Composer = memo(function Composer({
       )}
       {/* Prompt lost to a dead carrier (#48) — say so, offer the text back */}
       {promptError && (
-        <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted bg-surface border border-border-subtle rounded-brand">
+        <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted bg-surface/80 backdrop-blur-md border border-border-subtle rounded-brand">
           <span className="truncate min-w-0" title={promptError.text}>
             {promptError.reason === "reload" ? t("common.promptRecovered")
               : `${t("common.promptNotSent")}${promptError.reason && promptError.reason !== "timeout" ? `: ${promptError.reason}` : ""}`}
@@ -756,7 +756,7 @@ export const Composer = memo(function Composer({
       {menuOpen && submenuCmd && (
         <div
           ref={menuContainerRef}
-          className="absolute left-3 right-3 bottom-[calc(100%+6px)] max-h-52 bg-surface border border-border-subtle rounded-brand shadow-lg overflow-y-auto z-50 p-1 custom-scrollbar"
+          className="absolute left-3 right-3 bottom-[calc(100%+6px)] max-h-52 menu-popover overflow-y-auto z-50 p-1 custom-scrollbar"
         >
           <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1 flex items-center justify-between">
             <span>{submenuCmd.name} — {submenuCmd.optionKey}</span>
@@ -791,7 +791,7 @@ export const Composer = memo(function Composer({
       {menuOpen && !submenuCmd && menuItems.length > 0 && (
         <div
           ref={menuContainerRef}
-          className="absolute left-3 right-3 bottom-[calc(100%+6px)] max-h-52 bg-surface border border-border-subtle rounded-brand shadow-lg overflow-y-auto z-50 p-1 custom-scrollbar"
+          className="absolute left-3 right-3 bottom-[calc(100%+6px)] max-h-52 menu-popover overflow-y-auto z-50 p-1 custom-scrollbar"
         >
           <div className="px-2 py-0.5 text-[10px] text-text-muted font-mono uppercase tracking-wider border-b border-border-subtle mb-1">
             {menuType === "/" ? "Slash Commands & Skills" : "Files in repo (@)"}

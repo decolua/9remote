@@ -23,3 +23,5 @@
 @import "./css/landing.css";
 /* components.css — cinematic backdrop, diff theming, range sliders */
 @import "./css/components.css";
+/* ai-wallpaper.css — 9love chat-canvas icon tile, used by the AI pane backdrop */
+@import "./css/ai-wallpaper.css";

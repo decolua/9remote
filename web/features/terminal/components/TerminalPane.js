@@ -23,9 +23,11 @@ import { makePanePointerHandlers } from "@/shared/utils/paneActivation";
 
 // Floating quick-action circles at the pane's top-right: thumb-sized on touch,
 // slimmer on desktop where the hover bg need not carry the whole tap target.
-// Exported so the AI pane's own cluster is the same cluster, not a lookalike.
+// Material mirrors the 9love chat chips (glass + specular rim), so the controls
+// read as one family across panes. Exported so the AI pane's cluster is the same
+// cluster, not a lookalike.
 export const OVERLAY_BTN_CLS =
-  "p-2 sm:p-1.5 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full shadow-md sm:shadow-sm transition-all duration-150 ease-out active:scale-[0.94]";
+  "p-2 sm:p-1.5 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full transition-all duration-150 ease-out active:scale-[0.94] backdrop-blur-md ring-1 ring-[var(--lg-edge)] shadow-[inset_0_1px_0_var(--lg-rim),var(--lg-lift-chip)]";
 export const OVERLAY_ICON_SM = "sm:w-3.5 sm:h-3.5";
 
 // Single terminal pane - XTerm instance only, no header
@@ -300,7 +302,7 @@ function TerminalPane({
       {showTitleStrip && (
         <div
           style={{ height: STATUS_BAR_HEIGHT }}
-          className="sm:hidden flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface border-b border-border-subtle text-[11px] select-none relative z-10"
+          className="sm:hidden flex items-center gap-2 px-2 -mt-1.5 -mx-1.5 mb-1.5 flex-shrink-0 bg-surface/80 backdrop-blur-md border-b border-border-subtle text-[11px] select-none relative z-10"
         >
           <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
           <span className="flex-1 min-w-0 truncate text-text">{sessionName || t("terminal.defaultName")}</span>

@@ -26,7 +26,7 @@ import { AiTaskCard } from "./cards/AiTaskCard";
 import { AiAgentStrip } from "./AiAgentStrip";
 import { AiPaneScope } from "./PaneScope";
 import { getEngineConfig } from "../registry";
-import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, AI_DOT_GRID, ENGINE_INFO } from "../constants";
+import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, AI_CANVAS, ENGINE_INFO } from "../constants";
 import { useSessionStatus } from "@/shared/transport/hostConn";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
@@ -129,23 +129,33 @@ export const AiPaneView = memo(function AiPaneView({
     [fontSize, isDesktop]
   );
 
-  // Background styling: a picked terminal wallpaper wins over the palette colour,
-  // mirroring TerminalPane — including its dark-mode-only rule, since the veil is
-  // tuned for a dark ground. The dot grid sits on top either way.
+  // Background styling: a picked terminal wallpaper still wins, mirroring
+  // TerminalPane — including its dark-mode-only rule, since the veil is tuned for a
+  // dark ground. Without one the pane paints a chat canvas: an icon wallpaper tile,
+  // a pool of light and a tilted band, on the app's own neutral greys. The terminal
+  // palette only supplies text colour here — a chat is not a terminal.
   const bgStyle = useMemo(() => {
-    const { alpha, size } = AI_DOT_GRID;
-    const dotGrid = `radial-gradient(color-mix(in srgb, ${palette.foreground} ${alpha}%, transparent) 1px, transparent 1px) 0 0 / ${size}px ${size}px`;
     const paneBgKey = resolvePaneBackground(sessionBgKey, terminalBackgrounds, customBackgrounds, bgIndex);
     const bgSrc = theme === "dark" ? backgroundSrc(paneBgKey, customBackgrounds) : null;
     if (bgSrc) {
       const veil = `rgba(${TERMINAL_BG_VEIL_RGB},${terminalBackgroundOpacity ?? TERMINAL_BG_ALPHA})`;
       const lift = `rgba(${TERMINAL_BG_LIFT_RGB},${TERMINAL_BG_LIFT})`;
       return {
-        background: `${dotGrid}, linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), center / cover no-repeat url("${bgSrc}")`,
-        backgroundBlendMode: "luminosity, normal, screen, normal"
+        backgroundColor: palette.background,
+        backgroundImage: `linear-gradient(${veil},${veil}), linear-gradient(${lift},${lift}), url("${bgSrc}")`,
+        backgroundSize: "100% 100%, 100% 100%, cover",
+        backgroundPosition: "0 0, 0 0, center",
+        backgroundRepeat: "no-repeat, no-repeat, no-repeat",
+        backgroundBlendMode: "normal, screen, normal"
       };
     }
-    return { background: `${dotGrid}, ${palette.background}` };
+    const canvas = AI_CANVAS[theme === "light" ? "light" : "dark"];
+    return {
+      backgroundColor: canvas.base,
+      backgroundImage: `var(--ai-wallpaper), radial-gradient(${AI_CANVAS.poolSize} at ${AI_CANVAS.poolAt}, ${canvas.center}, transparent ${AI_CANVAS.poolFalloff}%), linear-gradient(${AI_CANVAS.tiltDeg}deg, ${canvas.edge}, ${canvas.base} ${AI_CANVAS.bandStart}%, ${canvas.base} ${AI_CANVAS.bandEnd}%, ${canvas.edge})`,
+      backgroundSize: `var(--ai-wallpaper-size), 100% 100%, 100% 100%`,
+      backgroundRepeat: "repeat, no-repeat, no-repeat"
+    };
   }, [terminalBackgrounds, sessionBgKey, customBackgrounds, terminalBackgroundOpacity, palette, theme, bgIndex]);
 
   const skills = metadata.skills || [];
@@ -265,7 +275,7 @@ export const AiPaneView = memo(function AiPaneView({
           strip naming the session and carrying Remote/Mobile/Sites, and a phone does not. */}
       <div
         style={{ height: STATUS_BAR_HEIGHT }}
-        className="sm:hidden flex items-center gap-2 px-2 border-b border-border-subtle bg-surface/70 backdrop-blur-sm text-[11px] select-none shrink-0 relative z-10"
+        className="sm:hidden flex items-center gap-2 px-2 border-b border-border-subtle bg-surface/80 backdrop-blur-md text-[11px] select-none shrink-0 relative z-10"
       >
         <span className={`w-1.5 h-1.5 rounded-full flex-shrink-0 ${dotClassName(sessionState)}`} style={{ background: statusVisual(sessionState).dot }} />
         <span className="flex-1 min-w-0 truncate text-text">{sessionName || ENGINE_INFO[engine]?.label || engine}</span>

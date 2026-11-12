@@ -168,7 +168,7 @@ export const MessageBubble = memo(function MessageBubble({
     return (
       <>
         <div className="group/msg flex flex-col items-end my-3">
-          <div className="max-w-[85%] sm:max-w-[75%] flex flex-col items-end gap-1.5">
+          <div className="max-w-[92%] md:max-w-[768px] flex flex-col items-end gap-1.5">
             {/* Files the prompt carried — names only: the bytes stay on the host. The
                 icon is what says an image was sent, since there is no thumbnail. */}
             {attachments.length > 0 && (
@@ -199,7 +199,7 @@ export const MessageBubble = memo(function MessageBubble({
                   if (sel && !sel.isCollapsed && sel.containsNode(e.currentTarget, true)) return;
                   openEditor();
                 } : undefined}
-                className={`px-4 py-2.5 rounded-brand-lg bg-brand-500/15 border border-brand-500/25 text-text text-sm whitespace-pre-wrap wrap-anywhere ${
+                className={`px-3.5 py-2 rounded-[16px] rounded-tr-[4px] bg-[var(--chat-bubble-mine)] text-[var(--chat-meta-on-mine)] text-sm whitespace-pre-wrap wrap-anywhere shadow-[0_1px_2px_rgba(0,0,0,0.08)] ${
                   canEdit ? "cursor-pointer" : ""
                 }`}
               >

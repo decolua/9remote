@@ -18,9 +18,21 @@ export const AI_UI_OPTIONS = listAiUiOptions();
 export const AI_FONT_SIZE_BOOST = 1;
 export const AI_FONT_SIZE_BOOST_MOBILE = 2;
 
-// Dot grid painted on the AI pane. Alpha is a share of the palette foreground, so
-// it stays subtle on both light and dark palettes.
-export const AI_DOT_GRID = { alpha: 7, size: 18 };
+// Chat canvas — 9love's three-layer recipe (wallpaper tile, pool of light, tilted
+// 15deg band) painted on 9remote's own neutral greys instead of 9love's warm paper.
+export const AI_CANVAS = {
+  // 9remote's own neutral ground — the app is a dark-first tool, so the chat canvas
+  // takes its greys from --bg / --surface instead of 9love's warm paper. The centre
+  // leans very slightly warm so the pool of light does not read as a grey smudge.
+  light: { base: "#F7F5F2", center: "#FFFFFF", edge: "#EAE6E1" },
+  dark: { base: "#141414", center: "#1F1D1C", edge: "#0C0C0C" },
+  poolSize: "95% 80%",
+  poolAt: "46% 38%",
+  poolFalloff: 68,
+  tiltDeg: 105,
+  bandStart: 42,
+  bandEnd: 58
+};
 
 // Prompts offered on an empty conversation. Diagnostics (/doctor) and resuming are
 // not here — they are commands, not a way to start a chat.

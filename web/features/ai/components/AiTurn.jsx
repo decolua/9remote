@@ -137,11 +137,17 @@ function CompactingClock() {
 function ProseRow({ content, isLive }) {
   const text = useStreamedText(content, isLive);
   return (
-    // wrap-anywhere, not break-words: only `anywhere` shrinks min-content, so a path
-    // with no space to break on wraps instead of widening the column into a scrollbar.
-    <div className="text-sm leading-relaxed text-text py-1.5 wrap-anywhere">
-      <MarkdownBody content={text} />
-      {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
+    // The reply is its own bubble, the way a chat bubble is: it sits left and never
+    // spans the pane, so the user's own message and the answer read as two voices
+    // rather than one column of text. Opaque surface — prose over a live backdrop
+    // was hard to read. wrap-anywhere, not break-words: only `anywhere` shrinks
+    // min-content, so a path with no space to break on wraps instead of widening
+    // the column into a scrollbar.
+    <div className="flex justify-start mb-3 mt-1">
+      <div className="max-w-[94%] md:max-w-[768px] min-w-0 px-3.5 py-2 rounded-[16px] rounded-tl-[4px] bg-[var(--chat-bubble-theirs)] shadow-[0_1px_2px_rgba(0,0,0,0.08)] text-sm leading-relaxed text-[var(--chat-bubble-theirs-text)] wrap-anywhere">
+        <MarkdownBody content={text} />
+        {isLive && <span className="inline-block w-1.5 h-3.5 bg-brand-500 animate-pulse ml-1 align-middle" />}
+      </div>
     </div>
   );
 }
