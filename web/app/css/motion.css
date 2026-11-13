@@ -18,6 +18,46 @@
   }
 }
 
+/* Menus, popovers and small dialogs. A 4% scale is enough to read as "landed"
+   rather than "blinked in"; no fill mode, so the element keeps no transform after
+   the animation (a lingering transform would become a containing block for any
+   fixed child). */
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+.pop-in {
+  animation: popIn 140ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Full-screen views pushed onto the stack. Same idea as tabInForward but shorter
+   travel: it says "this came from the right" without shoving the whole screen. */
+@keyframes screenIn {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+}
+
+.screen-in {
+  animation: screenIn 220ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* The dock rises once when it appears (leaving/returning from a terminal). */
+@keyframes dockRise {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+}
+
+.dock-rise {
+  animation: dockRise 320ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
 @keyframes slideInFromTop {
   from {
     transform: translateY(-10px);
@@ -119,3 +159,93 @@
   animation: slideInFromRight 0.3s ease-out 0.3s both;
 }
 
+
+/* ---- 9love's motion vocabulary, ported ------------------------------------
+   The dock and the grouped settings rows there do three small things well: the bar
+   rises once on mount, the active tab bounces, and a collapsed group grows its own
+   height instead of appearing. Same curves, so the two apps move alike. */
+
+/* 9love's springPop, kept verbatim: the icon pops in from 75% with a small overshoot.
+   It plays whenever the active class lands on a slot, which is exactly a tab press. */
+@keyframes springPop {
+  0% { transform: scale(0.75); opacity: 0; }
+  65% { transform: scale(1.12); }
+  100% { transform: scale(1); opacity: 1; }
+}
+.nav-tab-on > span:first-child { animation: springPop 0.38s cubic-bezier(0.175, 0.885, 0.32, 1.275) both; }
+
+/* Tab switch. 9love's recipe, ported: the INCOMING screen slides 35% in from the side
+   its tab sits on, fading as it lands (0.26s, expo-out). The OUTGOING screen is gone
+   in the same frame — a tab bar never shows two half-visible screens.
+
+   A keyframe, not a transition: the panels stay mounted, so there is no previous
+   position for a transition to travel from after the first switch. Cleared on
+   animationend by TabPanel so the next switch replays it. */
+@keyframes tabInForward {
+  from { opacity: 0; transform: translateX(35%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+@keyframes tabInBack {
+  from { opacity: 0; transform: translateX(-35%); }
+  to { opacity: 1; transform: translateX(0); }
+}
+.tab-in-forward {
+  animation: tabInForward 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+.tab-in-back {
+  animation: tabInBack 0.26s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+/* Inline panel expand/collapse. Content stays mounted so form state survives a
+   close/reopen; hidden content is inert and untabbable. */
+.collapse {
+  display: grid;
+  grid-template-rows: 0fr;
+  opacity: 0;
+  visibility: hidden;
+  transition-property: grid-template-rows, opacity, visibility;
+  transition-duration: 240ms;
+  transition-timing-function: cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+.collapse-open {
+  grid-template-rows: 1fr;
+  opacity: 1;
+  visibility: visible;
+}
+
+/* Grouped cards arriving in sequence — one class, delay from the row's own --i,
+   so the same rule serves a list of any length. */
+@keyframes cardRise {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.card-rise {
+  animation: cardRise 0.3s cubic-bezier(0.22, 1, 0.36, 1) both;
+  animation-delay: calc(var(--i, 0) * 45ms);
+}
+
+/* The little squircle a settings row leads with. */
+.squircle-icon {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: 28px;
+  flex-shrink: 0;
+  border-radius: 8px;
+  color: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card-rise {
+    animation: fadeIn 150ms ease-out both;
+  }
+  .collapse { transition: none; }
+  .tab-in-forward,
+  .tab-in-back { animation: none; }
+  .pop-in,
+  .screen-in,
+  .dock-rise { animation: fadeIn 150ms ease-out; }
+}
