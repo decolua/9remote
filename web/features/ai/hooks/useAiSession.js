@@ -399,23 +399,43 @@ export function reduceSessionEvents(events = [], engine = "claude", idBase = 0) 
   };
 }
 
+// The echo lands in the store before the ack's own window closes, so a timeout that
+// fires afterwards is not evidence of loss. Without this check the late "lost" entry
+// was never cleared by anything (its echo had already gone by) and every reconnect
+// auto-resent it as a NEW turn — the same words, over and over.
+function promptAlreadyShown(sid, text) {
+  if (!text) return false;
+  const messages = useAiStore.getState().bySession[sid]?.messages || [];
+  // Only the NEWEST user bubble counts: an older identical prompt is not evidence —
+  // "tiếp" is asked again all the time, and a genuinely lost one must stay recoverable.
+  const lastUser = [...messages].reverse().find((m) => m.role === "user");
+  if (!lastUser) return false;
+  // A merged loss appends, so the newest echo is the tail of the blob.
+  return lastUser.content === text || String(text).endsWith("\n\n" + lastUser.content);
+}
+
 // A reload between send and ack: offer back what the replayed log does not show as delivered.
 function surfaceOrphanPrompts(sid, events) {
   const deliveredTexts = (events || []).filter((e) => e.event === "user_message").map((e) => e.data?.text);
-  const orphans = takeOrphans(sid, { deliveredTexts, page: PAGE_ID, minAgeMs: PROMPT_ACK_TIMEOUT_MS });
+  const orphans = takeOrphans(sid, { deliveredTexts, page: PAGE_ID, minAgeMs: PROMPT_ACK_TIMEOUT_MS })
+    .filter((p) => !promptAlreadyShown(sid, p.text));
   for (const p of orphans) useAiStore.getState().setPromptError(sid, p.text, "reload", null, p.id);
 }
 
 // The host echoed a prompt the composer reported lost — drop that part, keep any other.
+// The match may sit anywhere in the merged text: a middle segment left behind kept the
+// whole blob "lost" forever, and the next reconnect sent it again.
 function clearEchoedPromptError(sid, echoed) {
   const lost = useAiStore.getState().bySession[sid]?.promptError;
   if (!lost || !echoed) return;
   if (lost.text === echoed) { useAiStore.getState().clearPromptError(sid); return; }
-  const sep = "\n\n";
-  let rest = null;
-  if (lost.text.startsWith(echoed + sep)) rest = lost.text.slice(echoed.length + sep.length);
-  else if (lost.text.endsWith(sep + echoed)) rest = lost.text.slice(0, -(echoed.length + sep.length));
-  if (rest != null) useAiStore.getState().setPromptErrorText(sid, rest);
+  const parts = lost.text.split("\n\n");
+  const at = parts.indexOf(echoed);
+  if (at === -1) return;
+  parts.splice(at, 1);
+  const rest = parts.filter(Boolean).join("\n\n");
+  if (rest) useAiStore.getState().setPromptErrorText(sid, rest);
+  else useAiStore.getState().clearPromptError(sid);
 }
 
 export function useAiSession({
@@ -1429,6 +1449,8 @@ export function useAiSession({
       // it so the loss surfaces as a resendable error instead of vanishing.
       const onLost = (reason) => {
         useAiStore.getState().clearPromptSending(sessionId, text);
+        // The host already echoed it: the ack was slow, the prompt is not lost.
+        if (promptAlreadyShown(sessionId, text)) { removePending(sessionId, id); return; }
         useAiStore.getState().setPromptError(sessionId, text, reason, attachments, id, retries);
       };
       // Survives a reload until the host confirms it.
@@ -1466,13 +1488,20 @@ export function useAiSession({
   const autoResendLost = useCallback(() => {
     const lost = useAiStore.getState().bySession[sessionId]?.promptError;
     if (!lost?.text) return;
+    // The store already shows it: the ack was slow, not lost — resending would run it twice.
+    if (promptAlreadyShown(sessionId, lost.text)) {
+      termLog("ai-prompt", "auto-resend skipped (already shown)", { text: String(lost.text).slice(0, 24) });
+      useAiStore.getState().clearPromptError(sessionId);
+      return;
+    }
+    // Without its own id the host cannot drop a repeat, and the resend becomes a new turn.
+    if (!lost.promptId) return;
     // An older host cannot drop a repeated promptId — a silent resend could run the turn twice.
     if (!busRef.current?.hostCaps?.promptDedupe) return;
     const retries = (lost.retries || 0) + 1;
     if (retries > PROMPT_AUTO_RETRY_MAX) return;
-    termLog("ai-prompt", "auto-resend after reconnect", { sessionId, attempt: retries });
     useAiStore.getState().clearPromptError(sessionId);
-    sendPrompt(lost.text, { attachments: lost.attachments || null, promptId: lost.promptId || null, retries });
+    sendPrompt(lost.text, { attachments: lost.attachments || null, promptId: lost.promptId, retries });
   }, [sessionId, sendPrompt]);
   useEffect(() => {
     autoResendRef.current = autoResendLost;
