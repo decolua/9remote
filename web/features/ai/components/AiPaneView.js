@@ -25,6 +25,7 @@ import { AiQuestionCard } from "./cards/AiQuestionCard";
 import { AiTaskCard } from "./cards/AiTaskCard";
 import { AiAgentStrip } from "./AiAgentStrip";
 import { AiPaneScope } from "./PaneScope";
+import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { getEngineConfig } from "../registry";
 import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, AI_CANVAS, ENGINE_INFO } from "../constants";
 import { useSessionStatus } from "@/shared/transport/hostConn";
@@ -72,7 +73,11 @@ export const AiPaneView = memo(function AiPaneView({
   const [activeModal, setActiveModal] = useState(null); // 'skills' | 'mcp' | 'model'
   const [refreshing, setRefreshing] = useState(false);
   const [noteModalOpen, setNoteModalOpen] = useState(false);
+  const [confirmNewChat, setConfirmNewChat] = useState(false);
   const { t } = useI18n();
+
+  // New chat replaces (closes) the current one — one stray tap must not do that.
+  const requestNewChat = useCallback(() => setConfirmNewChat(true), []);
 
   const { sendPrompt, removeQueueItem, clearQueue, resolvePermission, stop, stopTask, runShell, rewindToMessage, previewRewind, listRewindPoints, escalateMode, dismissBlocked, hasOlder, loadOlder, reload, hydrating, synced, hydrateFailed } = useAiSession({
     sessionId,
@@ -380,7 +385,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {/* Pinned blocked-action card: engines that cannot hold a gate (codex, antigravity) get a mode escalation */}
       {activeBlocked && !activePermission && (
-        <div className="px-3 pb-2 select-none animate-in fade-in slide-in-from-bottom-2 duration-150 flex-shrink-0 z-30">
+        <div className="px-3 pb-2 select-none list-rise flex-shrink-0 z-30">
           <AiBlockedCard
             engine={activeBlocked.engine || engine}
             message={activeBlocked.message}
@@ -393,7 +398,7 @@ export const AiPaneView = memo(function AiPaneView({
 
       {/* Pinned Active Permission or Question Gate directly above composer */}
       {activePermission && (
-        <div className="px-3 pb-2 select-none animate-in fade-in slide-in-from-bottom-2 duration-150 flex-shrink-0 z-30">
+        <div className="px-3 pb-2 select-none list-rise flex-shrink-0 z-30">
           {activePermission.tool === "AskUserQuestion" ? (
             <AiQuestionCard
               requestId={activePermission.requestId}
@@ -444,7 +449,7 @@ export const AiPaneView = memo(function AiPaneView({
         workspacePath={workspacePath}
         isDesktop={isDesktop}
         onModeChange={handleModeChange}
-        onNewChat={onNewChat}
+        onNewChat={requestNewChat}
       />
 
       {/* Modals. Skills/MCP lost their status-bar buttons but keep the slash entries
@@ -538,6 +543,15 @@ export const AiPaneView = memo(function AiPaneView({
           onClose={() => setNoteModalOpen(false)}
         />
       )}
+
+      <ConfirmDialog
+        isOpen={confirmNewChat}
+        onClose={() => setConfirmNewChat(false)}
+        onConfirm={() => onNewChat?.(sessionId)}
+        title={t("ai.newChatTitle")}
+        message={t("ai.newChatMessage")}
+        confirmText={t("ai.newChatConfirm")}
+      />
     </div>
     </AiPaneScope.Provider>
   );
