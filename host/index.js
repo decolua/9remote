@@ -33,7 +33,7 @@ import {
   handleConnections, handleDesktopToggle, handleRtcToggle, handleLogsGet, handleLogsClear,
   handlePermissionsGet, handlePermissionsRequest,
   handleAutoStartGet, handleAutoStartPost,
-  handleLocalToken, handleUpdate, setUpdateInfo, getUpdateInfo,
+  handleLocalToken, handleUpdate, setUpdateInfo, getUpdateInfo, updateUiState,
 } from "./api/ui.js";
 import { broadcastServerInfo, setConnectCheckHandler } from "./features/terminal/terminalSocket.js";
 import { UPDATE } from "./cli/config.js";
@@ -455,6 +455,10 @@ export async function startServer() {
   generateLocalToken();
   loadUiState();
   loadDesktopState();
+  // Server-only boots (dev:server, headless) skip the CLI key path, so the state
+  // has no key and the host's own workspace bounces to the landing page.
+  const storedKey = loadKey()?.key;
+  if (storedKey) updateUiState({ permanentKey: storedKey });
   const refreshPermissionsSafe = () =>
     refreshPermissionsAsync().catch((err) => logger.error(`permission refresh failed: ${err?.message || err}`));
   refreshPermissionsSafe();

@@ -11,7 +11,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { isLoopbackOrigin, isLocalHostNetwork } from "@/shared/utils/localOrigin";
 import { AGENT_PORT, LOCAL_HOST_STATE } from "@/shared/constants/API";
 import { headOf, tailOf } from "@/shared/utils/apiKey";
-import { setTrust } from "@/shared/transport/lib/deviceTrust";
+import { getTrust, setTrust } from "@/shared/transport/lib/deviceTrust";
 
 // Matches the registry's connect deadline: a re-keyed connection that never
 // opened by then stops riding the previous host's "connected" verdict.
@@ -78,7 +78,12 @@ export function useBus(config = {}) {
       const isLoopback = isLoopbackOrigin();
       // `!authKey` guards a re-key: once the user has deliberately switched the
       // workspace onto another host, that intent outranks the local host's key.
-      if (isLoopback && window.location.port === String(AGENT_PORT) && !authKey && auth?.tunnelUrl !== window.location.origin) {
+      // An auth minted for THIS origin is refreshed too: a regenerated key keeps
+      // the HEAD and rotates only the TAIL, so the stale auth still looks current
+      // and would spin forever on a proof the host refuses.
+      const authMintedHere = auth?.apiKey && auth.tunnelUrl === window.location.origin;
+      if (isLoopback && window.location.port === String(AGENT_PORT)
+          && ((!authKey && auth?.tunnelUrl !== window.location.origin) || authMintedHere)) {
         try {
           const res = await fetch(LOCAL_HOST_STATE);
           const data = res.ok ? await res.json() : null;
@@ -87,15 +92,17 @@ export function useBus(config = {}) {
               const fullKey = data.permanentKey;
               const head = headOf(fullKey);
               const tail = tailOf(fullKey);
-              setTrust(head, { tail });
-              auth = {
-                apiKey: head,
-                tunnelUrl: window.location.origin,
-                mode: "local",
-                tempKey: null,
-                localIp: data.localIp || null
-              };
-              setAuth(auth);
+              if (auth?.apiKey !== head || getTrust(head)?.tail !== tail) {
+                setTrust(head, { tail });
+                auth = {
+                  apiKey: head,
+                  tunnelUrl: window.location.origin,
+                  mode: "local",
+                  tempKey: null,
+                  localIp: data.localIp || null
+                };
+                setAuth(auth);
+              }
             }
           }
         } catch {}
