@@ -27,7 +27,7 @@ import { AiAgentStrip } from "./AiAgentStrip";
 import { AiPaneScope } from "./PaneScope";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { getEngineConfig } from "../registry";
-import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, AI_CANVAS, ENGINE_INFO } from "../constants";
+import { AI_FONT_SIZE_BOOST, AI_FONT_SIZE_BOOST_MOBILE, chatCanvasStyle, ENGINE_INFO } from "../constants";
 import { useSessionStatus } from "@/shared/transport/hostConn";
 import { dotClassName, statusVisual } from "@/shared/utils/statusVisual";
 import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
@@ -154,13 +154,7 @@ export const AiPaneView = memo(function AiPaneView({
         backgroundBlendMode: "normal, screen, normal"
       };
     }
-    const canvas = AI_CANVAS[theme === "light" ? "light" : "dark"];
-    return {
-      backgroundColor: canvas.base,
-      backgroundImage: `var(--ai-wallpaper), radial-gradient(${AI_CANVAS.poolSize} at ${AI_CANVAS.poolAt}, ${canvas.center}, transparent ${AI_CANVAS.poolFalloff}%), linear-gradient(${AI_CANVAS.tiltDeg}deg, ${canvas.edge}, ${canvas.base} ${AI_CANVAS.bandStart}%, ${canvas.base} ${AI_CANVAS.bandEnd}%, ${canvas.edge})`,
-      backgroundSize: `var(--ai-wallpaper-size), 100% 100%, 100% 100%`,
-      backgroundRepeat: "repeat, no-repeat, no-repeat"
-    };
+    return chatCanvasStyle(theme);
   }, [terminalBackgrounds, sessionBgKey, customBackgrounds, terminalBackgroundOpacity, palette, theme, bgIndex]);
 
   const skills = metadata.skills || [];

@@ -252,7 +252,7 @@ export default function HostTree({
                       data-sid={s.id}
                       style={mobile ? { "--i": String(Math.min(i, 6)) } : undefined}
                       className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9 list-rise" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
-                        isActive ? "bg-brand-500/15 text-text" : `text-text/85 ${rowCls}`
+                        isActive ? "bg-brand-500/15 text-text" : `text-text/85 active:bg-text/[0.06] ${rowCls}`
                       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
                       onClick={() => { if (consumeClick()) return; selectRow(s.id); }}
                       onPointerDown={(e) => armHold(e, s.id, sessions.map((i) => i.id))}

@@ -34,6 +34,18 @@ export const AI_CANVAS = {
   bandEnd: 58
 };
 
+// Three background layers as inline style — wallpaper tile, pool of light, tilted
+// band. The AI pane and the mobile session list share one recipe.
+export function chatCanvasStyle(theme) {
+  const canvas = AI_CANVAS[theme === "light" ? "light" : "dark"];
+  return {
+    backgroundColor: canvas.base,
+    backgroundImage: `var(--ai-wallpaper), radial-gradient(${AI_CANVAS.poolSize} at ${AI_CANVAS.poolAt}, ${canvas.center}, transparent ${AI_CANVAS.poolFalloff}%), linear-gradient(${AI_CANVAS.tiltDeg}deg, ${canvas.edge}, ${canvas.base} ${AI_CANVAS.bandStart}%, ${canvas.base} ${AI_CANVAS.bandEnd}%, ${canvas.edge})`,
+    backgroundSize: `var(--ai-wallpaper-size), 100% 100%, 100% 100%`,
+    backgroundRepeat: "repeat, no-repeat, no-repeat"
+  };
+}
+
 // Prompts offered on an empty conversation. Diagnostics (/doctor) and resuming are
 // not here — they are commands, not a way to start a chat.
 export const STARTER_PROMPTS = Object.freeze([

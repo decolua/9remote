@@ -257,7 +257,7 @@ export default function SlideMenu() {
         {/* Content - scrollable */}
         {/* Bottom padding clears the dock: the tab bar floats over this screen the way
             it floats over the list. */}
-        <div className="flex-1 overflow-y-auto modal-scrollable px-1 pt-1 pb-[78px]">
+        <div className="flex-1 overflow-y-auto modal-scrollable px-1 pt-1 pb-[94px]">
           {activePanel === "menu" && (
             <MenuItems
               onRemote={context.remoteAvailable ? handleRemote : null}

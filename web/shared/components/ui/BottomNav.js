@@ -51,7 +51,7 @@ export default function BottomNav({
 
   return (
     <nav
-      className="glass-bar dock-rise fixed inset-x-0 bottom-[calc(12px_+_var(--safe-bottom))] z-40 mx-auto flex h-[54px] w-fit max-w-[calc(100vw-24px)] items-center justify-center gap-1 rounded-full px-4"
+      className="glass-bar dock-rise fixed inset-x-0 bottom-[max(28px,calc(var(--safe-bottom)+16px))] z-40 mx-auto flex h-[54px] w-fit max-w-[calc(100vw-24px)] items-center justify-center gap-1 rounded-full px-4"
       aria-label={t("sessions.headerTitle")}
     >
       {slot("sessions", ListChecks, t("hosts.sessions"), onSessions)}

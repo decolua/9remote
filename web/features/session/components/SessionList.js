@@ -20,6 +20,8 @@ import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
+import { useTheme } from "@/shared/theme/ThemeProvider";
+import { chatCanvasStyle } from "@/features/ai/constants";
 
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
@@ -37,6 +39,7 @@ export default function SessionList({
   onRenameHost = null, onDeleteHost = null, onMainDisconnect = null, onMainReconnect = null
 }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
   // Callers may pass no bus; the store is the single live connection anyway
   const activeFileBus = fileBus || useFileBusStore.getState();
   const fleetHosts = Object.values(useFleetStore((s) => s.hosts));
@@ -143,7 +146,7 @@ export default function SessionList({
   const showWelcomeStage = !anyUpdating && !sessions.length && !workspaces.length && fleetHosts.length <= 1;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden relative">
+    <div className="h-full flex flex-col overflow-hidden relative" style={chatCanvasStyle(theme)}>
       {/* No bar material: the header is a flex row ABOVE the scroll area, not over
           it, so nothing ever scrolls beneath the title — a surface here was drawing a
           bar that separated nothing. 9love's screens do the same. Safe-area padding
@@ -174,7 +177,7 @@ export default function SessionList({
       {/* Host row — the root of the workspace tree below, same component the desktop
           sidebar uses. It scrolls with the list: it is the tree's first node, not a bar. */}
       <div
-        className="relative z-10 flex-1 overflow-auto modal-scrollable pt-2 pb-[calc(78px_+_var(--safe-bottom))]"
+        className="relative z-10 flex-1 overflow-auto modal-scrollable pt-2 pb-[calc(94px_+_var(--safe-bottom))]"
         style={{ overflowAnchor: "none" }}
       >
         {showWelcomeStage ? (
@@ -338,7 +341,7 @@ function WelcomeCards({ onAddWorkspace, recent, homeDir, connected }) {
   // Right half connects another machine into the fleet — meaningful everywhere.
   const [addHostOpen, setAddHostOpen] = useState(false);
   return (
-    <div className="empty-stage w-full h-full">
+    <div className="empty-stage w-full h-full fade-in">
       <div className="empty-grid" />
 
       <button
