@@ -483,8 +483,26 @@ export function setupSessionHandlers(socket, io, sessions, workspaces, sessionWo
       // A replacement is one transaction: the new terminal exists before the old one
       // is announced as gone, so no client ever sees a list (or a pane row) without it.
       // The retired id travels on the ack so the caller can hand its slot over.
+      // Display order = persisted rank for live sessions, then the rest in creation order.
+      const displayOrder = () => {
+        const ranked = sessionOrder.filter((id) => sessions.has(id));
+        const seen = new Set(ranked);
+        for (const id of sessions.keys()) if (!seen.has(id)) ranked.push(id);
+        return ranked;
+      };
       const retire = async (result) => {
-        const retired = replaces && replaces !== result.sessionId && await destroySession(replaces);
+        const replacing = replaces && replaces !== result.sessionId;
+        const slot = replacing ? displayOrder().indexOf(replaces) : -1;
+        const retired = replacing && await destroySession(replaces);
+        // The new id has no rank yet, so it would sort to the end — hand it the
+        // retired session's slot instead, matching what the pane strip already does.
+        if (retired && slot !== -1) {
+          const order = displayOrder().filter((id) => id !== result.sessionId);
+          order.splice(Math.min(slot, order.length), 0, result.sessionId);
+          sessionOrder.length = 0;
+          sessionOrder.push(...order);
+          persist();
+        }
         broadcast(io, "sessionsChanged");
         callback({ ...result, replaced: retired ? replaces : null });
         if (retired) broadcast(io, "sessionClosed", replaces);
