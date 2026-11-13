@@ -7,7 +7,7 @@ import { useI18n } from "@/shared/i18n";
 // Why remote cannot open on this host, and the one-tap way out: switch to a host
 // that is ready, or follow the steps to fix this one. `status` is the host's own
 // breakdown (null = an older host that only reports a boolean).
-export default function RemoteUnavailable({ hostLabel, status = null, platform = null, hosts = [], onOpenHost, onBack }) {
+export default function RemoteUnavailable({ hostLabel, status = null, platform = null, hosts = [], onOpenHost, onBack, canvasStyle = null }) {
   const { t } = useI18n();
   const host = hostLabel || t("agentSwitcher.unnamed");
   const isMac = platform === "darwin";
@@ -29,7 +29,7 @@ export default function RemoteUnavailable({ hostLabel, status = null, platform =
   }
 
   return (
-    <div className="flex h-full w-full flex-col bg-bg text-text">
+    <div className="flex h-full w-full flex-col bg-bg text-text" style={canvasStyle}>
       <header
         className="flex items-center gap-2 px-3 py-3 flex-shrink-0"
         style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}

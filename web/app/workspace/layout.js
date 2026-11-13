@@ -1166,6 +1166,7 @@ export default function WorkspaceLayout({ children }) {
                 hosts={otherReadyRemoteHosts}
                 onOpenHost={(key) => setRemoteHead(key)}
                 onBack={closeRemote}
+                canvasStyle={chatCanvasStyle(theme)}
               />
             ) : (
               <RemoteDesktop
@@ -1180,6 +1181,7 @@ export default function WorkspaceLayout({ children }) {
                 remoteStatus={remoteTargetRow?.remoteStatus || null}
                 otherReadyHosts={otherReadyRemoteHosts}
                 onOpenHost={(key) => setRemoteHead(key)}
+                canvasStyle={chatCanvasStyle(theme)}
               />
             ))}
           </TabPanel>

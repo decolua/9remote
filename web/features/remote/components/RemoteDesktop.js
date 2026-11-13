@@ -17,7 +17,7 @@ import { useI18n } from "@/shared/i18n";
 
 export default function RemoteDesktop({
   onClose, busRef, protocolRef, connected, carrier, hostPlatform,
-  hostLabel, remoteStatus = null, otherReadyHosts = [], onOpenHost
+  hostLabel, remoteStatus = null, otherReadyHosts = [], onOpenHost, canvasStyle = null
 }) {
   const { t } = useI18n();
   const [showConfirmExit, setShowConfirmExit] = useState(false);
@@ -84,6 +84,7 @@ export default function RemoteDesktop({
         hosts={otherReadyHosts}
         onOpenHost={onOpenHost}
         onBack={onClose}
+        canvasStyle={canvasStyle}
       />
     );
   }
@@ -92,6 +93,7 @@ export default function RemoteDesktop({
     <>
       <RemoteShell
         surface={surface}
+        canvasStyle={canvasStyle}
         connected={connected}
         clipboard={clipboard}
         hasFrame={tiles.hasFrame}

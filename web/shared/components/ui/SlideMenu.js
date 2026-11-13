@@ -19,6 +19,8 @@ import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPick
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
 import { GITHUB_REPO_URL, SHOW_GITHUB_STAR } from "@/shared/constants/github";
+import { useTheme } from "@/shared/theme/ThemeProvider";
+import { chatCanvasStyle } from "@/features/ai/constants";
 
 /**
  * SlideMenu - Global full-screen menu that slides from right to left
@@ -26,6 +28,7 @@ import { GITHUB_REPO_URL, SHOW_GITHUB_STAR } from "@/shared/constants/github";
  */
 export default function SlideMenu() {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const { formattedStars } = useGithubStars();
   // On a phone the screen IS the tab, and a tab is visible when it is the TOP view.
   // Reading the stack ROOT kept it painted over any screen opened from it (Remote
@@ -217,7 +220,7 @@ export default function SlideMenu() {
       {/* One of the dock's tabs, not a drawer and not a pushed screen. TabPanel owns
           the switch motion and the inert/pointer handling; this is only the surface. */}
       <TabPanel active={isOpen} dir={tabDir} className="bg-bg z-30">
-        <div className="flex h-full w-full flex-col pt-[var(--safe-top)] pb-[var(--safe-bottom)]">
+        <div className="flex h-full w-full flex-col pt-[var(--safe-top)] pb-[var(--safe-bottom)]" style={chatCanvasStyle(theme)}>
         {/* Header: title + carrier status, the way 9love's settings screen has nothing
             but its title. Theme and language moved into the Preferences card. */}
         <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 flex-shrink-0">

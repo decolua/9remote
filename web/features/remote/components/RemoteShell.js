@@ -14,7 +14,7 @@ import ClipboardModal from "@/features/remote/components/ClipboardModal";
 // state (lock screen, monitors, cursor shape...); `children` render over the canvas.
 export default function RemoteShell({
   surface: s, connected = true, clipboard, hasFrame = true, canvasProps, controlsProps,
-  Controls = RemoteControls, bottomLayout = false,
+  Controls = RemoteControls, bottomLayout = false, canvasStyle = null,
   onBack, onRefresh, onClose, onDesktopSwitch, onToggleDebug, debugOn, placeholder, children
 }) {
   const [showHelp, setShowHelp] = useState(false);
@@ -25,6 +25,7 @@ export default function RemoteShell({
     <div
       className={`bg-bg text-text flex flex-col h-full w-full ${!bottomLayout && !s.tallLandscape ? "landscape:flex-row" : ""}`}
       style={{
+        ...canvasStyle,
         userSelect: "none",
         WebkitUserSelect: "none",
         WebkitTouchCallout: "none",
