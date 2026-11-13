@@ -259,6 +259,8 @@ export default {
     headerButtons: "Header buttons",
     settingsButtons: "Buttons",
     notificationsButton: "Notifications",
+    bellButton: "Bell Button",
+    bellButtonHint: "Show the bell in the terminal header",
     notificationsButtonHint: "Alerts when a terminal finishes or needs you.",
     remoteDesktopHint: "Control this machine's screen from your phone.",
     sitesHint: "Browse the host's Chrome and local sites.",
@@ -444,6 +446,11 @@ export default {
     detachedHead: "detached",
     browseFolders: "Browse folders…",
     shell: "Shell"
+  },
+  ai: {
+    newChatTitle: "Start a new chat?",
+    newChatMessage: "The current chat will be closed and replaced by a new one.",
+    newChatConfirm: "New chat"
   },
   files: {
     selectWorkspace: "Select Workspace",
