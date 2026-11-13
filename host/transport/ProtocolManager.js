@@ -511,9 +511,10 @@ export class ProtocolManager {
     // went through it (and socket.use) — invoking handlers again would double-fire.
     env._manual = source === "rtc" || wrapped;
     if (Number.isInteger(env.rs)) this._outLog.setApplied(env.rs);
-    // A peer that speaks the stream is armed from its first stamped envelope, so
-    // the transition to caps never produces a false gap.
-    if (Number.isInteger(env.sq) && !this._intakeSeq.armed && this._peerSeqCtl) this._intakeSeq.arm();
+    // A peer that speaks the stream is armed from its first stamped envelope — the
+    // stamp itself is the announcement (no peer ever sends a caps.seqCtl frame, so
+    // waiting for one left the sequencer unarmed and every replayed envelope ran twice).
+    if (Number.isInteger(env.sq) && !this._intakeSeq.armed) this._intakeSeq.arm();
     this._intakeSeq.push(env);
   }
 

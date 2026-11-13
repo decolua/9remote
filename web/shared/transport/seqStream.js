@@ -51,6 +51,8 @@ const ENV_BYTES = 128;
 
 export function createOutboundLog({ maxBytes, maxEntries, maxReplayEntries = DEFAULT_MAX_REPLAY }) {
   const entries = new Map(); // seq → {event, args, ackId}
+  // Seqs the peer already answered: the command ran, so replaying it would run it twice.
+  const acked = new Set();
   let nextSeq = 1;
   let firstSeq = 1;
   let unsentFrom = 1;   // first seq no carrier has accepted yet
@@ -83,6 +85,7 @@ export function createOutboundLog({ maxBytes, maxEntries, maxReplayEntries = DEF
         const oldest = entries.get(firstSeq);
         if (!oldest) { firstSeq++; continue; }
         entries.delete(firstSeq);
+        acked.delete(firstSeq);
         bytes -= sizeOf(oldest);
         if (firstSeq >= unsentFrom) droppedUnsent++;
         firstSeq++;
@@ -97,6 +100,12 @@ export function createOutboundLog({ maxBytes, maxEntries, maxReplayEntries = DEF
     markSent(sq) {
       if (!Number.isInteger(sq) || sq < unsentFrom) return;
       unsentFrom = sq + 1;
+    },
+
+    /** The peer answered this sq: the command already ran, so it leaves the replay window. */
+    markAcked(sq) {
+      // Past entries were already evicted — tracking them again would leak the set.
+      if (Number.isInteger(sq) && sq >= firstSeq) acked.add(sq);
     },
 
     /** Entries [from..to] inclusive, or null when the ring no longer covers it. */
@@ -118,10 +127,10 @@ export function createOutboundLog({ maxBytes, maxEntries, maxReplayEntries = DEF
      *  gaps are pulled by the peer's NACK (range serves them from the ring). */
     replayList() {
       const from = Math.max(peerApplied + 1, firstSeq, nextSeq - maxReplayEntries);
-      return collect(from);
+      return acked.size ? collect(from).filter((e) => !acked.has(e.sq)) : collect(from);
     },
 
-    clear() { entries.clear(); nextSeq = 1; firstSeq = 1; unsentFrom = 1; peerApplied = 0; bytes = 0; droppedUnsent = 0; }
+    clear() { entries.clear(); acked.clear(); nextSeq = 1; firstSeq = 1; unsentFrom = 1; peerApplied = 0; bytes = 0; droppedUnsent = 0; }
   };
 }
 

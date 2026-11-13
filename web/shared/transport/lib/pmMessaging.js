@@ -17,6 +17,11 @@ export function sendControl(pm, event, args) {
   const cb = typeof last === "function" ? args.pop() : null;
   const ackId = cb ? registerAck(pm, event, args, cb) : null;
   const env = pm._outLog.append({ event, args, ackId });
+  // Remember the ring slot so its ack can retire it from the replay window.
+  if (ackId) {
+    const req = pm._ackReqs?.get(ackId);
+    if (req) req.sq = env.sq;
+  }
   debugLog("transport", `[pm] send control event=${event} sq=${env.sq}`);
   ship(pm);
 }
@@ -79,6 +84,8 @@ function resolveAck(pm, ackId, resp) {
     recoverAdmission(pm, "ack");
     return;
   }
+  // The peer ran it: a later carrier event must not replay it as new work.
+  if (Number.isInteger(req?.sq)) pm._outLog.markAcked(req.sq);
   pm._ackReqs?.delete(ackId);
   pm._pendingAcks.delete(ackId);
   const t = pm._ackTimers.get(ackId);
@@ -97,7 +104,8 @@ export function flushBuffer(pm) {
   const adapter = pm._pickAdapter(CHANNELS.control);
   if (!adapter) return;
   pm._intakeSeq.setPaused(false);
-  for (const queued of pm._outLog.replayList()) {
+  const replay = pm._outLog.replayList();
+  for (const queued of replay) {
     if (!sendOn(pm, adapter, queued)) return;
     pm._outLog.markSent(queued.sq);
   }
@@ -171,7 +179,9 @@ function resendAdmitQueue(pm) {
   for (const ackId of queue) {
     const req = pm._ackReqs.get(ackId);
     if (!req || !pm._pendingAcks.has(ackId)) continue;
-    pm._outLog.append({ event: req.event, args: req.args, ackId });
+    const env = pm._outLog.append({ event: req.event, args: req.args, ackId });
+    // The re-append is a new ring slot; its ack retires this one, not the old.
+    req.sq = env.sq;
   }
   ship(pm);
 }
