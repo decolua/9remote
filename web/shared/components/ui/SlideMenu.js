@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useCallback, useState } from "react";
-import { X, ChevronLeft, Sun, Moon, Github, Star } from "@/shared/components/ui/Icon";
+import { ChevronLeft, Github, Star } from "@/shared/components/ui/Icon";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useConnectionStore } from "@/shared/stores/connectionStore";
 import MenuItems from "@/features/terminal/components/MenuItems";
@@ -12,9 +12,9 @@ import CommunityModal from "@/features/terminal/components/CommunityModal";
 import LanguageModal from "@/shared/components/ui/LanguageModal";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
-import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
-import { useTheme } from "@/shared/theme/ThemeProvider";
 import SettingsDialog from "@/features/terminal/components/SettingsDialog";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
+import TabPanel from "@/shared/components/ui/TabPanel";
 import BackgroundPickerSheet from "@/features/terminal/components/BackgroundPickerSheet";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { useGithubStars } from "@/shared/hooks/useGithubStars";
@@ -25,10 +25,18 @@ import { GITHUB_REPO_URL, SHOW_GITHUB_STAR } from "@/shared/constants/github";
  * Uses Zustand store for state management
  */
 export default function SlideMenu() {
-  const { t, locale } = useI18n();
+  const { t } = useI18n();
   const { formattedStars } = useGithubStars();
-  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale) || SUPPORTED_LOCALES[0];
-  const isOpen = useSlideMenuStore((s) => s.isOpen);
+  // On a phone the screen IS the tab, and a tab is visible when it is the TOP view.
+  // Reading the stack ROOT kept it painted over any screen opened from it (Remote
+  // opened from Settings sat behind this full-screen panel and looked missing).
+  const onSettingsRoute = useTerminalStore((s) => {
+    const top = s.viewStack[s.viewStack.length - 1];
+    return top?.type === "settings";
+  });
+  const storeOpen = useSlideMenuStore((s) => s.isOpen);
+  const isOpen = storeOpen || onSettingsRoute;
+  const tabDir = useTerminalStore((s) => s.navDir);
   const activePanel = useSlideMenuStore((s) => s.activePanel);
   const context = useSlideMenuStore((s) => s.context);
   const callbacks = useSlideMenuStore((s) => s.callbacks);
@@ -46,7 +54,6 @@ export default function SlideMenu() {
   const [communityOpen, setCommunityOpen] = useState(false);
   const [languageOpen, setLanguageOpen] = useState(false);
   const [bgPickerOpen, setBgPickerOpen] = useState(false);
-  const { theme: appTheme, toggleTheme } = useTheme();
 
   // Desktop gets a centered two-pane settings dialog; the drawer stays for phones.
   const [isDesktop, setIsDesktop] = useState(false);
@@ -170,7 +177,7 @@ export default function SlideMenu() {
     </>
   );
 
-  if (!isOpen) return overlays;
+  if (isDesktop && !isOpen) return overlays;
 
   if (isDesktop) {
     return (
@@ -193,6 +200,8 @@ export default function SlideMenu() {
     switch (activePanel) {
       case "pwa":
         return t("pwa.title");
+      case "menu":
+        return t("menu.settings");
       default:
         return t("menu.title");
     }
@@ -202,21 +211,17 @@ export default function SlideMenu() {
   const showBackButton = activePanel !== "menu";
 
   return (
-    <div className="fixed inset-0 z-50 flex">
-      {/* Backdrop - more transparent to see behind */}
-      <div
-        className="absolute inset-0 scrim fade-in"
-        onClick={close}
-      />
-
-      {/* Menu Panel - slides from right */}
-      <div
-        className={`absolute top-0 right-0 bottom-0 w-[85vw] sm:w-96 max-w-md glass-drawer border-l border-border shadow-2xl flex flex-col slide-in-right pt-[var(--safe-top)] ${activePanel === "menu" ? "" : "pb-[var(--safe-bottom)]"}`}
-        onClick={(e) => e.stopPropagation()}
-      >
-        {/* Header */}
-        <div className="flex items-center justify-between px-5 py-4 border-b border-border flex-shrink-0">
-          <div className="flex items-center gap-2">
+    // The wrapper never eats a tap: the screen it holds is pointer-events-none while
+    // its tab is not the active one, and every panel below portals out to <body>.
+    <div className="fixed inset-0 z-30 flex pointer-events-none">
+      {/* One of the dock's tabs, not a drawer and not a pushed screen. TabPanel owns
+          the switch motion and the inert/pointer handling; this is only the surface. */}
+      <TabPanel active={isOpen} dir={tabDir} className="bg-bg z-30">
+        <div className="flex h-full w-full flex-col pt-[var(--safe-top)] pb-[var(--safe-bottom)]">
+        {/* Header: title + carrier status, the way 9love's settings screen has nothing
+            but its title. Theme and language moved into the Preferences card. */}
+        <div className="flex items-center justify-between gap-2 px-4 pt-3 pb-2 flex-shrink-0">
+          <div className="flex items-center gap-2 min-w-0">
             {showBackButton && (
               <button
                 onClick={handleBack}
@@ -226,58 +231,33 @@ export default function SlideMenu() {
                 <ChevronLeft size={20} />
               </button>
             )}
-            <h2 className="text-lg font-semibold text-text">{getTitle()}</h2>
-            {activePanel === "menu" && (() => {
-              const liveCarrier = storeCarrier || context.carrier;
-              const isRtc = liveCarrier && liveCarrier !== "ws";
-              return (
-                <span
-                  className={`px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
-                    isRtc
-                      ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
-                      : "bg-yellow-500/15 text-yellow-500 border border-yellow-500/30"
-                  }`}
-                  title={`Carrier: ${isRtc ? `WebRTC (${liveCarrier})` : "WebSocket"}`}
-                >
-                  {isRtc ? "RTC" : "WS"}
-                </span>
-              );
-            })()}
+            <h2 className="text-[26px] font-bold tracking-[-0.4px] text-text truncate">{getTitle()}</h2>
           </div>
-          <div className="flex items-center gap-1">
-            {activePanel === "menu" && (
-              <>
-                <button
-                  onClick={() => { vibrate(); toggleTheme(); }}
-                  className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
-                  aria-label={t("menu.theme")}
-                  title={t("menu.theme")}
-                >
-                  {appTheme === "dark" ? <Sun size={18} /> : <Moon size={18} />}
-                </button>
-                <button
-                  onClick={() => { vibrate(); setLanguageOpen(true); }}
-                  className="px-2 py-1.5 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors flex items-center gap-1.5 text-sm font-medium"
-                  aria-label={t("menu.language")}
-                  title={t("menu.language")}
-                >
-                  <img src={`https://flagcdn.com/w40/${currentLocale.country}.png`} alt={currentLocale.label} className="w-[17px] h-[12px] object-cover rounded-[2px]" loading="lazy" />
-                  <span className="uppercase">{currentLocale.code}</span>
-                </button>
-              </>
-            )}
-            <button
-              onClick={close}
-              className="p-2 text-text-muted hover:text-text hover:bg-surface-2 rounded-brand transition-colors"
-              aria-label={t("common.close")}
-            >
-              <X size={20} />
-            </button>
-          </div>
+          {/* 9love's settings header is a title and nothing else — the theme and
+              language toggles are rows in the Preferences card. The carrier badge is
+              the one exception: it is status, not an action, and lives nowhere else. */}
+          {activePanel === "menu" && (() => {
+            const liveCarrier = storeCarrier || context.carrier;
+            const isRtc = liveCarrier && liveCarrier !== "ws";
+            return (
+              <span
+                className={`shrink-0 px-1.5 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider ${
+                  isRtc
+                    ? "bg-blue-500/15 text-blue-400 border border-blue-500/30"
+                    : "bg-yellow-500/15 text-yellow-500 border border-yellow-500/30"
+                }`}
+                title={`Carrier: ${isRtc ? `WebRTC (${liveCarrier})` : "WebSocket"}`}
+              >
+                {isRtc ? "RTC" : "WS"}
+              </span>
+            );
+          })()}
         </div>
 
         {/* Content - scrollable */}
-        <div className="flex-1 overflow-y-auto modal-scrollable">
+        {/* Bottom padding clears the dock: the tab bar floats over this screen the way
+            it floats over the list. */}
+        <div className="flex-1 overflow-y-auto modal-scrollable px-1 pt-1 pb-[78px]">
           {activePanel === "menu" && (
             <MenuItems
               onRemote={context.remoteAvailable ? handleRemote : null}
@@ -296,6 +276,7 @@ export default function SlideMenu() {
               subscribeToPush={context.subscribeToPush}
               unsubscribeFromPush={context.unsubscribeFromPush}
               onOpenBackgroundPicker={handleOpenBackgroundPicker}
+              onOpenLanguage={() => setLanguageOpen(true)}
             />
           )}
 
@@ -305,7 +286,7 @@ export default function SlideMenu() {
 
         {/* GitHub star chip - pinned footer, owns the bottom safe inset */}
         {activePanel === "menu" && SHOW_GITHUB_STAR && (
-          <div className="flex-shrink-0 flex justify-center px-3 pt-2 pb-safe border-t border-border">
+          <div className="flex-shrink-0 flex justify-center px-3 pt-2">
             <a
               href={GITHUB_REPO_URL}
               target="_blank"
@@ -322,7 +303,8 @@ export default function SlideMenu() {
             </a>
           </div>
         )}
-      </div>
+        </div>
+      </TabPanel>
 
       <CommandNotesPanel
         isOpen={commandNotesOpen}

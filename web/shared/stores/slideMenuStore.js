@@ -1,6 +1,8 @@
 "use client";
 
 import { create } from "zustand";
+import { useTerminalStore } from "@/shared/stores/terminalStore";
+import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 
 const isShallowEqual = (a, b) => {
   if (Object.is(a, b)) return true;
@@ -46,8 +48,22 @@ export const useSlideMenuStore = create((set, get) => ({
   currentSites: [],
   loadingSites: false,
 
-  open: (panel = "menu") => set({ isOpen: true, activePanel: panel }),
-  close: () => set({ isOpen: false, activePanel: "menu" }),
+  // Settings is a ROUTE (/workspace/settings) and, on a phone, one of the dock's
+  // tabs. The store carries the context/callbacks the screen reads; the view stack
+  // carries where it sits.
+  open: (panel = "menu") => {
+    set({ isOpen: true, activePanel: panel });
+    // Phone: settings is a dock TAB, a sibling of the session list — switching to it
+    // replaces the root instead of stacking a screen on top. Desktop keeps the
+    // two-pane dialog over the current view: it is a tool, not a place.
+    if (typeof window !== "undefined" && window.innerWidth >= DESKTOP_BREAKPOINT) return;
+    useTerminalStore.getState().selectTab({ type: "settings" });
+  },
+  close: () => {
+    set({ isOpen: false, activePanel: "menu" });
+    const { viewStack, selectTab } = useTerminalStore.getState();
+    if (viewStack[viewStack.length - 1]?.type === "settings") selectTab({ type: "list" });
+  },
   setActivePanel: (panel) => set({ activePanel: panel }),
 
   setContext: (context) => set((state) => {
@@ -81,6 +97,19 @@ export const useSlideMenuStore = create((set, get) => ({
   setCurrentSites: (sites) => set({ currentSites: sites }),
   setLoadingSites: (loading) => set({ loadingSites: loading }),
 
-  openPwa: () => set({ isOpen: true, activePanel: "pwa" }),
-  openMenu: () => set({ isOpen: true, activePanel: "menu" }),
+  openPwa: () => get().open("pwa"),
+  openMenu: () => get().open("menu"),
 }));
+
+// The phone's settings screen IS a tab route, so the flag must follow the route and
+// not only the paths that call open()/close(). The dock can switch tabs by itself
+// (Sessions), and the browser Back can move the root too — either way the screen has
+// to close. One subscription keeps both in step; desktop never moves the root, so
+// its dialog flag is left alone.
+useTerminalStore.subscribe((state, prev) => {
+  const topOf = (stack) => stack[stack.length - 1]?.type === "settings";
+  const now = topOf(state.viewStack);
+  const was = topOf(prev.viewStack);
+  if (now === was) return;
+  useSlideMenuStore.setState(now ? { isOpen: true } : { isOpen: false, activePanel: "menu" });
+});

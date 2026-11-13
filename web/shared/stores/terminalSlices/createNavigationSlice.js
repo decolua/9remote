@@ -1,7 +1,7 @@
 import { MAX_LIVE_PANES } from "@/features/terminal/constants/terminalConfig";
 import { toPosixPath } from "@/features/fileExplorer/constants/fileExplorer.js";
 import { UNGROUPED_KEY } from "@/features/terminal/lib/paneLayout";
-import { OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
+import { OVERLAY_VIEWS, TAB_VIEWS, TAB_ORDER } from "@/features/terminal/constants/routeConfig";
 
 const staleAgentHistory = (history, mapRow) => {
   const next = {};
@@ -14,6 +14,9 @@ const staleAgentHistory = (history, mapRow) => {
 export const createNavigationSlice = (set, get) => ({
   // Navigation stack
   viewStack: [{ type: "list" }],
+  // Direction of the last tab switch, for the slide-in. A tab bar slides the
+  // incoming screen from the side its tab sits on, so the motion explains itself.
+  navDir: "forward",
   openedSessions: [],
 
   // Active workspace
@@ -62,6 +65,18 @@ export const createNavigationSlice = (set, get) => ({
     const norm = toPosixPath(cwd);
     set((state) => state.cwdBySession[sessionId] === norm ? state : ({ cwdBySession: { ...state.cwdBySession, [sessionId]: norm } }));
   },
+
+  // Tab switch (the phone's dock). Tabs are siblings: the stack is REPLACED by the
+  // chosen tab, so no tab ever sits on another and Back leaves the section instead
+  // of walking through visited tabs. Screens pushed FROM a tab still stack on it —
+  // that is a push, not a tab.
+  selectTab: (view) => set((state) => {
+    const root = TAB_VIEWS.includes(view?.type) ? view : state.viewStack[0] || { type: "list" };
+    const from = TAB_ORDER.indexOf(state.viewStack[state.viewStack.length - 1]?.type);
+    const to = TAB_ORDER.indexOf(root.type);
+    const navDir = from !== -1 && to !== -1 && to < from ? "back" : "forward";
+    return { viewStack: [root], navDir };
+  }),
 
   // View stack actions
   pushView: (view) => set((state) => {

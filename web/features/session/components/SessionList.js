@@ -9,7 +9,7 @@ import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import { RemoteTargets, tailOf } from "@/features/terminal/components/TerminalEmptyState";
-import { Monitor, ArrowRight, KeyRound, QrCode, Settings } from "@/shared/components/ui/Icon";
+import { Monitor, ArrowRight, KeyRound, QrCode } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -19,7 +19,6 @@ import { orderedHostsOf } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
-import { PANEL_HEADER_H_CLASS } from "@/shared/constants/layout";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
 
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
@@ -61,16 +60,14 @@ export default function SessionList({
   const openMenu = useSlideMenuStore((s) => s.open);
   const setContext = useSlideMenuStore((s) => s.setContext);
   const setCallbacks = useSlideMenuStore((s) => s.setCallbacks);
-  const hiddenHeaderButtons = useTerminalStore((s) => s.hiddenHeaderButtons);
-  const showButton = (id) => !hiddenHeaderButtons.includes(id);
   const pushView = useTerminalStore((s) => s.pushView);
   // Pairing QR lives on the host's own page — hide the entry on the public web.
   const isHostUi = isHostEnvironment();
 
   const [bgTarget, setBgTarget] = useState(null);           // session whose background sheet is open
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
-  const [addHostOpen, setAddHostOpen] = useState(false);
   const [pickerFor, setPickerFor] = useState(false);        // remote host picker sheet
+  const [addHostOpen, setAddHostOpen] = useState(false);    // header's add-host door
 
   // Hosts that can answer the shared feature — the header button picks among
   // them (one host = straight in, no sheet).
@@ -147,10 +144,12 @@ export default function SessionList({
 
   return (
     <div className="h-full flex flex-col overflow-hidden relative">
-      {/* Translucent bar like the old design; safe-area padding for notched phones, where
-          env() is 0 everywhere else. */}
+      {/* No bar material: the header is a flex row ABOVE the scroll area, not over
+          it, so nothing ever scrolls beneath the title — a surface here was drawing a
+          bar that separated nothing. 9love's screens do the same. Safe-area padding
+          for notched phones, where env() is 0 everywhere else. */}
       <header
-        className={`relative z-10 bg-surface/80 backdrop-blur-md pl-[28px] pr-4 py-3 ${PANEL_HEADER_H_CLASS} flex items-center justify-between gap-2 flex-shrink-0`}
+        className="relative z-10 pl-[28px] pr-4 py-3 flex items-center justify-between gap-2 flex-shrink-0"
         style={{ paddingTop: "calc(0.75rem + env(safe-area-inset-top, 0px))" }}
       >
         <div className="flex items-center gap-3 min-w-0">
@@ -162,22 +161,20 @@ export default function SessionList({
           />
         </div>
 
+        {/* The dock owns remote and settings; this header keeps identity plus the two
+            doors that only make sense from the list: pairing (host UI) and add-host. */}
         <div className="flex items-center gap-1 flex-shrink-0">
-          {showButton("remote") && remoteHosts.length > 0 && (
-            <HeaderButton icon={Monitor} label={t("menu.remoteDesktop")} onClick={pickHost} disabled={!connected} />
-          )}
+          <HeaderButton icon={KeyRound} label={t("hosts.addHost")} onClick={() => { vibrate(); setAddHostOpen(true); }} />
           {isHostUi && (
             <HeaderButton icon={QrCode} label={t("connection.pairTab")} onClick={() => { vibrate(); pushView({ type: "pair" }); }} />
           )}
-          <HeaderButton icon={KeyRound} label={t("hosts.addHost")} onClick={() => { vibrate(); setAddHostOpen(true); }} />
-          <HeaderButton icon={Settings} label={t("menu.title")} onClick={openMenu} />
         </div>
       </header>
 
       {/* Host row — the root of the workspace tree below, same component the desktop
           sidebar uses. It scrolls with the list: it is the tree's first node, not a bar. */}
       <div
-        className="relative z-10 flex-1 overflow-auto modal-scrollable pt-2 pb-12"
+        className="relative z-10 flex-1 overflow-auto modal-scrollable pt-2 pb-[calc(78px_+_var(--safe-bottom))]"
         style={{ overflowAnchor: "none" }}
       >
         {showWelcomeStage ? (
@@ -290,11 +287,11 @@ export default function SessionList({
 
       {pickerFor && (
         <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center scrim animate-in fade-in duration-150"
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center scrim fade-in"
           onClick={() => setPickerFor(null)}
         >
           <div
-            className="card-elev w-full sm:max-w-sm max-h-[60%] overflow-auto modal-scrollable rounded-t-2xl sm:rounded-2xl p-2 animate-in slide-in-from-bottom-4 duration-150"
+            className="card-elev w-full sm:max-w-sm max-h-[60%] overflow-auto modal-scrollable rounded-t-2xl sm:rounded-2xl p-2 sheet-rise"
             onClick={(e) => e.stopPropagation()}
           >
             {remoteHosts.map((h) => (

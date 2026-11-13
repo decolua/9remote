@@ -47,7 +47,9 @@ export const viewport = {
     maximumScale: 1,
     userScalable: false,
     interactiveWidget: "resizes-content",
-    // viewportFit: "cover",
+    // Without cover, env(safe-area-inset-*) is 0 on iOS PWA/Safari and every
+    // --safe-* var collapses — the dock then sits on the home indicator.
+    viewportFit: "cover",
     themeColor: "#121212"
 };
 
@@ -59,8 +61,8 @@ const expoRedirectScript = `(function(){try{if(location.hostname==="dev.9remote.
 
 // Native shell bridge — expo injects the real status-bar/notch insets via
 // handleSafeAreaInset; web applies them as --pl-* (0 when unset, so browsers/PWA
-// are unaffected). Bottom inset is owned by bottom bars (.safe-area-bottom).
-const safeAreaScript = `window.handleSafeAreaInset=function(top,left,right){try{var d=document.documentElement.style;d.setProperty("--pl-top",Math.max(top||0,0)+"px");d.setProperty("--pl-left",Math.max(left||0,0)+"px");d.setProperty("--pl-right",Math.max(right||0,0)+"px");}catch(e){}};`;
+// are unaffected). Bottom inset feeds --safe-bottom for bottom bars and the dock.
+const safeAreaScript = `window.handleSafeAreaInset=function(top,left,right,bottom){try{var d=document.documentElement.style;d.setProperty("--pl-top",Math.max(top||0,0)+"px");d.setProperty("--pl-left",Math.max(left||0,0)+"px");d.setProperty("--pl-right",Math.max(right||0,0)+"px");d.setProperty("--pl-bottom",Math.max(bottom||0,0)+"px");}catch(e){}};`;
 
 // --app-height lives here, not in the workspace shell: modal overlays read it on every
 // route (login included), and the soft keyboard only shrinks visualViewport — never the

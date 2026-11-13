@@ -42,9 +42,9 @@ export default function WorkspaceHeader({
   return (
     <div
       onClick={rowClick}
-      className={`relative pr-2 py-1.5 flex items-center gap-1.5 group group/grp transition-colors ${
-        rowClick ? "cursor-pointer hover:bg-text/[0.06]" : ""
-      }`}
+      className={`relative pr-2 flex items-center gap-1.5 group group/grp transition-colors ${
+        mobile ? "py-1 mt-1" : "py-1.5"
+      } ${rowClick ? "cursor-pointer hover:bg-text/[0.06]" : ""}`}
     >
       <button
         onClick={(e) => { e.stopPropagation(); vibrate(); onToggleCollapse?.(); }}
@@ -56,7 +56,14 @@ export default function WorkspaceHeader({
       <Folder size={mobile ? 14 : 13.5} className="text-text-muted flex-shrink-0" />
       <span className="flex-1 min-w-0 flex flex-col">
         <span className={`flex items-center gap-1.5 min-w-0 ${isActive ? "text-text" : "text-text-muted"}`}>
-          <span className={`${mobile ? "text-sm" : "text-[12px]"} font-medium uppercase truncate ${isActive ? "text-text" : "text-text-muted"}`} data-tip={workspace.name}>
+          <span
+            className={`font-medium uppercase truncate ${
+              mobile
+                ? `text-[13px] tracking-wide ${isActive ? "text-text" : "text-text/90"}`
+                : `text-[12px] ${isActive ? "text-text" : "text-text-muted"}`
+            }`}
+            data-tip={workspace.name}
+          >
             {workspace.name}
           </span>
           {rolled.map(({ state, count }) => {

@@ -4,7 +4,7 @@ import { useEffect, useRef } from "react";
 import { usePathname, useSearchParams, useRouter } from "next/navigation";
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useShallow } from "zustand/react/shallow";
-import { pathToView, viewToPath, stackForUrl, OVERLAY_VIEWS } from "@/features/terminal/constants/routeConfig";
+import { pathToView, viewToPath, stackForUrl, OVERLAY_VIEWS, TAB_VIEWS } from "@/features/terminal/constants/routeConfig";
 
 // URL is the single source of truth for navigation. Browser history drives the
 // viewStack (URL -> store). Store changes from in-app forward actions (open
@@ -69,6 +69,9 @@ export function useRouteSync(hydrated) {
     // Tab switch within terminal view is same-level: replace (not push) so browser Back
     // returns to session list instead of the previous tab.
     const sameLevelTerminal = prevViewRef.current?.type === "terminal" && liveView?.type === "terminal";
+    // A tab switch (session list / remote / settings) REPLACES: a tab bar never
+    // leaves the tab you just left behind the Back gesture.
+    const tabSwitch = TAB_VIEWS.includes(liveView?.type) && TAB_VIEWS.includes(prevViewRef.current?.type);
     // Collapsing the whole stack back to its root is "leave this section", not a forward
     // move: pushing would leave the section behind a Back press that re-enters it.
     const toRoot = liveView?.type === "list" && live.length === 1;
@@ -80,7 +83,7 @@ export function useRouteSync(hydrated) {
     prevViewRef.current = liveView;
     prevStackLenRef.current = live.length;
     if (fromUrl || target === currentUrlPath) return;
-    if (sameLevelTerminal || toRoot || isPop) router.replace(target);
+    if (sameLevelTerminal || tabSwitch || toRoot || isPop) router.replace(target);
     else router.push(target);
   }, [hydrated, currentView, pathname, searchParams]);
 }

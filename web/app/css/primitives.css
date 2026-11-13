@@ -128,6 +128,31 @@
   backdrop-filter: blur(var(--lg-blur-drawer)) saturate(var(--lg-sat));
 }
 
+/* Grouped content card (9love's inset-grouped idea): a settings section or a menu
+   group reads as ONE plate, with rows as bare lines inside it. No border — the tint
+   against the page is the boundary, so a stack of these never turns into a grid.
+   Radius comes from the call site, like every other glass class here. */
+.glass-card {
+  background: var(--lg-sheen), var(--lg-tint-card);
+  box-shadow:
+    inset 0 1px 0 var(--lg-rim),
+    inset 0 0 0 1px var(--lg-edge),
+    var(--lg-lift-card);
+}
+
+/* Floating bar (bottom pill nav). Thicker material than a panel: it sits on top of
+   live content and has to stay legible while the list scrolls under it. Radius and
+   position come from the call site — this rule is unlayered, so any `position` here
+   would beat the `fixed` utility. */
+.glass-bar {
+  background: var(--lg-sheen-strong), var(--lg-tint-bar);
+  backdrop-filter: blur(var(--lg-blur-bar)) saturate(calc(var(--lg-sat) + 0.1));
+  box-shadow:
+    inset 0 1px 0 var(--lg-rim),
+    inset 0 -1px 0 var(--lg-shade),
+    var(--lg-lift-bar);
+}
+
 /* ---- Lightbox (image viewer over the chat) ----------------------------------
    The scrim stays in the modal family: dark enough to put the panel forward, light
    enough that the page behind is still recognisable — blacking it out entirely read
@@ -170,7 +195,9 @@
 @media (prefers-reduced-transparency: reduce) {
   .card-elev,
   .menu-popover,
-  .glass-drawer {
+  .glass-drawer,
+  .glass-bar,
+  .glass-card {
     background: var(--surface);
     backdrop-filter: none;
   }
@@ -179,7 +206,9 @@
 @media (prefers-contrast: more) {
   .card-elev,
   .menu-popover,
-  .glass-drawer {
+  .glass-drawer,
+  .glass-bar,
+  .glass-card {
     background: var(--surface);
     backdrop-filter: none;
   }

@@ -238,7 +238,7 @@ export default function HostTree({
                   onRename={actions.renameWorkspace && rawId != null ? () => setWsRename({ id: rawId, value: workspace.name }) : null}
                   onDelete={actions.deleteWorkspace && rawId != null ? () => setWsDelete({ id: rawId, name: workspace.name }) : null}
                 />
-                {!isCollapsed(wsKey) && sessions.map((s) => {
+                {!isCollapsed(wsKey) && sessions.map((s, i) => {
                   const st = host.statusMap?.[s.id]?.state || "idle";
                   const v = statusVisual(st);
                   const isActive = activeSessionId === s.id;
@@ -250,8 +250,9 @@ export default function HostTree({
                     <div
                       ref={registerEl(s.id)}
                       data-sid={s.id}
-                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
-                        isActive ? "bg-brand-500/15 text-text" : `text-text-muted ${rowCls}`
+                      style={mobile ? { "--i": String(Math.min(i, 6)) } : undefined}
+                      className={`group flex items-center gap-1.5 ${mobile ? "pl-6 pr-9 list-rise" : "pl-3.5 pr-2"} py-1.5 ml-0.5 rounded-[3px] text-left relative cursor-pointer select-none touch-manipulation touch-pan-y ${
+                        isActive ? "bg-brand-500/15 text-text" : `text-text/85 ${rowCls}`
                       } ${isDragging ? "z-20 opacity-90 shadow-lg ring-1 ring-brand-500" : "transition-colors"}`}
                       onClick={() => { if (consumeClick()) return; selectRow(s.id); }}
                       onPointerDown={(e) => armHold(e, s.id, sessions.map((i) => i.id))}
@@ -280,7 +281,7 @@ export default function HostTree({
                       <span className="flex-1 min-w-0 flex flex-col">
                         <span className={`flex items-center gap-1.5 min-w-0 ${isActive ? "font-medium" : ""}`}>
                           <SessionAgentIcon agent={agentBySession?.[s.id] ?? s.agent} tool={host.statusMap?.[s.id]?.tool} />
-                          <span className={`${mobile ? "text-base" : "text-[11px]"} truncate`} data-tip={title}>{title}</span>
+                          <span className={`${mobile ? "text-[17px]" : "text-[11px]"} truncate`} data-tip={title}>{title}</span>
                           {hidden && onUnhidePane && (
                             <button
                               type="button"
@@ -379,10 +380,10 @@ export default function HostTree({
                     <button
                       onClick={() => { vibrate(); setTermModalWs(wsKey); }}
                       disabled={!actionable}
-                      className="w-full flex items-center gap-1.5 pl-[38px] py-1.5 text-left text-sm text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40"
+                      className="w-full flex items-center gap-1.5 pl-[38px] py-1.5 text-left text-[15px] text-text-muted hover:text-brand-500 transition-colors disabled:opacity-40"
                       title={t("workspaces.addTerminal")}
                     >
-                      <Plus size={14} className="flex-shrink-0" />
+                      <Plus size={15} className="flex-shrink-0" />
                       <span>{t("terminal.newTerminal")}</span>
                     </button>
                   ) : sessions.length === 0 ? (
@@ -404,7 +405,7 @@ export default function HostTree({
           <button
             onClick={() => { vibrate(); if (onAddWorkspace) onAddWorkspace(); else setWsPicker(true); }}
             disabled={!actionable}
-            className={`w-full flex items-center gap-1.5 ${mobile ? "text-sm" : "text-[12px] mt-1"} py-1.5 text-left text-text-subtle hover:text-brand-500 transition-colors disabled:opacity-40`}
+            className={`w-full flex items-center gap-1.5 ${mobile ? "text-[15px] text-text-muted" : "text-[12px] mt-1 text-text-subtle"} py-1.5 text-left hover:text-brand-500 transition-colors disabled:opacity-40`}
             title={t("workspaces.newWorkspace")}
           >
             <Plus size={mobile ? 18 : 12} className="flex-shrink-0" />

@@ -14,8 +14,20 @@ export const VIEW_TO_PATH = {
   workspaces: () => `${WORKSPACE_BASE}/workspaces`,
   browse: (v) => withQuery(`${WORKSPACE_BASE}/browse`, { path: v.path }),
   pair: () => `${WORKSPACE_BASE}/pair`,
+  settings: () => `${WORKSPACE_BASE}/settings`,
   welcome: () => `${WORKSPACE_BASE}/welcome`
 };
+
+// Root-level screens shown by the phone's bottom dock. Selecting one REPLACES the
+// stack instead of stacking, so no tab ever sits on another and Back leaves the
+// section rather than walking through visited tabs. These types are also pushable
+// from inside a terminal — that path goes through pushView and still stacks, which
+// is why tab-ness is decided by the ACTION, not by the type.
+export const TAB_VIEWS = ["list", "remote", "settings"];
+
+// Left-to-right order of the dock's tabs; a switch slides in from the side it moved
+// toward, the same way 9love's tab bar does.
+export const TAB_ORDER = TAB_VIEWS;
 
 // Views rendered as a store-only overlay: never mirrored into the URL. The site
 // browser's iframe piles its own entries onto the parent history, so keeping it
@@ -34,6 +46,7 @@ export const SEGMENT_TO_TYPE = {
   workspaces: "workspaces",
   browse: "browse",
   pair: "pair",
+  settings: "settings",
   welcome: "welcome"
 };
 
@@ -74,6 +87,9 @@ export function viewToPath(view) {
 // Returns the stack to adopt, or null when the view is a genuinely new level (push it).
 export function stackForUrl(viewStack, view) {
   const target = viewToPath(view);
+  // A tab route sits at the root: adopting it must not leave the previous tab
+  // underneath, or Back would walk through visited tabs.
+  if (TAB_VIEWS.includes(view.type)) return [view];
   // The URL names a view the stack already holds lower down (Back out of files/editor):
   // cut back to that entry. Pushing instead left a duplicate terminal above the original,
   // so the next Back landed on the old terminal — which reads as a tab switch.

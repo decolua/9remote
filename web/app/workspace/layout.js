@@ -64,6 +64,8 @@ import ShortcutsModal from "@/shared/components/ui/ShortcutsModal";
 import ConnectionModal from "@/shared/components/ui/ConnectionModal";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import SlideMenu from "@/shared/components/ui/SlideMenu";
+import BottomNav, { DOCK_TAB_OF } from "@/shared/components/ui/BottomNav";
+import TabPanel from "@/shared/components/ui/TabPanel";
 import PendingDeviceApprovalModal from "@/features/session/components/PendingDeviceApprovalModal";
 import { useI18n } from "@/shared/i18n";
 import { useRouteSync } from "@/shared/hooks/useRouteSync";
@@ -89,6 +91,8 @@ export default function WorkspaceLayout({ children }) {
     pushView,
     popView: storePopView,
     setViewStack,
+    selectTab,
+    navDir,
     addOpenedSession,
     removeOpenedSession,
     reorderOpenedSessions,
@@ -135,6 +139,8 @@ export default function WorkspaceLayout({ children }) {
     pushView: s.pushView,
     popView: s.popView,
     setViewStack: s.setViewStack,
+    selectTab: s.selectTab,
+    navDir: s.navDir,
     addOpenedSession: s.addOpenedSession,
     removeOpenedSession: s.removeOpenedSession,
     reorderOpenedSessions: s.reorderOpenedSessions,
@@ -939,6 +945,10 @@ export default function WorkspaceLayout({ children }) {
     return <ReconnectScreen label={t("workspace.loading")} />;
   }
 
+  // Full-screen wait state: the gate owns the shell, so shell chrome (the phone
+  // dock) stays out of it instead of floating above the overlay.
+  const shellGateOpen = (!connected || !admitted) && !mainHostUpdating && !deliberatelyOff;
+
   const remoteEntry = connected && remoteAvailable ? handleOpenRemote : null;
   const mobileEntry = connected && mobileAvailable ? handleOpenMobile : null;
 
@@ -953,12 +963,7 @@ export default function WorkspaceLayout({ children }) {
             and terminals with more operations, so this would be a weaker copy of it, and
             the bottom of the stack goes straight to the terminal view instead. */}
         {!isDesktop && (
-        <div
-          className={`absolute inset-0 transition-opacity duration-150 ease-out ${currentView.type === "list"
-            ? "opacity-100 z-10"
-            : "opacity-0 z-0 pointer-events-none"
-            }`}
-        >
+        <TabPanel active={currentView.type === "list"} dir={navDir} className="z-10">
           <SessionList
             sessions={sessions}
             cwdBySession={cwdBySession}
@@ -995,7 +1000,7 @@ export default function WorkspaceLayout({ children }) {
             onMainDisconnect={onMainDisconnect}
             onMainReconnect={onMainReconnect}
           />
-        </div>
+        </TabPanel>
         )}
 
         {/* Terminal view: shared header + multi-pane layout. Always mounted on desktop —
@@ -1092,7 +1097,26 @@ export default function WorkspaceLayout({ children }) {
         )}
 
         {/* Remote Desktop — rides the chosen host's conn (default: active) */}
-        {currentView.type === "remote" && (
+        {/* Remote is a dock TAB on a phone (sibling of the list and settings) and a
+            pushed screen on desktop (where it opens beside the terminal). TabPanel on
+            the phone gives it the same switch motion; desktop keeps its own slide. */}
+        {!isDesktop && (
+          <TabPanel active={currentView.type === "remote"} dir={navDir} className="z-20">
+            {/* Mount on demand: the stream starts on mount, so keeping it mounted here
+                would capture the host screen while the user is on another tab. */}
+            {currentView.type === "remote" && (
+              <RemoteDesktop
+                onClose={() => { setRemoteHead(null); selectTab({ type: "list" }); }}
+                busRef={remoteConn.busRef}
+                protocolRef={remoteConn.pmRef}
+                connected={remoteHead ? rowLive(remoteHostRow) : connected}
+                carrier={remoteHead ? (remoteHostRow?.carrier || "ws") : carrier}
+                hostPlatform={remoteHostRow?.platform || platform}
+              />
+            )}
+          </TabPanel>
+        )}
+        {isDesktop && currentView.type === "remote" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
             <RemoteDesktop
               onClose={() => { setRemoteHead(null); popView(); }}
@@ -1124,14 +1148,14 @@ export default function WorkspaceLayout({ children }) {
         {/* Paired Device (mobile): full-screen dashboard. Desktop renders it inside
             TerminalWorkspace's content area so the sidebar stays up. */}
         {!isDesktop && currentView.type === "pair" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out screen-in">
             <AgentDashboardView />
           </div>
         )}
 
         {/* Workspace List */}
         {currentView.type === "workspaces" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out screen-in">
             <WorkspaceList
               onSelect={handleSelectWorkspace}
               onBrowse={handleBrowseFolder}
@@ -1144,7 +1168,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Browse Folder (selecting a workspace) */}
         {currentView.type === "browse" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out screen-in">
             <FileExplorer
               scope={connScope}
               workspace={currentView.path}
@@ -1169,7 +1193,7 @@ export default function WorkspaceLayout({ children }) {
           // file outright; otherwise restore the workspace's last open tabs.
           const routeFile = currentView.type === "editor" ? currentView.path : null;
           return (
-            <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
+            <div className="absolute inset-0 z-20 transition-all duration-300 ease-out screen-in">
               <FileWorkspaceDesktop
                 key={ws}
                 workspace={ws}
@@ -1194,7 +1218,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* File Explorer (workspace mode) — mobile only */}
         {!isDesktop && currentView.type === "files" && (
-          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
+          <div className="absolute inset-0 z-20 transition-all duration-300 ease-out screen-in">
             <FileExplorer
               scope={connScope}
               workspace={currentView.workspace}
@@ -1212,7 +1236,7 @@ export default function WorkspaceLayout({ children }) {
 
         {/* Git Panel — mobile only */}
         {!isDesktop && currentView.type === "git" && (
-          <div className="absolute inset-0 z-30 transition-all duration-300 ease-out">
+          <div className="absolute inset-0 z-30 transition-all duration-300 ease-out screen-in">
             <GitPanel
               workspace={currentView.workspace}
               fileBus={fileBus}
@@ -1225,7 +1249,7 @@ export default function WorkspaceLayout({ children }) {
         {/* Mobile editor overlay — above whichever view opened it (files or git), so Back (X)
             returns to that view without a viewStack push. */}
         {!isDesktop && mobileEditor && (
-          <div className="absolute inset-0 z-40 transition-all duration-300 ease-out">
+          <div className="absolute inset-0 z-40 transition-all duration-300 ease-out screen-in">
             <FileEditor
               filePath={mobileEditor.path}
               line={mobileEditor.line}
@@ -1250,12 +1274,25 @@ export default function WorkspaceLayout({ children }) {
             carries the progress instead. ReconnectScreen carries the reload
             escape hatch after RELOAD_TIMEOUT_MS so a wedged retry is never a
             dead spinner. */}
-        {(!connected || !admitted) && !mainHostUpdating && !deliberatelyOff && <ReconnectScreen />}
+        {shellGateOpen && <ReconnectScreen />}
 
         {!mainHostUpdating && <ConnectionModal retryStatus={retryStatus} approvalStatus={approvalStatus} connected={connected} hostOffline={hostOffline} suppress={resumeGrace} firstConnect={!everConnected} onLogout={handleDisconnect} onRetryNow={handleRetryNow} />}
 
         {/* Global Slide Menu — single instance at page level */}
         <SlideMenu />
+
+        {/* Phone tab bar. One instance for the whole shell: the three dock tabs are
+            siblings, so switching between them must not mount or unmount the bar.
+            Hidden on a terminal (that view owns its own bottom strip) and while the
+            connection gate is up (it is shell chrome, not part of the wait state). */}
+        {!isDesktop && !shellGateOpen && (currentView.type === "list" || currentView.type === "settings") && (
+          <BottomNav
+            active={DOCK_TAB_OF[currentView.type] || "sessions"}
+            onSessions={() => selectTab({ type: "list" })}
+            onRemote={() => { setRemoteHead(null); selectTab({ type: "remote" }); }}
+            onMenu={openSlideMenu}
+          />
+        )}
         {/* Host-env approval gate — a new device asking in pops the modal on any view */}
         <PendingDeviceApprovalModal />
 

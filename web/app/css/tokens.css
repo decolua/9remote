@@ -47,6 +47,22 @@
   --lg-sheen: linear-gradient(180deg, rgba(255,255,255,0.10), rgba(255,255,255,0) 55%);
   --lg-lift-dialog: 0 20px 50px -10px rgba(0,0,0,0.65), 0 2px 8px rgba(0,0,0,0.4);
   --lg-lift-menu: 0 16px 36px -4px rgba(0,0,0,0.55);
+  /* Grouped content card (settings sections, menu groups). 9love's inset-grouped
+     surface: a shade lighter than the page, no border, one soft lift. */
+  --lg-tint-card: rgba(44,44,50,0.66);
+  --lg-lift-card: 0 8px 24px rgba(0,0,0,0.35), 0 1px 3px rgba(0,0,0,0.25);
+  /* Row divider inside a grouped card — the only line that survives the no-border
+     rule, because rows in one plate do need a seam. */
+  --lg-hairline: rgba(255,255,255,0.12);
+  /* Floating pill nav — thicker material than a panel: it sits over live content
+     and has to stay legible while the terminal scrolls under it. */
+  --lg-blur-bar: 26px;
+  --lg-tint-bar: rgba(52,52,58,0.62);
+  --lg-sheen-strong: linear-gradient(180deg, rgba(255,255,255,0.16), rgba(255,255,255,0) 62%);
+  --lg-lift-bar: 0 10px 28px rgba(0,0,0,0.5), 0 2px 6px rgba(0,0,0,0.4);
+  /* Nav accent — 9love's coral pair: deep terracotta on paper, amber on obsidian. */
+  --nav-accent: #e8a84c;
+  --nav-accent-soft: rgba(232,168,76,0.14);
 
   /* Chat bubbles — copied from 9love's .chat-canvas / html.dark .chat-canvas:
      theirs = --color-field, mine = --color-coral. 9love's dark coral is AMBER
@@ -130,6 +146,15 @@
   --lg-sheen: linear-gradient(180deg, rgba(255,255,255,0.36), rgba(255,255,255,0) 55%);
   --lg-lift-dialog: 0 20px 50px -12px rgba(15,23,42,0.22), 0 2px 8px rgba(15,23,42,0.08);
   --lg-lift-menu: 0 16px 36px -6px rgba(15,23,42,0.18);
+  --lg-tint-card: rgba(255,255,255,0.74);
+  --lg-lift-card: 0 4px 20px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
+  --lg-hairline: rgba(60,60,67,0.14);
+  --lg-blur-bar: 26px;
+  --lg-tint-bar: color-mix(in srgb, #ffffff 74%, transparent);
+  --lg-sheen-strong: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0) 66%);
+  --lg-lift-bar: 0 12px 30px rgba(0,0,0,0.14), 0 3px 8px rgba(0,0,0,0.08);
+  --nav-accent: #a4492f;
+  --nav-accent-soft: rgba(164,73,47,0.10);
 
   /* Chat bubbles — 9love light: --color-field / --color-coral / --color-on-accent. */
   --chat-bubble-theirs: #ffffff;

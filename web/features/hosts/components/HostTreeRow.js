@@ -64,8 +64,10 @@ export default function HostTreeRow({
 
   return (
     <>
+      {/* On a phone this row is a group label over a chat list, not a tree node: smaller,
+          quieter, and it gives the list below its own air. */}
       <div
-        className={`relative pr-2 ${mobile ? "py-1.5" : "py-1"} flex items-center gap-1.5 group group/host ${className}`}
+        className={`relative pr-2 ${mobile ? "pt-3 pb-1" : "py-1"} flex items-center gap-1.5 group group/host ${className}`}
         onContextMenu={(e) => { e.preventDefault(); vibrate(); setMenuAt({ left: e.clientX, top: e.clientY }); }}
       >
         {onToggleCollapse ? (
@@ -96,7 +98,14 @@ export default function HostTreeRow({
           onClick={() => { if (onToggleCollapse) { vibrate(); onToggleCollapse(); } }}
           className="flex-1 min-w-0 py-0.5 pr-1 text-left"
         >
-          <span className={`block ${mobile ? "text-sm" : "text-[12px]"} font-medium uppercase truncate ${connected ? "text-text" : "text-text-muted"}`} data-tip={displayLabel}>
+          <span
+            className={`block font-medium uppercase truncate ${
+              mobile
+                ? `text-[13px] tracking-wide ${connected ? "text-text" : "text-text-muted"}`
+                : `text-[12px] ${connected ? "text-text" : "text-text-muted"}`
+            }`}
+            data-tip={displayLabel}
+          >
             {displayLabel}
           </span>
         </button>
