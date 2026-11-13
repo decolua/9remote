@@ -9,7 +9,7 @@ import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import { RemoteTargets, tailOf } from "@/features/terminal/components/TerminalEmptyState";
-import { Monitor, ArrowRight, KeyRound, QrCode, RefreshCw } from "@/shared/components/ui/Icon";
+import { ArrowRight, KeyRound, QrCode, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -66,19 +66,9 @@ export default function SessionList({
 
   const [bgTarget, setBgTarget] = useState(null);           // session whose background sheet is open
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
-  const [pickerFor, setPickerFor] = useState(false);        // remote host picker sheet
   const [addHostOpen, setAddHostOpen] = useState(false);    // header's add-host door
   const [reloading, setReloading] = useState(false);        // reload button spins until unload
 
-  // Hosts that can answer the shared feature — the header button picks among
-  // them (one host = straight in, no sheet).
-  const online = (h) => h.status === "full" || h.status === "online";
-  const remoteHosts = fleetHosts.filter((h) => online(h) && h.remoteAvailable);
-  const pickHost = () => {
-    vibrate();
-    if (remoteHosts.length === 1) { onOpenRemoteHost?.(remoteHosts[0].key); return; }
-    setPickerFor(true);
-  };
   // Every host root in add order — the current host's tree renders at its own
   // spot among the siblings (tapping a foreign session opens a parallel tab).
   const orderedHosts = orderedHostsOf(fleetHosts, currentHost?.key);
@@ -292,33 +282,6 @@ export default function SessionList({
       )}
 
       {addHostOpen && <AddHostModal onClose={() => setAddHostOpen(false)} />}
-
-      {pickerFor && (
-        <div
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center scrim fade-in"
-          onClick={() => setPickerFor(null)}
-        >
-          <div
-            className="card-elev w-full sm:max-w-sm max-h-[60%] overflow-auto modal-scrollable rounded-t-2xl sm:rounded-2xl p-2 sheet-rise"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {remoteHosts.map((h) => (
-              <button
-                key={h.key}
-                onClick={() => {
-                  const key = h.key;
-                  setPickerFor(false);
-                  onOpenRemoteHost?.(key);
-                }}
-                className="w-full flex items-center gap-2.5 px-3 py-3 text-left rounded-brand hover:bg-surface-2 active:bg-surface-2 transition-colors"
-              >
-                <Monitor size={16} className="text-text-muted shrink-0" />
-                <span className="flex-1 min-w-0 truncate text-sm text-text">{h.label || t("agentSwitcher.unnamed")}</span>
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   );
 }

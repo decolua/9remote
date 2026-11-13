@@ -50,6 +50,7 @@ import { useAttentionCycle } from "@/features/terminal/hooks/useAttentionCycle";
 import { useApiKeyStorage, KEYS_CHANGED_EVENT } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
 import RemoteUnavailable from "@/features/remote/components/RemoteUnavailable";
+import RemoteHostPicker from "@/features/remote/components/RemoteHostPicker";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
 import BrowserPane from "@/features/browser/components/BrowserPane";
 import { useBrowserStore } from "@/shared/stores/browserStore";
@@ -802,6 +803,7 @@ export default function WorkspaceLayout({ children }) {
   // Which host a remote-desktop / mobile-mirror view targets (null = the active
   // host). Same components, same flow — only the conn underneath changes.
   const [remoteHead, setRemoteHead] = useState(null);
+  const [remotePicker, setRemotePicker] = useState(false);
   const [mobileHead, setMobileHead] = useState(null);
   const remoteConn = connOf(remoteHead || currentFleetKey || null);
   const mobileConn = connOf(mobileHead || currentFleetKey || null);
@@ -822,10 +824,30 @@ export default function WorkspaceLayout({ children }) {
     );
   }, [fleetHostsMap, remoteHead, currentFleetKey]);
 
+  // Hosts the phone dock's Remote tab can land on — the sheet is their list.
+  const remoteReadyHosts = useMemo(
+    () => Object.values(fleetHostsMap).filter((h) => rowLive(h) && h.remoteAvailable),
+    [fleetHostsMap]
+  );
+
   const handleOpenRemote = useCallback((head = null) => {
     setRemoteHead(head);
     pushView({ type: "remote" });
   }, [pushView]);
+
+  // Dock tab: one ready host goes straight in, several open the picker, none
+  // falls through to the active host's own guidance screen.
+  const openRemoteTab = useCallback(() => {
+    if (remoteReadyHosts.length > 1) { setRemotePicker(true); return; }
+    setRemoteHead(remoteReadyHosts[0]?.key || null);
+    selectTab({ type: "remote" });
+  }, [remoteReadyHosts, selectTab]);
+
+  const pickRemoteHost = useCallback((key) => {
+    setRemotePicker(false);
+    setRemoteHead(key);
+    selectTab({ type: "remote" });
+  }, [selectTab]);
 
   // Opened from a view (terminal/list) remote is a pushed screen, so Back returns to
   // it; opened from the phone's dock it is a tab, so Back leaves to the session list.
@@ -1351,8 +1373,16 @@ export default function WorkspaceLayout({ children }) {
           <BottomNav
             active={DOCK_TAB_OF[currentView.type] || "sessions"}
             onSessions={() => selectTab({ type: "list" })}
-            onRemote={() => { setRemoteHead(null); selectTab({ type: "remote" }); }}
+            onRemote={openRemoteTab}
             onMenu={openSlideMenu}
+          />
+        )}
+        {/* Phone dock asked which host to mirror */}
+        {remotePicker && (
+          <RemoteHostPicker
+            hosts={remoteReadyHosts}
+            onPick={pickRemoteHost}
+            onClose={() => setRemotePicker(false)}
           />
         )}
         {/* Host-env approval gate — a new device asking in pops the modal on any view */}
