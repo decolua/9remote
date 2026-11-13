@@ -113,7 +113,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
       >
         <Bell size={16} />
         {count > 0 && (
-          <span className="absolute top-0 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center">
+          <span key={count} className="badge-pop absolute top-0 -right-1 min-w-[16px] h-4 px-1 rounded-full bg-brand-500 text-white text-[10px] font-bold flex items-center justify-center">
             {count > 9 ? "9+" : count}
           </span>
         )}
@@ -121,7 +121,7 @@ export default function NotificationsBell({ sessions = [], allSessions = [], ses
 
       {open && (
         <div className="absolute right-0 top-full pt-2 z-[70] flex flex-col">
-        <div className="bg-surface-2 border border-border-subtle rounded-brand-lg shadow-lg w-72 max-h-[60vh] overflow-y-auto flex flex-col">
+        <div className="bg-surface-2 border border-border-subtle rounded-brand-lg shadow-lg w-72 max-h-[60vh] overflow-y-auto flex flex-col pop-in">
           <div className="flex items-center justify-between px-3 py-2 border-b border-border-subtle flex-shrink-0">
             <span className="text-sm font-semibold">{t("notifications.title")}</span>
             <button
