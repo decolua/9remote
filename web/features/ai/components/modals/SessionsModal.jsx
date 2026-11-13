@@ -3,8 +3,7 @@
 import { memo, useState, useEffect, useMemo, useCallback } from "react";
 import { History, Search, RefreshCw, Loader2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
-import { useConnectionStore } from "@/shared/stores/connectionStore";
-import { useAllSessionStatus } from "@/shared/transport/hostConn";
+import { useLiveSessionIds } from "@/shared/transport/hostConn";
 import { OPEN_SESSION_EVENT } from "@/features/terminal/constants/terminalConfig";
 import { agentIconUrl, AGENT_ICON_CLS } from "@/features/terminal/constants/agentCli";
 import { ModalShell } from "./ModalShell";
@@ -30,9 +29,9 @@ export const SessionsModal = memo(function SessionsModal({
   const [sessions, setSessions] = useState([]);
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState("");
-  // The host's open tag is a loose match — trust it only for a session that
-  // actually exists, same guard as the sidebar's history list.
-  const liveStatus = useAllSessionStatus();
+  // The host's open tag is a loose match — trust it only while that session
+  // really exists, same guard as the sidebar's history list.
+  const liveSessionIds = useLiveSessionIds();
 
   const load = useCallback(() => {
     if (!bus?.emit || !workspacePath) {
@@ -114,7 +113,7 @@ export const SessionsModal = memo(function SessionsModal({
             // The host tags the row a terminal is already running. Resuming it would
             // open a second copy of one conversation, so the row marks it and picks
             // that terminal instead.
-            const isOpen = !!row.openSessionId && !!liveStatus[row.openSessionId];
+            const isOpen = !!row.openSessionId && liveSessionIds.has(row.openSessionId);
             return (
               <div
                 key={`${row.agent}:${row.sessionId}`}

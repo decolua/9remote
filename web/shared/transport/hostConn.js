@@ -139,6 +139,7 @@ export function useSessionStatus(sessionId) {
 }
 
 const EMPTY_STATUS_MAP = {};
+const EMPTY_SESSION_LIST = [];
 
 // Flat status map across every host, keyed by raw session id — the shape the
 // bell, badge and sidebar lists read. Keyed on each host's statusMap identity,
@@ -152,4 +153,15 @@ export function useAllSessionStatus() {
     for (const m of maps) Object.assign(out, m || EMPTY_STATUS_MAP);
     return out;
   }, [maps]);
+}
+
+// Raw ids of every session that actually exists across the fleet — what an
+// open-tag must point at (the status map keeps entries for dead sessions).
+export function useLiveSessionIds() {
+  const lists = useFleetStore(useShallow((s) => Object.values(s.hosts).map((h) => h.sessions)));
+  return useMemo(() => {
+    const out = new Set();
+    for (const list of lists) for (const s of list || EMPTY_SESSION_LIST) out.add(s.id);
+    return out;
+  }, [lists]);
 }
