@@ -46,7 +46,7 @@ export const TOGGLEABLE_BUTTONS = [
   { id: "remote", labelKey: "menu.remoteDesktop", descKey: "menu.remoteDesktopHint", group: "header", section: "remote" },
   { id: "sites", labelKey: "menu.sites", descKey: "menu.sitesHint", group: "header", section: "remote" },
   { id: "mobile", labelKey: "mobile.androidDevice", descKey: "mobile.androidDeviceHint", group: "header", section: "remote" },
-  { id: "notifications", labelKey: "menu.notificationsButton", descKey: "menu.notificationsButtonHint", group: "header", section: "plugins" },
+  { id: "notifications", labelKey: "menu.bellButton", descKey: "menu.bellButtonHint", group: "header", section: "plugins" },
   { id: "folder", labelKey: "menu.showFolder", group: "pane", section: "terminal", storeKey: "showFolderButton", setterKey: "setShowFolderButton" },
   { id: "note", labelKey: "menu.showNote", group: "pane", section: "terminal", storeKey: "showNoteButton", setterKey: "setShowNoteButton" }
 ];
