@@ -278,7 +278,7 @@ export function useAgentBus() {
 
   const { bus, busRef, protocolRef, connected, connectionMode, carrier, retryStatus, disconnect, reconnect } = useBus({
     namespace: "",
-    redirectOnNoAuth: "/",
+    redirectOnNoAuth: "/login",
     onConnect: handleBusReady,
     // Wire dropped: the row follows the wire — "connecting" while the transport
     // retries (handleBusReady lands it back on "full"). Only from "full": a
