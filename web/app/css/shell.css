@@ -203,6 +203,9 @@ html.light .term-tab-active,
 
 /* AI agent status dots — idle/working/blocked/done (see shared/utils/statusVisual.js) */
 /* KEEP IN SYNC with agent/ui/src/index.css (separate build) */
+.term-dot {
+  transition: background-color 300ms ease, border-color 300ms ease;
+}
 /* Working = spinning ring (border-top + border-right visible, others transparent). */
 .term-dot.pulse-soft {
   background: transparent !important;
