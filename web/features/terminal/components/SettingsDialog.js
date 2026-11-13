@@ -140,7 +140,7 @@ export default function SettingsDialog({
       <div className="absolute inset-0 scrim fade-in" onClick={onClose} />
 
       <div
-        className="relative w-full max-w-4xl h-[85vh] max-h-[640px] card-elev flex overflow-hidden"
+        className="relative w-full max-w-4xl h-[85vh] max-h-[640px] card-elev flex overflow-hidden pop-in"
         role="dialog"
         aria-modal="true"
         aria-label={t("menu.settings")}

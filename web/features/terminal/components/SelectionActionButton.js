@@ -35,7 +35,7 @@ export default function SelectionActionButton({
 
   return (
     <div 
-      className="fixed inset-0 scrim flex items-center justify-center z-[60]"
+      className="fixed inset-0 scrim fade-in flex items-center justify-center z-[60]"
       onMouseDown={(e) => {
         // Prevent focus loss when clicking backdrop
         e.preventDefault();
@@ -43,7 +43,7 @@ export default function SelectionActionButton({
       }}
     >
       <div 
-        className="menu-popover overflow-hidden min-w-[200px]"
+        className="menu-popover overflow-hidden min-w-[200px] pop-in"
         onMouseDown={(e) => {
           // Prevent focus loss when clicking modal content
           e.stopPropagation();

@@ -43,8 +43,8 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // Device approval: pending
   if (approvalStatus === APPROVAL_STATUS.pending) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center scrim">
-        <div className="card-elev p-6 max-w-sm w-full mx-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center scrim fade-in">
+        <div className="card-elev p-6 max-w-sm w-full mx-4 pop-in">
           <div className="text-center">
             <Spinner size="lg" />
             <h3 className="text-text text-lg font-semibold mt-4">
@@ -71,8 +71,8 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // Device approval: rejected
   if (approvalStatus === APPROVAL_STATUS.rejected) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center scrim">
-        <div className="card-elev p-6 max-w-sm w-full mx-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center scrim fade-in">
+        <div className="card-elev p-6 max-w-sm w-full mx-4 pop-in">
           <div className="text-center">
             <div className="w-16 h-16 mx-auto bg-red-500/20 rounded-full flex items-center justify-center">
               <svg className="w-8 h-8 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -103,8 +103,8 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // a zombie carrier verdict must not hide it.
   if (hostOffline) {
     return (
-      <div className="fixed inset-0 z-50 flex items-center justify-center scrim">
-        <div className="card-elev p-6 max-w-sm w-full mx-4">
+      <div className="fixed inset-0 z-50 flex items-center justify-center scrim fade-in">
+        <div className="card-elev p-6 max-w-sm w-full mx-4 pop-in">
           <div className="text-center">
             <div className="w-16 h-16 mx-auto bg-surface-3 rounded-full flex items-center justify-center">
               <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -151,8 +151,8 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   if (retryStatus?.isRetrying && retryStatus.attempt < RETRY_MODAL_MIN_ATTEMPT) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center scrim">
-      <div className="card-elev p-6 max-w-sm w-full mx-4">
+    <div className="fixed inset-0 z-50 flex items-center justify-center scrim fade-in">
+      <div className="card-elev p-6 max-w-sm w-full mx-4 pop-in">
         {retryStatus.isRetrying ? (
           // Retrying state
           <div className="text-center">

@@ -453,7 +453,7 @@ export default function FileExplorer({
         <>
           <div className="fixed inset-0 z-40" onClick={closeContextMenu} />
           <div
-            className="fixed z-50 menu-popover overflow-hidden min-w-[140px]"
+            className="fixed z-50 menu-popover overflow-hidden min-w-[140px] pop-in"
             style={{ right: 16, top: Math.min(contextMenu.y, window.innerHeight - 160) }}
           >
             <button

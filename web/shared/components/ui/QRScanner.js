@@ -125,8 +125,8 @@ export default function QRScanner({ isOpen, onClose, onScan }) {
   if (!isOpen) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm">
-      <div className="relative card-elev max-w-md w-full mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm fade-in">
+      <div className="relative card-elev max-w-md w-full mx-4 overflow-hidden pop-in">
         {/* Header */}
         <div className="flex items-center justify-between p-4 border-b border-border">
           <h2 className="text-xl font-bold text-text">{t("login.qrScanTitle")}</h2>

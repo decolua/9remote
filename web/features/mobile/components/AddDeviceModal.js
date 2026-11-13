@@ -71,7 +71,7 @@ export default function AddDeviceModal({ isOpen, onClose, presets, sdkJob, onPro
   return createPortal(
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 scrim fade-in" onClick={close}>
       <div
-        className="card-elev w-full max-w-sm max-h-[80vh] flex flex-col"
+        className="card-elev w-full max-w-sm max-h-[80vh] flex flex-col pop-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center gap-2 px-4 py-3 border-b border-border flex-shrink-0">

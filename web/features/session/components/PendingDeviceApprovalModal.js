@@ -74,8 +74,8 @@ export default function PendingDeviceApprovalModal() {
   if (!pendingDevice) return null;
 
   return (
-    <div className="agent-dashboard fixed inset-0 z-[70] flex items-center justify-center scrim">
-      <div className="card-elev p-5 flex flex-col gap-4 w-80">
+    <div className="agent-dashboard fixed inset-0 z-[70] flex items-center justify-center scrim fade-in">
+      <div className="card-elev p-5 flex flex-col gap-4 w-80 pop-in">
         <div className="flex items-center gap-2">
           <span className="material-symbols-outlined" style={{ color: "var(--brand-500)", fontSize: 24 }}>devices</span>
           <span className="text-sm font-semibold" style={{ color: "var(--text-main)" }}>New Device Connection</span>

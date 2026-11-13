@@ -60,7 +60,7 @@ export default function AppUpdateGate() {
   if (!blocked) return null;
   const storeUrl = STORE_URLS[detectShellPlatform()] || STORE_URLS.android;
   return (
-    <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center gap-4 bg-[#0b0d0c] px-8 text-center">
+    <div className="fixed inset-0 z-[300] flex flex-col items-center justify-center gap-4 bg-[#0b0d0c] px-8 text-center fade-in">
       <span className="material-symbols-rounded text-[56px] text-[#E56A4A]">system_update_alt</span>
       <h2 className="text-lg font-semibold text-white">{t("appUpdate.title")}</h2>
       <p className="max-w-xs text-sm text-white/60">{t("appUpdate.body")}</p>

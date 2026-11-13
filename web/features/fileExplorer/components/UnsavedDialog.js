@@ -52,11 +52,11 @@ export default function UnsavedDialog({ isOpen, fileName, onSave, onDiscard, onC
       style={{ paddingTop: "max(1rem, env(safe-area-inset-top))", paddingBottom: "max(1rem, env(safe-area-inset-bottom))" }}
       onClick={onCancel}
     >
-      <div className="absolute inset-0 scrim" />
+      <div className="absolute inset-0 scrim fade-in" />
       <div
         role="dialog"
         aria-modal="true"
-        className="relative card-elev w-full max-w-sm p-5"
+        className="relative card-elev w-full max-w-sm p-5 pop-in"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >
