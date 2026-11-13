@@ -219,6 +219,7 @@ export function useAgentBus() {
         updateAvailable: !acted && isNewer(info.updateAvailable?.version, info.version) ? info.updateAvailable : null,
         canSelfUpdate: !!info.canSelfUpdate,
         remoteAvailable: !!info.remoteAvailable,
+        remoteStatus: info.remoteStatus || null,
         mobileAvailable: !!info.mobileAvailable
       });
       setRemoteAvailable(info.remoteAvailable);

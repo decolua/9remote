@@ -198,6 +198,16 @@ export function isRemoteReady() {
     && !!cachedPermissions.accessibility;
 }
 
+// Breakdown behind isRemoteReady() so the client can name what is missing.
+export function getRemoteStatus() {
+  return {
+    capable: !!remoteAvailable,
+    enabled: !!desktopEnabled,
+    screenRecording: !!cachedPermissions.screenRecording,
+    accessibility: !!cachedPermissions.accessibility
+  };
+}
+
 // Broadcast hook — registered by socket layer to notify clients on state change
 let onRemoteReadyChange = null;
 export function setRemoteReadyChangeHandler(fn) { onRemoteReadyChange = fn; }

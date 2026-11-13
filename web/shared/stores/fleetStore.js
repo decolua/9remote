@@ -52,7 +52,7 @@ const emptyHost = (key) => ({
   platform: null, version: null, lastSeenAt: null,
   updateAvailable: null, canSelfUpdate: false, updating: false,
   approval: null,
-  remoteAvailable: false, mobileAvailable: false,
+  remoteAvailable: false, remoteStatus: null, mobileAvailable: false,
   isCodespaces: false, mobileDeviceCount: 0
 });
 
@@ -90,6 +90,7 @@ const bindBus = (bus, head) => {
     updateAvailable: !acted && isNewer(info?.updateAvailable?.version, info?.version) ? info.updateAvailable : null,
     canSelfUpdate: !!info?.canSelfUpdate,
     remoteAvailable: !!info?.remoteAvailable,
+    remoteStatus: info?.remoteStatus || null,
     mobileAvailable: !!info?.mobileAvailable
     });
   });

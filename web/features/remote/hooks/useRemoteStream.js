@@ -14,7 +14,7 @@ import { useClipboardBadge } from "@/features/remote/hooks/useClipboardBadge";
 export function useRemoteStream({
   busRef, connected, streaming,
   canvasRef, serverDimensionsRef, handleCanvasDimensions, resetPan,
-  zoomGestureTimeoutRef, trackTilesReceived, tiles
+  zoomGestureTimeoutRef, trackTilesReceived, tiles, onUnavailable
 }) {
   const [screenLocked, setScreenLocked] = useState(false);
   const [unlockReady, setUnlockReady] = useState(false);
@@ -53,6 +53,8 @@ export function useRemoteStream({
       handleTilesData(data);
     };
     const onScreenError = (err) => console.error("Screen error:", err);
+    // Host refused to attach remote handlers (feature off, permissions missing, headless).
+    const onRemoteUnavailable = () => onUnavailable?.();
 
     // Host desktop locked (Winlogon) → show unlock overlay. Emitted by the
     // Windows desktop bridge; ignored on other platforms.
@@ -131,6 +133,7 @@ export function useRemoteStream({
     bus.on("tiles-bin-v2", onTilesBinV2);
     bus.on("tiles-meta", onTilesMeta);
     bus.on("screen-error", onScreenError);
+    bus.on("remote:unavailable", onRemoteUnavailable);
     bus.on("screen-locked", onScreenLocked);
     bus.on("unlock-result", onUnlockResult);
     bus.on("remote:ready", onRemoteReady);
@@ -153,6 +156,7 @@ export function useRemoteStream({
       bus.off("tiles-bin-v2", onTilesBinV2);
       bus.off("tiles-meta", onTilesMeta);
       bus.off("screen-error", onScreenError);
+      bus.off("remote:unavailable", onRemoteUnavailable);
       bus.off("screen-locked", onScreenLocked);
       bus.off("unlock-result", onUnlockResult);
       bus.off("remote:ready", onRemoteReady);

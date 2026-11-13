@@ -48,6 +48,7 @@ import { connOf, useAllSessionStatus } from "@/shared/transport/hostConn";
 import { useAttentionCycle } from "@/features/terminal/hooks/useAttentionCycle";
 import { useApiKeyStorage, KEYS_CHANGED_EVENT } from "@/shared/hooks/useApiKeyStorage";
 import RemoteDesktop from "@/features/remote/components/RemoteDesktop";
+import RemoteUnavailable from "@/features/remote/components/RemoteUnavailable";
 import MobileMirror from "@/features/mobile/components/MobileMirror";
 import BrowserPane from "@/features/browser/components/BrowserPane";
 import { useBrowserStore } from "@/shared/stores/browserStore";
@@ -807,10 +808,30 @@ export default function WorkspaceLayout({ children }) {
   // "full" is the viewed host's status — same live wire as "online", seen from the front seat.
   const rowLive = (row) => row?.status === "online" || row?.status === "full";
 
+  // A live host that cannot serve remote still has to answer the dock: the remote
+  // screen becomes the host's own guidance (what is missing + which host is ready).
+  const remoteTargetRow = remoteHead ? remoteHostRow : mainHost;
+  const remoteTargetLive = remoteHead ? rowLive(remoteHostRow) : connected;
+  const remoteGuide = remoteTargetLive && !remoteTargetRow?.remoteAvailable;
+  const otherReadyRemoteHosts = useMemo(() => {
+    const live = (h) => h.status === "online" || h.status === "full";
+    return Object.values(fleetHostsMap).filter(
+      (h) => h.key !== (remoteHead || currentFleetKey) && live(h) && h.remoteAvailable
+    );
+  }, [fleetHostsMap, remoteHead, currentFleetKey]);
+
   const handleOpenRemote = useCallback((head = null) => {
     setRemoteHead(head);
     pushView({ type: "remote" });
   }, [pushView]);
+
+  // Opened from a view (terminal/list) remote is a pushed screen, so Back returns to
+  // it; opened from the phone's dock it is a tab, so Back leaves to the session list.
+  const closeRemote = useCallback(() => {
+    setRemoteHead(null);
+    if (viewStack.length > 1) return popView();
+    selectTab({ type: "list" });
+  }, [viewStack, popView, selectTab]);
 
   // Desktop keeps the mirror beside the terminal (float / pinned / PiP); a phone
   // has no room to split, so it stays a full-screen view there.
@@ -1104,28 +1125,58 @@ export default function WorkspaceLayout({ children }) {
           <TabPanel active={currentView.type === "remote"} dir={navDir} className="z-20">
             {/* Mount on demand: the stream starts on mount, so keeping it mounted here
                 would capture the host screen while the user is on another tab. */}
-            {currentView.type === "remote" && (
+            {currentView.type === "remote" && (remoteGuide ? (
+              <RemoteUnavailable
+                hostLabel={remoteTargetRow?.label}
+                status={remoteTargetRow?.remoteStatus || null}
+                platform={remoteTargetRow?.platform || platform}
+                hosts={otherReadyRemoteHosts}
+                onOpenHost={(key) => setRemoteHead(key)}
+                onBack={closeRemote}
+              />
+            ) : (
               <RemoteDesktop
-                onClose={() => { setRemoteHead(null); selectTab({ type: "list" }); }}
+                key={remoteHead || currentFleetKey || "main"}
+                onClose={closeRemote}
                 busRef={remoteConn.busRef}
                 protocolRef={remoteConn.pmRef}
                 connected={remoteHead ? rowLive(remoteHostRow) : connected}
                 carrier={remoteHead ? (remoteHostRow?.carrier || "ws") : carrier}
                 hostPlatform={remoteHostRow?.platform || platform}
+                hostLabel={remoteTargetRow?.label}
+                remoteStatus={remoteTargetRow?.remoteStatus || null}
+                otherReadyHosts={otherReadyRemoteHosts}
+                onOpenHost={(key) => setRemoteHead(key)}
               />
-            )}
+            ))}
           </TabPanel>
         )}
         {isDesktop && currentView.type === "remote" && (
           <div className="absolute inset-0 z-20 transition-all duration-300 ease-out">
-            <RemoteDesktop
-              onClose={() => { setRemoteHead(null); popView(); }}
-              busRef={remoteConn.busRef}
-              protocolRef={remoteConn.pmRef}
-              connected={remoteHead ? rowLive(remoteHostRow) : connected}
-              carrier={remoteHead ? (remoteHostRow?.carrier || "ws") : carrier}
-              hostPlatform={remoteHostRow?.platform || platform}
-            />
+            {remoteGuide ? (
+              <RemoteUnavailable
+                hostLabel={remoteTargetRow?.label}
+                status={remoteTargetRow?.remoteStatus || null}
+                platform={remoteTargetRow?.platform || platform}
+                hosts={otherReadyRemoteHosts}
+                onOpenHost={(key) => setRemoteHead(key)}
+                onBack={closeRemote}
+              />
+            ) : (
+              <RemoteDesktop
+                key={remoteHead || currentFleetKey || "main"}
+                onClose={closeRemote}
+                busRef={remoteConn.busRef}
+                protocolRef={remoteConn.pmRef}
+                connected={remoteHead ? rowLive(remoteHostRow) : connected}
+                carrier={remoteHead ? (remoteHostRow?.carrier || "ws") : carrier}
+                hostPlatform={remoteHostRow?.platform || platform}
+                hostLabel={remoteTargetRow?.label}
+                remoteStatus={remoteTargetRow?.remoteStatus || null}
+                otherReadyHosts={otherReadyRemoteHosts}
+                onOpenHost={(key) => setRemoteHead(key)}
+              />
+            )}
           </div>
         )}
 

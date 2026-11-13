@@ -7,7 +7,7 @@ import * as daemonClient from "./ptyDaemonClient.js";
 
 import { isRemoteAvailable, setupRemoteHandlers } from "../remote/remoteSocket.js";
 import { isMobileAvailable, setupMobileHandlers } from "../mobile/mobileBus.js";
-import { isRemoteReady, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
+import { isRemoteReady, getRemoteStatus, setRemoteReadyChangeHandler, getUpdateInfo } from "../../api/ui.js";
 import { isCodespaces, getCodespaceInfo, trackConnection, trackDisconnection } from "./codespaceManager.js";
 import { listSavedBufferSessions, loadSessionMetadata, loadGroups, loadWorkspaces, saveWorkspaces, saveSessionMetadata, saveSessionMetadataRaw } from "./ptyHelper.js";
 import { migrateGroupsToWorkspaces, assignOrphanSessions } from "./workspaceMigration.js";
@@ -24,7 +24,7 @@ import { agentIdFromTitle } from "./agentCatalog.js";
 import { resumeCommand } from "./agentHistory.js";
 import { engineFromAgent } from "./conversationModes.js";
 import { sendTerminalInput, CLEAR_LINE } from "./sessionMode.js";
-import { broadcast } from "../../transport/broadcast.js";
+import { broadcast, activeProtocols } from "../../transport/broadcast.js";
 import { nextSeq, currentSeq, cacheChunk, clearSession as clearSeqSession } from "./seqStore.js";
 import { AUTO_NAME_DEBOUNCE_MS, OUTPUT_SLICE_BYTES, RESPAWN_RESUME_DELAY_MS } from "./constants.js";
 import { createLogger } from "../../lib/logger.js";
@@ -458,6 +458,8 @@ export function setupTerminalSocket(io, apiKey) {
   const buildServerInfo = () => ({
     version: PKG_VERSION,
     remoteAvailable: isRemoteReady(),
+    // Why remote is (not) ready — the client names the missing piece instead of guessing.
+    remoteStatus: getRemoteStatus(),
     mobileAvailable: isMobileAvailable(),
     daemonMode: PERSISTENCE_MODE === "daemon" && daemonClient.isConnected(),
     platform: process.platform,
@@ -478,6 +480,13 @@ export function setupTerminalSocket(io, apiKey) {
     const info = buildServerInfo();
     for (const socket of io.sockets.sockets.values()) {
       if (socket.data?.approved) socket.emit("serverInfo", info);
+    }
+    // RTC-only sessions have no socket.io socket in the loop above — their PM is
+    // the only road, and without it a host-side toggle never reaches the phone.
+    for (const pm of activeProtocols()) {
+      const host = pm._host;
+      if (!host?.defersWsAdapter || !host.data?.approved) continue;
+      try { pm.emit("serverInfo", info); } catch {}
     }
   };
 

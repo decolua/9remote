@@ -8,15 +8,22 @@ import { useBenchmark } from "@/features/remote/hooks/useBenchmark";
 import { useRemoteStream } from "@/features/remote/hooks/useRemoteStream";
 import { REMOTE_CONFIG } from "@/features/remote/constants/REMOTE_CONFIG";
 import RemoteShell from "@/features/remote/components/RemoteShell";
+import RemoteUnavailable from "@/features/remote/components/RemoteUnavailable";
 import DebugPanel from "@/features/remote/components/DebugPanel";
 import { debugLog } from "@/shared/utils/debugLog";
 import Spinner from "@/shared/components/ui/Spinner";
 import ConfirmDialog from "@/shared/components/ui/ConfirmDialog";
 import { useI18n } from "@/shared/i18n";
 
-export default function RemoteDesktop({ onClose, busRef, protocolRef, connected, carrier, hostPlatform }) {
+export default function RemoteDesktop({
+  onClose, busRef, protocolRef, connected, carrier, hostPlatform,
+  hostLabel, remoteStatus = null, otherReadyHosts = [], onOpenHost
+}) {
   const { t } = useI18n();
   const [showConfirmExit, setShowConfirmExit] = useState(false);
+  // Host refused to attach the stream (feature off / permissions gone / headless).
+  // Keyed by the bus that refused, so switching hosts clears it without an effect.
+  const [refusedBus, setRefusedBus] = useState(null);
 
   const { stats, trackTilesReceived, resetStats } = useBenchmark();
   const [showDebug, setShowDebug] = useState(REMOTE_CONFIG.debug?.panel ?? false);
@@ -60,12 +67,26 @@ export default function RemoteDesktop({ onClose, busRef, protocolRef, connected,
   } = useRemoteStream({
     busRef, connected, streaming,
     canvasRef, serverDimensionsRef, handleCanvasDimensions, resetPan,
-    zoomGestureTimeoutRef, trackTilesReceived, tiles
+    zoomGestureTimeoutRef, trackTilesReceived, tiles,
+    onUnavailable: () => setRefusedBus(busRef)
   });
 
   const onSelectMonitor = useCallback((index) => {
     busRef?.current?.emit("select_monitor", { index });
   }, [busRef]);
+
+  if (refusedBus && refusedBus === busRef) {
+    return (
+      <RemoteUnavailable
+        hostLabel={hostLabel}
+        status={remoteStatus}
+        platform={hostPlatform}
+        hosts={otherReadyHosts}
+        onOpenHost={onOpenHost}
+        onBack={onClose}
+      />
+    );
+  }
 
   return (
     <>
