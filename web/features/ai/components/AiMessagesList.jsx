@@ -6,7 +6,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { useLiveSessionIds } from "@/shared/transport/hostConn";
 import { MessageBubble } from "./MessageBubble";
 import { AiTurn } from "./AiTurn";
-import { ENGINE_INFO, STARTER_PROMPTS } from "../constants";
+import { ENGINE_INFO, STARTER_PROMPTS, RECENT_IMAGE_TURNS } from "../constants";
 import { ArrowDown, Check, Loader2, Pencil, History } from "@/shared/components/ui/Icon";
 import { describeLive, estimateTurnTokens, countTurnChanges, formatTokens } from "../lib/liveStatus";
 import { vibrate } from "@/shared/utils/vibration";
@@ -17,7 +17,7 @@ import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
 import { OPEN_SESSION_EVENT } from "@/features/terminal/constants/terminalConfig";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 import { PAGE_BUDGET_BYTES, MAX_MOUNTED_BYTES, MAX_AUTO_PAGES, windowTop, opensMidTurn } from "../lib/messageWindow";
-import { anchorFrom, anchoredScrollTop } from "../lib/scrollAnchor";
+import { anchorFrom, anchoredScrollTop, AT_BOTTOM_PX } from "../lib/scrollAnchor";
 
 const EMPTY_MESSAGES = [];
 
@@ -361,6 +361,14 @@ export const AiMessagesList = memo(function AiMessagesList({
   const anchorRef = useRef(null);
   // Timestamp of last page fetch for cooldown gating.
   const pageAtRef = useRef(0);
+  // Last offset seen while the list had a box, plus the log it belonged to. A hidden pane
+  // reads 0 and WebKit drops the offset, so this is what a shown pane restores.
+  const lastScrollRef = useRef({ top: 0, atBottom: true, key: "" });
+  // Latest structure key, readable from the resize callback without re-arming it.
+  const structureKeyRef = useRef("");
+  // Set while the list has no box. The engine's own reset scroll event lands after the
+  // box is back but before the resize callback — it must not overwrite the saved place.
+  const wasHiddenRef = useRef(false);
   const [showScrollBottom, setShowScrollBottom] = useState(false);
   const [visibleBytes, setVisibleBytes] = useState(PAGE_BUDGET_BYTES);
   // The mounted window's top, kept across renders so appends never move it: recomputing it
@@ -432,6 +440,9 @@ export const AiMessagesList = memo(function AiMessagesList({
     return out;
   }, [visibleMessages]);
 
+  // Pictures are only worth their bytes in the last few turns; older ones stay text.
+  const imagesFromTurn = Math.max(0, turns.length - RECENT_IMAGE_TURNS);
+
   // Preserve scroll position across prepend by anchoring to top visible node before await.
   const handleLoadMore = useCallback(async ({ auto = false } = {}) => {
     const el = scrollRef.current;
@@ -493,10 +504,17 @@ export const AiMessagesList = memo(function AiMessagesList({
       scrollTimerRef.current = null;
       const el = scrollRef.current;
       if (!el) return;
+      // A hidden pane reports zero for every scroll metric; recording that would erase the
+      // place this pane has to come back to.
+      if (el.clientHeight === 0) return;
+      // Same for the reset scroll that follows the pane reappearing — the resize callback
+      // has not restored the saved place yet.
+      if (wasHiddenRef.current) return;
       const distanceToBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
       const atBottom = distanceToBottom < 80;
       isAtBottomRef.current = atBottom;
       setShowScrollBottom(!atBottom && distanceToBottom > 140);
+      lastScrollRef.current = { top: el.scrollTop, atBottom, key: structureKeyRef.current };
       if (el.scrollTop < LOAD_MORE_THRESHOLD_PX && (hiddenCount > 0 || hasOlder)) {
         handleLoadMore();
       }
@@ -525,6 +543,9 @@ export const AiMessagesList = memo(function AiMessagesList({
     () => messages.map((m) => `${m.id}:${m.thinking ? 1 : 0}:${m.content ? 1 : 0}:${m.tools?.length || 0}:${m.diffs?.length || 0}:${m.permission ? 1 : 0}`).join("|"),
     [messages]
   );
+
+  // Layout effect: the resize callback must read the key of the log it is looking at.
+  useLayoutEffect(() => { structureKeyRef.current = structureKey; }, [structureKey]);
 
   // Stable ref callback tracks slot 0 element for scroll anchoring.
   const slot0Ref = useCallback((n) => { topRef.current = n; }, []);
@@ -578,11 +599,28 @@ export const AiMessagesList = memo(function AiMessagesList({
 
   useEffect(() => () => { if (followTimerRef.current) clearTimeout(followTimerRef.current); }, []);
 
-  // Re-pin to bottom on container resize (e.g. keyboard) if already at bottom.
+  // Re-pin to bottom on container resize (e.g. keyboard) if already at bottom, and give a
+  // pane that was hidden its place back: WebKit drops the offset when the box goes away,
+  // Chromium keeps it. Restore only when the offset really came back as 0 over a log that
+  // did not change meanwhile — never over content that moved under the reader.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const observer = new ResizeObserver(() => {
+      if (el.clientHeight === 0) {
+        wasHiddenRef.current = true;
+        return;
+      }
+      const saved = lastScrollRef.current;
+      // A reader who was at the bottom stays at the bottom (below); only a detached one
+      // needs the lost offset back.
+      if (saved.top > AT_BOTTOM_PX && !saved.atBottom && el.scrollTop === 0 && saved.key === structureKeyRef.current) {
+        el.scrollTop = Math.min(saved.top, el.scrollHeight - el.clientHeight);
+        const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+        isAtBottomRef.current = distance < AT_BOTTOM_PX;
+        setShowScrollBottom(distance > 140);
+      }
+      wasHiddenRef.current = false;
       if (!isAtBottomRef.current) return;
       el.scrollTop = el.scrollHeight;
     });
@@ -603,11 +641,11 @@ export const AiMessagesList = memo(function AiMessagesList({
   const isLiveTurn = useCallback((turn) => turn.messages.some((m) => m.isLive), []);
 
   return (
-    <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden">
+    <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden @container">
       <div
         ref={scrollRef}
         onScroll={handleScroll}
-        className="ai-conversation @container flex-1 min-h-0 overflow-y-auto px-3 @2xl:px-6 py-4 space-y-4 custom-scrollbar relative"
+        className="ai-conversation flex-1 min-h-0 overflow-y-auto px-3 @2xl:px-6 py-4 space-y-4 custom-scrollbar relative"
       >
         {(hiddenCount > 0 || hasOlder) && <div ref={sentinelRef} aria-hidden="true" className="h-px" />}
         {messages.length === 0 ? (
@@ -649,6 +687,7 @@ export const AiMessagesList = memo(function AiMessagesList({
                       onResolvePermission={onResolvePermission}
                       isLive={isLiveTurn(turn)}
                       fileBus={fileBus}
+                      showImages={turnIdx >= imagesFromTurn}
                     />
                   </div>
                 );
@@ -673,6 +712,7 @@ export const AiMessagesList = memo(function AiMessagesList({
                     onResolvePermission={onResolvePermission}
                     isLive={isLiveTurn(turn)}
                     fileBus={fileBus}
+                    showImages={turnIdx >= imagesFromTurn}
                   />
                 </div>
               );

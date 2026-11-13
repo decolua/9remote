@@ -1,7 +1,7 @@
 "use client";
 
 import { memo, useState, useRef, useEffect, useCallback, useMemo } from "react";
-import { Send, Square, Terminal, FileCode, Folder, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History, Search } from "@/shared/components/ui/Icon";
+import { Send, Square, Terminal, FileCode, Folder, Zap, ChevronUp, Check, X, Paperclip, Mic, MicOff, History, Search, AlertCircle, RotateCw } from "@/shared/components/ui/Icon";
 import { ENGINE_INFO, SKIP_BEHAVIOR, SKIP_MESSAGE } from "../constants";
 import { getEngineConfig } from "../registry";
 import { buildSlashItems } from "../lib/slashMenu";
@@ -730,23 +730,26 @@ export const Composer = memo(function Composer({
   // here made a second frame line right beside it.
   return (    <div className="relative px-3 py-1.5 bg-transparent select-none">
       {showSending && promptSending && !promptError && (
-        <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-500 animate-pulse shrink-0" />
-          <span className="truncate min-w-0">{t("common.sending")} — {promptSending.text}</span>
+        <div className="flex items-center gap-2 mb-1 px-2.5 py-1.5 text-xs rounded-brand bg-brand-500/10 border border-brand-500/25">
+          <span className="w-2 h-2 rounded-full bg-brand-500 animate-pulse shrink-0" />
+          <span className="shrink-0 font-medium text-brand-500">{t("common.sending")}</span>
+          <span className="truncate min-w-0 text-text-muted">{promptSending.text}</span>
         </div>
       )}
       {/* Prompt lost to a dead carrier (#48) — say so, offer the text back */}
       {promptError && (
-        <div className="flex items-center gap-2 mb-1 px-2 py-1 text-xs text-text-muted bg-surface/80 backdrop-blur-md border border-border-subtle rounded-brand">
-          <span className="truncate min-w-0" title={promptError.text}>
+        <div className="flex items-center gap-2 mb-1 px-2.5 py-1.5 text-xs bg-danger/10 border border-danger/30 rounded-brand">
+          <AlertCircle size={13} className="shrink-0 text-danger" />
+          <span className="truncate min-w-0 text-text" title={promptError.text}>
             {promptError.reason === "reload" ? t("common.promptRecovered")
               : `${t("common.promptNotSent")}${promptError.reason && promptError.reason !== "timeout" ? `: ${promptError.reason}` : ""}`}
-            {promptError.text ? <span className="text-text"> — {promptError.text}</span> : null}
+            {promptError.text ? <span className="text-text-muted"> — {promptError.text}</span> : null}
           </span>
-          <button type="button" onClick={resendLostPrompt} className="shrink-0 text-text-muted hover:text-text underline underline-offset-2">
+          <button type="button" onClick={resendLostPrompt} className="shrink-0 inline-flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-brand-500 hover:bg-brand-600 rounded-brand transition-colors">
+            <RotateCw size={11} />
             {t("common.resend")}
           </button>
-          <button type="button" onClick={editLostPrompt} className="shrink-0 text-text-muted hover:text-text underline underline-offset-2">
+          <button type="button" onClick={editLostPrompt} className="shrink-0 px-2 py-1 text-[11px] text-text-muted hover:text-text border border-border-subtle rounded-brand transition-colors">
             {t("common.edit")}
           </button>
           <button type="button" onClick={dismissPromptError} className="shrink-0 text-text-muted hover:text-text">

@@ -154,8 +154,11 @@ export const AiPaneView = memo(function AiPaneView({
         backgroundBlendMode: "normal, screen, normal"
       };
     }
+    // Mobile paints the canvas once in the workspace shell, full-bleed — repainting
+    // it here would restart the tile and the pool at the pane's top edge.
+    if (!isDesktop) return { backgroundColor: "transparent" };
     return chatCanvasStyle(theme);
-  }, [terminalBackgrounds, sessionBgKey, customBackgrounds, terminalBackgroundOpacity, palette, theme, bgIndex]);
+  }, [terminalBackgrounds, sessionBgKey, customBackgrounds, terminalBackgroundOpacity, palette, theme, bgIndex, isDesktop]);
 
   const skills = metadata.skills || [];
   const mcpServers = metadata.mcpServers || [];

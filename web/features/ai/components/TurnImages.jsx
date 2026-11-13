@@ -2,6 +2,7 @@
 
 import { memo, useEffect, useState } from "react";
 import { ImageLightbox } from "./ImageLightbox";
+import { TURN_THUMB_MAX_DIM } from "../constants";
 
 // A thumbnail row, not a list of names. The picture is read from the host on demand —
 // the bytes never ride the event stream, where one screenshot is bigger than a whole
@@ -62,7 +63,7 @@ export const TurnImageThumb = memo(function TurnImageThumb({ img, fileBus = null
   useEffect(() => {
     if (!img?.path || !fileBus?.readMedia) return;
     let live = true;
-    fileBus.readMedia(img.path).then((res) => {
+    fileBus.readMedia(img.path, { maxDim: TURN_THUMB_MAX_DIM }).then((res) => {
       if (!live) return;
       if (res?.success && res.dataUrl) setSrc(res.dataUrl);
       else setFailed(true);
@@ -77,7 +78,7 @@ export const TurnImageThumb = memo(function TurnImageThumb({ img, fileBus = null
       <button
         type="button"
         onClick={() => setViewing(true)}
-        className="h-[64px] w-[92px] shrink-0 overflow-hidden rounded-brand border border-border-subtle/60 bg-surface-2/60 transition-opacity hover:opacity-90"
+        className="h-10 w-14 shrink-0 overflow-hidden rounded-brand border border-border-subtle/60 bg-surface-2/60 transition-opacity hover:opacity-90"
         title={`${img.name} — open in viewer`}
       >
         {src ? (

@@ -152,7 +152,7 @@ function ProseRow({ content, isLive, images = [], fileBus = null }) {
             at. A press hands the file to the editor's image viewer, which is where a
             picture is actually inspected — no second overlay in the app. */}
         {images.length > 0 && (
-          <div className="mt-2 flex flex-wrap gap-1.5">
+          <div className="mt-2 flex flex-wrap gap-1">
             {images.map((img, i) => (
               <TurnImageThumb key={`${img.path}-${i}`} img={img} fileBus={fileBus} images={images} index={i} />
             ))}
@@ -169,7 +169,8 @@ export const AiTurn = memo(function AiTurn({
   workspacePath = "",
   onResolvePermission,
   isLive = true,
-  fileBus = null
+  fileBus = null,
+  showImages = true
 }) {
   const rows = useMemo(() => buildTurnRows(messages, engine), [messages, engine]);
   const blocks = useMemo(
@@ -197,8 +198,8 @@ export const AiTurn = memo(function AiTurn({
                 key={b.key}
                 content={b.row.content}
                 isLive={b.row.isLive}
-                images={isLastProse ? images : []}
-                fileBus={isLastProse ? fileBus : null}
+                images={isLastProse && showImages ? images : []}
+                fileBus={isLastProse && showImages ? fileBus : null}
               />
             );
           }
@@ -247,6 +248,7 @@ export const AiTurn = memo(function AiTurn({
     prev.engine === next.engine &&
     prev.workspacePath === next.workspacePath &&
     prev.isLive === next.isLive &&
+    prev.showImages === next.showImages &&
     prev.onResolvePermission === next.onResolvePermission
   );
 });

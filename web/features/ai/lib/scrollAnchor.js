@@ -1,6 +1,6 @@
 // Maintains scroll position via anchor node when older messages are prepended.
 // Threshold in pixels to treat viewport as pinned to bottom.
-const AT_BOTTOM_PX = 8;
+export const AT_BOTTOM_PX = 8;
 
 // Snapshot scroll and anchor node position before prepending content.
 export function anchorFrom({ scrollTop = 0, scrollHeight = 0, clientHeight = 0, nodeTop = 0 } = {}) {
