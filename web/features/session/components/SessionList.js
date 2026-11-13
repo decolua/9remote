@@ -9,7 +9,7 @@ import { useFileBusStore } from "@/shared/stores/fileBusStore";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useAllSessionStatus } from "@/shared/transport/hostConn";
 import { RemoteTargets, tailOf } from "@/features/terminal/components/TerminalEmptyState";
-import { Monitor, ArrowRight, KeyRound, QrCode } from "@/shared/components/ui/Icon";
+import { Monitor, ArrowRight, KeyRound, QrCode, RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import { useFleetStore } from "@/shared/stores/fleetStore";
@@ -20,8 +20,6 @@ import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
-import { useTheme } from "@/shared/theme/ThemeProvider";
-import { chatCanvasStyle } from "@/features/ai/constants";
 
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
 // operations, so this screen would only be a larger, weaker copy of it.
@@ -39,7 +37,6 @@ export default function SessionList({
   onRenameHost = null, onDeleteHost = null, onMainDisconnect = null, onMainReconnect = null
 }) {
   const { t } = useI18n();
-  const { theme } = useTheme();
   // Callers may pass no bus; the store is the single live connection anyway
   const activeFileBus = fileBus || useFileBusStore.getState();
   const fleetHosts = Object.values(useFleetStore((s) => s.hosts));
@@ -71,6 +68,7 @@ export default function SessionList({
   const [terminalModal, setTerminalModal] = useState(null); // { workspaceId }
   const [pickerFor, setPickerFor] = useState(false);        // remote host picker sheet
   const [addHostOpen, setAddHostOpen] = useState(false);    // header's add-host door
+  const [reloading, setReloading] = useState(false);        // reload button spins until unload
 
   // Hosts that can answer the shared feature — the header button picks among
   // them (one host = straight in, no sheet).
@@ -146,7 +144,7 @@ export default function SessionList({
   const showWelcomeStage = !anyUpdating && !sessions.length && !workspaces.length && fleetHosts.length <= 1;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden relative" style={chatCanvasStyle(theme)}>
+    <div className="h-full flex flex-col overflow-hidden relative">
       {/* No bar material: the header is a flex row ABOVE the scroll area, not over
           it, so nothing ever scrolls beneath the title — a surface here was drawing a
           bar that separated nothing. 9love's screens do the same. Safe-area padding
@@ -167,6 +165,13 @@ export default function SessionList({
         {/* The dock owns remote and settings; this header keeps identity plus the two
             doors that only make sense from the list: pairing (host UI) and add-host. */}
         <div className="flex items-center gap-1 flex-shrink-0">
+          <HeaderButton
+            icon={RefreshCw}
+            iconClass={reloading ? "animate-spin" : ""}
+            label={t("menu.reload")}
+            disabled={reloading}
+            onClick={() => { setReloading(true); setTimeout(() => window.location.reload(), 300); }}
+          />
           <HeaderButton icon={KeyRound} label={t("hosts.addHost")} onClick={() => { vibrate(); setAddHostOpen(true); }} />
           {isHostUi && (
             <HeaderButton icon={QrCode} label={t("connection.pairTab")} onClick={() => { vibrate(); pushView({ type: "pair" }); }} />
@@ -318,7 +323,7 @@ export default function SessionList({
   );
 }
 
-function HeaderButton({ icon: Icon, label, onClick, disabled, className = "" }) {
+function HeaderButton({ icon: Icon, iconClass = "", label, onClick, disabled, className = "" }) {
   return (
     <button
       onClick={() => { vibrate(); onClick(); }}
@@ -328,7 +333,7 @@ function HeaderButton({ icon: Icon, label, onClick, disabled, className = "" }) 
         disabled ? "text-text-subtle cursor-not-allowed" : `text-text-muted hover:text-text hover:bg-surface-2 ${className}`
       }`}
     >
-      <Icon className="w-5 h-5" />
+      <Icon className={`w-5 h-5 ${iconClass}`} />
     </button>
   );
 }
@@ -342,8 +347,6 @@ function WelcomeCards({ onAddWorkspace, recent, homeDir, connected }) {
   const [addHostOpen, setAddHostOpen] = useState(false);
   return (
     <div className="empty-stage w-full h-full fade-in">
-      <div className="empty-grid" />
-
       <button
         onClick={() => { vibrate(); onAddWorkspace?.(); }}
         disabled={!connected}

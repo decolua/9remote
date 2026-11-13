@@ -32,7 +32,8 @@ import { useAgentClis } from "@/features/terminal/hooks/useAgentClis";
 import { useMobileDeviceWatch } from "@/features/mobile/hooks/useMobileDeviceWatch";
 import { loadTerminalPrefs, applySkipPermissions } from "@/features/terminal/constants/agentCli";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
-import { AI_UI_OPTIONS } from "@/features/ai/constants";
+import { AI_UI_OPTIONS, chatCanvasStyle } from "@/features/ai/constants";
+import { useTheme } from "@/shared/theme/ThemeProvider";
 import TerminalWorkspace from "@/features/terminal/components/TerminalWorkspace";
 import ReconnectScreen from "@/features/session/components/ReconnectScreen";
 import AnimatedBackground from "@/features/landing/components/AnimatedBackground";
@@ -82,6 +83,7 @@ function RouteSyncTracker({ hydrated, apiKey }) {
 // Workspace shell - holds the bus/state/views; child routes are URL markers only
 export default function WorkspaceLayout({ children }) {
   const { t } = useI18n();
+  const { theme } = useTheme();
   const [hydrated, setHydrated] = useState(false);
   // Capture PWA beforeinstallprompt as early as possible (Chromium-only)
   usePwaInstallInit();
@@ -976,6 +978,15 @@ export default function WorkspaceLayout({ children }) {
   return (
     <>
       <AnimatedBackground />
+      {/* The list's canvas is painted here, outside .terminal-container, so it also
+          covers the safe-area strip — the landing grid would otherwise show there. */}
+      {!isDesktop && currentView.type === "list" && (
+        <div
+          aria-hidden
+          className="fixed inset-0 pointer-events-none"
+          style={{ ...chatCanvasStyle(theme), zIndex: -9 }}
+        />
+      )}
       <Suspense fallback={null}>
         <RouteSyncTracker hydrated={hydrated} apiKey={auth?.apiKey} />
       </Suspense>

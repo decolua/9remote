@@ -102,27 +102,42 @@ export default function ConnectionModal({ retryStatus, approvalStatus, connected
   // grind against a dead machine for minutes. Kept above the connected check:
   // a zombie carrier verdict must not hide it.
   if (hostOffline) {
+    // A retry against a dead host gets the same 503 verdict back; show the attempt
+    // in progress instead of a frozen dialog so the tap visibly does something.
+    const retrying = !!retryStatus?.isRetrying;
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center scrim fade-in">
         <div className="card-elev p-6 max-w-sm w-full mx-4 pop-in">
           <div className="text-center">
-            <div className="w-16 h-16 mx-auto bg-surface-3 rounded-full flex items-center justify-center">
-              <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728M5.056 5.056l13.888 13.888" />
-              </svg>
-            </div>
+            {retrying ? (
+              <Spinner size="lg" />
+            ) : (
+              <div className="w-16 h-16 mx-auto bg-surface-3 rounded-full flex items-center justify-center">
+                <svg className="w-8 h-8 text-text-muted" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M18.364 5.636a9 9 0 010 12.728m-12.728 0a9 9 0 010-12.728M5.056 5.056l13.888 13.888" />
+                </svg>
+              </div>
+            )}
             <h3 className="text-text text-lg font-semibold mt-4">
-              {t("connection.hostOfflineTitle")}
+              {retrying ? t("connection.retrying") : t("connection.hostOfflineTitle")}
             </h3>
             <p className="text-text-muted mt-2">
-              {t("connection.hostOfflineDescription")}
+              {retrying
+                ? t("connection.attemptOf", { n: retryStatus.attempt, total: retryStatus.maxAttempts })
+                : t("connection.hostOfflineDescription")}
             </p>
             {onRetryNow && (
               <button
                 onClick={() => { vibrate(); onRetryNow(); }}
-                className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-all duration-150 ease-out active:scale-[.98]"
+                disabled={retrying}
+                className="mt-6 w-full py-3 bg-brand-500 hover:bg-brand-600 text-white font-medium rounded-brand transition-all duration-150 ease-out active:scale-[.98] disabled:opacity-70 disabled:cursor-not-allowed disabled:active:scale-100"
               >
-                {t("connection.retry")}
+                {retrying ? (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    {t("connection.retrying")}
+                  </span>
+                ) : t("connection.retry")}
               </button>
             )}
             <button
