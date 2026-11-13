@@ -32,7 +32,7 @@ export default function ReconnectScreen({ label, inline = false }) {
   };
 
   return (
-    <div className={`${inline ? "absolute inset-0 z-10" : "fixed inset-0 z-40"} flex items-center justify-center animate-in fade-in duration-300`}>
+    <div className={`${inline ? "absolute inset-0 z-10" : "fixed inset-0 z-40"} flex items-center justify-center fade-in`}>
       <div className="cine-bg" aria-hidden>
         <div className="cine-grid" />
       </div>
@@ -47,7 +47,7 @@ export default function ReconnectScreen({ label, inline = false }) {
           <button
             onClick={handleReload}
             disabled={reloading}
-            className="mt-2 px-4 py-2 bg-surface-2 hover:bg-surface-3 active:scale-[0.96] disabled:opacity-70 border border-border-subtle rounded-brand text-xs font-medium text-text transition-all duration-150 flex items-center gap-2 animate-in fade-in duration-300"
+            className="mt-2 px-4 py-2 bg-surface-2 hover:bg-surface-3 active:scale-[0.96] disabled:opacity-70 border border-border-subtle rounded-brand text-xs font-medium text-text transition-all duration-150 flex items-center gap-2 fade-in"
           >
             <RefreshCw size={14} className={`text-brand-500 ${reloading ? "animate-spin" : ""}`} />
             <span>{t("menu.reloadWeb") || "Reload"}</span>

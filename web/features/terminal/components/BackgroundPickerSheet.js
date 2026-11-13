@@ -219,11 +219,11 @@ export default function BackgroundPickerSheet({ isOpen, onClose, busRef, inline 
 
   return createPortal(
     <div className={isDesktop ? "modal-overlay z-[60]" : "fixed inset-x-0 top-0 h-[var(--app-height,100dvh)] z-[60] flex flex-col justify-end"}>
-      <div className="absolute inset-0 scrim animate-in fade-in duration-200" onClick={handleClose} />
+      <div className="absolute inset-0 scrim fade-in" onClick={handleClose} />
 
       <div className={isDesktop
-        ? "relative w-full max-w-lg card-elev my-auto flex flex-col overflow-hidden animate-in zoom-in-95 duration-200"
-        : "relative rounded-t-3xl border-t border-border glass-drawer shadow-2xl max-h-[calc(var(--app-height,100dvh)-2rem)] flex flex-col animate-in slide-in-from-bottom duration-300 ease-out"}>
+        ? "relative w-full max-w-lg card-elev my-auto flex flex-col overflow-hidden pop-in"
+        : "relative rounded-t-3xl border-t border-border glass-drawer shadow-2xl max-h-[calc(var(--app-height,100dvh)-2rem)] flex flex-col sheet-rise"}>
         {/* Drag handle */}
         {!isDesktop && (
           <div className="pt-3 pb-1 flex justify-center flex-shrink-0">

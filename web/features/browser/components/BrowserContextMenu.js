@@ -22,7 +22,7 @@ export default function BrowserContextMenu({ menu, items, onClose }) {
   return (
     <div
       ref={ref}
-      className="fixed z-[80] menu-popover p-1 min-w-[170px] animate-in fade-in zoom-in-95 duration-100 shadow-xl"
+      className="fixed z-[80] menu-popover p-1 min-w-[170px] pop-in shadow-xl"
       style={{ left: pos.left, top: pos.top }}
     >
       {items.map((item, i) =>

@@ -667,7 +667,7 @@ export default function ExplorerPanel({
       {contextMenu && (
         <div
           ref={contextMenuRef}
-          className="fixed z-50 menu-popover p-1 min-w-[150px] animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-50 menu-popover p-1 min-w-[150px] pop-in"
           style={{ left: contextMenuPos.left, top: contextMenuPos.top }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -692,8 +692,8 @@ export default function ExplorerPanel({
 
       {newItemModal && createPortal(
         <div className="modal-overlay z-50">
-          <div className="absolute inset-0 scrim animate-in fade-in duration-150" onClick={() => setNewItemModal(null)} />
-          <div className="relative card-elev p-4 w-full max-w-sm my-auto animate-in zoom-in-95 duration-150">
+          <div className="absolute inset-0 scrim fade-in" onClick={() => setNewItemModal(null)} />
+          <div className="relative card-elev p-4 w-full max-w-sm my-auto pop-in">
             <h3 className="text-sm font-semibold text-text mb-2">
               {newItemModal.type === "folder" ? "New Folder" : "New File"}
             </h3>

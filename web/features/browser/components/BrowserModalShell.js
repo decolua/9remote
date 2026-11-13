@@ -25,11 +25,11 @@ export default function BrowserModalShell({ title, icon = null, onClose, childre
   // Portaled: the pane it opens from sits under transformed siblings, and the overlay
   // tracks --app-height so the soft keyboard (the note box) never covers the card.
   return createPortal(
-    <div className="modal-overlay z-50 scrim animate-in fade-in duration-150" onClick={onClose}>
+    <div className="modal-overlay z-50 scrim fade-in" onClick={onClose}>
       <div
         role="dialog"
         aria-modal="true"
-        className={`card-elev ${wide ? "max-w-lg" : "max-w-md"} w-full my-auto overflow-hidden flex flex-col animate-in zoom-in-95 duration-150`}
+        className={`card-elev ${wide ? "max-w-lg" : "max-w-md"} w-full my-auto overflow-hidden flex flex-col pop-in`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between gap-2 px-4 pt-4 pb-3 border-b border-border-subtle">

@@ -83,7 +83,7 @@ export default function IconMenu({
           <div
             ref={popRef}
             role="menu"
-            className="fixed z-[70] menu-popover p-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100 shadow-xl"
+            className="fixed z-[70] menu-popover p-1 min-w-[160px] pop-in shadow-xl"
             style={{ left: pos.left, top: pos.top }}
           >
             {visible.map(({ icon: Icon, label: text, danger, amber, onClick }) => (

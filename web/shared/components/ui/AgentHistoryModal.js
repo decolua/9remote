@@ -176,10 +176,10 @@ export default function AgentHistoryModal({
   return createPortal(
     <div className="modal-overlay z-[60]">
       <div
-        className="absolute inset-0 scrim animate-in fade-in duration-200 touch-none"
+        className="absolute inset-0 scrim fade-in touch-none"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-xl w-full my-auto flex flex-col animate-in zoom-in-95 duration-200 overflow-hidden">
+      <div className="relative card-elev max-w-xl w-full my-auto flex flex-col pop-in overflow-hidden">
         {/* Header */}
         <div className="px-5 py-3.5 border-b border-border-subtle flex items-center justify-between flex-shrink-0">
           <div className="flex items-center gap-2">

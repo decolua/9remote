@@ -41,14 +41,14 @@ export default function ShortcutsModal({ isOpen, onClose }) {
   return createPortal(
     <div className="modal-overlay z-[60]">
       <div
-        className="absolute inset-0 scrim animate-in fade-in duration-200"
+        className="absolute inset-0 scrim fade-in"
         onClick={onClose}
       />
       <div
         role="dialog"
         aria-modal="true"
         tabIndex={-1}
-        className="relative card-elev max-w-md w-full my-auto flex flex-col animate-in zoom-in-95 duration-200 outline-none"
+        className="relative card-elev max-w-md w-full my-auto flex flex-col pop-in outline-none"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >

@@ -810,7 +810,7 @@ function TerminalWorkspace({
           <div
             className={isDesktop
               ? "overflow-hidden flex-shrink-0 transition-[width] duration-200 ease-out"
-              : "absolute inset-0 z-40 animate-in slide-in-from-bottom duration-200"}
+              : "absolute inset-0 z-40 sheet-rise"}
             style={isDesktop ? { width: editorOpen && editorExpanded ? editorPanel.width : 0 } : undefined}
             aria-hidden={isDesktop && !editorOpen}
           >
@@ -860,7 +860,7 @@ function TerminalWorkspace({
             backdrop — otherwise there is no way to dismiss it by tapping away. */}
         {rightPanel?.open && !isDesktop && (
           <div
-            className="absolute inset-0 z-20 scrim animate-in fade-in duration-200"
+            className="absolute inset-0 z-20 scrim fade-in"
             onClick={rightPanel.onToggle}
           />
         )}
@@ -870,7 +870,7 @@ function TerminalWorkspace({
           <div
             className={isDesktop
               ? "overflow-hidden flex-shrink-0 transition-[width] duration-200 ease-out"
-              : "absolute inset-y-0 right-0 z-30 w-[85%] max-w-sm shadow-elev animate-in slide-in-from-right duration-200"}
+              : "absolute inset-y-0 right-0 z-30 w-[85%] max-w-sm shadow-elev screen-in"}
             style={isDesktop ? { width: rightPanel?.open && expanded ? rightPanel.width : 0 } : undefined}
             aria-hidden={isDesktop && !rightPanel?.open}
           >
@@ -920,7 +920,7 @@ function TerminalWorkspace({
       {splitterMenu && (
         <div
           ref={splitterMenuRef}
-          className="fixed z-[70] menu-popover p-1 min-w-[130px] animate-in fade-in zoom-in-95 duration-100 shadow-xl"
+          className="fixed z-[70] menu-popover p-1 min-w-[130px] pop-in shadow-xl"
           style={{ left: splitterMenuPos.left, top: splitterMenuPos.top }}
         >
           <div className="px-2 py-1 text-[10px] font-semibold text-text-subtle uppercase tracking-wider">

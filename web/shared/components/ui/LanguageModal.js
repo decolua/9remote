@@ -32,10 +32,10 @@ export default function LanguageModal({ isOpen, onClose }) {
   return createPortal(
     <div className="modal-overlay z-[70]">
       <div
-        className="absolute inset-0 scrim animate-in fade-in duration-200"
+        className="absolute inset-0 scrim fade-in"
         onClick={onClose}
       />
-      <div className="relative card-elev max-w-lg w-full my-auto flex flex-col animate-in zoom-in-95 duration-200">
+      <div className="relative card-elev max-w-lg w-full my-auto flex flex-col pop-in">
         <div className="px-5 py-4 flex items-center justify-between flex-shrink-0">
           <h3 className="text-lg font-semibold text-text">{t("menu.language")}</h3>
           <button

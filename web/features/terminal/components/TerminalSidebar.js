@@ -402,7 +402,7 @@ function TerminalSidebar({
       {ctxMenu && (
         <div
           ref={ctxRef}
-          className="fixed z-[70] menu-popover p-1 min-w-[160px] animate-in fade-in zoom-in-95 duration-100"
+          className="fixed z-[70] menu-popover p-1 min-w-[160px] pop-in"
           style={{ left: ctxPos.left, top: ctxPos.top }}
         >
           {/* Only a yellow terminal has something to mark read; typing/giving it a prompt

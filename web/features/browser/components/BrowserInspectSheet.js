@@ -129,7 +129,7 @@ export default function BrowserInspectSheet({ element, autoFocusNote = false, at
   if (at) {
     return (
       <div
-        className="z-30 bg-surface border border-border-subtle shadow-2xl p-3 flex flex-col gap-2.5 overflow-y-auto animate-in fade-in duration-150 absolute w-[300px] max-w-[90%] max-h-[60%] rounded-xl"
+        className="z-30 bg-surface border border-border-subtle shadow-2xl p-3 flex flex-col gap-2.5 overflow-y-auto pop-in absolute w-[300px] max-w-[90%] max-h-[60%] rounded-xl"
         style={{
           left: `min(${at.x}px, calc(100% - 310px))`,
           top: `min(${at.y}px, calc(100% - 120px))`

@@ -60,7 +60,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
     <div className="modal-overlay z-[100]">
       {/* Backdrop */}
       <div
-        className="absolute inset-0 scrim animate-in fade-in duration-150"
+        className="absolute inset-0 scrim fade-in"
         onClick={onClose}
       />
       
@@ -68,7 +68,7 @@ export default function ConfirmDialog({ isOpen, onClose, onConfirm, title, messa
       <div
         role="dialog"
         aria-modal="true"
-        className="relative card-elev max-w-md w-full my-auto overflow-y-auto animate-in zoom-in-95 duration-200"
+        className="relative card-elev max-w-md w-full my-auto overflow-y-auto pop-in"
         onClick={(e) => e.stopPropagation()}
         onKeyDown={(e) => e.stopPropagation()}
       >

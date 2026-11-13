@@ -99,7 +99,7 @@ export default function OverflowTip() {
   return createPortal(
     <div
       role="tooltip"
-      className="fixed z-[90] pointer-events-none px-2 py-1 rounded-[3px] bg-surface-2 border border-border-subtle shadow-lg text-[11px] text-text break-words animate-in fade-in duration-100"
+      className="fixed z-[90] pointer-events-none px-2 py-1 rounded-[3px] bg-surface-2 border border-border-subtle shadow-lg text-[11px] text-text break-words fade-in"
       style={{ left: tip.left, top: tip.top, bottom: tip.bottom, maxWidth: OVERFLOW_TIP.MAX_WIDTH_PX }}
     >
       {tip.text}

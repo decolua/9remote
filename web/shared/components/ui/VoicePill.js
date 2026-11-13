@@ -27,7 +27,7 @@ function ErrorPill({ code, className = "", t }) {
   }, []);
   if (hidden) return null;
   return (
-    <div className={`w-fit mx-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/30 shadow-md text-xs text-red-400 animate-in fade-in slide-in-from-bottom-1 duration-150 pointer-events-none ${className}`}>
+    <div className={`w-fit mx-auto flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/30 shadow-md text-xs text-red-400 list-rise pointer-events-none ${className}`}>
       <span className="w-1.5 h-1.5 rounded-full bg-red-500 shrink-0" />
       {errText(code, t)}
     </div>
@@ -53,7 +53,7 @@ export const VoicePill = memo(function VoicePill({ voice, onDone, onCancel, clas
   };
 
   return (
-    <div className={`w-fit mx-auto flex items-center gap-2 px-2.5 py-1 rounded-full bg-surface-2/95 border border-border-subtle shadow-md backdrop-blur-md text-xs animate-in fade-in slide-in-from-bottom-1 duration-150 pointer-events-auto ${className}`}>
+    <div className={`w-fit mx-auto flex items-center gap-2 px-2.5 py-1 rounded-full bg-surface-2/95 border border-border-subtle shadow-md backdrop-blur-md text-xs list-rise pointer-events-auto ${className}`}>
       {voice.transcribing ? (
         <div className="flex items-center gap-2 px-1 py-0.5">
           <span className="w-2 h-2 rounded-full bg-brand-500 animate-ping shrink-0" />

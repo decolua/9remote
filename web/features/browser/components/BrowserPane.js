@@ -806,7 +806,7 @@ export default function BrowserPane({ busRef, connected = false, visible = true,
         {vpMenu && (
           <>
             <div className="fixed inset-0 z-10" onClick={() => setVpMenu(false)} />
-            <div className={`absolute z-20 flex flex-col p-1 menu-popover animate-in fade-in duration-100 min-w-[170px] ${float ? "bottom-12 left-0" : "top-10 right-0"}`}>
+            <div className={`absolute z-20 flex flex-col p-1 menu-popover pop-in min-w-[170px] ${float ? "bottom-12 left-0" : "top-10 right-0"}`}>
               {VIEWPORT_PRESETS.map((opt) => (
                 <button
                   key={opt.label}
@@ -835,7 +835,7 @@ export default function BrowserPane({ busRef, connected = false, visible = true,
   };
 
   return (
-    <div className="absolute inset-0 z-20 flex flex-col bg-surface text-text transition-all duration-300 ease-out animate-in slide-in-from-bottom">
+    <div className="absolute inset-0 z-20 flex flex-col bg-surface text-text transition-all duration-300 ease-out sheet-rise">
       {/* Toolbar — orca BrowserPane layout: nav · address · tools · ⋯.
           Tabs live in the terminal header strip (orca's unified tabs). */}
       <div className="shrink-0 relative z-30 flex items-center gap-1 md:gap-2 border-b border-border-subtle bg-surface/95 px-2 md:px-3 py-1.5">

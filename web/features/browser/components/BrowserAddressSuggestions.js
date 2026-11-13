@@ -7,7 +7,7 @@ import { Globe, Search } from "@/shared/components/ui/Icon";
 export default function BrowserAddressSuggestions({ items, activeIdx, onPick, onHover }) {
   if (!items?.length) return null;
   return (
-    <div className="absolute left-0 right-0 top-full mt-1 z-30 menu-popover p-1 max-h-64 overflow-y-auto shadow-xl animate-in fade-in duration-75">
+    <div className="absolute left-0 right-0 top-full mt-1 z-30 menu-popover p-1 max-h-64 overflow-y-auto shadow-xl pop-in">
       {items.map((h, i) => (
         <button
           key={h.url}

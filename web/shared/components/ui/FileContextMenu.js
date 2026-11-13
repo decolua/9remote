@@ -41,7 +41,7 @@ export default function FileContextMenu({ x, y, items, onClose }) {
   return (
     <div
       ref={ref}
-      className="fixed z-50 min-w-[180px] py-1 rounded-lg border border-border bg-surface shadow-elev animate-in fade-in"
+      className="fixed z-50 min-w-[180px] py-1 rounded-lg border border-border bg-surface shadow-elev pop-in"
       style={{ left: x, top: y }}
       onContextMenu={(e) => e.preventDefault()}
     >

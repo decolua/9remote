@@ -112,7 +112,7 @@ export default function AddHostModal({ onClose }) {
   return createPortal(
     <>
     <div
-      className="modal-overlay z-[70] scrim animate-in fade-in duration-150"
+      className="modal-overlay z-[70] scrim fade-in"
       onClick={onClose}
     >
       <form
@@ -120,7 +120,7 @@ export default function AddHostModal({ onClose }) {
         aria-modal="true"
         aria-label={t("hosts.addHost")}
         onSubmit={submit}
-        className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto animate-in zoom-in-95 duration-150"
+        className="card-elev w-[26rem] max-w-full overflow-hidden flex flex-col my-auto pop-in"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="px-4 pt-4 pb-3 flex items-center gap-2.5 border-b border-border-subtle flex-shrink-0">
