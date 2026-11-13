@@ -426,7 +426,9 @@ function buildClaudeEvents(resolved, records, live, startSeq) {
               events.push({ seq: seq++, event: "delta", data: { text: item.text } });
             }
           }
-          if (!parent) events.push({ seq: seq++, event: "turn_complete", data: { stats: {} } });
+          const isTurnEnd = !parent && d.message.stop_reason !== "tool_use" &&
+            !(d.message.content || []).some((item) => item.type === "tool_use");
+          if (isTurnEnd) events.push({ seq: seq++, event: "turn_complete", data: { stats: {} } });
         }
       } catch {}
     }
