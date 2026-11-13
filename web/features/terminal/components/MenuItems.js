@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect, useRef } from "react";
-import { Download, Sparkles, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, ChevronRight, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star, Check, Smartphone, Link2 } from "@/shared/components/ui/Icon";
+import { ChevronRight, Globe, Sun, Moon, Download, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star, Check, Smartphone, Link2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonIcons";
@@ -9,6 +9,7 @@ import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
 
 import { useTerminalStore } from "@/shared/stores/terminalStore";
 import { useI18n } from "@/shared/i18n";
+import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
 import { TERMINAL_THEME_OPTIONS } from "@/features/terminal/constants/themes";
 import { backgroundLabel } from "@/features/terminal/constants/terminalConfig";
@@ -19,6 +20,80 @@ import { useJarvisStore } from "@/shared/stores/jarvisStore";
 import { JARVIS_ENABLED } from "@/shared/lib/jarvisConstants";
 import { useInputMode } from "@/shared/hooks/useInputMode";
 import { useShortcutsModalStore } from "@/shared/stores/shortcutsModalStore";
+import Collapse from "@/shared/components/ui/Collapse";
+
+
+// ---- Grouped settings shell (9love's settings screen) -----------------------
+// One plate per subject, rows as bare lines inside it, and a small gradient squircle
+// leading each row. The plate carries the boundary, so no row draws its own.
+
+function SectionLabel({ children }) {
+  return (
+    <p className="mx-1 mt-4 mb-2 text-[11px] font-semibold uppercase tracking-[0.4px] text-text-subtle">
+      {children}
+    </p>
+  );
+}
+
+function Card({ children, className = "", i = 0 }) {
+  return (
+    <div className="card-rise" style={{ "--i": i }}>
+      <div className={`glass-card rounded-[18px] overflow-hidden ${className}`}>{children}</div>
+    </div>
+  );
+}
+
+const ROW_CLS = "w-full px-3.5 py-3 text-left flex items-center gap-3 transition-colors duration-150 ease-out active:bg-text/[0.06] disabled:opacity-50";
+// Sub-rows sit tighter than top-level rows so an open group reads as one block.
+const SUB_ROW_CLS = "w-full px-3.5 py-2 text-left flex items-center gap-3 transition-colors duration-150 ease-out active:bg-text/[0.06] disabled:opacity-50";
+
+function Row({ icon: Icon, tone = "bg-brand-500", label, hint = null, tail = null, onClick, disabled = false, danger = false, flat = false }) {
+  return (
+    <button type="button" onClick={onClick} disabled={disabled} className={flat ? SUB_ROW_CLS : ROW_CLS}>
+      {flat ? (
+        <span className="w-7 flex-shrink-0 flex items-center justify-center text-text-muted">
+          <Icon size={16} strokeWidth={2.2} />
+        </span>
+      ) : (
+        <span className={`squircle-icon ${tone}`}>
+          <Icon size={16} strokeWidth={2.2} />
+        </span>
+      )}
+      <span className="flex-1 min-w-0 flex flex-col">
+        <span className={`text-[15px] font-medium ${danger ? "text-danger" : "text-text"}`}>{label}</span>
+        {hint && <span className="text-[12px] leading-snug text-text-muted">{hint}</span>}
+      </span>
+      {tail}
+    </button>
+  );
+}
+
+/** A row that opens a group — the header keeps the row shape and animates its chevron. */
+function GroupRow({ icon: Icon, tone, label, open, onToggle, tail = null }) {
+  return (
+    <button type="button" onClick={onToggle} className={ROW_CLS} aria-expanded={open}>
+      <span className={`squircle-icon ${tone}`}>
+        <Icon size={16} strokeWidth={2.2} />
+      </span>
+      <span className="flex-1 min-w-0 text-[15px] font-medium text-text">{label}</span>
+      {tail}
+      <ChevronDown size={16} className={`text-text-muted transition-transform duration-200 ${open ? "rotate-180" : ""}`} />
+    </button>
+  );
+}
+
+/** Divider between rows of one card — the only line this screen still draws. */
+function Seam() {
+  return <div className="ml-[54px] h-px bg-[var(--lg-hairline)]" />;
+}
+
+function Switch({ on }) {
+  return (
+    <span className={`shrink-0 relative inline-flex h-6 w-11 items-center rounded-full transition-colors duration-200 ${on ? "bg-[#34c759]" : "bg-text/15"}`}>
+      <span className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform duration-200 ease-out ${on ? "translate-x-[22px]" : "translate-x-0.5"}`} />
+    </span>
+  );
+}
 
 export default function MenuItems({
   onRemote,
@@ -38,9 +113,11 @@ export default function MenuItems({
   busRef = null,
   subscribeToPush = null,
   unsubscribeFromPush = null,
-  onOpenBackgroundPicker
+  onOpenBackgroundPicker,
+  onOpenLanguage
 }) {
-  const { t } = useI18n();
+  const { t, locale } = useI18n();
+  const currentLocale = SUPPORTED_LOCALES.find((l) => l.code === locale);
   const inputMode = useInputMode();
   const openShortcuts = useShortcutsModalStore((s) => s.open);
   const closeMenu = useSlideMenuStore((s) => s.close);
@@ -50,26 +127,23 @@ export default function MenuItems({
   // (`section`). Remote desktop is not offered on mobile.
   const renderToggles = (section) => {
     if (hideActions.includes("headerButtons")) return null;
-    return buttonToggles.buttons.filter((b) => b.section === section && b.id !== "remote").map((btn) => {
-      const RowIcon = BUTTON_TOGGLE_ICONS[btn.id];
-      const on = buttonToggles.isOn(btn);
-      return (
-        <button
-          key={btn.id}
-          onClick={() => { vibrate(); buttonToggles.toggle(btn); }}
-          className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <RowIcon className="text-text shrink-0" size={16} />
-          <div className="flex flex-col flex-1 min-w-0">
-            <span className="text-sm">{t(btn.labelKey)}</span>
-            {btn.descKey && <span className="text-xs text-text-muted">{t(btn.descKey)}</span>}
-          </div>
-          <span className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${on ? "bg-brand-500" : "bg-surface-2"}`}>
-            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? "translate-x-4" : "translate-x-0.5"}`} />
-          </span>
-        </button>
-      );
-    });
+    return buttonToggles.buttons
+      .filter((b) => b.section === section && b.id !== "remote")
+      .map((btn) => {
+        const RowIcon = BUTTON_TOGGLE_ICONS[btn.id];
+        const on = buttonToggles.isOn(btn);
+        return (
+          <Row
+            key={btn.id}
+            flat
+            icon={RowIcon}
+            label={t(btn.labelKey)}
+            hint={btn.descKey ? t(btn.descKey) : null}
+            onClick={() => { vibrate(); buttonToggles.toggle(btn); }}
+            tail={<Switch on={on} />}
+          />
+        );
+      });
   };
   const jarvisEnabled = useJarvisStore((s) => JARVIS_ENABLED && s.settings.enabled);
   const webglEnabled = useTerminalStore((s) => s.webglEnabled);
@@ -79,26 +153,28 @@ export default function MenuItems({
   const terminalTheme = useTerminalStore((s) => s.terminalTheme);
   const setTerminalTheme = useTerminalStore((s) => s.setTerminalTheme);
   const terminalBackgrounds = useTerminalStore((s) => s.terminalBackgrounds);
-  const { theme: appMode } = useTheme();
-  const [terminalMenuOpen, setTerminalMenuOpen] = useState(false);
-  const [mcpMenuOpen, setMcpMenuOpen] = useState(false);
-  const [remoteMenuOpen, setRemoteMenuOpen] = useState(false);
-  const [orientationOpen, setOrientationOpen] = useState(false);
+  const { theme: appMode, toggleTheme } = useTheme();
+  // Accordion: one group open at a time, so the screen never stacks two panels.
+  const [openGroup, setOpenGroup] = useState(null);
+  const toggleGroup = useCallback((id) => {
+    vibrate();
+    setOpenGroup((cur) => (cur === id ? null : id));
+  }, []);
   const [reloading, setReloading] = useState(false);
   const terminalMenuRef = useRef(null);
 
 
   // Close terminal settings dropdown on outside click
   useEffect(() => {
-    if (!terminalMenuOpen) return;
+    if (openGroup !== "terminal") return;
     const onClick = (e) => {
       if (terminalMenuRef.current && !terminalMenuRef.current.contains(e.target)) {
-        setTerminalMenuOpen(false);
+        setOpenGroup(null);
       }
     };
     document.addEventListener("mousedown", onClick);
     return () => document.removeEventListener("mousedown", onClick);
-  }, [terminalMenuOpen]);
+  }, [openGroup]);
 
   const [isMobile, setIsMobile] = useState(false);
   // eslint-disable-next-line react-hooks/set-state-in-effect -- SSR-safe read after mount
@@ -171,301 +247,293 @@ export default function MenuItems({
   }, []);
 
   return (
-    <div className="p-3 space-y-0.5">
-      {/* Install App - pinned to top; hidden when running as PWA/native or already installed.
-          Whole row is one button; a small brand chip on the right signals one-tap install on Chromium. */}
-      {!isApp && !isInstalled && onInstallApp && (
-        <button
-          onClick={() => { vibrate(); onInstallApp(); }}
-          className="w-full px-3 py-1.5 mb-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <Download className="text-brand-500 flex-shrink-0" size={16} />
-          <span className="text-sm flex-1 min-w-0 truncate">{t("menu.installApp")}</span>
-          {canInstall && (
-            <span className="flex-shrink-0 px-2 py-0.5 bg-brand-500 text-white text-xs font-medium rounded-full">
-              {t("pwaGuide.installNow")}
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* Notifications switch - WebPush (desktop browser + PWA) or Expo native */}
-      {push.supported && (
-        <button
-          onClick={push.toggle}
-          disabled={push.loading}
-          className="w-full px-3 py-1.5 hover:bg-surface-2 disabled:opacity-50 text-text rounded-brand-lg text-left flex items-center justify-between gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <div className="flex items-center gap-2.5">
-            <Bell className="text-brand-500" size={16} />
-            <div className="flex flex-col">
-              <span className="text-sm">{t("menu.notifications")}</span>
-              <span className="text-xs text-text-muted">{t("menu.notificationsHint")}</span>
-            </div>
-          </div>
-          {push.loading ? (
-            <Loader2 className="animate-spin text-text-muted" size={16} />
-          ) : (
-            <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${push.enabled ? "bg-brand-500" : "bg-surface-2"}`}>
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${push.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
-            </span>
-          )}
-        </button>
-      )}
-
-      {/* Terminal settings — collapsible dropdown (font + theme + GPU render + quick buttons) */}
-      {!hideActions.includes('terminalSettings') && (
-        <div ref={terminalMenuRef} className="rounded-brand-lg overflow-hidden">
-          <button
-            onClick={() => { vibrate(); setTerminalMenuOpen((v) => !v); }}
-            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-          >
-            <Terminal className="text-brand-500" size={16} />
-            <span className="text-sm flex-1">{t("menu.terminalSettings")}</span>
-            <ChevronDown className={`text-text-muted transition-transform duration-200 ${terminalMenuOpen ? "rotate-180" : ""}`} size={16} />
-          </button>
-          {terminalMenuOpen && (
-            <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
-              <button
-                onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
-                className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-              >
-                <Monitor className="text-text" size={16} />
-                <div className="flex flex-col flex-1">
-                  <span className="text-sm">{t("menu.webgl")}</span>
-                  <span className="text-xs text-text-muted">{t("menu.webglHint")}</span>
-                </div>
-                <span className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${webglEnabled ? "bg-brand-500" : "bg-surface-2"}`}>
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${webglEnabled ? "translate-x-4" : "translate-x-0.5"}`} />
+    <div className="px-3 pb-4">
+      {/* 9love's Preferences card: dark mode and language are ROWS here, not icons in
+          the screen header, so the header can be nothing but a title. */}
+      <SectionLabel>{t("menu.settingsAppearance")}</SectionLabel>
+      <div className="space-y-3">
+        <Card i={0}>
+          <Row
+            icon={appMode === "dark" ? Moon : Sun}
+            tone="bg-gradient-to-br from-amber-400 to-orange-500"
+            label={t("menu.theme")}
+            onClick={() => { vibrate(); toggleTheme(); }}
+            tail={<Switch on={appMode === "dark"} />}
+          />
+          <Seam />
+          <Row
+            icon={Globe}
+            tone="bg-gradient-to-br from-blue-500 to-indigo-600"
+            label={t("menu.language")}
+            onClick={() => { vibrate(); onOpenLanguage?.(); }}
+            tail={
+              <>
+                <span className="flex items-center gap-1.5 text-text-muted">
+                  {currentLocale && (
+                    <img
+                      src={`https://flagcdn.com/w40/${currentLocale.country}.png`}
+                      alt=""
+                      className="w-[17px] h-[12px] object-cover rounded-[2px]"
+                      loading="lazy"
+                    />
+                  )}
+                  <span className="text-[13px] font-medium">{currentLocale?.label || locale.toUpperCase()}</span>
                 </span>
-              </button>
+                <ChevronRight size={15} className="text-text-muted" />
+              </>
+            }
+          />
+          {(!isApp && !isInstalled && onInstallApp) || push.supported ? <Seam /> : null}
+          {!isApp && !isInstalled && onInstallApp && (
+            <Row
+              icon={Download}
+              label={t("menu.installApp")}
+              onClick={() => { vibrate(); onInstallApp(); }}
+              tail={canInstall ? (
+                <span className="flex-shrink-0 px-2 py-0.5 bg-brand-500 text-white text-[11px] font-semibold rounded-full">
+                  {t("pwaGuide.installNow")}
+                </span>
+              ) : null}
+            />
+          )}
+          {push.supported && (
+            <>
+              {!isApp && !isInstalled && onInstallApp ? <Seam /> : null}
+              <Row
+                icon={Bell}
+                label={t("menu.notifications")}
+                hint={t("menu.notificationsHint")}
+                disabled={push.loading}
+                onClick={push.toggle}
+                tail={push.loading ? <Loader2 size={16} className="animate-spin text-text-muted" /> : <Switch on={push.enabled} />}
+              />
+            </>
+          )}
+        </Card>
 
-              <div className="flex items-center gap-2.5 pt-1.5">
-                <Type className="text-text" size={16} />
-                <span className="text-sm">{t("menu.fontSize")}</span>
-                <select
-                  value={fontSize ?? (isMobile ? 12 : 14)}
-                  onChange={(e) => { vibrate(); setFontSize(Number(e.target.value)); }}
-                  className="ml-auto bg-surface-2 text-text text-sm rounded-brand px-2 py-1 focus:outline-none"
-                >
-                  {Array.from({ length: isMobile ? 7 : 9 }, (_, i) => i + 10).map((n) => (
-                    <option key={n} value={n}>{n}px</option>
-                  ))}
-                </select>
-              </div>
-              <div className="flex items-center gap-2.5">
-                <Palette className="text-text" size={16} />
-                <span className="text-sm">{t("menu.terminalTheme")}</span>
-                <select
-                  value={terminalTheme}
-                  onChange={(e) => { vibrate(); setTerminalTheme(e.target.value); }}
-                  className="ml-auto bg-surface-2 text-text text-xs rounded-brand px-2 py-1 max-w-[55%] focus:outline-none"
-                >
-                  <option value="default">Vesper (Default)</option>
-                  {TERMINAL_THEME_OPTIONS
-                    .filter((opt) => opt.mode === appMode)
-                    .map((opt) => (
-                      <option key={opt.key} value={opt.key}>{opt.label}</option>
-                    ))}
-                </select>
-              </div>
-              {renderToggles("terminal")}
+        {/* The terminal/remote/plugin groups sit under their own heading, like every
+            other card on the screen. Without it this block read as a continuation of
+            the Preferences card above. */}
+        <SectionLabel>{t("menu.settingsTerminalTab")}</SectionLabel>
+        <Card i={1}>
+          {!hideActions.includes("terminalSettings") && (
+            <div ref={terminalMenuRef}>
+              <GroupRow
+                icon={Terminal}
+                tone="bg-gradient-to-br from-slate-500 to-zinc-600"
+                label={t("menu.terminalSettings")}
+                open={openGroup === "terminal"}
+                onToggle={() => toggleGroup("terminal")}
+              />
+              <Collapse open={openGroup === "terminal"}>
+                <div className="px-3.5 pb-3 space-y-1">
+                  <Row
+                    flat
+                    icon={Monitor}
+                    label={t("menu.webgl")}
+                    hint={t("menu.webglHint")}
+                    onClick={() => { vibrate(); setWebglEnabled(!webglEnabled); }}
+                    tail={<Switch on={webglEnabled} />}
+                  />
+                  <div className="flex items-center gap-3 px-3.5 py-2">
+                    <span className="w-7 flex-shrink-0 flex items-center justify-center text-text-muted">
+                      <Type size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="text-[15px] font-medium text-text">{t("menu.fontSize")}</span>
+                    <select
+                      value={fontSize ?? (isMobile ? 12 : 14)}
+                      onChange={(e) => { vibrate(); setFontSize(Number(e.target.value)); }}
+                      className="ml-auto bg-text/[0.06] text-text text-[13px] rounded-[8px] px-2 py-1.5 focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    >
+                      {Array.from({ length: isMobile ? 7 : 9 }, (_, i) => i + 10).map((n) => (
+                        <option key={n} value={n}>{n}px</option>
+                      ))}
+                    </select>
+                  </div>
+                  <div className="flex items-center gap-3 px-3.5 py-2">
+                    <span className="w-7 flex-shrink-0 flex items-center justify-center text-text-muted">
+                      <Palette size={16} strokeWidth={2.2} />
+                    </span>
+                    <span className="text-[15px] font-medium text-text">{t("menu.terminalTheme")}</span>
+                    <select
+                      value={terminalTheme}
+                      onChange={(e) => { vibrate(); setTerminalTheme(e.target.value); }}
+                      className="ml-auto bg-text/[0.06] text-text text-[12px] rounded-[8px] px-2 py-1 max-w-[55%] focus:outline-none focus:ring-1 focus:ring-brand-500"
+                    >
+                      <option value="default">Vesper (Default)</option>
+                      {TERMINAL_THEME_OPTIONS.filter((opt) => opt.mode === appMode).map((opt) => (
+                        <option key={opt.key} value={opt.key}>{opt.label}</option>
+                      ))}
+                    </select>
+                  </div>
+                  {renderToggles("terminal")}
+                </div>
+              </Collapse>
             </div>
           )}
-        </div>
-      )}
 
-      {/* Remote — doors to the host's screen, Chrome and Android devices */}
-      <div className="rounded-brand-lg overflow-hidden">
-        <button
-          onClick={() => { vibrate(); setRemoteMenuOpen((v) => !v); }}
-          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <Link2 className="text-brand-500" size={16} />
-          <span className="text-sm flex-1">{t("menu.settingsRemote")}</span>
-          <ChevronDown className={`text-text-muted transition-transform duration-200 ${remoteMenuOpen ? "rotate-180" : ""}`} size={16} />
-        </button>
-        {remoteMenuOpen && <div className="pl-6 pr-3 pb-1.5 space-y-1.5">{renderToggles("remote")}</div>}
-      </div>
-
-      {/* Plugins — AI extras + voice endpoint. Its own section rather than a terminal
-          setting: it changes what the AI can do, not how a terminal looks. */}
-      <div className="rounded-brand-lg overflow-hidden">
-        <button
-          onClick={() => { vibrate(); setMcpMenuOpen((v) => !v); }}
-          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <Zap className="text-brand-500" size={16} />
-          <span className="text-sm flex-1">{t("menu.settingsMcp")}</span>
-          <ChevronDown className={`text-text-muted transition-transform duration-200 ${mcpMenuOpen ? "rotate-180" : ""}`} size={16} />
-        </button>
-        {mcpMenuOpen && (
-          <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
-            <VoiceEndpointSettings dense />
-            {artifact.supported && (<>
-              <div className="flex items-center gap-2.5">
-                <PanelRight className="text-text shrink-0" size={16} />
-                <span className="text-sm flex-1 min-w-0">{t("menu.artifactPanel")}</span>
-                <button
-                  onClick={artifact.toggle}
-                  disabled={artifact.loading || !connected}
-                  className={`shrink-0 relative inline-flex h-5 w-9 items-center rounded-full transition-colors disabled:opacity-60 ${artifact.enabled ? "bg-brand-500" : "bg-surface-2"}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${artifact.enabled ? "translate-x-4" : "translate-x-0.5"}`} />
-                </button>
-              </div>
-              <p className="text-[11px] leading-relaxed text-text-muted">{t("menu.artifactHint")}</p>
-            </>)}
-            {renderToggles("plugins")}
+          {!hideActions.includes("terminalSettings") && <Seam />}
+          <div>
+            <GroupRow
+              icon={Link2}
+              tone="bg-gradient-to-br from-emerald-500 to-teal-600"
+              label={t("menu.settingsRemote")}
+              open={openGroup === "remote"}
+              onToggle={() => toggleGroup("remote")}
+            />
+            <Collapse open={openGroup === "remote"}>
+              <div className="px-3.5 pb-3 space-y-1">{renderToggles("remote")}</div>
+            </Collapse>
           </div>
-        )}
+
+          <Seam />
+          <div>
+            <GroupRow
+              icon={Zap}
+              tone="bg-gradient-to-br from-amber-500 to-orange-600"
+              label={t("menu.settingsMcp")}
+              open={openGroup === "mcp"}
+              onToggle={() => toggleGroup("mcp")}
+            />
+            <Collapse open={openGroup === "mcp"}>
+              <div className="px-3.5 pb-3 space-y-1">
+                <VoiceEndpointSettings dense />
+                {artifact.supported && (
+                  <>
+                    <Row
+                      flat
+                      icon={PanelRight}
+                      label={t("menu.artifactPanel")}
+                      hint={t("menu.artifactHint")}
+                      disabled={artifact.loading || !connected}
+                      onClick={artifact.toggle}
+                      tail={<Switch on={artifact.enabled} />}
+                    />
+                  </>
+                )}
+                {renderToggles("plugins")}
+              </div>
+            </Collapse>
+          </div>
+
+          {isAndroidApp && (
+            <>
+              <Seam />
+              <div>
+                <GroupRow
+                  icon={RotateCw}
+                  tone="bg-gradient-to-br from-sky-500 to-blue-600"
+                  label={t("menu.orientation")}
+                  open={openGroup === "orientation"}
+                  onToggle={() => toggleGroup("orientation")}
+                />
+                <Collapse open={openGroup === "orientation"}>
+                  <div className="px-3.5 pb-3 space-y-1">
+                    {[
+                      { id: "portrait", label: t("menu.orientationPortrait"), Icon: Smartphone },
+                      { id: "auto", label: t("menu.orientationAuto"), Icon: RotateCw }
+                    ].map((item) => (
+                      <button
+                        key={item.id}
+                        type="button"
+                        onClick={() => handleOrientationChange(item.id)}
+                        className="w-full px-3.5 py-2 text-text text-left flex items-center gap-3 rounded-[10px] transition-colors duration-150 ease-out active:bg-text/[0.06]"
+                      >
+                        <span className="w-7 flex-shrink-0 flex items-center justify-center text-text-muted">
+                          <item.Icon size={16} strokeWidth={2.2} />
+                        </span>
+                        <span className="text-[15px] font-medium flex-1">{item.label}</span>
+                        {orientation === item.id && <Check size={16} className="text-brand-500 flex-shrink-0" />}
+                      </button>
+                    ))}
+                  </div>
+                </Collapse>
+              </div>
+            </>
+          )}
+        </Card>
       </div>
 
-      {/* Terminal background picker — standalone row (mobile, dark mode only) */}
-      {appMode === "dark" && (
-        <button
-          onClick={() => { vibrate(); onOpenBackgroundPicker?.(); }}
-          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <Wallpaper className="text-brand-500 flex-shrink-0" size={16} />
-          <span className="text-sm flex-1 min-w-0">{t("menu.terminalBackground")}</span>
-          <span
-            className="text-xs text-text-muted truncate max-w-[90px]"
-            data-tip={terminalBackgrounds.length > 1
-              ? `${backgroundLabel(terminalBackgrounds[0])} +${terminalBackgrounds.length - 1}`
-              : backgroundLabel(terminalBackgrounds[0])}
-          >
-            {terminalBackgrounds.length > 1
-              ? `${backgroundLabel(terminalBackgrounds[0])} +${terminalBackgrounds.length - 1}`
-              : backgroundLabel(terminalBackgrounds[0])}
-          </span>
-          <ChevronRight size={16} className="text-text-muted flex-shrink-0" />
-        </button>
-      )}
+      {/* Tools on this device — background, Jarvis, notes, shortcuts, community, reload. */}
+      <SectionLabel>{t("menu.settingsApplication")}</SectionLabel>
+      <Card i={2}>
+        {appMode === "dark" && (
+          <>
+            <Row
+              icon={Wallpaper}
+              tone="bg-gradient-to-br from-fuchsia-500 to-purple-600"
+              label={t("menu.terminalBackground")}
+              onClick={() => { vibrate(); onOpenBackgroundPicker?.(); }}
+              tail={
+                <span className="text-[12px] text-text-muted truncate max-w-[90px]">
+                  {terminalBackgrounds.length > 1
+                    ? `${backgroundLabel(terminalBackgrounds[0])} +${terminalBackgrounds.length - 1}`
+                    : backgroundLabel(terminalBackgrounds[0])}
+                </span>
+              }
+            />
+            <Seam />
+          </>
+        )}
+        {jarvisEnabled && (
+          <>
+            <Row icon={Bot} label="Jarvis" onClick={() => { vibrate(); closeMenu(); useJarvisStore.getState().toggle(); }} />
+            <Seam />
+          </>
+        )}
+        {onCommandNotes && (
+          <>
+            <Row icon={FileText} label={t("menu.commandNotes")} onClick={() => { vibrate(); onCommandNotes(); }} />
+            <Seam />
+          </>
+        )}
+        {inputMode === "mouse" && (
+          <>
+            <Row icon={Keyboard} label={t("shortcuts.menuLabel")} onClick={() => { vibrate(); closeMenu(); openShortcuts(); }} />
+            <Seam />
+          </>
+        )}
+        {onCommunity && (
+          <>
+            <Row icon={Users} label={t("menu.community")} onClick={() => { vibrate(); onCommunity(); }} />
+            <Seam />
+          </>
+        )}
+        {isExpo && window.DEVICE_INFO?.platform !== "ios" && (
+          <>
+            <Row icon={Star} label={t("menu.rateApp")} onClick={handleRateApp} />
+            <Seam />
+          </>
+        )}
+        <Row
+          icon={RefreshCw}
+          label={t("menu.reload")}
+          disabled={reloading}
+          onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
+          tail={reloading ? <Loader2 size={16} className="animate-spin text-text-muted" /> : null}
+        />
+      </Card>
 
-      {/* Screen orientation — Android app only; iOS hidden until a build with the
-          SET/GET handler ships (menu arrives via web deploy, handler needs OTA/build) */}
-      {isAndroidApp && (
-        <div className="rounded-brand-lg overflow-hidden">
-          <button
-            onClick={() => { vibrate(); setOrientationOpen((v) => !v); }}
-            className="w-full px-3 py-1.5 hover:bg-surface-2 text-text text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-          >
-            <RotateCw className="text-brand-500 flex-shrink-0" size={16} />
-            <span className="text-sm flex-1">{t("menu.orientation")}</span>
-            <ChevronDown className={`text-text-muted transition-transform duration-200 ${orientationOpen ? "rotate-180" : ""}`} size={16} />
-          </button>
-          {orientationOpen && (
-            <div className="pl-6 pr-3 pb-1.5 space-y-1.5">
-              {[
-                { id: "portrait", label: t("menu.orientationPortrait"), Icon: Smartphone },
-                { id: "auto", label: t("menu.orientationAuto"), Icon: RotateCw }
-              ].map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  onClick={() => handleOrientationChange(item.id)}
-                  className="w-full py-1 hover:bg-surface-2 text-text rounded-brand text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-                >
-                  <item.Icon className="text-text" size={16} />
-                  <span className="text-sm flex-1">{item.label}</span>
-                  {orientation === item.id && <Check size={16} className="text-brand-500 flex-shrink-0" />}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Jarvis coordinator — opens the kanban + voice chat overlay */}
-      {jarvisEnabled && (
-      <button
-        onClick={() => { vibrate(); closeMenu(); useJarvisStore.getState().toggle(); }}
-        className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out hover:bg-surface-2 text-text active:scale-[0.99]"
-      >
-        <Bot className="text-brand-500" size={16} />
-        <span className="text-sm">Jarvis</span>
-      </button>
-      )}
-
-      {/* Command Notes */}
-      {onCommandNotes && (
-        <button
-          onClick={() => { vibrate(); onCommandNotes(); }}
-          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out hover:bg-surface-2 text-text active:scale-[0.99]"
-        >
-          <FileText className="text-brand-500" size={16} />
-          <span className="text-sm">{t("menu.commandNotes")}</span>
-        </button>
-      )}
-
-      {/* Keyboard shortcuts — only meaningful with a physical keyboard */}
-      {inputMode === "mouse" && (
-        <button
-          onClick={() => { vibrate(); closeMenu(); openShortcuts(); }}
-          className="w-full px-3 py-1.5 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out hover:bg-surface-2 text-text active:scale-[0.99]"
-        >
-          <Keyboard className="text-brand-500" size={16} />
-          <span className="text-sm">{t("shortcuts.menuLabel")}</span>
-        </button>
-      )}
-
-      {/* Community */}
-      {onCommunity && (
-        <button
-          onClick={() => { vibrate(); onCommunity(); }}
-          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <Users className="text-brand-500" size={16} />
-          <span className="text-sm">{t("menu.community")}</span>
-        </button>
-      )}
-
-      {/* Rate App - Android only; iOS in-app review gated by Apple quota */}
-      {isExpo && window.DEVICE_INFO?.platform !== "ios" && (
-        <button
-          onClick={handleRateApp}
-          className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <Star className="text-brand-500 flex-shrink-0" size={16} />
-          <span className="text-sm">{t("menu.rateApp")}</span>
-        </button>
-      )}
-
-      {/* Reload app — direct action; the page takes a moment to tear down before it
-          visibly reloads, so spin the icon or the tap looks like it did nothing. */}
-      <button
-        onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
-        disabled={reloading}
-        className="w-full px-3 py-1.5 hover:bg-surface-2 text-text rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99] disabled:opacity-70"
-      >
-        <RefreshCw size={16} className={`text-brand-500 ${reloading ? "animate-spin" : ""}`} />
-        <span className="text-sm">{t("menu.reload")}</span>
-      </button>
-
-      {/* Logout */}
       {onLogout && (
-        <button
-          onClick={() => { vibrate(); onLogout(); }}
-          className="w-full px-3 py-1.5 hover:bg-red-500/15 text-text hover:text-red-400 rounded-brand-lg text-left flex items-center gap-2.5 transition duration-150 ease-out active:scale-[0.99]"
-        >
-          <LogOut className="text-red-400" size={16} />
-          <span className="text-sm">{t("menu.logout")}</span>
-        </button>
+        <>
+          <SectionLabel>{t("menu.settingsAccount")}</SectionLabel>
+          <Card i={3}>
+            <Row icon={LogOut} tone="bg-danger/15 !text-danger" label={t("menu.logout")} danger onClick={() => { vibrate(); onLogout(); }} />
+          </Card>
+        </>
       )}
 
       {/* Version + connection mode */}
-      <div className="flex items-center justify-end gap-2 mt-4 mr-1">
+      <div className="flex items-center justify-end gap-2 mt-5 mr-1">
         {connectionMode === "local" && (
-          <span className="text-xs font-semibold px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
+          <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-green-500/15 text-green-400">
             LAN
           </span>
         )}
-        <p className="text-text-muted text-sm">
+        <p className="text-text-muted text-[12px]">
           {t("menu.version")} {webVersion}{(hostVersion || agentVersion) ? ` / 9Remote ${hostVersion || agentVersion}` : ""}
         </p>
       </div>
-
     </div>
   );
 }
