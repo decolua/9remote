@@ -47,9 +47,7 @@ export const viewport = {
     maximumScale: 1,
     userScalable: false,
     interactiveWidget: "resizes-content",
-    // Without cover, env(safe-area-inset-*) is 0 on iOS PWA/Safari and every
-    // --safe-* var collapses — the dock then sits on the home indicator.
-    viewportFit: "cover",
+    // viewportFit: "cover",
     themeColor: "#121212"
 };
 
