@@ -262,6 +262,10 @@ export function onBinary(pm, msg) {
 // Idempotent read/create requests safe to retry over WS upon RTC ack timeout.
 const ACK_RETRY_SAFE = new Set(["getSessions", "getWorkspaces", "bg:get", "bg:list", "ai:create", "ai:peekSeq", "aiSince"]);
 
+// A prompt's ack waits for the host to boot the CLI, so a timeout is not proof the
+// carrier died — probe the ICE path instead of tearing down a healthy peer.
+const SLOW_ACK_EVENTS = new Set(["ai:prompt"]);
+
 export function scheduleAckTimeout(pm, ackId, ctx) {
   const timer = setTimeout(() => {
     pm._ackTimers.delete(ackId);
@@ -271,6 +275,24 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
     const ws = pm._adapters.get("ws");
     // Held for re-admission: the carrier is fine, the host just has not re-admitted yet.
     if (pm._admitQueue?.includes(ackId)) return;
+
+    // Slow-by-design acks: retry over WS when the host dedupes by promptId (a repeat
+    // is a no-op there), otherwise measure ICE traffic before blaming the carrier.
+    if (SLOW_ACK_EVENTS.has(ctx?.event)) {
+      const dedupeSafe = pm._srvCaps?.promptDedupe && ctx.args?.[0]?.promptId;
+      if (cb && ws?.ready && dedupeSafe) {
+        const req = pm._ackReqs?.get(ackId);
+        if (Number.isInteger(req?.sq)) pm._outLog.markAcked(req.sq);
+        pm._ackReqs?.delete(ackId);
+        pm._pendingAcks.delete(ackId);
+        termLog("switch", `ack-timeout ${ctx.event} → retry via ws (slow ack)`);
+        ws.send(CHANNELS.control, { event: ctx.event, args: ctx.args, cb });
+        return;
+      }
+      if (rtc?.ready || rtc?.state === ADAPTER_STATE.open) {
+        probeRtcLiveness(pm, `ack-timeout:${ctx.event}`);
+      }
+    }
 
     // Stream active: the request re-sends itself on whichever carrier is up and
     // the host answers once, so a missing ack is not a zombie signal — leave it
