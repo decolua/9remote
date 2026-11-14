@@ -21,13 +21,11 @@ import { STATUS_BAR_HEIGHT } from "@/shared/constants/layout";
 import { MAX_CHANGED_BADGE, DESKTOP_BREAKPOINT, TERMINAL_BG_ALPHA, TERMINAL_BG_VEIL_RGB, TERMINAL_BG_LIFT_RGB, TERMINAL_BG_LIFT, backgroundSrc, resolvePaneBackground } from "@/features/terminal/constants/terminalConfig";
 import { makePanePointerHandlers } from "@/shared/utils/paneActivation";
 
-// Floating quick-action circles at the pane's top-right: thumb-sized on touch,
-// slimmer on desktop where the hover bg need not carry the whole tap target.
-// Material mirrors the 9love chat chips (glass + specular rim), so the controls
-// read as one family across panes. Exported so the AI pane's cluster is the same
-// cluster, not a lookalike.
+// Floating quick-action circles at the pane's top-right. Material mirrors the
+// 9love chat chips (glass + specular rim), so the controls read as one family
+// across panes. Exported so the AI pane's cluster is the same cluster, not a lookalike.
 export const OVERLAY_BTN_CLS =
-  "p-2 sm:p-1.5 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full transition-all duration-150 ease-out active:scale-[0.94] backdrop-blur-md ring-1 ring-[var(--lg-edge)] shadow-[inset_0_1px_0_var(--lg-rim),var(--lg-lift-chip)]";
+  "p-1.5 bg-surface-2/60 hover:bg-surface-3 text-text rounded-full transition-all duration-150 ease-out active:scale-[0.94] backdrop-blur-md ring-1 ring-[var(--lg-edge)] shadow-[inset_0_1px_0_var(--lg-rim),var(--lg-lift-chip)]";
 export const OVERLAY_ICON_SM = "sm:w-3.5 sm:h-3.5";
 
 // Single terminal pane - XTerm instance only, no header

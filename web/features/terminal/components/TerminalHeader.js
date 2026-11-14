@@ -658,7 +658,7 @@ function TerminalHeader({
             </div>
           ))}
 
-          {isDesktop && onCreateSession && (
+          {onCreateSession && (
             <div className="sticky right-0 z-10 ml-1 pl-1 flex items-center flex-shrink-0 bg-bg">
               <button
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
@@ -672,19 +672,6 @@ function TerminalHeader({
           )}
         </div>
       </div>
-
-      {/* Phone: outside the scrolling strip so tabs never slide under it — no chip
-          needed, and it lines up with the header's other buttons. */}
-      {!isDesktop && onCreateSession && (
-        <button
-          onClick={() => { vibrate(); setCreateModalOpen(true); }}
-          disabled={!connected}
-          className="p-1.5 mr-1 self-center flex-shrink-0 text-text hover:bg-surface-2 hover:text-brand-500 transition duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
-          title={hint(t("terminal.newTerminal"), "newTerminal")}
-        >
-          <Plus size={17} strokeWidth={2.4} />
-        </button>
-      )}
 
       <div className="flex items-center gap-2 flex-shrink-0 self-center">
       {/* GitHub star — re-enable later
