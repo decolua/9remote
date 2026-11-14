@@ -86,10 +86,7 @@ export default function HeroSection() {
               Codex CLI looks like 1995? Claude Code's TUI hurts? Forget them. Same agents, one UI you'll actually love.
             </p>
 
-            <p
-              className="hero-gloss text-sm sm:text-base mb-8 max-w-xl mx-auto lg:mx-0"
-              data-text="Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and every AI harness in one UI: Claude Code, Codex, Cursor & 30+ agents on PC, Web, iPad, or phone."
-            >
+            <p className="hero-gloss text-sm sm:text-base mb-8 max-w-xl mx-auto lg:mx-0">
               Leave your laptop behind. Your entire dev workstation goes wherever you go — remote IDE, 60fps desktop, visual file explorer, live mobile emulator, and every AI harness in one UI: Claude Code, Codex, Cursor & 30+ agents on PC, Web, iPad, or phone.
             </p>
 
@@ -173,25 +170,7 @@ export default function HeroSection() {
           to { opacity: 1; transform: translateY(0); }
         }
         .animate-fade-in-delay-1 { opacity: 0; animation: fadeIn 0.8s ease-out 0.1s forwards; }
-        /* Fading reflection under the paragraph — gloss reads even where the card below overlaps */
-        .hero-gloss { position: relative; color: ${THEME.textDim}; }
-        .hero-gloss::after {
-          content: attr(data-text);
-          position: absolute;
-          top: 100%;
-          left: 0;
-          right: 0;
-          white-space: pre-wrap;
-          transform: scaleY(-1);
-          transform-origin: top;
-          background: linear-gradient(to bottom, ${THEME.textDim}, transparent 40%);
-          -webkit-background-clip: text;
-          background-clip: text;
-          color: transparent;
-          opacity: 0.35;
-          pointer-events: none;
-          user-select: none;
-        }
+        .hero-gloss { color: ${THEME.textDim}; }
         .animate-fade-in-delay-4 { opacity: 0; animation: fadeIn 0.8s ease-out 0.4s forwards; }
         .animate-fade-in-delay-5 { opacity: 0; animation: fadeIn 0.8s ease-out 0.5s forwards; }
         .animate-fade-in-delay-6 { opacity: 0; animation: fadeIn 0.8s ease-out 0.6s forwards; }
