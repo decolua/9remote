@@ -40,10 +40,10 @@ export function makeFileBus(getBus, getProtocol = () => null, getLiveBus = getBu
     bus.emit("readImage", { filePath }, resolve);
   }),
 
-  readMedia: (filePath) => new Promise((resolve) => {
+  readMedia: (filePath, opts = {}) => new Promise((resolve) => {
     const bus = getBus();
     if (!bus) return resolve({ success: false, error: "Not connected" });
-    bus.emit("readMedia", { filePath }, resolve);
+    bus.emit("readMedia", { filePath, maxDim: opts.maxDim }, resolve);
   }),
 
   writeFile: (filePath, content) => new Promise((resolve) => {

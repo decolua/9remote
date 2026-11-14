@@ -56,7 +56,7 @@ function decodeHeicToJpeg(filePath) {
 // MAX_IMAGE_SCALED_SIZE. Tries quality steps, then width steps. Never enlarges.
 // filePath is only needed for formats sharp cannot decode itself (HEIC/HEIF).
 // Returns { buffer, width, height, originalWidth, originalHeight }.
-export async function scaleImageBuffer(input, filePath) {
+export async function scaleImageBuffer(input, filePath, maxWidth = IMAGE_SCALE_MAX_DIM) {
   const buffer = isHeicFile(filePath) ? decodeHeicToJpeg(filePath) : input;
   const meta = await sharp(buffer).metadata();
   // Orientation 5-8 means the stored pixels are rotated 90° from how it displays.
@@ -64,7 +64,8 @@ export async function scaleImageBuffer(input, filePath) {
   const originalWidth = (swapped ? meta.height : meta.width) || 0;
   const originalHeight = (swapped ? meta.width : meta.height) || 0;
   const qualities = [80, 60, 40];
-  const widths = [IMAGE_SCALE_MAX_DIM, 1200, 800];
+  // A caller that asked for a small variant gets exactly that width, not the ladder.
+  const widths = maxWidth >= IMAGE_SCALE_MAX_DIM ? [IMAGE_SCALE_MAX_DIM, 1200, 800] : [maxWidth];
   let out = buffer;
   let outW = originalWidth;
   let outH = originalHeight;
@@ -321,7 +322,7 @@ export function setupFileHandlers(socket) {
 
   // Previewable media (image/video/audio/pdf) as a data URL. Used by every viewer
   // so they share one size cap and MIME table. readImage kept as a back-compat alias.
-  socket.on("readMedia", async ({ filePath }, callback) => {
+  socket.on("readMedia", async ({ filePath, maxDim }, callback) => {
     try {
       if (isSensitivePath(filePath)) return callback({ success: false, error: "Access denied" });
       if (!fs.existsSync(filePath)) return callback({ success: false, error: "File not found" });
@@ -334,7 +335,10 @@ export function setupFileHandlers(socket) {
       if (stat.size > cap) return callback({ success: false, error: `File too large (${formatSize(stat.size)}). Max ${formatSize(cap)}` });
       const buffer = fs.readFileSync(filePath);
       if (isImage) {
-        const scaled = await scaleImageBuffer(buffer, filePath);
+        // Caller-supplied thumbnail width; anything else falls back to the full preview.
+        const requested = Number(maxDim);
+        const maxWidth = Number.isFinite(requested) && requested > 0 ? Math.min(requested, IMAGE_SCALE_MAX_DIM) : IMAGE_SCALE_MAX_DIM;
+        const scaled = await scaleImageBuffer(buffer, filePath, maxWidth);
         const dataUrl = `data:image/jpeg;base64,${scaled.buffer.toString("base64")}`;
         callback({
           success: true,
