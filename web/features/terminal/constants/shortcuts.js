@@ -16,6 +16,7 @@ export const SHORTCUTS = [
   { id: "palette", code: "KeyP", label: "Search files", mac: "⌥⇧P", pc: "Ctrl+Shift+P" },
   { id: "toggleSidebar", code: "KeyB", label: "Toggle sidebar", mac: "⌥⇧B", pc: "Ctrl+Shift+B" },
   { id: "toggleRightPanel", code: "KeyJ", label: "Toggle side panel", mac: "⌥⇧J", pc: "Ctrl+Shift+J" },
+  { id: "reloadApp", code: "KeyR", label: "Reload app", mac: "⌥⇧R", pc: "Ctrl+Shift+R" },
   { id: "help", code: "Slash", label: "Keyboard shortcuts", mac: "⌥⇧/", pc: "Ctrl+Shift+/" }
 ];
 
@@ -38,6 +39,7 @@ export const SHORTCUT_ROWS = [
   SHORTCUTS.find((s) => s.id === "toggleFocus"),
   SHORTCUTS.find((s) => s.id === "toggleSidebar"),
   SHORTCUTS.find((s) => s.id === "toggleRightPanel"),
+  SHORTCUTS.find((s) => s.id === "reloadApp"),
   SHORTCUTS.find((s) => s.id === "palette"),
   SHORTCUTS.find((s) => s.id === "help")
 ].filter(Boolean);
@@ -127,7 +129,7 @@ export function matchShortcut(event) {
     return null;
   }
 
-  // 2. Option+Shift on macOS: shell actions (⌥⇧↵ new terminal, ⌥⇧P palette, ⌥⇧B sidebar, ⌥⇧J side panel, ⌥⇧/ help)
+  // 2. Option+Shift on macOS: shell actions (⌥⇧↵ new terminal, ⌥⇧P palette, ⌥⇧B sidebar, ⌥⇧J side panel, ⌥⇧R reload, ⌥⇧/ help)
   // Note: Option+Shift produces special characters (∏, ı, Ô, ¿) on macOS, so check both code and characters
   if (mac && event.altKey && event.shiftKey && !event.ctrlKey && !event.metaKey) {
     if (isModalInput(event.target)) return null;
@@ -142,6 +144,9 @@ export function matchShortcut(event) {
     }
     if (event.code === "KeyJ" || event.key === "Ô" || event.key === "∆" || event.key?.toLowerCase() === "j") {
       return { id: "toggleRightPanel" };
+    }
+    if (event.code === "KeyR" || event.key === "‰" || event.key?.toLowerCase() === "r") {
+      return { id: "reloadApp" };
     }
     if (event.code === "Slash" || event.key === "?" || event.key === "¿" || event.key === "/") {
       return { id: "help" };
@@ -186,6 +191,7 @@ export function matchShortcut(event) {
     if (event.code === "KeyP" || event.key?.toLowerCase() === "p") return { id: "palette" };
     if (event.code === "KeyB" || event.key?.toLowerCase() === "b") return { id: "toggleSidebar" };
     if (event.code === "KeyJ" || event.key?.toLowerCase() === "j") return { id: "toggleRightPanel" };
+    if (event.code === "KeyR" || event.key?.toLowerCase() === "r") return { id: "reloadApp" };
     if (event.code === "Slash" || event.key === "/" || event.key === "?") return { id: "help" };
   }
 

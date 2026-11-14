@@ -599,6 +599,7 @@ export default function WorkspaceLayout({ children }) {
     toggleRightPanel,
     palette: () => { if (paletteWorkspace) setQuickOpen(true); },
     attentionNext: jumpToNextWaiting,
+    reloadApp: () => window.location.reload(),
     help: openShortcutsModal
   }, isDesktop && isTerminalView);
 

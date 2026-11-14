@@ -1201,6 +1201,7 @@ export default {
     sessionIndex: "Go to terminal 1-9",
     closeTerminal: "Close terminal",
     fitPanes: "Auto-fit panes",
+    reloadApp: "Reload App",
     toggleFocus: "Toggle terminal / input focus",
     newTerminal: "New terminal",
     toggleSidebar: "Toggle sidebar",
