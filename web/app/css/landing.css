@@ -101,7 +101,7 @@
   background-size: 40px 40px;
 }
 :root .landing-grid { opacity: 0.04; }
-:root.light .landing-grid { opacity: 0.08; }
+:root.light .landing-grid { opacity: 0.05; }
 
 /* :root .landing-glow-1 { background: rgba(255, 87, 10, 0.09); }
 :root .landing-glow-2 { background: rgba(255, 87, 10, 0.06); }
@@ -140,8 +140,8 @@
 }
 :root.light .landing-light {
   background:
-    radial-gradient(820px 620px at 18% 12%, rgba(0,0,0,.05), transparent 60%),
-    radial-gradient(720px 540px at 86% 78%, rgba(0,0,0,.03), transparent 65%);
+    radial-gradient(820px 620px at 18% 12%, rgba(0,0,0,.04), transparent 60%),
+    radial-gradient(720px 540px at 86% 78%, rgba(0,0,0,.02), transparent 65%);
   opacity: .55;
 }
 @keyframes landingLightDrift {
@@ -157,8 +157,8 @@
 }
 :root.light .login-hero-glow {
   background:
-    radial-gradient(900px 700px at 58% 30%, rgba(0,0,0,.06), transparent 62%),
-    radial-gradient(1100px 800px at 12% 95%, rgba(0,0,0,.03), transparent 68%);
+    radial-gradient(900px 700px at 58% 30%, rgba(0,0,0,.04), transparent 62%),
+    radial-gradient(1100px 800px at 12% 95%, rgba(0,0,0,.02), transparent 68%);
 }
 @keyframes loginGlowDrift {
   0%   { transform: translate3d(-1.5%, -1%, 0) scale(1.04); opacity: .8; }
@@ -175,7 +175,7 @@
 }
 :root.light .login-mobile-glow {
   background:
-    radial-gradient(480px 360px at 70% 22%, rgba(0,0,0,.06), transparent 62%),
-    radial-gradient(420px 320px at 20% 88%, rgba(0,0,0,.03), transparent 66%);
+    radial-gradient(480px 360px at 70% 22%, rgba(0,0,0,.04), transparent 62%),
+    radial-gradient(420px 320px at 20% 88%, rgba(0,0,0,.02), transparent 66%);
 }
 

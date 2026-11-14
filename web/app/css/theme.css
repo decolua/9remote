@@ -33,6 +33,7 @@
   --color-surface-3: var(--surface-3);
   --color-border: var(--border);
   --color-border-subtle: var(--border-subtle);
+  --color-border-composer: var(--border-composer);
   --color-text: var(--text);
   --color-text-muted: var(--text-muted);
   --color-text-subtle: var(--text-subtle);

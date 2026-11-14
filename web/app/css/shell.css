@@ -188,6 +188,10 @@
   color: var(--text);
   background: color-mix(in srgb, var(--surface-2) 40%, transparent);
 }
+/* Phone: no dividers between tabs — the strip is one continuous veil. */
+.term-tab.term-tab-flat {
+  border-right: 0;
+}
 .term-tab-active {
   color: var(--text);
   font-weight: 600;
@@ -301,6 +305,11 @@ html.light .term-tab-active,
    background alone reveals the animated backdrop with none of that. */
 .terminal-header-glass {
   background-color: color-mix(in srgb, var(--bg) 84%, transparent);
+}
+/* Phone terminal header: lighter tint so the wallpaper reads through it while the
+   strip still reads as a bar. No backdrop-filter, same fixed-menu reason as above. */
+.terminal-header-veil {
+  background-color: color-mix(in srgb, var(--bg) 62%, transparent);
 }
 .statusbar-glass {
   background-color: color-mix(in srgb, var(--surface) 84%, transparent);

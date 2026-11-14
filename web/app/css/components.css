@@ -31,7 +31,7 @@
   /* Under the light and the grain, which are the pseudo-elements above. */
   z-index: 0;
 }
-:root.light .cine-bg > .cine-grid { opacity: .08; }
+:root.light .cine-bg > .cine-grid { opacity: .05; }
 
 /* Light: the same two sources the login screen uses, so the app opens on the surface
    the user just arrived from, plus a vignette to give that pool of light an edge. */
@@ -62,9 +62,9 @@
 
 :root.light .cine-bg::before {
   background:
-    radial-gradient(480px 360px at 70% 22%, rgba(0,0,0,.06), transparent 62%),
-    radial-gradient(420px 320px at 20% 88%, rgba(0,0,0,.03), transparent 66%),
-    radial-gradient(140% 110% at 50% 50%, transparent 50%, rgba(0,0,0,.08) 100%);
+    radial-gradient(480px 360px at 70% 22%, rgba(230,138,110,.05), transparent 62%),
+    radial-gradient(420px 320px at 20% 88%, rgba(120,140,180,.04), transparent 66%),
+    radial-gradient(140% 110% at 50% 50%, transparent 50%, rgba(0,0,0,.06) 100%);
 }
 :root.light .cine-bg::after {
   opacity: .3;

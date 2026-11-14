@@ -49,6 +49,11 @@
   background: rgba(0, 0, 0, 0.6);
   backdrop-filter: blur(2px);
 }
+/* Light dialogs are a translucent WHITE plate — a deep scrim would bleed through
+   the tint as grey mud, so light dims the page far less. */
+:root.light .scrim {
+  background: rgba(15, 23, 42, 0.28);
+}
 
 /* Pickable row inside a modal list (MCP servers, models, skills, sessions…). A hairline
    border on every row turned a list into a stack of boxes; the row stays flat until the

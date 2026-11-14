@@ -35,7 +35,7 @@
   background-size: 40px 40px;
   opacity: .04;
 }
-:root.light .empty-stage > .empty-grid { opacity: .08; }
+:root.light .empty-stage > .empty-grid { opacity: .05; }
 .empty-stage::before {
   content: "";
   position: absolute; inset: 0; z-index: 1; pointer-events: none;
@@ -58,12 +58,12 @@
 }
 :root.light .empty-stage::before {
   background:
-    radial-gradient(480px 360px at 22% 18%, rgba(0,0,0,.06), transparent 62%),
-    radial-gradient(420px 320px at 84% 82%, rgba(0,0,0,.03), transparent 66%);
-  opacity: .8;
+    radial-gradient(480px 360px at 22% 18%, rgba(230,138,110,.06), transparent 62%),
+    radial-gradient(420px 320px at 84% 82%, rgba(120,140,180,.04), transparent 66%);
+  opacity: .9;
 }
 :root.light .empty-stage::after {
-  background: radial-gradient(140% 110% at 50% 50%, transparent 50%, rgba(0,0,0,.08) 100%);
+  background: radial-gradient(140% 110% at 50% 50%, transparent 50%, rgba(0,0,0,.06) 100%);
 }
 /* Poster half: one tappable half of the stage, content centred like the mock */
 .empty-half {

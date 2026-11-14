@@ -6,6 +6,7 @@
   --surface-3: #2a2a2a;
   --border: rgba(255, 255, 255, 0.16);
   --border-subtle: rgba(255, 255, 255, 0.12);
+  --border-composer: rgba(255, 255, 255, 0.12);
   --text: #fafafa;
   --text-muted: #a1a1a1;
   --text-subtle: #737373;
@@ -111,15 +112,16 @@
 
 /* Light theme override - GitBook style */
 :root.light {
-  --bg: #FCFBF9;
+  --bg: #F2F1ED;
   --surface: #ffffff;
-  --surface-2: #f4f4f5;
-  --surface-3: #e7e7e9;
-  --border: #e5e7eb;
-  --border-subtle: #e9e9ec;
+  --surface-2: #ECEBE7;
+  --surface-3: #E1E0DC;
+  --border: #DEDFE2;
+  --border-subtle: #E5E4E0;
+  --border-composer: #D4D3CE;
   --text: #0a0a0a;
-  --text-muted: #6B7280;
-  --text-subtle: #9CA3AF;
+  --text-muted: #565D6A;
+  --text-subtle: #646C7A;
   --danger: #cf222e;
   --success: #10B981;
   --warning: #B45309;
@@ -127,32 +129,32 @@
   --danger-rgb: 207, 34, 46;
   --warning-rgb: 180, 83, 9;
   /* Glass card: near-opaque on light — blur has nothing to frost onto there */
-  --card-glass-bg: rgba(255,255,255,0.92);
-  --card-glass-border: #e5e7eb;
+  --card-glass-bg: rgba(255,255,255,0.86);
+  --card-glass-border: #DEDFE2;
   --card-shine: inset 0 1px 0 rgba(255,255,255,0.9);
 
-  /* Liquid glass — light needs a HIGHER white alpha: there is no dark backdrop
-     to lift away from, so the frosted plate itself carries the separation. */
+  /* Liquid glass — light keeps the tint below the page brightness so the warm
+     ground reads through; the bright top rim + dark hairline carry the edge. */
   --lg-blur: 20px;
   --lg-blur-drawer: 28px;
-  --lg-sat: 1.8;
-  --lg-tint-dialog: rgba(255,255,255,0.70);
-  --lg-tint-menu: rgba(255,255,255,0.76);
-  --lg-tint-drawer: rgba(255,255,255,0.86);
-  --lg-tint-panel: rgba(255,255,255,0.90);
-  --lg-rim: rgba(255,255,255,0.95);
-  --lg-edge: rgba(20,20,24,0.08);
-  --lg-shade: rgba(0,0,0,0.05);
-  --lg-sheen: linear-gradient(180deg, rgba(255,255,255,0.36), rgba(255,255,255,0) 55%);
-  --lg-lift-dialog: 0 20px 50px -12px rgba(15,23,42,0.22), 0 2px 8px rgba(15,23,42,0.08);
-  --lg-lift-menu: 0 16px 36px -6px rgba(15,23,42,0.18);
-  --lg-tint-card: rgba(255,255,255,0.74);
+  --lg-sat: 1.45;
+  --lg-tint-dialog: rgba(255,255,255,0.88);
+  --lg-tint-menu: rgba(255,255,255,0.90);
+  --lg-tint-drawer: rgba(255,255,255,0.80);
+  --lg-tint-panel: rgba(255,255,255,0.86);
+  --lg-rim: rgba(255,255,255,0.90);
+  --lg-edge: rgba(20,20,24,0.10);
+  --lg-shade: rgba(0,0,0,0.08);
+  --lg-sheen: linear-gradient(135deg, rgba(255,255,255,0.55), rgba(255,255,255,0.08) 30%, rgba(255,255,255,0) 58%);
+  --lg-lift-dialog: 0 20px 50px -12px rgba(15,23,42,0.24), 0 2px 8px rgba(15,23,42,0.10);
+  --lg-lift-menu: 0 16px 36px -6px rgba(15,23,42,0.20);
+  --lg-tint-card: rgba(255,255,255,0.70);
   --lg-lift-card: 0 4px 20px rgba(0,0,0,0.04), 0 1px 3px rgba(0,0,0,0.03);
   --lg-hairline: rgba(60,60,67,0.14);
   --lg-blur-bar: 26px;
-  --lg-tint-bar: color-mix(in srgb, #ffffff 74%, transparent);
-  --lg-sheen-strong: linear-gradient(180deg, rgba(255,255,255,0.72), rgba(255,255,255,0) 66%);
-  --lg-lift-bar: 0 12px 30px rgba(0,0,0,0.14), 0 3px 8px rgba(0,0,0,0.08);
+  --lg-tint-bar: color-mix(in srgb, #ffffff 64%, transparent);
+  --lg-sheen-strong: linear-gradient(135deg, rgba(255,255,255,0.62), rgba(255,255,255,0.10) 32%, rgba(255,255,255,0) 64%);
+  --lg-lift-bar: 0 12px 30px rgba(0,0,0,0.16), 0 3px 8px rgba(0,0,0,0.09);
   --nav-accent: #a4492f;
   --nav-accent-soft: rgba(164,73,47,0.10);
 
@@ -175,15 +177,16 @@
   color-scheme: light;
   --brand-rgb: 230, 138, 110;
 
-  /* GitBook-style softer brand (terracotta) for light mode */
-  --color-brand-50: #fdf3ed;
-  --color-brand-100: #fbe2d4;
-  --color-brand-200: #f5c4a8;
-  --color-brand-300: #efa685;
-  --color-brand-400: #ea9577;
-  --color-brand-500: #E68A6E;
-  --color-brand-600: #d77459;
-  --color-brand-700: #b85d44;
-  --color-brand-800: #8a4332;
-  --color-brand-900: #5c2c21;
+  /* GitBook-style softer brand (terracotta) for light mode — deep enough for
+     accent text to clear 4.5:1 on the warm ground. */
+  --color-brand-50: #fdf1ea;
+  --color-brand-100: #f8ddcd;
+  --color-brand-200: #f0c0a6;
+  --color-brand-300: #e09a78;
+  --color-brand-400: #d2704c;
+  --color-brand-500: #B44C2B;
+  --color-brand-600: #9a3f22;
+  --color-brand-700: #7e341c;
+  --color-brand-800: #622815;
+  --color-brand-900: #471c0e;
 }
