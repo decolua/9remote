@@ -183,7 +183,13 @@ export function setupGitHandlers(socket) {
     if (!rootPath) return callback({ success: false, error: "rootPath required" });
     if (isSensitivePath(rootPath)) return callback({ success: false, error: "Access denied" });
     try {
-      const found = scanReposCached(rootPath, maxDepth ? { maxDepth } : {});
+      const found = [...scanReposCached(rootPath, maxDepth ? { maxDepth } : {})];
+      // A root that sits INSIDE a repo (subdirectory workspace, a pane's deep cwd) has
+      // no repo at or below it; count the containing repo so the aggregate is not 0.
+      const containing = findGitRoot(rootPath);
+      if (containing && !found.some((repo) => path.resolve(repo.path) === path.resolve(containing))) {
+        found.push({ path: containing, relPath: "", depth: 0 });
+      }
       const results = await Promise.all(found.map(async (repo) => [repo.path, await changedCountCached(repo.path, !!force)]));
       const perRepo = {};
       let count = 0;
