@@ -53,7 +53,7 @@ export default function WorktreePanel({ workspacePath, fileBus, homeDir, onNewTe
   const afterChange = () => {
     setError(null);
     load();
-    refreshWorkspaceGit(workspacePath);
+    refreshWorkspaceGit(workspacePath, fileBus);
     onChanged?.();
   };
 

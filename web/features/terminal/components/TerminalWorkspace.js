@@ -514,7 +514,12 @@ function TerminalWorkspace({
     );
   };
 
-  const renderKeyboard = (sessionId) => (
+  const renderKeyboard = (sessionId) => {
+    // Same host + workspace root as the pane, so the strip's count reads the shared
+    // snapshot for the machine the terminal actually runs on.
+    const stripSession = sessions.find((s) => s.id === sessionId);
+    const stripFileBus = stripSession?.hostKey ? connOf(stripSession.hostKey).fileBus : activeFileBus;
+    return (
     <MobileKeyboard
       bus={busFor(sessionId)}
       sessionId={sessionId}
@@ -531,12 +536,15 @@ function TerminalWorkspace({
       statusStrip={(
         <MobileStatusStrip
           sessionId={sessionId}
+          fileBus={stripFileBus}
+          workspacePath={stripSession?.workspacePath || null}
           busRef={activeBusRef}
           onReveal={handleRevealCwd}
         />
       )}
     />
-  );
+    );
+  };
 
   // Pair/welcome overlay covers the whole content column: drop the header and
   // display:none the panes so nothing paints or runs underneath it.
@@ -906,6 +914,7 @@ function TerminalWorkspace({
       {isDesktop && !showEmptyState && (
         <TerminalStatusBar
           cwd={activeSessionId ? (cwdBySession[activeSessionId] || activeSession?.cwd || activeWorkspace?.path || "") : ""}
+          workspacePath={activeSession?.workspacePath || activeWorkspace?.path || null}
           sessionId={activeSessionId}
           hostKey={activeSession?.hostKey || null}
           sessionName={activeSession ? activeSession?.name : ""}

@@ -1,6 +1,7 @@
 "use client";
 
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
+import { countAt, useWorkspaceChangedCount } from "../hooks/useWorkspaceChangedCount";
 import { shortenHomePath } from "../lib/workspaceGrouping";
 import { isDefaultBranch } from "../constants/terminalConfig";
 import BranchBadge from "./BranchBadge";
@@ -14,7 +15,10 @@ const tailOf = (p) => (p.split("/").length > 2 ? `…/${p.split("/").slice(-2).j
 // already says which one it is. A default branch (main/master) is the norm, not
 // information, so it stays hidden.
 export function SessionMeta({ fileBus, cwd, basePath, homeDir, mobile = false }) {
-  const { branch, dirty } = useWorkspaceGit(cwd, fileBus);
+  const { branch } = useWorkspaceGit(cwd, fileBus);
+  // Dirty dot reads the workspace's shared count snapshot, scoped to this cwd's repo.
+  const { count, perRepo } = useWorkspaceChangedCount(basePath || cwd, fileBus, { enabled: !!cwd });
+  const dirty = countAt(perRepo, cwd, count) > 0;
   const showBranch = !!branch && !isDefaultBranch(branch);
   // Priority order: off-default branch (a worktree) → live folder relative to the
   // workspace root → shortened path when the cwd left the workspace. Parked at the

@@ -5,6 +5,7 @@ import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
 import IconMenu from "@/shared/components/ui/IconMenu";
 import { useWorkspaceGit } from "../hooks/useWorkspaceGit";
+import { useWorkspaceChangedCount } from "../hooks/useWorkspaceChangedCount";
 import { workspaceGitPath } from "../lib/workspaceGrouping";
 import { isDefaultBranch } from "../constants/terminalConfig";
 import { statusCounts, statusVisual } from "@/shared/utils/statusVisual";
@@ -29,7 +30,10 @@ export default function WorkspaceHeader({
   const gitPath = workspaceGitPath(workspace);
   // No fileBus (another host's tree) must NOT fall back to the main host's bus —
   // that would scan this workspace's path on the wrong machine.
-  const { branch, dirty } = useWorkspaceGit(gitPath, fileBus, { enabled: !!fileBus });
+  const { branch } = useWorkspaceGit(gitPath, fileBus, { enabled: !!fileBus });
+  // Dirty dot is derived from the same count snapshot as the pane and git panel badges.
+  const { count } = useWorkspaceChangedCount(gitPath, fileBus, { enabled: !!fileBus });
+  const dirty = count > 0;
   // A closed workspace still has to answer "what's running in here?" — one dot per
   // present state, in the same language as a session row's dot.
   const rolled = !collapsed

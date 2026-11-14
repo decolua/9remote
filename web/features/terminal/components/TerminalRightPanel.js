@@ -268,7 +268,7 @@ function TerminalRightPanel({
               refresh();
               treeActions?.refresh?.();
               // Force (bypass TTL) so the badge numbers go live on this very click.
-              refreshWorkspaceChangedCount(workspacePath);
+              refreshWorkspaceChangedCount(workspacePath, activeFileBus);
               window.dispatchEvent(new Event(GIT_REFRESH_EVENT));
             }}
             disabled={scanning}

@@ -21,6 +21,7 @@ import { useConnectionStore } from "@/shared/stores/connectionStore";
 import { connOf, useHostConn, useSessionStatus } from "@/shared/transport/hostConn";
 import { useNotificationStore } from "@/shared/stores/notificationStore";
 import { useWorkspaceGit } from "@/features/terminal/hooks/useWorkspaceGit";
+import { countAt, useWorkspaceChangedCount } from "@/features/terminal/hooks/useWorkspaceChangedCount";
 import { pollWhileVisible } from "@/shared/utils/visibilityPoll";
 import { shortenHomePath } from "@/features/terminal/lib/workspaceGrouping";
 
@@ -79,9 +80,12 @@ function useRotatingPage(pageCount, { pinnedIndex = -1, paused = false } = {}) {
 // Mobile strip above the keyboard input, shown only while the soft keyboard is closed.
 // Width is scarce: branch + changed stay pinned on the left, and the right slot
 // alternates between the cwd's leaf folder and the running CLI's 5h quota.
-export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal }) {
+export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fileBus, busRef, onReveal, workspacePath = null }) {
   const cwd = useTerminalStore((s) => s.cwdBySession[sessionId]) || "";
-  const { branch, changedCount } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
+  const { branch } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
+  // Counts come from the workspace's single shared snapshot; a cwd inside a nested
+  // repo reads that repo's number, not the whole workspace's.
+  const { count, perRepo } = useWorkspaceChangedCount(workspacePath || cwd, fileBus, { enabled: !!cwd });
   const quota = useSessionQuota(sessionId, busRef);
   const [paused, setPaused] = useState(false);
 
@@ -137,6 +141,8 @@ export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fi
     : -1;
   const [pageIndex] = useRotatingPage(pages.length, { pinnedIndex: pinned, paused });
 
+  const changedCount = countAt(perRepo, cwd, count);
+
   return (
     <div className="flex items-center justify-between gap-2 px-3 h-6 border-t border-border-subtle text-[10px] text-text-subtle bg-bg flex-shrink-0">
       {branch && (
@@ -159,6 +165,7 @@ export const MobileStatusStrip = memo(function MobileStatusStrip({ sessionId, fi
 // connection/state on the right. The shell comes from the shared StatusBar.
 function TerminalStatusBar({
   cwd,
+  workspacePath = null,
   sessionId,
   hostKey = null,
   sessionState: propState,
@@ -190,9 +197,11 @@ function TerminalStatusBar({
   const displayTitle = sessionName || "—";
   const agentIcon = agentId ? agentIconUrl(agentId) : null;
 
-  // Branch + changed come from the shared ref-counted poll — one round-trip per unique
-  // path, shared with the mobile strip, instead of two parallel pollers here.
-  const { branch, changedCount: changed } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
+  // Branch is polled per path; the count comes from the workspace's single shared
+  // snapshot, scoped to the repo containing this cwd.
+  const { branch } = useWorkspaceGit(cwd, fileBus, { enabled: !!cwd });
+  const { count, perRepo } = useWorkspaceChangedCount(workspacePath || cwd, fileBus, { enabled: !!cwd });
+  const changed = countAt(perRepo, cwd, count);
 
   const v = statusVisual(sessionState);
   const stateLabel = sessionState === "working"
