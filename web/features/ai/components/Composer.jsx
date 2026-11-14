@@ -914,7 +914,7 @@ export const Composer = memo(function Composer({
 
       <VoicePill voice={voice} onDone={handleVoiceDone} onCancel={handleVoiceCancel} className="mb-1.5" />
 
-      <div className="relative rounded-brand border border-border-subtle/80 bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
+      <div className="relative rounded-brand border border-border-composer bg-transparent focus-within:border-brand-500 transition-colors px-2.5 py-1 flex flex-col gap-1">
         {attachments.length > 0 && (
           <div className="flex gap-1.5 overflow-x-auto scroll-thin-x pt-0.5">
             {attachments.map((att) => (

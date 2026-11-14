@@ -15,7 +15,7 @@ const applyClass = (theme) => {
     const win = window.__TAURI__?.window?.getCurrentWindow?.();
     if (win) {
       win.setTheme?.(theme)?.catch?.(() => {});
-      win.setBackgroundColor?.(theme === "light" ? "#e7e7e9" : "#2a2a2a")?.catch?.(() => {});
+      win.setBackgroundColor?.(theme === "light" ? "#F2F1ED" : "#2a2a2a")?.catch?.(() => {});
     }
   } catch {}
 };
