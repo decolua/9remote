@@ -91,6 +91,7 @@ export default function WorkspaceLayout({ children }) {
 
   const {
     viewStack,
+    agentBySession,
     openedSessions,
     pushView,
     popView: storePopView,
@@ -185,6 +186,7 @@ export default function WorkspaceLayout({ children }) {
     artifactTitle: s.artifactTitle,
     pushArtifact: s.pushArtifact,
     removeArtifact: s.removeArtifact,
+    agentBySession: s.agentBySession,
   })));
 
   const router = useRouter();
@@ -997,12 +999,18 @@ export default function WorkspaceLayout({ children }) {
   const remoteEntry = connected && remoteAvailable ? handleOpenRemote : null;
   const mobileEntry = connected && mobileAvailable ? handleOpenMobile : null;
 
+  // Screens whose canvas is the chat canvas: the session list, and a chat-UI session
+  // (its pane goes transparent so this is the only layer). Both paint it full-bleed
+  // here, outside .terminal-container, so it also covers the safe area.
+  const shellCanvas = !isDesktop && (
+    currentView.type === "list" ||
+    (currentView.type === "terminal" && !!agentBySession?.[currentView.sessionId]?.endsWith("-ui"))
+  );
+
   return (
     <>
       <AnimatedBackground />
-      {/* The list's canvas is painted here, outside .terminal-container, so it also
-          covers the safe-area strip — the landing grid would otherwise show there. */}
-      {!isDesktop && currentView.type === "list" && (
+      {shellCanvas && (
         <div
           aria-hidden
           className="fixed inset-0 pointer-events-none"

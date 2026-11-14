@@ -425,7 +425,7 @@ function TerminalHeader({
   }, [isActive, connected, onOpenRemote, onOpenFiles, onLogout, tunnelUrl, apiKey, connectionMode, hostVersion, agentVersion, busRef, carrier, subscribeToPush, unsubscribeFromPush, setContext, setCallbacks]);
 
   return (
-    <div className={`terminal-header-glass h-9 ${PANEL_HEADER_H_CLASS} px-2 sm:pl-0 sm:pr-2 flex items-stretch gap-0 flex-shrink-0 border-b border-border-subtle`}>
+    <div className={`${isDesktop ? "terminal-header-glass border-b border-border-subtle" : "terminal-header-veil"} h-9 ${PANEL_HEADER_H_CLASS} px-2 sm:pl-0 sm:pr-2 flex items-stretch gap-0 flex-shrink-0`}>
       {onToggleSidebar && sidebarCollapsed && (
         <button
           onClick={() => { vibrate(); onToggleSidebar(); }}
@@ -492,7 +492,7 @@ function TerminalHeader({
                 onTouchStart={(e) => handleTabTouchStart(e, session)}
                 onTouchMove={clearTabLongPress}
                 onTouchEnd={clearTabLongPress}
-                className={`term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
+                className={`term-tab ${isDesktop ? "" : "term-tab-flat"} group relative px-1.5 sm:px-2.5 text-xs font-medium duration-150 ease-out flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
                   isActiveTab ? "term-tab-active" : ""
                 } ${isHidden ? "opacity-75 hover:opacity-100" : ""} ${dragId === session.id ? "z-20 opacity-90 shadow-lg" : "transition"}`}
               >
@@ -583,7 +583,7 @@ function TerminalHeader({
                     pushView({ type: "browser" });
                   }
                 }}
-                className={`term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
+                className={`term-tab ${isDesktop ? "" : "term-tab-flat"} group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation touch-pan-x ${
                   isActive ? "term-tab-active" : ""
                 }`}
               >
@@ -634,7 +634,7 @@ function TerminalHeader({
                   pickAgentTab(tab);
                 }
               }}
-              className="term-tab group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation"
+              className={`term-tab ${isDesktop ? "" : "term-tab-flat"} group relative px-1.5 sm:px-2.5 text-xs font-medium flex items-center gap-1 sm:gap-2 whitespace-nowrap h-full cursor-pointer select-none touch-manipulation`}
               data-tip={`${tab.title || "Agent tab"} (${tab.profile})`}
             >
               <div className="w-3.5 h-3.5 flex items-center justify-center shrink-0">
@@ -658,7 +658,7 @@ function TerminalHeader({
             </div>
           ))}
 
-          {onCreateSession && (
+          {isDesktop && onCreateSession && (
             <div className="sticky right-0 z-10 ml-1 pl-1 flex items-center flex-shrink-0 bg-bg">
               <button
                 onClick={() => { vibrate(); setCreateModalOpen(true); }}
@@ -672,6 +672,19 @@ function TerminalHeader({
           )}
         </div>
       </div>
+
+      {/* Phone: outside the scrolling strip so tabs never slide under it — no chip
+          needed, and it lines up with the header's other buttons. */}
+      {!isDesktop && onCreateSession && (
+        <button
+          onClick={() => { vibrate(); setCreateModalOpen(true); }}
+          disabled={!connected}
+          className="p-1.5 mr-1 self-center flex-shrink-0 text-text hover:bg-surface-2 hover:text-brand-500 transition duration-150 ease-out active:scale-[0.94] disabled:opacity-40 disabled:cursor-not-allowed rounded-brand"
+          title={hint(t("terminal.newTerminal"), "newTerminal")}
+        >
+          <Plus size={17} strokeWidth={2.4} />
+        </button>
+      )}
 
       <div className="flex items-center gap-2 flex-shrink-0 self-center">
       {/* GitHub star — re-enable later

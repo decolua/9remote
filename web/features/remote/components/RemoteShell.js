@@ -90,6 +90,7 @@ export default function RemoteShell({
       </div>
 
       <Controls
+        transparent={!!canvasStyle}
         streaming={s.streaming}
         canvasZoom={s.canvasZoom}
         clipboardNew={clipboard.isNew}

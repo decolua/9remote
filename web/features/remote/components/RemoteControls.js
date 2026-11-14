@@ -62,7 +62,8 @@ export default function RemoteControls({
   onDesktopSwitch,
   controlsHidden,
   onToggleControlsHidden,
-  tallLandscape
+  tallLandscape,
+  transparent = false
 }) {
   const { t, locale } = useI18n();
   const panelInputRef = useRef(null);
@@ -181,7 +182,7 @@ export default function RemoteControls({
   };
 
   return (
-    <div className={`bg-bg select-none relative landscape:flex landscape:flex-col landscape:shrink-0 ${tallLandscape || controlsHidden ? "" : "landscape:h-full landscape:justify-end"} ${controlsHidden ? "landscape:w-12" : tallLandscape ? "landscape:w-full landscape:pl-12" : "landscape:w-64"}`}>
+    <div className={`${transparent ? "" : "bg-bg"} select-none relative landscape:flex landscape:flex-col landscape:shrink-0 ${tallLandscape || controlsHidden ? "" : "landscape:h-full landscape:justify-end"} ${controlsHidden ? "landscape:w-12" : tallLandscape ? "landscape:w-full landscape:pl-12" : "landscape:w-64"}`}>
       {/* Hidden sink drives native keyboard. */}
       <textarea
         ref={textInputRef}
