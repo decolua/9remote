@@ -60,7 +60,7 @@ export default function TerminalEmptyState({ onAddWorkspace, onOpenRemote, recen
 
   return (
     <div className="h-full w-full empty-stage empty-stage-h">
-      <div className="empty-grid" />
+      <div className="empty-icons" />
 
       <button
         onClick={() => { vibrate(); onAddWorkspace?.(); }}

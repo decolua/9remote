@@ -120,7 +120,7 @@ export default function RemoteDesktop({
         // wait reads as part of the app rather than a bare spinner.
         placeholder={(
           <div className="flex-1 min-w-0 empty-stage">
-            <div className="empty-grid" />
+            <div className="empty-icons" />
             <div className="empty-half">
               <span className="empty-idx"><b>01</b> / {t("workspaces.emptyTagRemote")}</span>
               <span className="empty-word login-hero-grad">{t("workspaces.emptyWordRemote")}</span>

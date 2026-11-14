@@ -34,7 +34,7 @@ export default function ReconnectScreen({ label, inline = false }) {
   return (
     <div className={`${inline ? "absolute inset-0 z-10" : "fixed inset-0 z-40"} flex items-center justify-center fade-in`}>
       <div className="cine-bg" aria-hidden>
-        <div className="cine-grid" />
+        <div className="cine-icons" />
       </div>
       <div className="relative z-10 flex flex-col items-center gap-3 px-6 text-center">
         <div className="flex items-center gap-2">

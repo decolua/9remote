@@ -94,14 +94,13 @@
 .landing-bg {
   background-color: var(--color-bg);
 }
-.landing-grid {
-  background-image:
-    linear-gradient(to right, var(--color-accent) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-accent) 1px, transparent 1px);
-  background-size: 40px 40px;
+/* Icon tile — the same hand-drawn wallpaper the chat canvas uses. Its alpha is
+   already baked into the tile, so the layer needs no opacity of its own. */
+.landing-icons {
+  background-image: var(--ai-wallpaper);
+  background-size: var(--ai-wallpaper-size);
+  background-repeat: repeat;
 }
-:root .landing-grid { opacity: 0.04; }
-:root.light .landing-grid { opacity: 0.05; }
 
 /* :root .landing-glow-1 { background: rgba(255, 87, 10, 0.09); }
 :root .landing-glow-2 { background: rgba(255, 87, 10, 0.06); }

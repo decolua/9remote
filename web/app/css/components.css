@@ -18,20 +18,17 @@
   background-color: var(--color-bg);
 }
 
-/* The login page's grid, at its pitch and its own faint strength — its opacity has to
-   be separate from the grain's, which sits an order of magnitude stronger. */
-.cine-bg > .cine-grid {
+/* Icon tile (same wallpaper as the chat canvas) — its alpha is baked into the tile,
+   so this layer adds no opacity of its own. */
+.cine-bg > .cine-icons {
   position: absolute;
   inset: 0;
-  background-image:
-    linear-gradient(to right, var(--color-accent) 1px, transparent 1px),
-    linear-gradient(to bottom, var(--color-accent) 1px, transparent 1px);
-  background-size: 40px 40px;
-  opacity: .04;
+  background-image: var(--ai-wallpaper);
+  background-size: var(--ai-wallpaper-size);
+  background-repeat: repeat;
   /* Under the light and the grain, which are the pseudo-elements above. */
   z-index: 0;
 }
-:root.light .cine-bg > .cine-grid { opacity: .05; }
 
 /* Light: the same two sources the login screen uses, so the app opens on the surface
    the user just arrived from, plus a vignette to give that pool of light an edge. */
