@@ -22,8 +22,9 @@ export const STREAM_RESYNC_MIN_MS = 750;
 // Wire refused a frame (backpressure): pause decoding/diffing a beat instead
 // of re-encoding the same CDP frame at screencast rate.
 export const STREAM_REFUSED_BACKOFF_MS = 500;
-// Tile grid for frame diffing — matches the remote desktop pipeline (128px on
-// darwin). Tiles ride the wire in remote's encodeTilesBatch format verbatim.
+// Base tile grid for frame diffing — matches remote desktop's darwin tile size.
+// Past REMOTE_CONFIG.pipeline.maxTiles the grid grows its tiles (computeTileSize).
+// Tiles ride the wire in remote's encodeTilesBatch format verbatim.
 export const BROWSER_TILE_SIZE = 128;
 // Hybrid: when this share of the grid changed, re-encoding every tile costs
 // more than it saves — forward Chrome's own jpeg instead (zero re-encode).

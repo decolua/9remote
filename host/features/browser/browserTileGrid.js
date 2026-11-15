@@ -6,7 +6,8 @@
 import sharp from "sharp";
 import { REMOTE_CONFIG } from "../remote/REMOTE_CONFIG.js";
 import { encodeJpeg } from "../remote/adapters/encoderAdapter.js";
-import { STREAM_TILE_QUALITY_BOOST, STREAM_TILE_QUALITY_MAX, STREAM_TILE_SHARP_OPTS } from "./constants.js";
+import { mapLimit } from "../remote/utils/mapLimit.js";
+import { BROWSER_TILE_SIZE, STREAM_TILE_QUALITY_BOOST, STREAM_TILE_QUALITY_MAX, STREAM_TILE_SHARP_OPTS } from "./constants.js";
 
 // Sheared sampling: catch 1px vertical carets that a plain grid can miss.
 const { rowStep, colStep } = REMOTE_CONFIG.pipeline.checksumSampling;
@@ -69,15 +70,39 @@ export async function decodeJpegRaw(jpeg) {
   return { data, width: info.width, height: info.height, channels: 4 };
 }
 
+/** Tile size for a raster — same ceiling as Remote Desktop: past maxTiles, tiles grow. */
+export function computeTileSize(width, height) {
+  const base = Math.max(16, BROWSER_TILE_SIZE | 0);
+  const { maxTiles, minTileSize } = REMOTE_CONFIG.pipeline;
+  if (Math.ceil(width / base) * Math.ceil(height / base) <= maxTiles) return base;
+  return Math.max(Math.ceil(Math.sqrt((width * height) / maxTiles)), minTileSize);
+}
+
+/** One reusable buffer per encode slot, so a frame does not allocate a tile buffer per tile. */
+export function createScratchPool(limit = REMOTE_CONFIG.pipeline.tileConcurrency) {
+  const buffers = new Array(Math.max(1, limit | 0));
+  return (slotId, bytes) => {
+    const slot = Math.max(0, slotId | 0);
+    const current = buffers[slot];
+    if (current && current.length >= bytes) return current.subarray(0, bytes);
+    const next = Buffer.allocUnsafe(bytes);
+    buffers[slot] = next;
+    return next;
+  };
+}
+
 /** Encode the changed tiles into remote-desktop tile objects. */
-export async function buildTilesBatch(frame, grid, indices, hashes, quality) {
+export async function buildTilesBatch(frame, grid, indices, hashes, quality, getScratch = null) {
   // Second lossy generation: boost quality + keep full chroma so the tile
   // never looks softer than the Chrome jpeg it was decoded from.
   const q = Math.min(STREAM_TILE_QUALITY_MAX, (quality || 85) + STREAM_TILE_QUALITY_BOOST);
-  const tasks = indices.map(async (i) => {
+  // Bounded like TileManager._runTiles: an unbounded Promise.all spikes the CPU
+  // on a full-frame change (scroll, resize, modal).
+  return mapLimit(indices, REMOTE_CONFIG.pipeline.tileConcurrency, async (i, _idx, slotId) => {
     const { x, y, width, height } = grid.tileRect(i);
     // Extract tile rows out of the full frame into a contiguous RGBA buffer.
-    const tileBuf = Buffer.allocUnsafe(width * height * 4);
+    const size = width * height * 4;
+    const tileBuf = getScratch ? getScratch(slotId, size) : Buffer.allocUnsafe(size);
     const rowBytes = width * 4;
     const frameRowBytes = frame.width * 4;
     for (let ty = 0; ty < height; ty++) {
@@ -86,5 +111,4 @@ export async function buildTilesBatch(frame, grid, indices, hashes, quality) {
     const imageBuffer = await encodeJpeg(tileBuf, width, height, 4, q, "rgba", STREAM_TILE_SHARP_OPTS);
     return { tileIndex: i, x, y, width, height, hash: hashes.get(i) >>> 0, imageBuffer };
   });
-  return Promise.all(tasks);
 }

@@ -5,7 +5,6 @@ import {
   KEY_DEFINITIONS,
   STREAM_CLIPBOARD_MAX_CHARS,
   BROWSER_MOBILE_EMULATION,
-  BROWSER_TILE_SIZE,
   STREAM_ACK_DEAD_MS,
   STREAM_ACK_WINDOW,
   STREAM_EVERY_NTH,
@@ -18,8 +17,7 @@ import {
 import { cachedUserAgentIdentity, identityOverride, mobileOverride, readUserAgentIdentity } from "./antiDetection.js";
 import { BROWSER_FLAG_TILES } from "./browserFrame.js";
 import crypto from "node:crypto";
-import { buildTilesBatch, decodeJpegRaw, diffTiles, makeGrid } from "./browserTileGrid.js";
-import { encodeTilesBatch } from "../remote/handlers/ScreenHandler.js";
+import { buildTilesBatch, computeTileSize, createScratchPool, decodeJpegRaw, diffTiles, makeGrid } from "./browserTileGrid.js";
 import { createLogger } from "../../lib/logger.js";
 
 const logger = createLogger("browserStream");
@@ -198,7 +196,10 @@ async function startStreamInternal(client, id, viewport, emit) {
     client, sessionId, detach, emit, size, scale, quality,
     seq: 0, lastSentAt: 0, stopped: false,
     inFlight: new Set(), pendingFrame: null,
-    tileHashes: null, gridW: 0, gridH: 0, lastJpegHash: null, tileGen: 0,
+    tileHashes: null, gridW: 0, gridH: 0, tileSize: 0, lastJpegHash: null, tileGen: 0,
+    // Encode scratch is per slot; verify gets its own pool — a repair can run
+    // while a live frame is still encoding and must not trample its buffers.
+    scratch: createScratchPool(), verifyScratch: createScratchPool(),
     // tileIndex -> seq that last delivered it — lets a verify request tell
     // "client never got this tile" (sent AFTER its last full frame) apart
     // from "client has it via the full frame" (no hash claim needed).
@@ -372,8 +373,11 @@ async function sendFrameLocked(record, targetId, params, now, seq) {
     record.tileHashes = null;
     record.gridW = raw.width;
     record.gridH = raw.height;
+    // Geometry follows the raster: past maxTiles the grid grows its tiles
+    // instead of multiplying per-frame encode work (remote's _applyTileGeometry).
+    record.tileSize = computeTileSize(raw.width, raw.height);
   }
-  const grid = makeGrid(raw.width, raw.height, BROWSER_TILE_SIZE);
+  const grid = makeGrid(raw.width, raw.height, record.tileSize);
   const diffed = diffTiles(record.tileHashes, raw, grid);
   const hashes = diffed.hashes;
   // Verify-repair reads pixels AND hashes from this very decode — a fresh
@@ -388,8 +392,8 @@ async function sendFrameLocked(record, targetId, params, now, seq) {
     return false;
   }
   // Remote desktop pipeline: 100% tiles, wire-chunked under 48KB, worker-decoded.
-  const tiles = await buildTilesBatch(raw, grid, diffed.changed, hashes, record.quality);
-  const payload = { targetId, seq, image: encodeTilesBatch(tiles, now), flags: BROWSER_FLAG_TILES, meta, tiles };
+  const tiles = await buildTilesBatch(raw, grid, diffed.changed, hashes, record.quality, record.scratch);
+  const payload = { targetId, seq, flags: BROWSER_FLAG_TILES, meta, tiles };
   const dims = dimsIfChanged(record, targetId, raw, grid, meta);
   if (dims) payload.dims = dims;
   if (record.emit(payload, now) === false) {
@@ -513,12 +517,12 @@ export async function compareRecordTileHashes(record, id, clientTileHashes) {
     }
     if (!changedIndices.length) return false;
 
-    const tiles = await buildTilesBatch(raw, grid, changedIndices, hashes, record.quality);
+    const tiles = await buildTilesBatch(raw, grid, changedIndices, hashes, record.quality, record.verifyScratch);
     if (record.stopped) return false;
     const now = Date.now();
     const meta = { frameW: raw.width, frameH: raw.height, deviceWidth: record.size.width, deviceHeight: record.size.height };
     record.seq += 1;
-    const payload = { targetId: id, seq: record.seq, image: encodeTilesBatch(tiles, now), flags: BROWSER_FLAG_TILES, meta, tiles };
+    const payload = { targetId: id, seq: record.seq, flags: BROWSER_FLAG_TILES, meta, tiles };
     // A client repairing with empty hashes may be a fresh pane: always re-announce the size.
     if (fresh) record.dimsKey = null;
     const dims = dimsIfChanged(record, id, raw, grid, meta);

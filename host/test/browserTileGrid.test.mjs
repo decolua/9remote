@@ -5,8 +5,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import sharp from "sharp";
 import {
-  makeGrid, tileChecksum, diffTiles, decodeJpegRaw, buildTilesBatch
+  makeGrid, tileChecksum, diffTiles, decodeJpegRaw, buildTilesBatch, createScratchPool
 } from "../features/browser/browserTileGrid.js";
+import { REMOTE_CONFIG } from "../features/remote/REMOTE_CONFIG.js";
 import { encodeTilesBatch } from "../features/remote/handlers/ScreenHandler.js";
 
 // Raw RGBA canvas helper — deterministic pixel patterns.
@@ -96,4 +97,53 @@ test("buildTilesBatch encodes only the requested indices", async () => {
   assert.equal(tiles.length, 1);
   assert.equal(tiles[0].tileIndex, 2);
   assert.deepEqual([tiles[0].x, tiles[0].y, tiles[0].width, tiles[0].height], [0, 128, 128, 128]);
+});
+
+test("createScratchPool: one buffer per slot, reused across frames, grown only for a bigger tile", () => {
+  const getScratch = createScratchPool(2);
+  const TILE = 128 * 128 * 4; // > Buffer.poolSize, so each slot owns its ArrayBuffer
+  const a = getScratch(0, TILE);
+  const b = getScratch(0, TILE);
+  assert.equal(a.buffer, b.buffer, "same slot reuses its buffer across frames");
+  assert.equal(a.byteOffset, b.byteOffset);
+  assert.equal(a.byteLength, TILE);
+
+  const clipped = getScratch(0, 112 * 2 * 4);
+  assert.equal(clipped.buffer, a.buffer, "clipped edge tile shares the slot buffer");
+  assert.equal(clipped.byteOffset, a.byteOffset);
+  assert.equal(clipped.byteLength, 112 * 2 * 4);
+
+  const grown = getScratch(0, TILE * 2);
+  assert.notEqual(grown.buffer, a.buffer, "bigger tile reallocates the slot once");
+  assert.equal(getScratch(0, TILE * 2).buffer, grown.buffer, "and stays on the new buffer");
+
+  const otherSlot = getScratch(1, TILE);
+  assert.notEqual(otherSlot.buffer, grown.buffer, "slots never share memory");
+});
+
+test("buildTilesBatch pulls every tile buffer from the scratch pool, slot ids bounded", async () => {
+  const raw = rawCanvas(256, 256, [9, 9, 9]);
+  const grid = makeGrid(256, 256, 128);
+  const hashes = new Map([[0, 1], [1, 2], [2, 3], [3, 4]]);
+  const calls = [];
+  const pool = (slotId, bytes) => { calls.push({ slotId, bytes }); return Buffer.allocUnsafe(bytes); };
+  const tiles = await buildTilesBatch(raw, grid, [0, 1, 2, 3], hashes, 85, pool);
+  assert.equal(tiles.length, 4);
+  assert.equal(calls.length, 4, "one scratch request per encoded tile");
+  assert.ok(calls.every((c) => c.bytes === 128 * 128 * 4));
+  assert.ok(calls.every((c) => c.slotId >= 0 && c.slotId < REMOTE_CONFIG.pipeline.tileConcurrency));
+});
+
+test("buildTilesBatch with a shared pool: identical input ⇒ identical bytes (no slot trampling)", async () => {
+  // 240×130 raster → two full 128 tiles + a clipped 112×2 edge tile.
+  const raw = rawCanvas(240, 130, [12, 34, 56]);
+  const grid = makeGrid(raw.width, raw.height, 128);
+  const diff = diffTiles(null, raw, grid);
+  const pool = createScratchPool(REMOTE_CONFIG.pipeline.tileConcurrency);
+  const first = await buildTilesBatch(raw, grid, diff.changed, diff.hashes, 85, pool);
+  const second = await buildTilesBatch(raw, grid, diff.changed, diff.hashes, 85, pool);
+  assert.equal(first.length, second.length);
+  first.forEach((tile, i) => assert.ok(tile.imageBuffer.equals(second[i].imageBuffer), `tile ${i} stable across frames`));
+  const edge = first.find((t) => t.tileIndex === grid.totalTiles - 1);
+  assert.deepEqual([edge.width, edge.height], [112, 2], "clipped edge tile keeps its own size");
 });
