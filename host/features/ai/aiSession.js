@@ -1126,7 +1126,7 @@ export class AiSession {
     this.flushSaveSnapshot();
   }
 
-  sendPrompt(prompt, attachments = null) {
+  sendPrompt(prompt, attachments = null, promptId = null) {
     // /clear is a host-side reset, not a message.
     if (String(prompt).trim() === "/clear") {
       // Refused mid-turn — rebuilding the adapter would kill the turn on screen.
@@ -1144,7 +1144,8 @@ export class AiSession {
       const item = {
         id: `q-${Date.now()}-${++queueIdSeq}`,
         text: prompt,
-        attachments
+        attachments,
+        promptId
       };
       this.promptQueue.push(item);
       this.emitQueueUpdate();
@@ -1162,11 +1163,14 @@ export class AiSession {
     }
     // The adapter's busy-check first — a refused prompt must not log a turn nothing will answer.
     try {
-      this.adapter?.sendPrompt(prompt, attachments);
+      this.adapter?.sendPrompt(prompt, attachments, promptId);
     } catch (err) {
-      this.emitNormalized("prompt_refused", { text: prompt, reason: String(err?.message || err) });
+      const reason = String(err?.message || err);
+      // promptId lets the socket layer release the dedupe id: a resend must be able
+      // to run a prompt that never became a turn.
+      this.emitNormalized("prompt_refused", { text: prompt, promptId, reason });
       if (this.promptQueue?.length) this._drainQueue();
-      return;
+      return { refused: true, error: reason };
     }
     this.isTurnRunning = true;
     this.turnStartedAt = Date.now();

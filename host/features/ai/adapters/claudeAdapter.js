@@ -447,8 +447,8 @@ export class ClaudeAdapter {
     });
   }
 
-  sendPrompt(prompt, attachments = null) {
-    this._send(prompt, attachments, false);
+  sendPrompt(prompt, attachments = null, promptId = null) {
+    this._send(prompt, attachments, false, promptId);
   }
 
   // Mid-turn injection: the CLI queues the message itself and folds it into its
@@ -469,19 +469,25 @@ export class ClaudeAdapter {
     return true;
   }
 
-  _send(prompt, attachments, retried) {
+  _send(prompt, attachments, retried, promptId = null) {
     this.isTurnRunning = true;
     this.turnStreamedText = "";
     // Only a REFUSAL re-sends — the daemon turned the write away, so the bytes never arrived. A real exit never re-sends.
     this.rpc.notify(
       "user",
       { message: { role: "user", content: buildContent(prompt, attachments) } },
-      () => { if (!retried) this._resendAfterRefusal(prompt, attachments); }
+      () => {
+        if (!retried) { this._resendAfterRefusal(prompt, attachments, promptId); return; }
+        // The one retry is spent: a silent stop would leave the pane spinning over a
+        // prompt no turn will answer, and the host would dedupe every later Resend.
+        this.isTurnRunning = false;
+        this.onEvent?.("error", { message: `The CLI did not accept the prompt: ${prompt}`, promptId });
+      }
     );
   }
 
   // Rebuild and re-send ONCE after a refusal (the session survives via --resume); silent — an unasked recovery must not paint a failure, a loop would spin the daemon.
-  _resendAfterRefusal(prompt, attachments) {
+  _resendAfterRefusal(prompt, attachments, promptId = null) {
     if (this.resumeRejected || this._respawning) {
       // The refusal callback replaces _handleRefusal, so the turn flag is ours to drop —
       // and without a row the pane spins forever over a prompt that never sent.
@@ -489,7 +495,8 @@ export class ClaudeAdapter {
       this.onEvent?.("error", {
         message: this._respawning
           ? `The CLI is restarting — the prompt was not sent: ${prompt}`
-          : `The CLI refused this session and it cannot be resumed: ${prompt}`
+          : `The CLI refused this session and it cannot be resumed: ${prompt}`,
+        promptId
       });
       return;
     }
@@ -507,13 +514,13 @@ export class ClaudeAdapter {
             fetch?.commit?.((line) => this.feed(line));
             setTimeout(() => {
               this._respawning = false;
-              this._send(prompt, attachments, true);
+              this._send(prompt, attachments, true, promptId);
             }, 0);
           },
           (e) => {
             this._respawning = false;
             // Nothing to recover with. Say so — a silent stop here is the stuck pane again.
-            this.onEvent?.("error", { message: `The CLI exited and could not be restarted: ${e.message}` });
+            this.onEvent?.("error", { message: `The CLI exited and could not be restarted: ${e.message}`, promptId });
           }
         );
     }, 0);

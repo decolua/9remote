@@ -16,10 +16,14 @@ import { collectOlderPage } from "../lib/olderPaging";
 import { createRetryLadder, shouldApplyHydrateAck } from "../lib/hydrateRetry";
 import { classifyLiveEvent, fetchedIsSafe, splitByHole } from "../lib/gapFill";
 import { createSingleLane } from "../lib/singleLane";
+import { AI_CACHE_MAX_BYTES, appendTail, buildCacheEntry, cacheKey, shouldUseCachedSnapshot, trimTail } from "../lib/aiCache";
+import { aiCacheEnabled, readAiCache, writeAiCache } from "../lib/aiCacheStore";
 import { termLog } from "@/shared/utils/termLog";
 import { PEEK_TIMEOUT_MS } from "@/features/terminal/constants/terminalConfig";
-import { RESOLVE_ACK_TIMEOUT_MS, PROMPT_ACK_TIMEOUT_MS } from "../constants";
+import { RESOLVE_ACK_TIMEOUT_MS, PROMPT_ACK_TIMEOUT_MS, PROMPT_ECHO_TIMEOUT_MS } from "../constants";
 import { emitPromptAck } from "../lib/promptAck";
+import { createEchoWatchdog } from "../lib/echoWatchdog";
+import { rememberPrompt } from "../lib/promptHistory";
 import { addPending, removePending, removePendingByText, takeOrphans } from "../lib/pendingPrompts";
 
 // CLI reports skills as bare id strings, the agent scan as objects; normalize to one shape.
@@ -43,6 +47,8 @@ const GAP_CONFIRM_MS = 1500;
 const MAX_GAP_HELD = 200;
 // A pane asking again this soon after an answered hydrate has nothing new to learn.
 const HYDRATE_FRESH_MS = 1500;
+// A finished turn settles before its tail is written — a turn that keeps going writes nothing.
+const CACHE_WRITE_DEBOUNCE_MS = 800;
 // Automatic resends after a reconnect — past this the manual bar is the only road.
 const PROMPT_AUTO_RETRY_MAX = 2;
 // This page life — a pending prompt stamped with it is in flight here, not an orphan.
@@ -480,6 +486,18 @@ export function useAiSession({
   const [hydrateFailed, setHydrateFailed] = useState(false);
   const olderSeqRef = useRef(0);
   const loadingOlderRef = useRef(false);
+  // Echo watchdogs keyed by prompt id — an acked prompt with no user_message back
+  // must surface as resendable instead of leaving the chat blank.
+  const echoWatchRef = useRef(new Map());
+  const settleEchoWatch = useCallback((text) => {
+    const map = echoWatchRef.current;
+    if (!map.size) return;
+    for (const [id, entry] of map) {
+      if (entry.text !== text) continue;
+      entry.watch.settle();
+      map.delete(id);
+    }
+  }, []);
 
   // Dispatch-only by design: subscribing here would rebuild the hook per streamed frame.
 
@@ -495,6 +513,7 @@ export function useAiSession({
         }
         // Echo of a prompt the composer reported lost — the host did get it.
         clearEchoedPromptError(sid, data.text);
+        settleEchoWatch(data?.text);
         break;
       case "init": {
         // Keep persisted descriptions when the CLI's bare ids arrive second.
@@ -659,7 +678,7 @@ export function useAiSession({
       default:
         break;
     }
-  }, [engine, addUserMessage, setMetadata, appendDelta, appendThinking, appendDiff, appendTool, updateToolResult, nestTool, nestToolResult, upsertTask, setPermission, clearPermission, finishTurn, setTurnRunning, ensureTurnLive]);
+  }, [engine, addUserMessage, setMetadata, appendDelta, appendThinking, appendDiff, appendTool, updateToolResult, nestTool, nestToolResult, upsertTask, setPermission, clearPermission, finishTurn, setTurnRunning, ensureTurnLive, settleEchoWatch]);
 
   // Ref, not dep: the hydrate effect must not re-emit ai:create over a mid-stream session.
   const applyEventRef = useRef(applyEvent);
@@ -709,6 +728,11 @@ export function useAiSession({
 
   // Gap-fill: events held while the missing range is fetched.
   const gapHeldRef = useRef([]);
+  // Best-effort replay tail kept in IndexedDB (lib/aiCache). Never authoritative:
+  // it only paints while the host hydrate is on its way, and is replaced by its ack.
+  const tailRef = useRef({ events: [], bytes: 0, hasMore: false });
+  const cacheWriteTimerRef = useRef(null);
+  const cacheLoadSessionRef = useRef(null);
   // Silence probe: last inbound ai:event, the silence threshold (backs off while quiet),
   // its in-flight flag, consecutive misses, and when the user last sent a prompt.
   const lastEventAtRef = useRef(0);
@@ -761,6 +785,93 @@ export function useAiSession({
 
   // 1. Pull the host's log: truncate then replay — also the only path back after a carrier drop.
   // `onSettled` is the lane's done: exactly one call per round, on ack or on release.
+
+  // ── Best-effort replay cache (never authoritative) ───────────────────────────
+
+  // Record what the pane applied so a turn_complete can persist a bounded tail.
+  const noteTail = useCallback((seq, event, data) => {
+    if (event === "conversation_reset") { tailRef.current = { events: [], bytes: 0, hasMore: false }; return; }
+    if (!Number.isInteger(seq)) return;
+    const next = appendTail(tailRef.current, { seq, event, data }, AI_CACHE_MAX_BYTES);
+    tailRef.current = {
+      events: next.events,
+      bytes: next.bytes,
+      hasMore: tailRef.current.hasMore || next.dropped
+    };
+  }, []);
+
+  // A hydrate ack states the log's own tail — it supersedes anything we appended.
+  const setTailFromAck = useCallback((events, hostHasMore) => {
+    const tail = trimTail(events || [], AI_CACHE_MAX_BYTES);
+    tailRef.current = {
+      events: tail.events,
+      bytes: tail.bytes,
+      hasMore: Boolean(hostHasMore) || tail.hasMore
+    };
+  }, []);
+
+  const writeCacheNow = useCallback(() => {
+    if (!aiCacheEnabled() || !sessionId) return;
+    // A running turn would cache half a sentence; the next settled tail supersedes it.
+    if (useAiStore.getState().bySession[sessionId]?.isTurnRunning) return;
+    const hostKey = connForSession(sessionId).head || "";
+    const entry = buildCacheEntry({
+      hostKey,
+      sessionId,
+      epoch: logEpochRef.current,
+      tail: tailRef.current,
+      lastTurnMs: useAiStore.getState().bySession[sessionId]?.lastTurnMs || 0
+    });
+    if (entry) writeAiCache(cacheKey(hostKey, sessionId), entry);
+  }, [sessionId]);
+
+  // A finished turn is a settled tail; a running one would cache half a sentence.
+  const scheduleCacheWrite = useCallback(() => {
+    if (!aiCacheEnabled() || !sessionId) return;
+    if (cacheWriteTimerRef.current) clearTimeout(cacheWriteTimerRef.current);
+    cacheWriteTimerRef.current = setTimeout(() => {
+      cacheWriteTimerRef.current = null;
+      writeCacheNow();
+    }, CACHE_WRITE_DEBOUNCE_MS);
+  }, [sessionId, writeCacheNow]);
+
+  // Paint the cached tail only while the pane is otherwise empty and unanswered.
+  const loadCachedTail = useCallback(() => {
+    if (!aiCacheEnabled() || !sessionId) return;
+    if (cacheLoadSessionRef.current === sessionId) return;
+    cacheLoadSessionRef.current = sessionId;
+    const hostKey = connForSession(sessionId).head || "";
+    readAiCache(cacheKey(hostKey, sessionId)).then((raw) => {
+      // The pane moved to another session while the read was in flight.
+      if (cacheLoadSessionRef.current !== sessionId) return;
+      if (!shouldUseCachedSnapshot(raw, { hostKey, sessionId })) return;
+      // The host answered meanwhile — its replay is the truth, the cache is not needed.
+      if (lastHydrateOkAtRef.current) return;
+      const curr = useAiStore.getState().bySession[sessionId];
+      if (curr?.messages?.length) return;
+      const hydrated = reduceSessionEvents(raw.events, engine);
+      if (!hydrated.messages?.length) return;
+      useAiStore.getState().hydrateSession(sessionId, {
+        messages: hydrated.messages,
+        tasks: hydrated.tasks,
+        metadata: { ...(curr?.metadata || {}), ...hydrated.metadata },
+        stats: hydrated.stats,
+        isTurnRunning: false,
+        elapsedMs: 0,
+        lastTurnMs: raw.lastTurnMs || 0,
+        harnessTasks: hydrated.harnessTasks,
+        queue: []
+      });
+      appliedSeqRef.current = raw.seq;
+      logEpochRef.current = raw.epoch;
+      olderSeqRef.current = raw.firstSeq;
+      setHasOlder(Boolean(raw.hasMore));
+      const tail = trimTail(raw.events, AI_CACHE_MAX_BYTES);
+      tailRef.current = { events: tail.events, bytes: tail.bytes, hasMore: Boolean(raw.hasMore) || tail.hasMore };
+      termLog("ai-cache", "painted cached tail", { sessionId, seq: raw.seq, epoch: raw.epoch, events: raw.events.length });
+    }).catch(() => {});
+  }, [sessionId, engine]);
+
   const hydrateNow = useCallback((onSettled = null) => {
     if (!sessionId || !bus) { onSettled?.(); return; }
     // One round at a time; a mid-round request arms the ladder instead.
@@ -802,6 +913,7 @@ export function useAiSession({
             setHasOlder(Boolean(p.data?.hasMore));
           }
           applyEventRef.current(sessionId, p.event, p.data);
+          noteTail(p.seq, p.event, p.data);
         }
       });
       if (plan.resync) { laneRef.current?.request("hydrate"); return; }
@@ -869,6 +981,8 @@ export function useAiSession({
         // The host replays only the tail of a long log; the rest is fetched on scroll-up.
         olderSeqRef.current = events[0]?.seq ?? 0;
         setHasOlder(Boolean(res.session.hasMore) && events.length > 0);
+        // The ack's window is the tail the cache should hold from here on.
+        setTailFromAck(events, res.session.hasMore);
         // An empty host log means the host has nothing for this session yet (fresh
         // one, or a legacy session created before the daemon owned state). Leave
         // whatever the client already has instead of blanking it.
@@ -991,7 +1105,7 @@ export function useAiSession({
         onSettled?.();
       }
     });
-  }, [sessionId, engine, workspacePath, bus, setTurnRunning, scheduleHydrateRetry, clearHydrateRetry]);
+  }, [sessionId, engine, workspacePath, bus, setTurnRunning, scheduleHydrateRetry, clearHydrateRetry, noteTail, setTailFromAck]);
 
   // The one door for every cheap trigger (visibility, resume, connect). A repair asked
   // for by a live verdict (epoch/gap) goes straight to the lane, past this freshness test.
@@ -1094,6 +1208,8 @@ export function useAiSession({
     laneRef.current = { request() {}, busy() { return false; }, clearPending() {}, reset() {} };
     hydratingRef.current = false;
     pendingLiveRef.current = [];
+    for (const { watch } of echoWatchRef.current.values()) watch.settle();
+    echoWatchRef.current.clear();
   }, []);
 
   // Initial mount, and every remount that changes the session's identity.
@@ -1123,6 +1239,8 @@ export function useAiSession({
     // Held in a ref: re-running this effect on a store-action identity change would
     // re-emit ai:create over a session that is mid-stream.
     initSessionRef.current(sessionId);
+    // Paint the cached tail while the host replay is on its way; the ack replaces it.
+    loadCachedTail();
     // Straight at the host, NOT through the lane: on a cold start no carrier is
     // ready yet and that door would drop the ask, while the carrier's "connect" only
     // fires on LATER rejoins — the pane would sit empty over a healthy host until the
@@ -1130,7 +1248,7 @@ export function useAiSession({
     // is the behavior this mount has always relied on. A rejoin landing in the same
     // breath is then held off by the in-flight gate above, not by a delay.
     return hydrateNow();
-  }, [sessionId, hydrateNow, clearHydrateRetry]);
+  }, [sessionId, hydrateNow, clearHydrateRetry, loadCachedTail]);
 
   // Resume recovery and visibility: only check seq if visible; hidden panes defer.
   useEffect(() => {
@@ -1305,6 +1423,7 @@ export function useAiSession({
         olderSeqRef.current = payload.data?.fromSeq ?? 0;
         setHasOlder(Boolean(payload.data?.hasMore));
         gapHeldRef.current = [];
+        noteTail(null, "conversation_reset", null);
         queueEvent(payload.event, payload.data);
         return;
       }
@@ -1331,6 +1450,9 @@ export function useAiSession({
         return;
       }
       if (payload.seq != null) appliedSeqRef.current = payload.seq;
+      noteTail(payload.seq, payload.event, payload.data);
+      // A finished turn is a settled tail; anything else would cache half a sentence.
+      if (payload.event === "turn_complete") scheduleCacheWrite();
       applyLive(payload.event, payload.data);
     };
 
@@ -1354,7 +1476,7 @@ export function useAiSession({
       if (plan.resync) { laneRef.current?.request("hydrate"); return; }
       appliedSeqRef.current = plan.appliedSeq;
       logEpochRef.current = plan.logEpoch;
-      for (const p of plan.apply) applyLive(p.event, p.data);
+      for (const p of plan.apply) { applyLive(p.event, p.data); noteTail(p.seq, p.event, p.data); }
       if (plan.held.length) {
         gapHeldRef.current = plan.held;
         laneRef.current?.request("gap");
@@ -1389,6 +1511,7 @@ export function useAiSession({
         for (const ev of plan.apply) {
           appliedSeqRef.current = ev.seq;
           applyLive(ev.event, ev.data);
+          noteTail(ev.seq, ev.event, ev.data);
         }
         drainGapHeld();
         done();
@@ -1457,15 +1580,22 @@ export function useAiSession({
       gapRunnerRef.current = null;
       if (gapTimerRef.current) clearTimeout(gapTimerRef.current);
       gapTimerRef.current = null;
+      // The session is going away — persist whatever tail this pane last had.
+      if (cacheWriteTimerRef.current) clearTimeout(cacheWriteTimerRef.current);
+      cacheWriteTimerRef.current = null;
+      writeCacheNow();
       // A pane closing mid-frame must not swallow the last tokens it received.
       flushStreamed();
     };
-  }, [bus, sessionId, applyEvent]);
+  }, [bus, sessionId, applyEvent, noteTail, scheduleCacheWrite, writeCacheNow]);
 
   // 3. User actions
   const sendPrompt = useCallback(
     (text, { attachments = null, promptId = null, retries = 0 } = {}) => {
       if (!text && !attachments?.length) return;
+      // Resend and auto-resend skip the composer, where history is written — record
+      // here too so a swallowed send stays reusable (the store dedupes a repeat).
+      rememberPrompt(text);
       // One id per typed prompt; a Resend reuses it so the host can drop a repeat.
       const id = promptId || `p-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
       // Arm the silence probe's prompt window: a lost user_message echo leaves no
@@ -1493,6 +1623,29 @@ export function useAiSession({
         // Timeout = ready-but-silent carrier; re-dial the zombie WS so replay/Resend has a lane.
         if (reason === "timeout" && b?.hostCaps?.promptDedupe) b.kickWsZombie?.("prompt-lost");
       };
+      // An ack proves the host accepted it; the turn is alive when the echo arrives.
+      // Silence past the budget, with nothing shown/running/queued, is a prompt that
+      // died between ack and turn — offer it back instead of leaving the chat blank.
+      const armEchoWatch = () => {
+        if (!text) return;
+        const watch = createEchoWatchdog({
+          timeoutMs: PROMPT_ECHO_TIMEOUT_MS,
+          onMissing: () => {
+            echoWatchRef.current.delete(id);
+            if (promptAlreadyShown(sessionId, text)) return;
+            const st = useAiStore.getState().bySession[sessionId];
+            if (st?.isTurnRunning) return;
+            if (st?.queue?.some((q) => q.text === text)) return;
+            useAiStore.getState().clearPromptSending(sessionId, text);
+            useAiStore.getState().setPromptError(sessionId, text, "timeout", attachments, id, retries);
+          }
+        });
+        // A Resend reuses the id: the old watch must not fire against the new attempt.
+        const prev = echoWatchRef.current.get(id);
+        if (prev) { prev.watch.settle(); echoWatchRef.current.delete(id); }
+        echoWatchRef.current.set(id, { text, watch });
+        watch.arm();
+      };
       // Survives a reload until the host confirms it.
       if (text) addPending(sessionId, { id, text, page: PAGE_ID });
       // No bus yet (host still connecting): say so instead of dropping the prompt.
@@ -1503,6 +1656,7 @@ export function useAiSession({
           if (res?.ok) {
             removePending(sessionId, id);
             useAiStore.getState().clearPromptSending(sessionId, text);
+            armEchoWatch();
           }
           done(res);
         }),

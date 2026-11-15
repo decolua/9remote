@@ -235,5 +235,56 @@ await test("a line for another proc is ignored", async () => {
   assert.deepEqual(seen, []);
 });
 
+await test("a write the daemon confirms reports no refusal", async () => {
+  const client = makeClient();
+  const proc = new DaemonProc({ procId: "p1", client });
+  const refused = [];
+  proc.onRefused = (info) => refused.push(info);
+  await start(proc);
+
+  assert.equal(proc.write("hello\n"), true);
+  await new Promise((r) => setTimeout(r, 0));
+  assert.deepEqual(refused, []);
+  assert.equal(proc.dead, false);
+});
+
+await test("a write the daemon refuses is reported once and the proc is marked dead", async () => {
+  const client = makeClient();
+  const proc = new DaemonProc({ procId: "p1", client });
+  const refused = [];
+  proc.onRefused = (info) => refused.push(info);
+  await start(proc);
+
+  client.procWrite = async () => ({ success: false, error: "Process not writable" });
+  proc.write("hello\n");
+  proc.write("again\n");
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(refused.length, 1, "one verdict, not one per write");
+  assert.match(refused[0].error, /not writable/i);
+  assert.equal(proc.dead, true);
+  assert.equal(proc.attached, false, "a dead proc stops delivering lines");
+});
+
+await test("a write whose daemon RPC rejects is reported, not swallowed", async () => {
+  // The daemon client rejects on a closed socket or a 5s timeout. The write used to
+  // vanish here: the adapter had already set the turn running, so the host acked the
+  // prompt and the CLI never saw it — a silent lost turn.
+  const client = makeClient();
+  const proc = new DaemonProc({ procId: "p1", client });
+  const refused = [];
+  proc.onRefused = (info) => refused.push(info);
+  await start(proc);
+
+  client.procWrite = async () => { throw new Error("Not connected to daemon"); };
+  proc.write("hello\n");
+  await new Promise((r) => setTimeout(r, 0));
+
+  assert.equal(refused.length, 1);
+  assert.match(refused[0].error, /daemon/i);
+  assert.equal(proc.dead, true);
+  assert.equal(proc.attached, false);
+});
+
 console.log(`\n=== ${pass} passed, ${fail} failed ===`);
 process.exit(fail ? 1 : 0);

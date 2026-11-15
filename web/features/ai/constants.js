@@ -86,3 +86,8 @@ export const RESOLVE_ACK_TIMEOUT_MS = 5000;
 // carrier — surface it as a resendable error instead of silent loss (#48). A false
 // "lost" is cheap now: a late ack withdraws the bar and the host dedupes a resend.
 export const PROMPT_ACK_TIMEOUT_MS = 5000;
+
+// An ack only proves the host accepted the prompt; the turn is alive when its
+// user_message arrives (the host emits it before the ack). No echo past this
+// budget means the prompt died between ack and turn — offer Resend again.
+export const PROMPT_ECHO_TIMEOUT_MS = 3000;

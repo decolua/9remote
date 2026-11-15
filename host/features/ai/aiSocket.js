@@ -279,6 +279,14 @@ function mirrorAiConversation(sessionId, event, data, engine) {
   setConversationId(sessionId, getSessionAgent(sessionId) || engine, convId, "hook");
 }
 
+// A failure that names its prompt releases the id: the prompt never became a turn,
+// so a Resend must run it instead of being acked as a repeat forever.
+function releaseFailedPrompt(sessionId, event, data) {
+  if (!data?.promptId) return;
+  if (event !== "prompt_refused" && event !== "error") return;
+  seenPrompts.get(sessionId)?.delete(data.promptId);
+}
+
 // Only `thread/name/updated` signals a CLI-side rename; the transcript scan cannot see it.
 function mirrorThreadName(sessionId, event, data) {
   if (event !== "init" || !data?.threadName) return;
@@ -293,6 +301,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       // Streaming events fire per chunk and cli_event fires per CLI notification —
       // logging them drowns the file (cli_event alone was 94% of ai:debug lines).
       if (event !== "delta" && event !== "thinking" && event !== "cli_event") logger.debug(`[ai] event: ${event} session: ${sessionId}`);
+      releaseFailedPrompt(sessionId, event, data);
       // Failures also get a line here — the pane's error cannot be traced back otherwise.
       if (event === "exit" && (data?.error || (data?.code != null && data.code !== 0))) {
         logger.warn(`[ai] exit: session=${sessionId} engine=${manager.getSession(sessionId)?.engine || "claude"} code=${data.code ?? "-"} error=${data.error || "-"}`);
@@ -315,6 +324,7 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
   // Fallback for tests or direct socket mocking
   if (!io || typeof io.emit !== "function") {
     const unsubscribe = manager.onEvent((sessionId, event, data, seq, epoch) => {
+      releaseFailedPrompt(sessionId, event, data);
       try {
         socket.emit(AI_SOCKET_EVENTS.EVENT, { sessionId, event, data, seq, epoch });
       } catch {}
@@ -428,7 +438,9 @@ export function setupAiHandlers(socket, io, manager = globalAiManager) {
       logger.info(`[ai] prompt: ${sessionId} (engine: ${session.engine}): ${message?.slice(0, 60)}`);
       // The pane has already dropped its log; a refused /clear would strand an empty chat — stop the turn instead.
       if (String(message).trim() === "/clear" && session.isTurnRunning) session.stop();
-      const res = session.sendPrompt(message, attachments);
+      const res = session.sendPrompt(message, attachments, promptId);
+      // Refused before any turn existed: say so — an ok ack is what kept this loss silent.
+      if (res?.refused) return cb?.({ ok: false, error: res.error });
       cb?.({ ok: true, queued: Boolean(res?.queued) });
     } catch (err) {
       // Not run — a Resend under the same id must be allowed through.

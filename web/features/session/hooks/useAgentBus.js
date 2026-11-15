@@ -10,6 +10,7 @@ import { WORKER_API } from "@/shared/constants/API";
 import { TAIL_REJECT_REASON, LOGIN_ERROR_KEY, APPROVAL_STATUS } from "@/shared/constants/transport";
 import { sameList } from "@/shared/utils/shallowEqual";
 import { isNewer } from "@/shared/utils/versionCompare";
+import { clearAiCache } from "@/features/ai/lib/aiCacheStore";
 import { termLog } from "@/shared/utils/termLog";
 import { debugLog } from "@/shared/utils/debugLog";
 
@@ -189,6 +190,8 @@ export function useAgentBus() {
     bus.on("device:rejected", () => {
       termLog("diag", "EVENT device:rejected arrived → applying");
       applyApproval(APPROVAL_STATUS.rejected);
+      // A rejected device may no longer keep the chats it cached.
+      clearAiCache();
       // Stop auto-reconnect — user must re-submit key to try again
       disconnectRef.current?.();
     });

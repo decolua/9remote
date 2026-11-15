@@ -142,14 +142,19 @@ export class DaemonProc {
     if (this.dead) return false;
     const onRefused = this.onRefused;
     this.client.procWrite(this.procId, Buffer.from(String(text)).toString("base64"))
-      .then((res) => {
-        if (res?.success) return;
-        this.dead = true;
-        this._unsubscribe();
-        onRefused?.({ code: null, error: res?.error || "Process not writable" });
-      })
-      .catch(() => {});
+      .then((res) => { if (!res?.success) this._refuse(onRefused, res?.error || "Process not writable"); })
+      // The daemon client rejects on a closed socket or a 5s timeout. Swallowing it
+      // lost the prompt silently: the adapter had already lit the turn flag.
+      .catch((err) => this._refuse(onRefused, err?.message || "Daemon write failed"));
     return true;
+  }
+
+  /** One verdict per dead proc: stop writes, stop delivery, tell the adapter once. */
+  _refuse(onRefused, error) {
+    if (this.dead) return;
+    this.dead = true;
+    this._unsubscribe();
+    onRefused?.({ code: null, error });
   }
 
   /** Close stdin for non-interactive engines. */

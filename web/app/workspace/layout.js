@@ -10,6 +10,7 @@ import { useUIStore } from "@/shared/stores/uiStore";
 import { useFileBus } from "@/features/fileExplorer/hooks/useFileBus";
 import DevTermLog from "@/features/terminal/components/DevTermLog";
 import { getRecentWorkspaces, addRecentWorkspace, updateOpenedFiles } from "@/features/fileExplorer/components/WorkspaceList";
+import { clearAiCache } from "@/features/ai/lib/aiCacheStore";
 import { isDiffPath, parseRepoDiffPath } from "@/features/fileExplorer/constants/fileExplorer";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useNotification } from "@/shared/hooks/useNotification";
@@ -891,6 +892,8 @@ export default function WorkspaceLayout({ children }) {
     // clearAuth, not a bare sessionStorage.clear — an explicit logout must also
     // drop the remembered login, or the next visit walks straight back in.
     clearAuth();
+    // Chat content cached on this device must not outlive the session that read it.
+    clearAiCache();
     sessionStorage.setItem("9remote_manual_disconnect", "1");
     window.location.replace("/login");
   }, [resetStore, clearAuth]);
