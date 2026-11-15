@@ -38,3 +38,35 @@ export function fetchedIsSafe(events, appliedSeq) {
   if (overlap) return { safe: false };
   return { safe: true, apply: fresh };
 }
+
+/** Split a queue of live events against the watermark: the contiguous prefix to
+ *  apply now, the suffix held behind the first hole, and a resync signal when a
+ *  newer log generation shows up. The one law shared by the hydrate release and
+ *  the gap drain — a hole must never be walked over silently.
+ *  Returns { apply, held, resync, appliedSeq, logEpoch }. */
+export function splitByHole(items, { appliedSeq, logEpoch }) {
+  const apply = [];
+  const held = [];
+  let seq = appliedSeq;
+  let epoch = logEpoch;
+  for (const item of items) {
+    // Nothing slips past a hole — not an unstamped event, not a reset. Applying any of
+    // them would land out of order, and a reset would erase the hole the fetch still needs.
+    if (held.length) { held.push(item); continue; }
+    // A reset restarts the log at seq 1 and clears the watermark with it.
+    if (item.event === "conversation_reset") {
+      apply.push(item);
+      seq = 0;
+      epoch = item.data?.epoch ?? (epoch ?? 0) + 1;
+      continue;
+    }
+    const verdict = classifyLiveEvent(item, { appliedSeq: seq, logEpoch: epoch });
+    if (verdict === "resync") return { apply, held: [], resync: true, appliedSeq: seq, logEpoch: epoch };
+    if (verdict === "gap") { held.push(item); continue; }
+    if (verdict === "adopt") epoch = item.epoch;
+    if (verdict === "stale" || verdict === "dup") continue;
+    apply.push(item);
+    if (item.seq != null) seq = item.seq;
+  }
+  return { apply, held, resync: false, appliedSeq: seq, logEpoch: epoch };
+}
