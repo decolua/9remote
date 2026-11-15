@@ -29,6 +29,9 @@ export const REMOTE_CONFIG = {
     webpEffort: 0,
     jpegQuality: 50,
     tileConcurrency: 6,
+    // Tile grid ceiling shared with the browser stream: past this, tiles grow to keep per-frame work bounded.
+    maxTiles: 100,
+    minTileSize: 120,
     // Downscale captured buffer before tiling/encoding to save bandwidth.
     outputScale: 1,
     // scaleMode: "smooth" tracks effective pixel density; "tier" uses stepped buckets.

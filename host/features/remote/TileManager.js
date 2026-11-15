@@ -11,25 +11,12 @@ import { getGpuResize, resizeTile, resizeTilesBatch } from "./adapters/gpuResize
 import { getVImageResize, resizeTileVImage } from "./adapters/vImageResize.js";
 import { FrameMetrics } from "./metrics.js";
 import { remoteLog } from "./utils/remoteLog.js";
+import { mapLimit } from "./utils/mapLimit.js";
+export { mapLimit };
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const requireCjs = createRequire(import.meta.url);
-
-// Map with bounded concurrency, preserving order; slotId (0..limit-1) is stable per worker.
-export async function mapLimit(items, limit, fn) {
-  const ret = new Array(items.length);
-  let i = 0;
-  const width = Math.min(limit, items.length);
-  const workers = Array.from({ length: width }, async (_, slotId) => {
-    while (i < items.length) {
-      const idx = i++;
-      ret[idx] = await fn(items[idx], idx, slotId);
-    }
-  });
-  await Promise.all(workers);
-  return ret;
-}
 
 export class TileManager {
   constructor(robot, opts = {}) {
@@ -115,10 +102,10 @@ export class TileManager {
     this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
     this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
 
-    const MAX_TILES = 100;
-    if (this.totalTiles > MAX_TILES) {
-      const optimalTileSize = Math.ceil(Math.sqrt((this.scaledWidth * this.scaledHeight) / MAX_TILES));
-      this.tileSize = Math.max(optimalTileSize, 120);
+    const { maxTiles, minTileSize } = REMOTE_CONFIG.pipeline;
+    if (this.totalTiles > maxTiles) {
+      const optimalTileSize = Math.ceil(Math.sqrt((this.scaledWidth * this.scaledHeight) / maxTiles));
+      this.tileSize = Math.max(optimalTileSize, minTileSize);
       this.tilesPerRow = Math.ceil(this.scaledWidth / this.tileSize);
       this.tilesPerColumn = Math.ceil(this.scaledHeight / this.tileSize);
       this.totalTiles = this.tilesPerRow * this.tilesPerColumn;
