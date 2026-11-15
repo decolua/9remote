@@ -294,18 +294,23 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
       }
     }
 
+    // The sequencer only repairs a hole a later frame exposes, so a lost reply on a quiet
+    // session is never replayed — ask these idempotent reads again over WS.
+    if (cb && ctx && ws?.ready && ACK_RETRY_SAFE.has(ctx.event)) {
+      pm._pendingAcks.delete(ackId);
+      if (ws.send(CHANNELS.control, { event: ctx.event, args: ctx.args, cb })) {
+        termLog("switch", `ack-timeout ${ctx.event} → retry via ws (rtc zombie?)`);
+        return;
+      }
+      // Not writable after all: keep the ask pending for the next carrier flush.
+      pm._pendingAcks.set(ackId, cb);
+    }
+
     // Stream active: the request re-sends itself on whichever carrier is up and
     // the host answers once, so a missing ack is not a zombie signal — leave it
     // pending (the caller's own timeout covers a peer that truly died).
     if (pm._seqActive() && cb) {
       termLog("switch", `ack-timeout ${ctx?.event} → keep pending (sequenced stream owns retry)`);
-      return;
-    }
-
-    if (cb && ctx && ws?.ready && ACK_RETRY_SAFE.has(ctx.event)) {
-      pm._pendingAcks.delete(ackId);
-      termLog("switch", `ack-timeout ${ctx.event} → retry via ws (rtc zombie?)`);
-      ws.send(CHANNELS.control, { event: ctx.event, args: ctx.args, cb });
       return;
     }
 
