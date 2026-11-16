@@ -125,7 +125,7 @@ export default function AgentHistoryPanel({
   return (
     <>
       <div
-        className={asList ? "flex-1 min-h-0 flex flex-col" : "flex-shrink-0 border-t border-border-subtle pt-1 flex flex-col"}
+        className={asList ? "flex-1 min-h-0 max-h-[55vh] flex flex-col" : "flex-shrink-0 border-t border-border-subtle pt-1 flex flex-col"}
         style={asList ? undefined : { maxHeight: collapsed ? undefined : AGENT_HISTORY_MAX_HEIGHT }}
       >
         {!asList && (
