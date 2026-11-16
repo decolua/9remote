@@ -19,6 +19,7 @@ import { orderedHostsOf } from "@/features/hosts/lib/fleetTree";
 import { makeFleetActions } from "@/features/hosts/lib/fleetActions";
 import { sessionWorkspaceId } from "@/features/terminal/lib/paneLayout";
 import { isHostEnvironment } from "@/shared/utils/localOrigin";
+import { reloadWhenHostReady } from "@/shared/utils/hostReady";
 import SessionBackgroundModal from "@/features/terminal/components/SessionBackgroundModal";
 
 // Mobile-only: on desktop the sidebar already lists workspaces and terminals with more
@@ -160,7 +161,7 @@ export default function SessionList({
             iconClass={reloading ? "animate-spin" : ""}
             label={t("menu.reload")}
             disabled={reloading}
-            onClick={() => { setReloading(true); setTimeout(() => window.location.reload(), 300); }}
+            onClick={async () => { setReloading(true); if (!(await reloadWhenHostReady())) setReloading(false); }}
           />
           <HeaderButton icon={KeyRound} label={t("hosts.addHost")} onClick={() => { vibrate(); setAddHostOpen(true); }} />
           {isHostUi && (

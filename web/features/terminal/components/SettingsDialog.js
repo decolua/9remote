@@ -8,6 +8,7 @@ import {
   Power, Lock, PowerOff, Mic, Bug, Copy, Trash2, Link2
 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { reloadWhenHostReady } from "@/shared/utils/hostReady";
 import { useI18n } from "@/shared/i18n";
 import { SUPPORTED_LOCALES } from "@/shared/i18n/config";
 import { useTheme } from "@/shared/theme/ThemeProvider";
@@ -240,7 +241,7 @@ export default function SettingsDialog({
                     iconClass={reloading ? "animate-spin" : ""}
                     label={t("menu.reload")}
                     disabled={reloading}
-                    onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
+                    onClick={async () => { vibrate(); setReloading(true); if (!(await reloadWhenHostReady())) setReloading(false); }}
                   />
                 </Group>
 

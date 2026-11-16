@@ -5,6 +5,7 @@ import Spinner from "@/shared/components/ui/Spinner";
 import { RefreshCw } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
 import { useI18n } from "@/shared/i18n";
+import { hostReady } from "@/shared/utils/hostReady";
 
 const RELOAD_TIMEOUT_MS = 6000;
 
@@ -23,12 +24,14 @@ export default function ReconnectScreen({ label, inline = false }) {
     return () => clearTimeout(timer);
   }, []);
 
-  const handleReload = () => {
+  const handleReload = async () => {
     vibrate();
     setReloading(true);
+    // A reload during a host restart would land on a dead origin; wait for the host itself.
+    if (!(await hostReady())) { setReloading(false); return; }
     // Break the auto-login loop: land on the login page, where the saved key shows the host's real state.
     try { sessionStorage.setItem("9remote_manual_disconnect", "1"); } catch {}
-    setTimeout(() => window.location.reload(), 150);
+    window.location.reload();
   };
 
   return (

@@ -16,6 +16,7 @@ import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { useNotification } from "@/shared/hooks/useNotification";
 import { updateTitle } from "@/shared/utils/titleMarquee";
 import { installTapClickFix } from "@/shared/utils/tapClickFix";
+import { reloadWhenHostReady } from "@/shared/utils/hostReady";
 import { startWidthDrag } from "@/shared/utils/dragResize";
 import { DESKTOP_BREAKPOINT } from "@/features/terminal/constants/terminalConfig";
 import { usePwaInstallInit } from "@/features/terminal/hooks/usePwaInstallInit";
@@ -232,7 +233,7 @@ export default function WorkspaceLayout({ children }) {
     if (!window.__TAURI__) return;
     const onKey = (e) => {
       const isReload = e.key === "F5" || ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r");
-      if (isReload) { e.preventDefault(); window.location.reload(); }
+      if (isReload) { e.preventDefault(); reloadWhenHostReady(); }
     };
     const onContextMenu = (e) => {
       const tag = e.target?.tagName;
@@ -338,7 +339,7 @@ export default function WorkspaceLayout({ children }) {
       // reconnects — settle a beat later so the comparison sees it.
       const timer = setTimeout(() => {
         const h = useFleetStore.getState().hosts[currentFleetKey];
-        if (h?.version && snap.version && h.version !== snap.version) window.location.reload();
+        if (h?.version && snap.version && h.version !== snap.version) reloadWhenHostReady();
         else useFleetStore.getState()._patchHost(currentFleetKey, { updating: false });
       }, 1500);
       return () => clearTimeout(timer);
@@ -600,7 +601,7 @@ export default function WorkspaceLayout({ children }) {
     toggleRightPanel,
     palette: () => { if (paletteWorkspace) setQuickOpen(true); },
     attentionNext: jumpToNextWaiting,
-    reloadApp: () => window.location.reload(),
+    reloadApp: () => reloadWhenHostReady(),
     help: openShortcutsModal
   }, isDesktop && isTerminalView);
 

@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from "react";
 import { ChevronRight, Globe, Sun, Moon, Download, LogOut, Bell, Loader2, FileText, Users, RefreshCw, RotateCw, Monitor, Type, Palette, Terminal, ChevronDown, Wallpaper, Keyboard, PanelRight, Zap, Bot, Star, Check, Smartphone, Link2 } from "@/shared/components/ui/Icon";
 import { vibrate } from "@/shared/utils/vibration";
+import { reloadWhenHostReady } from "@/shared/utils/hostReady";
 import { useSlideMenuStore } from "@/shared/stores/slideMenuStore";
 import { BUTTON_TOGGLE_ICONS } from "@/features/terminal/constants/headerButtonIcons";
 import { useButtonToggles } from "@/features/terminal/hooks/useButtonToggles";
@@ -509,7 +510,7 @@ export default function MenuItems({
           icon={RefreshCw}
           label={t("menu.reload")}
           disabled={reloading}
-          onClick={() => { vibrate(); setReloading(true); setTimeout(() => window.location.reload(), 150); }}
+          onClick={async () => { vibrate(); setReloading(true); if (!(await reloadWhenHostReady())) setReloading(false); }}
           tail={reloading ? <Loader2 size={16} className="animate-spin text-text-muted" /> : null}
         />
       </Card>
