@@ -182,6 +182,7 @@ export default function SessionList({
               recent={recentWorkspaces}
               homeDir={homeDir}
               connected={connected}
+              isHostUi={isHostUi}
             />
           </div>
         ) : (
@@ -302,8 +303,9 @@ function HeaderButton({ icon: Icon, iconClass = "", label, onClick, disabled, cl
 }
 
 // First run: the two things this app can do as naked poster halves on a cinematic
-// stage (same white light as login), split by a hairline + brand dot.
-function WelcomeCards({ onAddWorkspace, recent, homeDir, connected }) {
+// stage (same white light as login), split by a hairline + brand dot. A remote client
+// only gets the workspace half — pairing a second machine is not its first job.
+function WelcomeCards({ onAddWorkspace, recent, homeDir, connected, isHostUi }) {
   const { t } = useI18n();
   const pushView = useTerminalStore((s) => s.pushView);
   // Right half connects another machine into the fleet — meaningful everywhere.
@@ -321,9 +323,9 @@ function WelcomeCards({ onAddWorkspace, recent, homeDir, connected }) {
           className="empty-meta"
           dangerouslySetInnerHTML={{ __html: t("workspaces.emptyMetaVibe") }}
         />
-        <span className="empty-go">
+        <span className="empty-go empty-go-strong">
           {t("workspaces.emptyGoVibe")}
-          <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
+          <ArrowRight size={14} className="text-white" strokeWidth={2.2} />
         </span>
         {!!recent.length && (
           <span className="flex flex-wrap gap-1.5 mt-4 max-w-full">
@@ -342,22 +344,24 @@ function WelcomeCards({ onAddWorkspace, recent, homeDir, connected }) {
         )}
       </button>
 
-      <>
-        <div className="empty-hairline" aria-hidden />
+      {isHostUi && (
+        <>
+          <div className="empty-hairline" aria-hidden />
 
-        <button
-          onClick={() => { vibrate(); setAddHostOpen(true); }}
-            className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
-          >
-            <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagPair")}</span>
-            <span className="empty-word login-hero-grad">{t("workspaces.emptyWordPair")}</span>
-            <span className="empty-meta"><RemoteTargets /></span>
-            <span className="empty-go">
-              {t("workspaces.emptyGoPair")}
-              <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
-            </span>
-          </button>
-      </>
+          <button
+            onClick={() => { vibrate(); setAddHostOpen(true); }}
+              className="empty-half text-left active:opacity-80 enabled:active:scale-[0.99] transition-all duration-150 disabled:opacity-40 disabled:saturate-50"
+            >
+              <span className="empty-idx"><b>02</b> / {t("workspaces.emptyTagPair")}</span>
+              <span className="empty-word login-hero-grad">{t("workspaces.emptyWordPair")}</span>
+              <span className="empty-meta"><RemoteTargets /></span>
+              <span className="empty-go">
+                {t("workspaces.emptyGoPair")}
+                <ArrowRight size={14} className="text-brand-500" strokeWidth={2.2} />
+              </span>
+            </button>
+        </>
+      )}
 
       {addHostOpen && <AddHostModal onClose={() => setAddHostOpen(false)} />}
     </div>
