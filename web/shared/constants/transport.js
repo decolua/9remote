@@ -194,6 +194,20 @@ export const WS_ZOMBIE_MS = 30000;
 // progressing upload keeps draining, so it never trips).
 export const WS_OUTBOUND_STALL_MS = 15000;
 
+// Ack-timeout control carry — a request whose ack never arrives proves the
+// carrier's write path is dead even when its inbound keeps flowing. Control
+// moves onto the WS tunnel while RTC is rebuilt; an RTC reopen ends the carry.
+export const WS_CONTROL_CARRY_MS = 60000;
+
+// Carrier RTT probe — client-initiated round-trip on the carrier's own write
+// path. The host heartbeat only proves inbound, so an idle or half-dead peer
+// stays invisible until a request happens to fail. Gated by srvCaps.rttCtl.
+export const RTT_PROBE = {
+  intervalMs: 4000,
+  timeoutMs: 2000,
+  missesBeforeFailover: 2
+};
+
 // Sequenced control stream — every control envelope carries {sq, ep, rs}; each
 // PM keeps a byte-capped replay ring (outbound) and a one-door sequencer
 // (inbound: dedupe, order, NACK gap repair). Kills the cross-carrier

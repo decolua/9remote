@@ -21,7 +21,9 @@ export const STREAM_EVENTS = {
   ENV: "__env",         // WS carrier wrapper: {event, args, ackId, sq, ep, rs}
   ACK: "__ack",
   GAP: "__gap",         // args[0] = {from, to} — replay this seq range
-  GAP_MISS: "__gapmiss" // args[0] = {from} — ring evicted the range; skip the hole
+  GAP_MISS: "__gapmiss", // args[0] = {from} — ring evicted the range; skip the hole
+  RTT: "__rtt",         // carrier probe: args[0] = {id, ts}
+  RTT_ACK: "__rttack"   // probe reply: args[0] = {id, ts}
 };
 
 // Cap on the eager replay when a carrier (re)opens. Beyond it the receiver's

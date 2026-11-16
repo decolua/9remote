@@ -74,6 +74,10 @@ export function initialState() {
     // host acts, so we don't spin offers the host will only refuse again.
     _awaitingApproval: false,
     _ackTimeoutMs: RTC_RESTART.ackTimeoutMs,
+    _wsCarryUntil: 0,       // control on WS until this time (dead RTC write path)
+    // Carrier RTT probes in flight — id → {timer, resolve, adapter}.
+    _rttPending: new Map(),
+    _rttSeq: 0,
 
     // Resume-from-background probe state. OS suspends the tab → iceConnectionState
     // events deferred → RTC may report "open" while dead. Track when we went hidden

@@ -208,7 +208,7 @@ function syncClientSession(socket) {
   issueKeyToPairedDevice(socket);
   const info = setupTerminalSocket._buildServerInfo?.();
   if (info) socket.emit("serverInfo", info);
-  socket.emit("srvCaps", { env2: 1, fragCtl: 1, seqCtl: 1, inputAck: 1, promptDedupe: 1 });
+  socket.emit("srvCaps", { env2: 1, fragCtl: 1, seqCtl: 1, inputAck: 1, promptDedupe: 1, rttCtl: 1 });
   socket.emit("tunnel:updated", getTunnelPayload());
 }
 

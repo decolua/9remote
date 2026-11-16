@@ -46,7 +46,7 @@ export function ship(pm) {
   }
 }
 
-function sendOn(pm, adapter, env) {
+export function sendOn(pm, adapter, env) {
   const wire = {
     event: env.event,
     args: env.args || [],
@@ -120,6 +120,10 @@ export function deliver(pm, env) {
       return serveGap(pm, env.args?.[0]);
     case STREAM_EVENTS.GAP_MISS:
       return pm._intakeSeq.gapMissed(env.args?.[0]?.from);
+    case STREAM_EVENTS.RTT_ACK:
+      return resolveRttProbe(pm, env.args?.[0]);
+    case STREAM_EVENTS.RTT:
+      return; // host-only: a client never answers a probe
     default:
       break;
   }
@@ -130,6 +134,15 @@ export function deliver(pm, env) {
 
 function dispatchAck(pm, env) {
   resolveAck(pm, env.ackId, env.args);
+}
+
+/** Probe reply: the named carrier's write path is proven for this round trip. */
+function resolveRttProbe(pm, payload) {
+  const pending = pm._rttPending?.get(payload?.id);
+  if (!pending) return;
+  pm._rttPending.delete(payload.id);
+  clearTimeout(pending.timer);
+  pending.resolve(true);
 }
 
 function serveGap(pm, { from, to } = {}) {
@@ -281,17 +294,32 @@ export function scheduleAckTimeout(pm, ackId, ctx) {
     if (SLOW_ACK_EVENTS.has(ctx?.event)) {
       const dedupeSafe = pm._srvCaps?.promptDedupe && ctx.args?.[0]?.promptId;
       if (cb && ws?.ready && dedupeSafe) {
-        const req = pm._ackReqs?.get(ackId);
-        if (Number.isInteger(req?.sq)) pm._outLog.markAcked(req.sq);
-        pm._ackReqs?.delete(ackId);
-        pm._pendingAcks.delete(ackId);
-        termLog("switch", `ack-timeout ${ctx.event} → retry via ws (slow ack)`);
-        ws.send(CHANNELS.control, { event: ctx.event, args: ctx.args, cb });
-        return;
+        // A fresh unsequenced copy, still carrying the ackId: the host answers a
+        // repeated promptId with ok instead of running it twice, and unlike the sq
+        // replay it still answers when the ring entry was already applied. The ack
+        // stays pending — the WS lane resolves it.
+        if (sendOn(pm, ws, { event: ctx.event, args: ctx.args, ackId })) {
+          termLog("switch", `ack-timeout ${ctx.event} → resend over ws (slow ack)`);
+          pm.carryControlOnWs?.(`ack-timeout:${ctx.event}`);
+          return;
+        }
+        // The adapter looks ready but its socket refuses writes — re-dial it so the
+        // pending ask replays on the next open.
+        try { ws.forceReconnect?.(); } catch {}
       }
       if (rtc?.ready || rtc?.state === ADAPTER_STATE.open) {
         probeRtcLiveness(pm, `ack-timeout:${ctx.event}`);
       }
+    }
+
+    // Sequenced peers: the stream only repairs a hole a later frame exposes, so a
+    // missing ack on a quiet session leaves the request unconfirmed forever when
+    // the RTC write path is dead under a live inbound (app resumed from background).
+    // Move control to the tunnel now; the replay carries the same sq, so the peer
+    // runs it at most once. ai:prompt is excluded — its ack is slow by design.
+    if (pm._seqActive() && cb && !SLOW_ACK_EVENTS.has(ctx?.event) && ws?.ready && rtc?.ready) {
+      pm.carryControlOnWs?.(`ack-timeout:${ctx?.event || "?"}`);
+      return;
     }
 
     // The sequencer only repairs a hole a later frame exposes, so a lost reply on a quiet

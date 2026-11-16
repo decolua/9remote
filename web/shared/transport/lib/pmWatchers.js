@@ -1,5 +1,6 @@
-import { ADAPTER_STATE, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS, RTC_RESTART, RTC_HEARTBEAT_LEGACY_TIMEOUT_MS } from "@/shared/constants/transport";
+import { ADAPTER_STATE, CHANNELS, NET_RECOVERY, RESUME_PROBE_TIMEOUT_MS, RESUME_PROBE_SKIP_HIDDEN_MS, RTC_RESTART, RTC_HEARTBEAT_LEGACY_TIMEOUT_MS, RTT_PROBE } from "@/shared/constants/transport";
 import { isWsZombie } from "../wsZombie";
+import { STREAM_EVENTS } from "../seqStream";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
 import { selectedIceTraffic } from "./controlRouting";
@@ -44,6 +45,28 @@ export function kickWsZombie(pm, reason = "stale") {
   return true;
 }
 
+// One round trip on a NAMED carrier's write path. Resolves true on a reply,
+// false when the carrier refuses or the deadline passes, null when the peer
+// cannot answer (old host without rttCtl). Never touches the seq ring.
+export function probeAdapter(pm, adapter, reason = "probe") {
+  if (!adapter?.ready) return Promise.resolve(null);
+  if (!pm._srvCaps?.rttCtl) return Promise.resolve(null);
+  const id = `rtt-${++pm._rttSeq}`;
+  return new Promise((resolve) => {
+    const timer = setTimeout(() => {
+      if (!pm._rttPending.delete(id)) return;
+      termLog("switch", `rtt probe TIMEOUT (${reason}, ${adapter.constructor.id})`);
+      resolve(false);
+    }, RTT_PROBE.timeoutMs);
+    pm._rttPending.set(id, { timer, resolve, adapter });
+    const sent = pm._sendOnAdapter(adapter, { event: STREAM_EVENTS.RTT, args: [{ id, ts: Date.now() }] });
+    if (sent) return;
+    clearTimeout(timer);
+    pm._rttPending.delete(id);
+    resolve(false);
+  });
+}
+
 export function attachWatchers(pm) {
   // Health check to restart frozen RTC when tab becomes visible.
   const runResumeCheck = () => {
@@ -61,11 +84,9 @@ export function attachWatchers(pm) {
       return;
     }
     resetLadderOnResume(pm, "resume");
-    if (!pm._canSignal()) {
-      // When all carriers are down, kick signaling relay to restart RTC once connected.
-      pm._sig?.retryNow("resume-no-carrier");
-      return;
-    }
+    // Rebuild/probe the data peer even while the signaling relay is still waking:
+    // a dead RTC must not keep control pinned to it, and a restart's offer is
+    // buffered until the relay is ready anyway.
     const rtcState = rtc?.state;
     if (!rtc || rtcState === ADAPTER_STATE.closed || rtcState === ADAPTER_STATE.degraded) {
       termLog("switch", `visibility → restartRtc (rtc=${rtcState || "absent"})`);
@@ -73,6 +94,10 @@ export function attachWatchers(pm) {
     } else {
       // Probe DC before tearing down in case OS suspension killed it without state change.
       probeRtcOnResume(pm);
+    }
+    if (!pm._canSignal()) {
+      // Kick the signaling relay so it can deliver the restart's offer.
+      pm._sig?.retryNow("resume-no-carrier");
     }
   };
 
@@ -127,6 +152,37 @@ export function attachWatchers(pm) {
   window.addEventListener("online", netHandler);
   navigator.connection?.addEventListener?.("change", netHandler);
 
+  // Carrier health loop — one decision point for the write path, whichever
+  // carrier currently owns control. The host heartbeat only proves inbound, so
+  // an idle half-dead peer stays "open" and keeps control pinned to it. Two
+  // missed round trips fail over; old hosts answer nothing (no rttCtl).
+  const rttMisses = new Map();
+  const rttTick = async () => {
+    if (document.visibilityState === "hidden") return;
+    if (!pm._srvCaps?.rttCtl || pm._rttPending.size) return;
+    const carrier = pm._pickAdapter?.(CHANNELS.control);
+    if (!carrier?.ready) return;
+    const id = carrier.constructor.id;
+    const alive = await probeAdapter(pm, carrier, "tick");
+    if (!carrier.ready) return; // torn down by another recovery path mid-probe
+    if (alive == null) return;
+    if (alive) { rttMisses.set(id, 0); return; }
+    const misses = (rttMisses.get(id) || 0) + 1;
+    rttMisses.set(id, misses);
+    if (misses < RTT_PROBE.missesBeforeFailover) return;
+    rttMisses.set(id, 0);
+    termLog("switch", `rtt missed ×${RTT_PROBE.missesBeforeFailover} on ${id} → failover`);
+    if (id === "rtc") {
+      if (pm._adapters.get("ws")?.ready) pm.carryControlOnWs?.("rtt-miss");
+      else pm._forceRestartRtc("rtt-miss");
+      return;
+    }
+    // The tunnel owns control right now — re-dial it, the other lane takes over
+    // automatically while it comes back.
+    carrier.retryNow?.("rtt-miss");
+  };
+  const rttTimer = setInterval(rttTick, RTT_PROBE.intervalMs);
+
   return {
     visibilityHandler,
     detach() {
@@ -140,6 +196,7 @@ export function attachWatchers(pm) {
       pm._netDebounceTimer = null;
       clearTimeout(pm._resumeCoalesceTimer);
       pm._resumeCoalesceTimer = null;
+      clearInterval(rttTimer);
     }
   };
 }
@@ -191,6 +248,19 @@ export function probeRtcLiveness(pm, reason) {
 export function probeRtcOnResume(pm) {
   const rtc = pm._adapters.get("rtc");
   if (!rtc?.ready) { pm._restartRtc("resume-not-ready"); return; }
+  // A round trip on the write path is the truth: a same-network peer usually
+  // survived the suspension, and tearing it down only buys a DO negotiation.
+  if (pm._srvCaps?.rttCtl) {
+    probeAdapter(pm, rtc, "resume").then((alive) => {
+      if (alive == null) return;
+      if (alive) { termLog("switch", "resume rtt alive → keep rtc"); return; }
+      if (pm._adapters.get("rtc") !== rtc) return;
+      termLog("switch", "resume rtt DEAD → forceRestartRtc");
+      pm._forceRestartRtc("resume-rtt-dead");
+    });
+    return;
+  }
+  // Old host: no probe reply available — keep the inbound-stats heuristics.
   // On touch devices, skip probe and restart immediately if hidden past threshold.
   const hiddenFor = pm._hiddenAt ? Date.now() - pm._hiddenAt : 0;
   const isTouch = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;

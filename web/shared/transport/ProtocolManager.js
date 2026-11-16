@@ -1,7 +1,7 @@
 import { WsProtocol } from "./WsProtocol";
 import { WebRtcProtocol } from "./WebRtcProtocol";
 import { registerProtocol, getProtocol } from "./registry";
-import { CHANNELS, ADAPTER_STATE, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, RTC_DEFER_MAX_MS, STUN_PROBE } from "@/shared/constants/transport";
+import { CHANNELS, ADAPTER_STATE, REJOIN_DEBOUNCE_MS, RTC_CONNECT_TIMEOUT_MS, RTC_DEFER_MAX_MS, STUN_PROBE, WS_CONTROL_CARRY_MS } from "@/shared/constants/transport";
 import { probePublicIp, shouldRearmOnIpChange, NO_PUBLIC_IP } from "./stunProbe";
 import { debugLog } from "@/shared/utils/debugLog";
 import { termLog } from "@/shared/utils/termLog";
@@ -12,7 +12,7 @@ import { attachWatchers, kickWsZombie } from "./lib/pmWatchers";
 import { handleWsStateChange, handleRtcStateChange } from "./lib/adapterStateHandlers";
 import { buildConfig, initialState, createIntakeFor } from "./lib/pmConfig";
 import { initSignalingClient, handleApprovalSignal, onSignalingReady, sendSignaling, flushSigBuffer, refreshTunnelUrl } from "./lib/pmSignaling";
-import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout, sendStreamEvent } from "./lib/pmMessaging";
+import { sendControl, flushBuffer, dispatch, onBinary, scheduleAckTimeout, sendStreamEvent, sendOn } from "./lib/pmMessaging";
 import { handleDeviceAuthEvent, maybeSendTailProof, DEVICE_AUTH_EVENTS } from "./lib/deviceTrust";
 
 registerProtocol(WsProtocol);
@@ -64,6 +64,22 @@ export class ProtocolManager {
     return kickWsZombie(this, reason);
   }
 
+  // A control ack that never arrived proves the carrier's write path is dead
+  // even while its inbound heartbeats still flow. Put control on the alive WS
+  // (replaying the unconfirmed window is safe: the peer dedupes by sq) and
+  // rebuild RTC in the background; an RTC reopen clears the carry.
+  carryControlOnWs(reason = "?") {
+    const ws = this._adapters.get("ws");
+    if (!ws?.ready) return false;
+    const first = this._wsCarryUntil <= Date.now();
+    this._wsCarryUntil = Date.now() + WS_CONTROL_CARRY_MS;
+    if (!first) { this._flushBuffer(); return true; }
+    termLog("switch", `control → WS carry ${WS_CONTROL_CARRY_MS}ms (${reason})`);
+    this._flushBuffer();
+    this._forceRestartRtc(`ws-carry:${reason}`);
+    return true;
+  }
+
   emit(event, ...args) {
     this._sendControl(event, args);
   }
@@ -72,6 +88,11 @@ export class ProtocolManager {
     const adapter = this._pickAdapter(channel);
     if (!adapter) return false;
     return adapter.send(channel, payload);
+  }
+
+  // One envelope on a NAMED carrier — probes must test that lane, not the best one.
+  _sendOnAdapter(adapter, env) {
+    return sendOn(this, adapter, env);
   }
 
   connect() {
@@ -262,6 +283,12 @@ export class ProtocolManager {
     this._peerSeqCtl = false;
     this._connected = false;
     this._rawSocket = null;
+    this._wsCarryUntil = 0;
+    for (const p of this._rttPending.values()) {
+      clearTimeout(p.timer);
+      p.resolve?.(null);
+    }
+    this._rttPending.clear();
     this._disarmRestart();
     termLog("switch", `RESET attempts (was ${this._rtcRestartAttempts}) reason=pm-disconnect`);
     this._rtcRestartAttempts = 0;
@@ -384,6 +411,10 @@ export class ProtocolManager {
   }
 
   _pickAdapter(channel) {
+    if (channel === CHANNELS.control && this._wsCarryUntil > Date.now()) {
+      const ws = this._adapters.get("ws");
+      if (ws?.ready) return ws;
+    }
     return pickAdapter(this._adapters, this._profile, channel);
   }
 

@@ -56,6 +56,10 @@ export function handleWsStateChange(pm, state) {
 
 export function handleRtcStateChange(pm, state) {
   if (state === ADAPTER_STATE.open) {
+    if (pm._wsCarryUntil) {
+      pm._wsCarryUntil = 0;
+      termLog("switch", "rtc reopened → control back on rtc");
+    }
     const isRtcReconnect = pm._onConnectFired;
     clearTimeout(pm._wsFallbackTimer);
     pm._rtcCallbacks.onUpgrade?.(pm._adapters.get("rtc")?.typeDetail || "dc-stun");

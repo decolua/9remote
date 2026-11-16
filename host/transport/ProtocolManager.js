@@ -506,6 +506,9 @@ export class ProtocolManager {
       ? payload
       : (wrapped ? wsArgs?.[0] : { event, args: wsArgs, ackId: null });
     if (!env?.event) return;
+    // The receiving lane travels with the envelope so transport-level replies
+    // (RTT echo) answer on the same carrier instead of a lane that may be dying.
+    env._src = source === "rtc" ? "rtc" : "ws";
     // Who already dispatched this to socket.io handlers: RTC and the __env
     // wrapper bypass socket.io's pipeline; a plain WS event on a REAL socket
     // went through it (and socket.use) — invoking handlers again would double-fire.
@@ -540,6 +543,16 @@ export class ProtocolManager {
       case STREAM_EVENTS.GAP_MISS:
         this._intakeSeq.gapMissed(env.args?.[0]?.from);
         return;
+      case STREAM_EVENTS.RTT: {
+        // Transport-level liveness echo — answered at the PM, never a feature,
+        // so both carriers share one probe. The client correlates by id.
+        const same = env._src && this._adapters.get(env._src)?.ready ? this._adapters.get(env._src) : null;
+        const adapter = same || this._pickAdapter(CHANNELS.control);
+        if (adapter) this._sendOn(adapter, { event: STREAM_EVENTS.RTT_ACK, args: [env.args?.[0]] });
+        return;
+      }
+      case STREAM_EVENTS.RTT_ACK:
+        return; // server-only: a client never probes itself
       case "caps":
         // Metadata first, then fall through — SessionHandler listens for "caps"
         // (fragOut negotiation) exactly like any application event.
