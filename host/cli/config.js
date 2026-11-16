@@ -56,6 +56,9 @@ export const UPDATE = {
   lockTtlMs: 300000,
   lockFile: "update.lock",
   gateTimeoutMs: 60000, // loading gate dies on its own — orphan can never hold the port
+  // Ceiling on waiting for the old host to exit — a zombie or a reused pid must not
+  // strand the update script (and the lock) forever.
+  agentExitTimeoutSec: 30,
 };
 
 export const URL_SYNC_DEBOUNCE_MS = 5000;

@@ -426,12 +426,16 @@ set "NODE=${nodeBin}"
 set "CLI=${cliEntry}"
 ${process.env.NREMOTE_NPM_CLI ? 'set "ELECTRON_RUN_AS_NODE=1"' : ""}
 
+REM Bounded: a zombie or a reused pid must not strand the update (and its lock) forever
+set /a WAITED=0
 :waitloop
 tasklist /FI "PID eq ${agentPid}" 2>nul | find "${agentPid}" >nul
-if not errorlevel 1 (
-  timeout /t 1 /nobreak >nul
-  goto waitloop
-)
+if errorlevel 1 goto agentgone
+set /a WAITED+=1
+if !WAITED! GEQ ${UPDATE.agentExitTimeoutSec} goto agentgone
+timeout /t 1 /nobreak >nul
+goto waitloop
+:agentgone
 
 for %%N in (cloudflared agent) do (
   if exist "${pidsDir}\\%%N.pid" (
@@ -440,9 +444,9 @@ for %%N in (cloudflared agent) do (
   )
 )
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr :${SERVER_PORT}') do taskkill /F /PID %%a >nul 2>&1
-timeout /t 3 /nobreak >nul
+timeout /t 1 /nobreak >nul
 
-REM Loading gate: hold the port with an updating page during reinstall
+REM Loading gate: hold the port with an updating page during reinstall (retries its bind)
 start "" /b "%NODE%" "${gatePath}"
 
 set ATTEMPT=0
@@ -497,8 +501,13 @@ exit /b 0
   }
 
   const script = `#!/bin/bash
-# Wait for agent to exit so it releases the cli.cjs file lock
-while kill -0 ${agentPid} 2>/dev/null; do sleep 1; done
+# Wait for agent to exit so it releases the cli.cjs file lock — bounded: a zombie or a
+# reused pid would otherwise strand the update (and its lock) forever.
+waited=0
+while kill -0 ${agentPid} 2>/dev/null && [ $waited -lt ${UPDATE.agentExitTimeoutSec} ]; do
+  sleep 1
+  waited=$((waited+1))
+done
 
 # Kill tracked PIDs only (never ptyDaemon → sessions survive)
 for name in cloudflared agent; do
@@ -510,9 +519,9 @@ for name in cloudflared agent; do
   fi
 done
 lsof -ti:${SERVER_PORT} | xargs kill -9 2>/dev/null || true
-sleep 2
 
-# Loading gate holds the port so webview reloads show "updating", not black
+# Loading gate holds the port so webview reloads show "updating", not black. It retries
+# its own bind, so the port needs no settling sleep before it starts.
 (${nodeEnv}"${nodeBin}" "${gatePath}" >/dev/null 2>&1 &)
 
 attempt=0
