@@ -35,10 +35,9 @@ export const MARKDOWN_COMPONENTS = {
   ol: tag("ol", "list-decimal pl-5 my-2 space-y-1 text-sm text-text"),
   li: tag("li", "leading-relaxed"),
   blockquote: tag("blockquote", "border-l-4 border-brand-500/40 pl-3.5 my-2.5 text-text-muted italic text-sm"),
-  // wrap-anywhere shrinks min-content so a long path/URL wraps inside its cell instead of
-  // widening the column; min-w floors each column so many-column tables scroll (see table)
-  th: tag("th", "border border-border-subtle bg-surface-2 px-3 py-1.5 font-semibold text-left text-text align-top wrap-anywhere min-w-[80px]"),
-  td: tag("td", "border border-border-subtle px-3 py-1.5 text-text align-top wrap-anywhere min-w-[80px]"),
+  // wrap-anywhere only bites if a cell is forced narrower than its content
+  th: tag("th", "border border-border-subtle bg-surface-2 px-2 py-1.5 font-semibold text-left text-text align-top wrap-anywhere"),
+  td: tag("td", "border border-border-subtle px-2 py-1.5 text-text align-top wrap-anywhere"),
   hr: tag("hr", "border-t border-border-subtle my-4"),
   img: ({ alt = "", node: _node, ...props }) => (
     // eslint-disable-next-line @next/next/no-img-element
@@ -57,11 +56,11 @@ export const MARKDOWN_COMPONENTS = {
       {children}
     </a>
   ),
-  // Fills the message column; auto layout sizes columns by content. When the column
-  // minimums (min-w above) exceed the available width, the wrapper scrolls horizontally.
+  // w-max sizes columns to their content so cells don't wrap word-by-word; min-w-full
+  // keeps a small table full width, and the wrapper scrolls when the table is wider.
   table: ({ children, node: _node, ...props }) => (
     <div className="my-3 overflow-x-auto custom-scrollbar">
-      <table className="w-full table-auto border-collapse border border-border-subtle text-xs" {...props}>
+      <table className="w-max min-w-full table-auto border-collapse border border-border-subtle text-xs" {...props}>
         {children}
       </table>
     </div>
