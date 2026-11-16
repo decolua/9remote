@@ -312,7 +312,15 @@ export const useAiStore = create(
                   },
                   activeBlocked: null
                 }),
-                messages: [...curr.messages, userMsg, assistantPlaceholder]
+                // A new prompt starts a turn: any row still flagged live belongs to the
+                // turn that just ended, even if its own turn_complete never landed.
+                messages: [
+                  ...(curr.messages.some((m) => m.isLive)
+                    ? curr.messages.map((m) => (m.isLive ? { ...m, isLive: false } : m))
+                    : curr.messages),
+                  userMsg,
+                  assistantPlaceholder
+                ]
               }
             }
           };
@@ -766,13 +774,17 @@ export const useAiStore = create(
           const curr = sessionOf(state, sessionId);
           // A replayed `running` row may have ended since; the harness tasks say which.
           const settled = harnessTasks ? settleTasks(harnessTasks, messages) : null;
+          // A window cut mid-turn can end without its turn_complete, leaving the last row
+          // flagged live — the caret then sits under a finished reply forever, re-parsing.
+          const list = settled || messages;
+          const finalMessages = isTurnRunning ? list : list.map((m) => (m.isLive ? { ...m, isLive: false } : m));
           return {
             bySession: {
               ...state.bySession,
               [sessionId]: {
                 ...curr,
                 activePermission: null,
-                messages: settled || messages,
+                messages: finalMessages,
                 tasks,
                 isTurnRunning,
                 ...(Array.isArray(queue) ? { queue } : {}),

@@ -638,7 +638,16 @@ export const AiMessagesList = memo(function AiMessagesList({
   }, []);
 
   // Older turns render collapsed to keep mounted DOM light.
-  const isLiveTurn = useCallback((turn) => turn.messages.some((m) => m.isLive), []);
+  // A message can keep its live flag past the turn (a replay window cut before its
+  // turn_complete), so the caret follows the turn the pane is actually running.
+  const turnRunning = useAiStore((s) => Boolean(s.bySession[sessionId]?.isTurnRunning));
+  // Only the newest turn can be streaming: a row left live by an earlier turn is a
+  // missed turn_complete, not something still growing.
+  const lastTurnKey = turns[turns.length - 1]?.key ?? null;
+  const isLiveTurn = useCallback(
+    (turn) => turnRunning && turn.key === lastTurnKey && turn.messages.some((m) => m.isLive),
+    [turnRunning, lastTurnKey]
+  );
 
   return (
     <div className="flex-1 min-h-0 relative flex flex-col overflow-hidden @container">

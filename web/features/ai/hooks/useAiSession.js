@@ -45,8 +45,6 @@ const SILENCE_PEEK_MAX_MS = 120_000;
 const GAP_CONFIRM_MS = 1500;
 // Events held while a hole is fetched; past this the pane resyncs whole instead.
 const MAX_GAP_HELD = 200;
-// A pane asking again this soon after an answered hydrate has nothing new to learn.
-const HYDRATE_FRESH_MS = 1500;
 // A finished turn settles before its tail is written — a turn that keeps going writes nothing.
 const CACHE_WRITE_DEBOUNCE_MS = 800;
 // Automatic resends after a reconnect — past this the manual bar is the only road.
@@ -60,6 +58,14 @@ function alreadySaid(messages, text) {
   if (!said) return false;
   const last = messages[messages.length - 1];
   return Boolean(last && last.role === "assistant" && String(last.content || "").trim().endsWith(said));
+}
+
+// The turn settled on an assistant row with nothing in it: the pane missed the whole
+// answer, and only the host's log can put it back.
+function emptyAnswerRow(messages) {
+  const last = messages?.[messages.length - 1];
+  if (!last || last.role !== "assistant") return false;
+  return !last.content && !last.thinking && !(last.tools?.length) && !(last.diffs?.length);
 }
 
 // Escape codes a raw CLI line carries — the row shows the text between them, not the codes.
@@ -597,6 +603,13 @@ export function useAiSession({
       // The host's span is the honest number for a client that joined mid-turn.
       case "turn_complete":
         finishTurn(sid, data.stats, data.turnMs, Boolean(data?.replay));
+        // A settled turn that leaves an empty answer row is the pane having missed the
+        // whole stream (a dropped carrier, a window that opened past it): the log is at
+        // the host, so pull it once instead of waiting for the next prompt to heal it.
+        if (!data?.replay && emptyAnswerRow(useAiStore.getState().bySession[sid]?.messages)) {
+          termLog("ai-hydrate", "settled with an empty answer → hydrate", { sessionId: sid });
+          laneRef.current?.request("hydrate");
+        }
         // A failed turn draws the CLI's own sentence, rebuilt on replay too; alreadySaid guards the double report.
         if (data?.isError && !failureAlreadyDrew(useAiStore.getState().bySession[sid]?.messages, data.result) && !alreadySaid(useAiStore.getState().bySession[sid]?.messages, data.result)) {
           useAiStore.getState().addNotice(sid, {
@@ -1108,14 +1121,15 @@ export function useAiSession({
   }, [sessionId, engine, workspacePath, bus, setTurnRunning, scheduleHydrateRetry, clearHydrateRetry, noteTail, setTailFromAck]);
 
   // The one door for every cheap trigger (visibility, resume, connect). A repair asked
-  // for by a live verdict (epoch/gap) goes straight to the lane, past this freshness test.
+  // for by a live verdict (epoch/gap) goes straight to the lane, past this door.
   const requestRecover = useCallback(() => {
     // Offline, the send would sit in the carrier's buffer to be answered by a host that
     // has moved on — the bus "connect" trigger asks again once there is someone to ask.
     if (!useConnectionStore.getState().connected) return;
-    // Just answered: nothing new to pull, but the probe still catches a missed frame.
-    const fresh = Date.now() - lastHydrateOkAtRef.current < HYDRATE_FRESH_MS;
-    laneRef.current?.request(fresh ? "recover" : "hydrate");
+    // Always the probe: it compares watermarks, patches a gap in place and escalates to a
+    // full hydrate only when the log really moved. Hydrating here replayed a tail that
+    // replaced the pages the reader had loaded, so every resume wiped the chat.
+    laneRef.current?.request("recover");
   }, []);
 
   // The lane's probe runner: check where the host is before pulling anything.
@@ -1547,6 +1561,20 @@ export function useAiSession({
         );
         // A probe nobody answered may have gone into a zombie WS — re-dial the carrier.
         if (!res?.ok) busRef.current?.kickWsZombie?.("silence-probe");
+        // The host says the turn is over while the pane still shows it running — a lost
+        // turn_complete is exactly that. Close it, and pull the log if the answer row is
+        // empty: the pane missed the whole stream, not just its tail.
+        if (res?.ok && res.isTurnRunning === false && typeof res.seq === "number"
+          && res.seq === appliedSeqRef.current
+          && useAiStore.getState().bySession[sessionId]?.isTurnRunning) {
+          termLog("ai-hydrate", "silence probe: turn ended unseen", { sessionId, seq: res.seq });
+          useAiStore.getState().setTurnRunning(sessionId, false);
+          if (emptyAnswerRow(useAiStore.getState().bySession[sessionId]?.messages)) {
+            laneRef.current?.request("hydrate");
+          }
+          peekMissRef.current = 0;
+          return;
+        }
         if (!behind) {
           peekMissRef.current = 0;
           silenceNeedRef.current = Math.min(silenceNeedRef.current * 2, SILENCE_PEEK_MAX_MS);

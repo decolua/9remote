@@ -197,7 +197,9 @@ export const AiTurn = memo(function AiTurn({
               <ProseRow
                 key={b.key}
                 content={b.row.content}
-                isLive={b.row.isLive}
+                // The row's own flag can outlive its turn (a replay window cut before its
+                // turn_complete); the turn the pane is actually running is the truth.
+                isLive={isLive && b.row.isLive}
                 images={isLastProse && showImages ? images : []}
                 fileBus={isLastProse && showImages ? fileBus : null}
               />
