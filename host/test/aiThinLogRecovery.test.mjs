@@ -52,9 +52,10 @@ test("a snapshot thinner than the transcript is rebuilt from it", () => {
   // Opening is the first door: the constructor reads the CLI's store, so a chat whose log
   // was shed by the event cap comes back holding its prompts without anyone asking.
   assert.equal(s.history.filter((e) => e.event === "user_message").length, TURNS, "every turn is back");
-  // The store was just read, so a hydrate right after has nothing new to add — but it
-  // still reads it and still adopts the answer (no "is it thinner?" gate to disagree with).
-  assert.equal(s.refreshFromStore(), true, "a reopen rebuilds from the store, always");
+  // The store was just read, so a door read right after has nothing to add — and it must
+  // stay quiet: re-adopting an unchanged log re-keys it and broadcasts a reset to every
+  // reader, which is the refetch storm door reads were changed to avoid.
+  assert.equal(s.refreshFromStore(), false, "an unchanged log is not re-keyed");
 });
 
 test("a rebuilt log is renumbered from 1, and the counter follows it", () => {

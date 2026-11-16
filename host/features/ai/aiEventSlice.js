@@ -129,13 +129,20 @@ export function sliceWindow(events, from, end, maxBytes) {
 }
 
 export function replayWindow(events, maxBytes) {
-  const from = aiTailStart(events, maxBytes);
-  const inTurn = events.slice(from);
+  // Bookkeeping records — hooks, task ticks, attachments — draw no bubble of their own.
+  // Left in the budget they spent the frame on rows the pane never paints and pushed the
+  // answer itself out (measured: a turn closing with ~25KB of hook attachments). They stay
+  // in the log for paging and the live path; only the opening window skips them.
+  const usable = events.some((ev) => ev.event === "cli_event")
+    ? events.filter((ev) => ev.event !== "cli_event")
+    : events;
+  const from = aiTailStart(usable, maxBytes);
+  const inTurn = usable.slice(from);
   // Orphans are judged against what is actually sent: the spawner may exist megabytes
   // earlier and still be outside this budget.
   const tail = drawable(newestFit(inTurn, maxBytes));
   const window = tail.some(isContentEvent) ? tail : standaloneWindow(inTurn, maxBytes);
-  const hasMore = from > 0 || window.length < events.length;
+  const hasMore = from > 0 || window.length < usable.length;
   return { events: window, hasMore, fromSeq: window[0]?.seq ?? 0 };
 }
 
